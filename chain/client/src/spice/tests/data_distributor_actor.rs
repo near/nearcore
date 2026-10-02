@@ -7,13 +7,13 @@ use crate::spice::data_distributor_actor::{
     MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, validate_wants,
 };
-use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
+use crate::spice::data_manager::{AssembledDataError, DataId, PullConfig, SenderFault};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::Actor;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
-use near_async::time::Clock;
+use near_async::time::{Clock, FakeClock};
 use near_chain::Block;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::activation::SpiceMessageKind;
@@ -248,15 +248,25 @@ fn new_chain(chain: &Chain, genesis: &Genesis) -> Chain {
 struct ActorBuilder {
     validator: Option<AccountId>,
     tracked_shards_config: TrackedShardsConfig,
+    clock: Clock,
 }
 
 impl ActorBuilder {
     fn new(validator: Option<AccountId>) -> Self {
-        Self { validator, tracked_shards_config: TrackedShardsConfig::NoShards }
+        Self {
+            validator,
+            tracked_shards_config: TrackedShardsConfig::NoShards,
+            clock: Clock::real(),
+        }
     }
 
     fn tracked_shards_config(mut self, config: TrackedShardsConfig) -> Self {
         self.tracked_shards_config = config;
+        self
+    }
+
+    fn clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
         self
     }
 
@@ -299,7 +309,7 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
-            Clock::real(),
+            self.clock,
             epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
@@ -830,6 +840,29 @@ fn drain_outgoing_data_requests(
         requests.push((data_id, requester));
     }
     requests
+}
+
+/// The receipt proofs asked for in the requests sent so far, with the producer asked.
+fn requested_receipt_proofs(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) -> Vec<(AccountId, SpiceDataIdentifier)> {
+    let mut requested = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceDataRequest { request, producer },
+        } = message
+        else {
+            continue;
+        };
+        let (wants, _requester) = request.into_parts();
+        requested.extend(
+            wants
+                .into_keys()
+                .filter(|id| matches!(id, SpiceDataIdentifier::ReceiptProof { .. }))
+                .map(|id| (producer.clone(), id)),
+        );
+    }
+    requested
 }
 
 /// Asks for every part of `data_id`, as the actor's own requests do.
@@ -1716,12 +1749,12 @@ fn test_waiting_on_receipts_without_final_execution_head_on_start() {
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
 
-    for block_hash in blocks {
-        assert!(actor.is_tracking(&DataId::receipt_proof(block_hash, from_shard_id, to_shard_id)));
+    for block_hash in &blocks {
+        assert!(actor.is_tracking(&DataId::receipt_proof(*block_hash, from_shard_id, to_shard_id)));
     }
-    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
-    let requests = drain_outgoing_data_requests(&mut outgoing_rc);
-    assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
+    // No block certifies a proof's source chunk, so the processed head pulls none of them.
+    actor.handle(ProcessedBlock { block_hash: *latest_block(&chain).hash() });
+    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 }
 
 #[test]
@@ -1753,9 +1786,49 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     // The walk starts after the final execution head, so the head block itself is not
     // waited on.
     assert!(!actor.is_tracking(&id_at(*block.hash())));
-    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
-    let requests = drain_outgoing_data_requests(&mut outgoing_rc);
-    assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
+    // No block certifies a proof's source chunk, so the processed head pulls none of them.
+    actor.handle(ProcessedBlock { block_hash: *next_next_block.hash() });
+    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
+}
+
+/// Certifications recorded by the startup walk persist: a block certifying the source
+/// chunk is on disk before startup, and a later block that certifies nothing pulls the proof.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_startup_restores_certifications_so_a_later_block_pulls_the_proof() {
+    let (genesis, mut chain) = setup(2, 0);
+    let (from_shard_id, to_shard_id) =
+        genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
+    let recipient = chunk_producer_for_shard(&chain, to_shard_id);
+    let block = latest_block(&chain);
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &block);
+    let later_block = produce_block(&mut chain, &certifying_block);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
+
+    actor.handle(ProcessedBlock { block_hash: *later_block.hash() });
+
+    let data_id = SpiceDataIdentifier::from(&DataId::receipt_proof(
+        *block.hash(),
+        from_shard_id,
+        to_shard_id,
+    ));
+    let requested = requested_receipt_proofs(&mut outgoing_rc);
+    let producers = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), from_shard_id)
+        .unwrap();
+    for producer in producers {
+        assert!(
+            requested.contains(&(producer.clone(), data_id.clone())),
+            "{producer} was not asked for the proof: {requested:?}"
+        );
+    }
 }
 
 #[test]
@@ -3314,11 +3387,22 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     let block = latest_block(&chain);
     let next_block = produce_block(&mut chain, &block);
     let fork_block = produce_block(&mut chain, &block);
+    // A block on the fork certifies the fork's chunks, so the fork's proof is pullable.
+    produce_block_certifying_uncertified_chunks(&mut chain, &fork_block);
     save_final_execution_head(&chain, &block);
     let proof_id = |block: &Block| DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let requested_proof_blocks = |outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>| {
+        drain_outgoing_data_requests(outgoing_rc)
+            .into_iter()
+            .filter(|(data_id, _)| matches!(data_id, SpiceDataIdentifier::ReceiptProof { .. }))
+            .map(|(data_id, _requester)| *data_id.block_hash())
+            .collect::<HashSet<_>>()
+    };
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let clock = FakeClock::default();
+    let mut actor =
+        ActorBuilder::new(Some(recipient)).clock(clock.clock()).build(outgoing_sc, &chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
@@ -3333,23 +3417,23 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     // The dead fork's witness is purged at the final head and the canonical block's stays.
-    // Neither proof item goes before the final execution head passes it; the fork's chunk is
-    // never certified, so its proof is never asked for.
+    // Neither proof item goes before the final execution head passes it, and the fork's
+    // certified proof is still asked for.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
     assert!(actor.is_tracking(&proof_id(&next_block)));
-    let requested_blocks: HashSet<_> = drain_outgoing_data_requests(&mut outgoing_rc)
-        .into_iter()
-        .map(|(data_id, _requester)| *data_id.block_hash())
-        .collect();
-    assert!(!requested_blocks.contains(fork_block.hash()));
-    assert!(requested_blocks.contains(next_block.hash()));
+    assert!(actor.is_tracking(&proof_id(&fork_block)));
+    assert!(requested_proof_blocks(&mut outgoing_rc).contains(fork_block.hash()));
 
+    // Once the final execution head passes their height, both items expire, and the fork's
+    // proof is not asked for again after its request times out.
     save_final_execution_head(&chain, &next_block);
+    clock.advance(PullConfig::default().request_timeout);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
     assert!(!actor.is_tracking(&proof_id(&fork_block)));
+    assert!(!requested_proof_blocks(&mut outgoing_rc).contains(fork_block.hash()));
 }
 
 #[test]

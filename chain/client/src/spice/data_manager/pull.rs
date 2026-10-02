@@ -3,9 +3,7 @@ use super::{DataId, DataPolicy, SpiceDataManager};
 use near_async::time::{Duration, Instant};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::AccountId;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::{Hash, Hasher as _};
 use std::mem::take;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
@@ -20,9 +18,9 @@ pub(crate) struct PullRequest {
 /// Pull related settings controlling the pace/rates.
 #[derive(Debug, Clone)]
 pub(crate) struct PullConfig {
-    /// How long a pull request stays outstanding before it is sent again.
+    /// How long a pull stays outstanding before it is asked again.
     pub(crate) request_timeout: Duration,
-    /// Limits outstanding requests to one producer. Across items.
+    /// Limits outstanding pulls to one producer, one per item asked, across items.
     pub(crate) max_outstanding_per_producer: usize,
     /// Items one request may carry.
     pub(crate) max_ids_per_request: NonZeroUsize,
@@ -41,21 +39,7 @@ impl Default for PullConfig {
     }
 }
 
-/// Index of the source to ask in `round`. The start is a hash of the key and the
-/// requester, so requesters spread over the sources; each round moves one along.
-pub(crate) fn rotated_source_index(
-    num_sources: usize,
-    key: &impl Hash,
-    requester: &AccountId,
-    round: u64,
-) -> usize {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    requester.hash(&mut hasher);
-    (hasher.finish().wrapping_add(round) % num_sources as u64) as usize
-}
-
-/// The requests outstanding for each producer from this node at one trigger, against the cap.
+/// The pulls outstanding for each producer from this node at one trigger, against the cap.
 pub(super) struct ProducerBudget {
     cap: usize,
     outstanding: HashMap<AccountId, usize>,
@@ -153,8 +137,11 @@ impl FetchItem {
             let Some(source) = tracker.take_next_source(&pool, budget) else {
                 continue;
             };
+            // TODO(spice-data-distribution): ask only for as many missing ordinals as decoding
+            // still needs.
             let missing = tracker.missing_ordinals();
-            self.producer_mut(&source).expect("pool member is a producer").requested_at = Some(now);
+            self.producer_state_mut(&source).expect("pool member is a producer").requested_at =
+                Some(now);
             wants.entry(source).or_default().extend(missing);
         }
         for (ordinal, (producer, state)) in self.producers.iter_mut().enumerate() {
@@ -170,7 +157,7 @@ impl FetchItem {
 
     /// `sender` answered: forgets the pull outstanding to it.
     pub(super) fn note_pull_response(&mut self, sender: &AccountId) {
-        if let Some(state) = self.producer_mut(sender) {
+        if let Some(state) = self.producer_state_mut(sender) {
             state.requested_at = None;
         }
     }
@@ -190,17 +177,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
             BTreeMap::new();
         for id in self.items_by_height.values().flatten() {
-            let item = self.items.get_mut(id).expect("index entry names a tracked item");
-            if !item.is_pullable() {
+            if !self.is_pullable(id) {
                 continue;
             }
+            let item = self.items.get_mut(id).expect("index entry names a tracked item");
             for (producer, ordinals) in item.pull_wants(now, &mut budget) {
-                wants_by_producer
-                    .entry(producer)
-                    .or_default()
-                    .entry(id.clone())
-                    .or_default()
-                    .extend(ordinals);
+                wants_by_producer.entry(producer).or_default().insert(id.clone(), ordinals);
             }
         }
         wants_by_producer
@@ -222,19 +204,18 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         let mut current: BTreeMap<DataId, BTreeSet<u64>> = BTreeMap::new();
         let mut current_parts = 0;
         for (id, ordinals) in wants {
-            let mut ordinals = ordinals.into_iter().peekable();
-            while ordinals.peek().is_some() {
-                let full =
-                    current.len() >= max_ids_per_request || current_parts >= max_parts_per_request;
-                if full && !current.is_empty() {
-                    let wants = take(&mut current);
-                    requests.push(PullRequest { producer: producer.clone(), wants });
+            for ordinal in ordinals {
+                let full = current_parts == max_parts_per_request
+                    || (current.len() == max_ids_per_request && !current.contains_key(&id));
+                if full {
+                    requests.push(PullRequest {
+                        producer: producer.clone(),
+                        wants: take(&mut current),
+                    });
                     current_parts = 0;
                 }
-                let room = max_parts_per_request - current_parts;
-                let chunk: BTreeSet<u64> = ordinals.by_ref().take(room).collect();
-                current_parts += chunk.len();
-                current.insert(id.clone(), chunk);
+                current.entry(id.clone()).or_default().insert(ordinal);
+                current_parts += 1;
             }
         }
         if !current.is_empty() {

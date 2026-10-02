@@ -23,7 +23,7 @@ pub(crate) trait DataPolicy {
     fn is_done(&self, id: &DataId) -> bool;
 
     /// The chunks that must all be certified before the item is pulled.
-    fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId>;
+    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId>;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
@@ -84,7 +84,7 @@ impl DataPolicy for ReceiptProofPolicy {
     }
 
     /// The source chunk.
-    fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId> {
+    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
         let DataId::ReceiptProof { source, .. } = id;
         vec![source.clone()]
     }

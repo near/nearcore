@@ -110,7 +110,7 @@ fn producer(index: usize) -> AccountId {
 
 /// An item whose producers are `producer(0)` to `producer(count - 1)`.
 fn item_with_producers(count: usize) -> FetchItem {
-    FetchItem::new(1, (0..count).map(producer).collect(), Vec::new())
+    FetchItem::new(1, (0..count).map(producer).collect())
 }
 
 /// Inserts the first `DATA_PARTS` of `parts`, one from each of `senders`, and returns the
@@ -575,8 +575,8 @@ mod manager {
             self.chain_policies.is_done(id)
         }
 
-        fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId> {
-            self.chain_policies.opening_chunks(id)
+        fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
+            self.chain_policies.chunks_to_certify_before_pull(id)
         }
     }
 
@@ -592,19 +592,11 @@ mod manager {
     type WantsByProducer = BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>>;
 
     fn by_producer(requests: Vec<PullRequest>) -> WantsByProducer {
-        requests.into_iter().map(|request| (request.producer, request.wants)).collect()
-    }
-
-    /// What an open item with part 0 from its producer `backer` asks: the backer for the
-    /// tracker's gaps and every other producer for its own ordinal.
-    fn open_item_wants(backer: &AccountId) -> BTreeMap<AccountId, BTreeSet<u64>> {
-        let mut wants: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-            .into_iter()
-            .enumerate()
-            .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-            .collect();
-        wants.insert(backer.clone(), ordinals(&[1, 2, 3, 4]));
-        wants
+        let mut by_producer = WantsByProducer::new();
+        for PullRequest { producer, wants } in requests {
+            assert!(by_producer.insert(producer, wants).is_none(), "two requests to one producer");
+        }
+        by_producer
     }
 
     /// The requests as `producer -> ordinals` for the one item `id`.
@@ -627,19 +619,12 @@ mod manager {
         manager: SpiceDataManager<TestPolicy>,
         clock: FakeClock,
         store: Store,
+        /// The highest height `certify_up_to` certified.
+        certified_height: BlockHeight,
     }
 
     impl TestManager {
         fn new(chain: &Chain) -> Self {
-            Self::with(chain, PullConfig::default(), producers(), Vec::new())
-        }
-
-        fn with(
-            chain: &Chain,
-            pull_config: PullConfig,
-            producers: Vec<AccountId>,
-            extra_pairs: Vec<(u64, u64)>,
-        ) -> Self {
             let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
             let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(1), &shard_layout);
             let shard_tracker = ShardTracker::new(
@@ -652,20 +637,21 @@ mod manager {
                 Policies::new(store.chain_store(), chain.epoch_manager.clone(), shard_tracker);
             let policy = TestPolicy {
                 chain_policies: policies,
-                producers,
+                producers: producers(),
                 producers_by_from_shard: HashMap::new(),
-                extra_pairs,
+                extra_pairs: Vec::new(),
                 failing_blocks: HashSet::new(),
             };
             Self {
                 manager: SpiceDataManager::new(
-                    pull_config,
+                    PullConfig::default(),
                     DATA_PARTS_RATIO,
                     store.chain_store(),
                     policy,
                 ),
                 clock: FakeClock::default(),
                 store,
+                certified_height: 0,
             }
         }
 
@@ -680,7 +666,8 @@ mod manager {
                 })
                 .collect();
             let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
-            self.manager.open_certified(&certifying_block(&head, &chunk_ids)).unwrap();
+            self.manager.record_chunks_certified_by(&certifying_block(&head, &chunk_ids)).unwrap();
+            self.certified_height = self.certified_height.max(height);
         }
 
         /// Writes `block` to the store as the final execution head.
@@ -692,6 +679,29 @@ mod manager {
             store_update.commit();
         }
 
+        /// The policy also needs the proofs `(from_shard -> to_shard)` in `pairs`.
+        fn set_extra_pairs(&mut self, pairs: Vec<(u64, u64)>) {
+            self.manager.policies.extra_pairs = pairs;
+        }
+
+        fn set_pull_config(&mut self, config: PullConfig) {
+            self.manager.pull_config = config;
+        }
+
+        /// Tracks `block` and returns the id of the one proof the policy needs from it.
+        fn track_block(&mut self, block: &Block) {
+            self.manager.track_block(block).unwrap();
+        }
+
+        fn is_tracking(&self, id: &DataId) -> bool {
+            self.manager.is_tracking(id)
+        }
+
+        fn track_needed_proof(&mut self, block: &Block) -> DataId {
+            self.track_block(block);
+            receipt_id(block, 0, 1)
+        }
+
         /// Items from `from_shard` are served by `producers` instead of the default list.
         fn set_producers_for(&mut self, from_shard: u64, producers: Vec<AccountId>) {
             self.manager.policies.producers_by_from_shard.insert(from_shard, producers);
@@ -699,11 +709,18 @@ mod manager {
 
         /// `block` was processed at the clock's current time.
         fn on_block_processed(&mut self, block: &Block) -> Vec<PullRequest> {
+            // a block's chunks are certified only by a later block
+            assert!(
+                block.header().height() > self.certified_height,
+                "processed block at {} is not above the certified height {}",
+                block.header().height(),
+                self.certified_height
+            );
             self.manager.on_block_processed(block.hash(), self.clock.now())
         }
 
         /// Delivers `parts` and asserts the item keeps collecting.
-        fn push(
+        fn push_and_assert_collecting(
             &mut self,
             sender: &AccountId,
             id: &DataId,
@@ -794,16 +811,6 @@ mod manager {
         parts.iter().filter(|part| ordinals.contains(&part.part_ord)).cloned().collect()
     }
 
-    /// A manager tracking `blocks[0]`'s `(0 -> 1)` proof, its id, and `num_blocks` blocks.
-    /// Nothing is certified yet.
-    fn tracked_item(num_blocks: usize) -> (Chain, Vec<Arc<Block>>, DataId, TestManager) {
-        let (chain, blocks) = chain_with_blocks(num_blocks);
-        let id = receipt_id(&blocks[0], 0, 1);
-        let mut manager = TestManager::new(&chain);
-        manager.manager.track_block(&blocks[0]).unwrap();
-        (chain, blocks, id, manager)
-    }
-
     fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
         let SpiceData::ReceiptProof(proof) = data else { panic!("not a receipt proof") };
         let mut store_update = chain.chain_store.store().store_update();
@@ -855,12 +862,12 @@ mod manager {
 
         // Height 1 is finally executed: neither the processed block nor a later track adds it.
         let requests = manager.on_block_processed(&blocks[0]);
-        manager.manager.track_block(&blocks[0]).unwrap();
-        manager.manager.track_block(&blocks[1]).unwrap();
+        manager.track_block(&blocks[0]);
+        manager.track_block(&blocks[1]);
 
         assert_eq!(requests, vec![]);
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-        assert!(manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+        assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+        assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     }
 
     #[test]
@@ -871,7 +878,7 @@ mod manager {
 
         manager.on_block_processed(&blocks[0]);
 
-        assert!(manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+        assert!(manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
     }
 
     #[test]
@@ -882,15 +889,15 @@ mod manager {
         let blocks = &all_blocks[1..];
         let mut manager = TestManager::new(&chain);
         for block in blocks {
-            manager.manager.track_block(&block).unwrap();
+            manager.track_block(&block);
         }
 
         manager.set_final_execution_head(&blocks[1]);
         manager.on_block_processed(&blocks[2]);
 
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-        assert!(manager.manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+        assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+        assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+        assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
         assert_eq!(
             manager.manager.items_by_height.keys().copied().collect_vec(),
             vec![blocks[2].header().height()],
@@ -997,7 +1004,7 @@ mod manager {
         let producer = producers()[0].clone();
         for bad_position in [0, DATA_PARTS / 2, DATA_PARTS] {
             let mut manager = TestManager::new(&chain);
-            manager.manager.track_block(&blocks[0]).unwrap();
+            manager.track_block(&blocks[0]);
             let mut message = parts_with_ordinals(&parts, &good);
             let mut bad = parts_with_ordinals(&parts, &[DATA_PARTS as u64]).remove(0);
             bad.part[0] ^= 1;
@@ -1027,11 +1034,10 @@ mod manager {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn a_message_with_more_parts_than_total_is_rejected_before_any_proof_check() {
         let (chain, blocks) = chain_with_blocks(1);
-        let id = receipt_id(&blocks[0], 0, 1);
         let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
         let producer = producers()[0].clone();
         let mut manager = TestManager::new(&chain);
-        manager.manager.track_block(&blocks[0]).unwrap();
+        let id = manager.track_needed_proof(&blocks[0]);
         let mut bad = parts[0].clone();
         bad.part[0] ^= 1;
         let mut message = vec![bad];
@@ -1050,11 +1056,10 @@ mod manager {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn a_repeated_ordinal_rejects_the_message_whole() {
         let (chain, blocks) = chain_with_blocks(1);
-        let id = receipt_id(&blocks[0], 0, 1);
         let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
         let producer = producers()[0].clone();
         let mut manager = TestManager::new(&chain);
-        manager.manager.track_block(&blocks[0]).unwrap();
+        let id = manager.track_needed_proof(&blocks[0]);
         let good: Vec<u64> = (0..DATA_PARTS as u64).collect();
         let mut message = parts_with_ordinals(&parts, &good);
         message.insert(1, message[0].clone());
@@ -1075,7 +1080,7 @@ mod manager {
         let (chain, blocks) = chain_with_blocks(1);
         let id = receipt_id(&blocks[0], 0, 1);
         let mut manager = TestManager::new(&chain);
-        manager.manager.track_block(&blocks[0]).unwrap();
+        manager.track_block(&blocks[0]);
         let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
         let mut message = parts_with_ordinals(&parts, &[0, 1, 2]);
         message[0].part[0] ^= 1;
@@ -1098,12 +1103,11 @@ mod manager {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn an_empty_message_is_a_sender_fault_whether_or_not_the_id_is_tracked() {
         let (chain, blocks) = chain_with_blocks(1);
-        let tracked = receipt_id(&blocks[0], 0, 1);
         let untracked = receipt_id(&blocks[0], 1, 0);
         let (commitment, _) = encode_to_wire(&encoder(), &receipt_data(0, 1));
         let producer = producers()[0].clone();
         let mut manager = TestManager::new(&chain);
-        manager.manager.track_block(&blocks[0]).unwrap();
+        let tracked = manager.track_needed_proof(&blocks[0]);
         assert!(manager.manager.items.contains_key(&tracked));
         assert!(!manager.manager.items.contains_key(&untracked));
 
@@ -1129,49 +1133,52 @@ mod manager {
             assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_4.hash());
             let mut manager = TestManager::new(&chain);
             for block in blocks.iter().chain([&canonical_at_4, &fork_at_3, &fork_at_4]) {
-                manager.manager.track_block(block).unwrap();
+                manager.track_block(block);
             }
             let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
 
             manager.set_final_execution_head(&blocks[1]);
             manager.on_block_processed(&canonical_at_4);
             for id in &fork_ids {
-                assert!(manager.manager.is_tracking(id), "fork item expired early: {id:?}");
+                assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
             }
 
             manager.set_final_execution_head(&canonical_at_4);
             manager.on_block_processed(&canonical_at_4);
             for id in &fork_ids {
-                assert!(!manager.manager.is_tracking(id), "fork item stayed: {id:?}");
+                assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
             }
             assert!(manager.manager.items_by_height.is_empty());
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-        fn a_certified_chunk_opens_its_own_items_and_not_a_fork_sibling_at_the_same_height() {
+        fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_same_height()
+         {
             let (mut chain, blocks) = chain_with_blocks(2);
             let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
             let fork_at_4 = process_block_at(&mut chain, &blocks[1], 4);
             assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_4.hash());
             let mut manager = TestManager::new(&chain);
-            manager.manager.track_block(&canonical_at_4).unwrap();
-            manager.manager.track_block(&fork_at_4).unwrap();
+            manager.track_block(&canonical_at_4);
+            manager.track_block(&fork_at_4);
             let canonical_id = receipt_id(&canonical_at_4, 0, 1);
             let fork_id = receipt_id(&fork_at_4, 0, 1);
             let certified =
                 SpiceChunkId { block_hash: *canonical_at_4.hash(), shard_id: ShardId::new(0) };
 
-            manager.manager.track_block(&certifying_block(&canonical_at_4, &[certified])).unwrap();
+            manager.track_block(&certifying_block(&canonical_at_4, &[certified]));
 
-            assert!(manager.item(&canonical_id).is_pullable());
-            assert!(!manager.item(&fork_id).is_pullable());
+            assert!(manager.manager.is_pullable(&canonical_id));
+            assert!(!manager.manager.is_pullable(&fork_id));
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_before() {
-            let (mut chain, blocks, id, mut manager) = tracked_item(1);
+            let (mut chain, blocks) = chain_with_blocks(1);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let certified =
                 SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
             let certifier = certifying_block(&blocks[0], &[certified]);
@@ -1191,14 +1198,14 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_item_tracked_after_its_certifying_block_is_pulled() {
-            let (chain, blocks) = chain_with_blocks(1);
+            let (chain, blocks) = chain_with_blocks(2);
             let id = receipt_id(&blocks[0], 0, 1);
             let mut manager = TestManager::new(&chain);
             manager.certify_up_to(1);
 
-            manager.manager.track_block(&blocks[0]).unwrap();
+            manager.track_block(&blocks[0]);
 
-            let requests = wants_for(manager.on_block_processed(&blocks[0]), &id);
+            let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
             let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
                 .into_iter()
                 .enumerate()
@@ -1210,7 +1217,9 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn certified_chunks_are_forgotten_at_the_final_execution_head() {
-            let (_chain, blocks, _id, mut manager) = tracked_item(3);
+            let (chain, blocks) = chain_with_blocks(3);
+            let mut manager = TestManager::new(&chain);
+            manager.track_needed_proof(&blocks[0]);
             manager.certify_up_to(2);
             assert_eq!(manager.manager.certified.len(), 4);
 
@@ -1225,11 +1234,19 @@ mod manager {
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-        fn a_closed_item_pulls_nothing() {
-            let (_chain, blocks, id, mut manager) = tracked_item(1);
+        fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
-            let producer = producers()[0].clone();
-            manager.push(&producer, &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            let producers = producers();
+            let producer = producers[0].clone();
+            manager.push_and_assert_collecting(
+                &producer,
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
 
             // The source chunk is not certified: neither the tracker nor the unbound
             // producers are asked, and nothing is recorded as asked.
@@ -1240,41 +1257,49 @@ mod manager {
             // Certified: the tracker asks its one backer for the gaps and every producer for its
             // own ordinal.
             assert_eq!(
-                wants_for(manager.on_block_processed(&blocks[0]), &id),
-                open_item_wants(&producer)
+                wants_for(manager.on_block_processed(&blocks[1]), &id),
+                BTreeMap::from([
+                    (producers[0].clone(), ordinals(&[1, 2, 3, 4])),
+                    (producers[1].clone(), ordinals(&[1])),
+                    (producers[2].clone(), ordinals(&[2])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
+                ])
             );
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_done_item_is_removed_at_the_processed_block_without_a_request() {
-            let (chain, blocks, id, mut manager) = tracked_item(1);
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             manager.deliver(&producers()[0], &id, &receipt_data(0, 1));
             manager.certify_up_to(1);
             // The consumer saved the delivered data before the block was processed.
             save_proof(&chain, &blocks[0], &receipt_data(0, 1));
 
-            let requests = manager.on_block_processed(&blocks[0]);
+            let requests = manager.on_block_processed(&blocks[1]);
 
             assert_eq!(requests, vec![]);
-            assert!(!manager.manager.is_tracking(&id));
-            assert!(manager.manager.items_by_height.is_empty());
+            assert!(!manager.is_tracking(&id));
+            assert!(!manager.manager.items_by_height.contains_key(&blocks[0].header().height()));
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn producers_are_resolved_when_the_item_is_tracked_and_never_at_the_trigger() {
-            let (chain, blocks) = chain_with_blocks(1);
+            let (chain, blocks) = chain_with_blocks(2);
             let block = &blocks[0];
-            let mut manager =
-                TestManager::with(&chain, PullConfig::default(), producers(), vec![(1, 1)]);
+            let mut manager = TestManager::new(&chain);
+            manager.set_extra_pairs(vec![(1, 1)]);
             let shard1_producers: Vec<AccountId> =
                 (0..TOTAL_PARTS).map(|i| account(&format!("shard1-producer{i}.near"))).collect();
             manager.set_producers_for(1, shard1_producers.clone());
             let from_shard0 = receipt_id(block, 0, 1);
             let from_shard1 = receipt_id(block, 1, 1);
 
-            manager.manager.track_block(&block).unwrap();
+            manager.track_block(&block);
 
             // The producer sets change after tracking; the items keep the ones resolved then.
             let swapped: Vec<AccountId> =
@@ -1283,7 +1308,7 @@ mod manager {
             manager.set_producers_for(1, swapped);
             manager.certify_up_to(1);
 
-            let requests = by_producer(manager.on_block_processed(block));
+            let requests = by_producer(manager.on_block_processed(&blocks[1]));
 
             let mut expected = WantsByProducer::new();
             for (ordinal, producer) in producers().into_iter().enumerate() {
@@ -1304,67 +1329,89 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_item_is_removed_only_after_its_delivery_is_in_the_store() {
-            let (chain, blocks) = chain_with_blocks(3);
+            let (chain, blocks) = chain_with_blocks(4);
             let mut manager = TestManager::new(&chain);
-            for block in &blocks {
-                manager.manager.track_block(&block).unwrap();
+            for block in &blocks[..3] {
+                manager.track_block(&block);
             }
-            let ids: Vec<DataId> = blocks.iter().map(|block| receipt_id(block, 0, 1)).collect();
+            let ids: Vec<DataId> =
+                blocks[..3].iter().map(|block| receipt_id(block, 0, 1)).collect();
             manager.certify_up_to(3);
 
             // The proof is on disk but nothing delivered it: the store is not consulted, so the
             // item stays tracked and is asked for like the others.
             save_proof(&chain, &blocks[0], &receipt_data(0, 1));
-            let requests = by_producer(manager.on_block_processed(&blocks[2]));
+            let requests = by_producer(manager.on_block_processed(&blocks[3]));
             for (ordinal, producer) in producers().iter().enumerate() {
                 assert_eq!(requests[producer][&ids[0]], ordinals(&[ordinal as u64]));
             }
-            assert_eq!(manager.on_block_processed(&blocks[2]), vec![]);
-            assert!(manager.manager.is_tracking(&ids[0]));
+            assert_eq!(manager.on_block_processed(&blocks[3]), vec![]);
+            assert!(manager.is_tracking(&ids[0]));
 
             // Delivered, then saved: the store is consulted and confirms the item is done.
             manager.deliver(&producers()[0], &ids[1], &receipt_data(0, 1));
             save_proof(&chain, &blocks[1], &receipt_data(0, 1));
-            manager.on_block_processed(&blocks[2]);
-            assert!(!manager.manager.is_tracking(&ids[1]));
-            assert!(manager.manager.is_tracking(&ids[0]));
-            assert!(manager.manager.is_tracking(&ids[2]));
+            manager.on_block_processed(&blocks[3]);
+            assert!(!manager.is_tracking(&ids[1]));
+            assert!(manager.is_tracking(&ids[0]));
+            assert!(manager.is_tracking(&ids[2]));
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-        fn an_item_whose_delivery_was_rejected_is_asked_for_until_its_proof_is_saved() {
-            let (chain, blocks, id, mut manager) = tracked_item(1);
-            manager.certify_up_to(1);
-            manager.deliver(&producers()[0], &id, &receipt_data(0, 1));
-            // The deliverer backed a settled commitment, so only the others are asked.
-            let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-                .into_iter()
-                .enumerate()
-                .skip(1)
-                .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-                .collect();
-
-            // The consumer saved nothing: the store keeps saying the item is not done, so it
-            // stays tracked and is asked for again once its requests time out.
-            assert_eq!(wants_for(manager.on_block_processed(&blocks[0]), &id), own_ordinal_asks);
-            assert!(manager.manager.is_tracking(&id));
-            manager.clock.advance(PullConfig::default().request_timeout);
-            assert_eq!(wants_for(manager.on_block_processed(&blocks[0]), &id), own_ordinal_asks);
-            assert!(manager.manager.is_tracking(&id));
-
-            // Saved: the next block removes it.
-            save_proof(&chain, &blocks[0], &receipt_data(0, 1));
-            assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-            assert!(!manager.manager.is_tracking(&id));
-        }
-
-        #[test]
-        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-        fn a_failed_needed_items_on_the_processed_block_still_pulls_the_older_open_items() {
+        fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes() {
             let (chain, blocks) = chain_with_blocks(2);
             let mut manager = TestManager::new(&chain);
-            manager.manager.track_block(&blocks[0]).unwrap();
+            let id = manager.track_needed_proof(&blocks[0]);
+            manager.certify_up_to(1);
+            let producers = producers();
+            let (liar, honest) = (&producers[0], &producers[1]);
+            let honest_data = receipt_data(0, 1);
+            let (honest_commitment, honest_parts) = encode_to_wire(&encoder(), &honest_data);
+            // The liar's self-consistent fake decodes first; the consumer rejects it, so
+            // nothing is saved.
+            manager.deliver(liar, &id, &other_receipt_data(0, 1));
+            manager.push_and_assert_collecting(
+                honest,
+                &id,
+                &honest_commitment,
+                parts_with_ordinals(&honest_parts, &[1]),
+            );
+
+            // The honest tracker asks its one backer for the gaps; the liar, bound to a
+            // settled commitment, is not asked.
+            let requests = manager.on_block_processed(&blocks[1]);
+            assert_eq!(
+                wants_for(requests, &id),
+                BTreeMap::from([
+                    (honest.clone(), ordinals(&[0, 2, 3, 4])),
+                    (producers[2].clone(), ordinals(&[2])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
+                ])
+            );
+            let result = manager.manager.on_parts_received(
+                honest,
+                &id,
+                &honest_commitment,
+                parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
+                TOTAL_PARTS,
+            );
+            assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
+            assert!(manager.is_tracking(&id));
+
+            // Saved: the next block removes it.
+            save_proof(&chain, &blocks[0], &honest_data);
+            assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
+            assert!(!manager.is_tracking(&id));
+        }
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn a_failed_needed_items_on_the_processed_block_still_pulls_the_older_pullable_items() {
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            manager.track_block(&blocks[0]);
             let older = receipt_id(&blocks[0], 0, 1);
             let failing = receipt_id(&blocks[1], 0, 1);
             manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
@@ -1375,7 +1422,7 @@ mod manager {
             for (ordinal, producer) in producers().iter().enumerate() {
                 assert_eq!(requests[producer][&older], ordinals(&[ordinal as u64]));
             }
-            assert!(!manager.manager.is_tracking(&failing));
+            assert!(!manager.is_tracking(&failing));
         }
 
         #[test]
@@ -1383,7 +1430,7 @@ mod manager {
         fn a_failed_needed_items_on_the_processed_block_still_removes_the_done_items() {
             let (chain, blocks) = chain_with_blocks(2);
             let mut manager = TestManager::new(&chain);
-            manager.manager.track_block(&blocks[0]).unwrap();
+            manager.track_block(&blocks[0]);
             let older = receipt_id(&blocks[0], 0, 1);
             let failing = receipt_id(&blocks[1], 0, 1);
             manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
@@ -1392,8 +1439,8 @@ mod manager {
 
             manager.on_block_processed(&blocks[1]);
 
-            assert!(!manager.manager.is_tracking(&older));
-            assert!(!manager.manager.is_tracking(&failing));
+            assert!(!manager.is_tracking(&older));
+            assert!(!manager.is_tracking(&failing));
         }
     }
 
@@ -1402,18 +1449,30 @@ mod manager {
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-        fn an_open_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbound_producer_for_its_own_ordinal()
+        fn a_pullable_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbound_producer_for_its_own_ordinal()
          {
-            let (_chain, blocks, id, mut manager) = tracked_item(1);
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let encoder = encoder();
             let (first, first_parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
             let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
             let producers = producers();
-            manager.push(&producers[0], &id, &first, parts_with_ordinals(&first_parts, &[0]));
-            manager.push(&producers[1], &id, &second, parts_with_ordinals(&second_parts, &[1]));
+            manager.push_and_assert_collecting(
+                &producers[0],
+                &id,
+                &first,
+                parts_with_ordinals(&first_parts, &[0]),
+            );
+            manager.push_and_assert_collecting(
+                &producers[1],
+                &id,
+                &second,
+                parts_with_ordinals(&second_parts, &[1]),
+            );
             manager.certify_up_to(1);
 
-            let requests = manager.on_block_processed(&blocks[0]);
+            let requests = manager.on_block_processed(&blocks[1]);
 
             assert_eq!(
                 wants_for(requests, &id),
@@ -1434,13 +1493,25 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_settled_commitments_producers_are_never_asked() {
-            let (_chain, blocks, id, mut manager) = tracked_item(1);
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let (honest, honest_parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let (fake, fake_parts) = encode_garbage_to_wire(30);
             let producers = producers();
             // Three liars complete the fake, which decodes to garbage and settles.
-            manager.push(&producers[0], &id, &fake, parts_with_ordinals(&fake_parts, &[0]));
-            manager.push(&producers[1], &id, &fake, parts_with_ordinals(&fake_parts, &[1]));
+            manager.push_and_assert_collecting(
+                &producers[0],
+                &id,
+                &fake,
+                parts_with_ordinals(&fake_parts, &[0]),
+            );
+            manager.push_and_assert_collecting(
+                &producers[1],
+                &id,
+                &fake,
+                parts_with_ordinals(&fake_parts, &[1]),
+            );
             let result = manager.manager.on_parts_received(
                 &producers[2],
                 &id,
@@ -1449,10 +1520,15 @@ mod manager {
                 TOTAL_PARTS,
             );
             assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
-            manager.push(&producers[3], &id, &honest, parts_with_ordinals(&honest_parts, &[3]));
+            manager.push_and_assert_collecting(
+                &producers[3],
+                &id,
+                &honest,
+                parts_with_ordinals(&honest_parts, &[3]),
+            );
             manager.certify_up_to(1);
 
-            let requests = manager.on_block_processed(&blocks[0]);
+            let requests = manager.on_block_processed(&blocks[1]);
 
             assert_eq!(
                 wants_for(requests, &id),
@@ -1468,23 +1544,25 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn outstanding_requests_per_producer_are_capped_lowest_heights_first_across_items() {
-            let (chain, blocks) = chain_with_blocks(6);
-            let mut manager =
-                TestManager::with(&chain, PullConfig::default(), producers(), vec![(1, 1)]);
-            for block in &blocks {
-                manager.manager.track_block(&block).unwrap();
+            let (chain, blocks) = chain_with_blocks(7);
+            let mut manager = TestManager::new(&chain);
+            manager.set_extra_pairs(vec![(1, 1)]);
+            for block in &blocks[..6] {
+                manager.track_block(&block);
             }
             manager.certify_up_to(6);
             let cap = PullConfig::default().max_outstanding_per_producer;
             assert_eq!(cap, 4, "the expectation below spells out two heights of two items");
 
-            let requests = by_producer(manager.on_block_processed(&blocks[5]));
+            let requests = by_producer(manager.on_block_processed(&blocks[6]));
 
             let expected_ids: BTreeSet<DataId> = blocks[..2]
                 .iter()
                 .flat_map(|block| [receipt_id(block, 0, 1), receipt_id(block, 1, 1)])
                 .collect();
             assert_eq!(requests.len(), TOTAL_PARTS);
+            // Each producer is asked only about the 4 lowest items (the cap), each time for its
+            // own ordinal.
             for (ordinal, producer) in producers().iter().enumerate() {
                 let wants = &requests[producer];
                 assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
@@ -1497,20 +1575,20 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_saturated_producer_set_does_not_hold_back_items_other_producers_serve() {
-            let (chain, blocks) = chain_with_blocks(6);
-            let mut manager =
-                TestManager::with(&chain, PullConfig::default(), producers(), vec![(1, 1)]);
+            let (chain, blocks) = chain_with_blocks(7);
+            let mut manager = TestManager::new(&chain);
+            manager.set_extra_pairs(vec![(1, 1)]);
             let others: Vec<AccountId> =
                 (0..TOTAL_PARTS).map(|i| account(&format!("other{i}.near"))).collect();
             manager.set_producers_for(1, others.clone());
-            for block in &blocks {
-                manager.manager.track_block(&block).unwrap();
+            for block in &blocks[..6] {
+                manager.track_block(&block);
             }
             manager.certify_up_to(6);
             let cap = PullConfig::default().max_outstanding_per_producer;
-            assert!(cap < blocks.len());
+            assert!(cap < 6);
 
-            let requests = by_producer(manager.on_block_processed(&blocks[5]));
+            let requests = by_producer(manager.on_block_processed(&blocks[6]));
 
             assert_eq!(requests.len(), 2 * TOTAL_PARTS);
             for (producers, from_shard) in [(producers(), 0), (others, 1)] {
@@ -1528,27 +1606,28 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_held_slot_makes_higher_items_wait_and_a_stale_request_frees_it() {
-            let (chain, blocks) = chain_with_blocks(3);
+            let (chain, blocks) = chain_with_blocks(5);
             let config = PullConfig { max_outstanding_per_producer: 1, ..PullConfig::default() };
             let request_timeout = config.request_timeout;
-            let mut manager = TestManager::with(&chain, config, producers(), Vec::new());
-            manager.manager.track_block(&blocks[0]).unwrap();
-            manager.manager.track_block(&blocks[1]).unwrap();
+            let mut manager = TestManager::new(&chain);
+            manager.set_pull_config(config);
+            manager.track_block(&blocks[0]);
+            manager.track_block(&blocks[1]);
             manager.certify_up_to(2);
             let low = receipt_id(&blocks[0], 0, 1);
             let high = receipt_id(&blocks[1], 0, 1);
 
-            // Height 1: the lowest item takes every producer's one slot.
-            let requests = by_producer(manager.on_block_processed(&blocks[0]));
+            // Height 3: the lowest item takes every producer's one slot.
+            let requests = by_producer(manager.on_block_processed(&blocks[2]));
             assert_eq!(requests.len(), TOTAL_PARTS);
             assert!(requests.values().all(|wants| wants.keys().eq([&low])));
-            // Height 2, within the timeout: the slots are still held, so the higher item waits.
-            assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
+            // Height 4, within the timeout: the slots are still held, so the higher item waits.
+            assert_eq!(manager.on_block_processed(&blocks[3]), vec![]);
             assert!(manager.item(&high).outstanding_pulls().next().is_none());
-            // Height 3, the timeout elapsed: the requests are stale and dropped; the freed
+            // Height 5, the timeout elapsed: the requests are stale and dropped; the freed
             // slots go to the lowest item again.
             manager.clock.advance(request_timeout);
-            let requests = by_producer(manager.on_block_processed(&blocks[2]));
+            let requests = by_producer(manager.on_block_processed(&blocks[4]));
             assert_eq!(requests.len(), TOTAL_PARTS);
             assert!(requests.values().all(|wants| wants.keys().eq([&low])));
             assert!(manager.item(&high).outstanding_pulls().next().is_none());
@@ -1557,25 +1636,36 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_tracker_skips_a_saturated_pool_member_in_rotation() {
-            let (chain, blocks) = chain_with_blocks(2);
+            let (chain, blocks) = chain_with_blocks(4);
             let config = PullConfig { max_outstanding_per_producer: 1, ..PullConfig::default() };
-            let mut manager = TestManager::with(&chain, config, producers(), Vec::new());
-            manager.manager.track_block(&blocks[0]).unwrap();
-            manager.manager.track_block(&blocks[1]).unwrap();
+            let mut manager = TestManager::new(&chain);
+            manager.set_pull_config(config);
+            manager.track_block(&blocks[0]);
+            manager.track_block(&blocks[1]);
             manager.certify_up_to(2);
             let low = receipt_id(&blocks[0], 0, 1);
             let high = receipt_id(&blocks[1], 0, 1);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let producers = producers();
             let pool = [producers[0].clone(), producers[1].clone()];
-            manager.push(&pool[0], &high, &commitment, parts_with_ordinals(&parts, &[0]));
-            manager.push(&pool[1], &high, &commitment, parts_with_ordinals(&parts, &[1]));
+            manager.push_and_assert_collecting(
+                &pool[0],
+                &high,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
+            manager.push_and_assert_collecting(
+                &pool[1],
+                &high,
+                &commitment,
+                parts_with_ordinals(&parts, &[1]),
+            );
             let freed = &pool[1];
 
             // The lowest item takes every producer's one slot; the tracker above finds no
             // member free and waits without turning the rotation.
             let cursor_before = manager.tracker(&high, &commitment).rotation_cursor;
-            let requests = by_producer(manager.on_block_processed(&blocks[0]));
+            let requests = by_producer(manager.on_block_processed(&blocks[2]));
             assert!(requests.values().all(|wants| wants.keys().eq([&low])));
             assert!(manager.item(&high).outstanding_pulls().next().is_none());
             assert_eq!(manager.tracker(&high, &commitment).rotation_cursor, cursor_before);
@@ -1593,104 +1683,151 @@ mod manager {
                 )
                 .unwrap();
             assert_matches!(result, PartsOutcome::Decoded(_));
-            let requests = wants_for(manager.on_block_processed(&blocks[1]), &high);
+            let requests = wants_for(manager.on_block_processed(&blocks[3]), &high);
             assert_eq!(requests, BTreeMap::from([(freed.clone(), ordinals(&[2, 3, 4]))]));
         }
 
-        /// Six items at consecutive heights, nothing pushed, six processed blocks at one
+        /// Five items at consecutive heights, nothing pushed, four later blocks processed at one
         /// instant: the first trigger fills every producer's slots and the rest send nothing.
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding() {
-            let (chain, blocks) = chain_with_blocks(6);
+            let (chain, blocks) = chain_with_blocks(9);
             let mut manager = TestManager::new(&chain);
-            for block in &blocks {
-                manager.manager.track_block(&block).unwrap();
+            for block in &blocks[..5] {
+                manager.track_block(&block);
             }
-            manager.certify_up_to(6);
+            manager.certify_up_to(5);
             let cap = PullConfig::default().max_outstanding_per_producer;
-            assert!(cap < blocks.len(), "the burst must leave items waiting for a slot");
+            assert!(cap < 5, "the burst must leave items waiting for a slot");
 
-            let mut sent: BTreeSet<(AccountId, DataId, BTreeSet<u64>)> = BTreeSet::new();
-            let mut sent_per_producer: BTreeMap<AccountId, usize> = BTreeMap::new();
-            for block in &blocks {
-                for (producer, wants) in by_producer(manager.on_block_processed(block)) {
-                    for (id, ordinals) in wants {
-                        *sent_per_producer.entry(producer.clone()).or_default() += 1;
-                        assert!(
-                            sent.insert((producer.clone(), id.clone(), ordinals.clone())),
-                            "{producer} was asked {ordinals:?} of {id:?} twice"
-                        );
-                    }
-                }
-            }
-
-            assert_eq!(sent_per_producer.len(), TOTAL_PARTS, "every producer was asked");
-            for (producer, count) in &sent_per_producer {
-                assert_eq!(*count, cap, "{producer} was asked {count} times over the burst");
+            let first = by_producer(manager.on_block_processed(&blocks[5]));
+            let expected: WantsByProducer = producers()
+                .into_iter()
+                .enumerate()
+                .map(|(ordinal, producer)| {
+                    let wants = blocks[..cap]
+                        .iter()
+                        .map(|block| (receipt_id(block, 0, 1), ordinals(&[ordinal as u64])))
+                        .collect();
+                    (producer, wants)
+                })
+                .collect();
+            assert_eq!(first, expected);
+            for block in &blocks[6..] {
+                assert_eq!(
+                    manager.on_block_processed(block),
+                    vec![],
+                    "re-sent at {}",
+                    block.header().height()
+                );
             }
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_outstanding_request_is_re_sent_once_request_timeout_has_elapsed() {
-            let (chain, blocks) = chain_with_blocks(3);
+            let (chain, blocks) = chain_with_blocks(4);
             let request_timeout = PullConfig::default().request_timeout;
             let mut manager = TestManager::new(&chain);
-            let id = receipt_id(&blocks[0], 0, 1);
-            manager.manager.track_block(&blocks[0]).unwrap();
+            let id = manager.track_needed_proof(&blocks[0]);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let producers = producers();
             let pool = [producers[0].clone(), producers[1].clone()];
-            manager.push(&pool[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
-            manager.push(&pool[1], &id, &commitment, parts_with_ordinals(&parts, &[1]));
+            manager.push_and_assert_collecting(
+                &pool[0],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
+            manager.push_and_assert_collecting(
+                &pool[1],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[1]),
+            );
             // Only height 1 is pullable, so the later blocks add no items of their own.
             manager.certify_up_to(1);
 
-            let first = wants_for(manager.on_block_processed(&blocks[0]), &id);
-            let first_backer =
-                pool.iter().find(|producer| first.contains_key(*producer)).unwrap().clone();
-            assert_eq!(first[&first_backer], ordinals(&[2, 3, 4]));
-            assert_eq!(first.len(), 4, "one backer and three unbound producers: {first:?}");
+            let only_backer = |wants: &BTreeMap<AccountId, BTreeSet<u64>>| -> AccountId {
+                let [backer]: [AccountId; 1] = pool
+                    .iter()
+                    .filter(|producer| wants.contains_key(*producer))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap_or_else(|asked| panic!("not exactly one backer asked: {asked:?}"));
+                backer
+            };
+            let expected = |backer: &AccountId| {
+                BTreeMap::from([
+                    (backer.clone(), ordinals(&[2, 3, 4])),
+                    (producers[2].clone(), ordinals(&[2])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
+                ])
+            };
+
+            let first = wants_for(manager.on_block_processed(&blocks[1]), &id);
+            let first_backer = only_backer(&first);
+            assert_eq!(first, expected(&first_backer));
 
             // Just short of the timeout every request is still outstanding.
             manager.clock.advance(request_timeout - Duration::milliseconds(1));
-            assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
+            assert_eq!(manager.on_block_processed(&blocks[2]), vec![]);
 
             // At the timeout they count as unanswered: the tracker moves to the other backer,
             // the unbound producers are asked again.
             manager.clock.advance(Duration::milliseconds(1));
-            let third = wants_for(manager.on_block_processed(&blocks[2]), &id);
-            let second_backer =
-                pool.iter().find(|producer| third.contains_key(*producer)).unwrap().clone();
+            let third = wants_for(manager.on_block_processed(&blocks[3]), &id);
+            let second_backer = only_backer(&third);
             assert_ne!(second_backer, first_backer);
-            assert_eq!(third[&second_backer], ordinals(&[2, 3, 4]));
-            for producer in &producers[2..] {
-                assert_eq!(
-                    third[producer],
-                    ordinals(&[producers.iter().position(|p| p == producer).unwrap() as u64])
-                );
-            }
-            assert_eq!(third.len(), 4);
+            assert_eq!(third, expected(&second_backer));
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_answer_clears_its_senders_requests_binds_it_and_lands_in_the_right_tracker() {
-            let (_chain, blocks, id, mut manager) = tracked_item(2);
+            let (chain, blocks) = chain_with_blocks(3);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let producers = producers();
-            manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            manager.push_and_assert_collecting(
+                &producers[0],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
             manager.certify_up_to(1);
-            let requests = wants_for(manager.on_block_processed(&blocks[0]), &id);
-            assert_eq!(requests[&producers[0]], ordinals(&[1, 2, 3, 4]));
+            let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
+            assert_eq!(
+                requests,
+                BTreeMap::from([
+                    (producers[0].clone(), ordinals(&[1, 2, 3, 4])),
+                    (producers[1].clone(), ordinals(&[1])),
+                    (producers[2].clone(), ordinals(&[2])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
+                ])
+            );
             assert!(manager.state(&id, &producers[2]).requested_at.is_some());
 
             // An own-ordinal answer binds its sender and feeds the tracker its part verifies
             // against; the backer answering, even with a part already held, clears the
             // tracker's request.
-            manager.push(&producers[2], &id, &commitment, parts_with_ordinals(&parts, &[2]));
-            manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            manager.push_and_assert_collecting(
+                &producers[2],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[2]),
+            );
+            manager.push_and_assert_collecting(
+                &producers[0],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
 
             assert!(manager.state(&id, &producers[2]).requested_at.is_none());
             assert_eq!(manager.state(&id, &producers[2]).commitment.as_ref(), Some(&commitment));
@@ -1699,19 +1836,21 @@ mod manager {
             // Once the timeout elapsed, the next block asks one of the two backers for the
             // rest, and again only the producers still unbound for their own ordinal.
             manager.clock.advance(PullConfig::default().request_timeout);
-            let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
-            let backer = [&producers[0], &producers[2]]
+            let requests = wants_for(manager.on_block_processed(&blocks[2]), &id);
+            let [backer]: [AccountId; 1] = [&producers[0], &producers[2]]
                 .into_iter()
-                .find(|producer| requests.contains_key(*producer))
-                .unwrap();
-            assert_eq!(requests[backer], ordinals(&[1, 3, 4]));
+                .filter(|producer| requests.contains_key(*producer))
+                .cloned()
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap_or_else(|asked| panic!("not exactly one backer asked: {asked:?}"));
             assert_eq!(
-                requests.keys().cloned().collect::<HashSet<_>>(),
-                HashSet::from([
-                    backer.clone(),
-                    producers[1].clone(),
-                    producers[3].clone(),
-                    producers[4].clone()
+                requests,
+                BTreeMap::from([
+                    (backer, ordinals(&[1, 3, 4])),
+                    (producers[1].clone(), ordinals(&[1])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
                 ])
             );
         }
@@ -1719,17 +1858,29 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_unverifiable_answer_leaves_the_request_outstanding() {
-            let (chain, blocks) = chain_with_blocks(2);
+            let (chain, blocks) = chain_with_blocks(3);
             let mut manager = TestManager::new(&chain);
-            let id = receipt_id(&blocks[0], 0, 1);
-            manager.manager.track_block(&blocks[0]).unwrap();
+            let id = manager.track_needed_proof(&blocks[0]);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let producers = producers();
-            manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            manager.push_and_assert_collecting(
+                &producers[0],
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
             manager.certify_up_to(1);
-            let requests = wants_for(manager.on_block_processed(&blocks[0]), &id);
-            assert_eq!(requests[&producers[0]], ordinals(&[1, 2, 3, 4]));
-            assert_eq!(requests[&producers[1]], ordinals(&[1]));
+            let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
+            assert_eq!(
+                requests,
+                BTreeMap::from([
+                    (producers[0].clone(), ordinals(&[1, 2, 3, 4])),
+                    (producers[1].clone(), ordinals(&[1])),
+                    (producers[2].clone(), ordinals(&[2])),
+                    (producers[3].clone(), ordinals(&[3])),
+                    (producers[4].clone(), ordinals(&[4])),
+                ])
+            );
 
             // The backer and an unbound producer both answer with a part whose proof fails.
             let mut broken = parts_with_ordinals(&parts, &[1]);
@@ -1752,21 +1903,28 @@ mod manager {
             assert!(manager.state(&id, &producers[0]).requested_at.is_some());
             assert!(manager.state(&id, &producers[1]).requested_at.is_some());
             assert!(manager.state(&id, &producers[1]).commitment.is_none());
-            assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
+            assert_eq!(manager.on_block_processed(&blocks[2]), vec![]);
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
-            let (_chain, blocks, id, mut manager) = tracked_item(3);
+            let (chain, blocks) = chain_with_blocks(4);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let honest = producers()[0].clone();
-            manager.push(&honest, &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            manager.push_and_assert_collecting(
+                &honest,
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
             manager.certify_up_to(1);
 
             // Three requests in a row, each unanswered for the timeout, then the answer decodes
             // the commitment.
-            for block in &blocks {
+            for block in &blocks[1..] {
                 let requests = wants_for(manager.on_block_processed(block), &id);
                 assert_eq!(requests[&honest], ordinals(&[1, 2, 3, 4]));
                 manager.clock.advance(PullConfig::default().request_timeout);
@@ -1791,11 +1949,15 @@ mod manager {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn a_producers_wants_are_packed_into_requests_within_the_wire_caps() {
-            let (chain, blocks) = chain_with_blocks(2);
+            let (chain, blocks) = chain_with_blocks(3);
             let unpacked = PullConfig::default();
             let cap = TOTAL_PARTS - 1;
             let packed = PullConfig {
                 max_parts_per_request: NonZeroUsize::new(cap).unwrap(),
+                ..PullConfig::default()
+            };
+            let id_capped = PullConfig {
+                max_ids_per_request: NonZeroUsize::new(1).unwrap(),
                 ..PullConfig::default()
             };
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
@@ -1803,14 +1965,20 @@ mod manager {
             let ids = [receipt_id(&blocks[0], 0, 1), receipt_id(&blocks[1], 0, 1)];
             // The same producer backs both items, so it is asked for the four gaps of each.
             let run = |config: PullConfig| {
-                let mut manager = TestManager::with(&chain, config, producers(), Vec::new());
+                let mut manager = TestManager::new(&chain);
+                manager.set_pull_config(config);
                 for (block, id) in blocks.iter().zip(&ids) {
-                    manager.manager.track_block(&block).unwrap();
-                    manager.push(&backer, id, &commitment, parts_with_ordinals(&parts, &[0]));
+                    manager.track_block(&block);
+                    manager.push_and_assert_collecting(
+                        &backer,
+                        id,
+                        &commitment,
+                        parts_with_ordinals(&parts, &[0]),
+                    );
                 }
                 manager.certify_up_to(2);
                 manager
-                    .on_block_processed(&blocks[1])
+                    .on_block_processed(&blocks[2])
                     .into_iter()
                     .filter(|request| request.producer == backer)
                     .collect::<Vec<_>>()
@@ -1818,6 +1986,7 @@ mod manager {
 
             let unpacked = run(unpacked);
             let packed = run(packed);
+            let id_capped = run(id_capped);
 
             assert_eq!(unpacked.len(), 1);
             assert_eq!(unpacked[0].wants.len(), 2, "both items ask the backer: {unpacked:?}");
@@ -1829,48 +1998,76 @@ mod manager {
             let repacked: BTreeMap<DataId, BTreeSet<u64>> =
                 packed.into_iter().flat_map(|request| request.wants).collect();
             assert_eq!(repacked, unpacked[0].wants);
+            assert_eq!(id_capped.len(), 2, "two items over an id cap of one: {id_capped:?}");
+            for request in &id_capped {
+                assert_eq!(request.wants.len(), 1, "request over the id cap: {request:?}");
+            }
+            let repacked: BTreeMap<DataId, BTreeSet<u64>> =
+                id_capped.into_iter().flat_map(|request| request.wants).collect();
+            assert_eq!(repacked, unpacked[0].wants);
         }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn an_items_ask_larger_than_one_request_spans_requests() {
-            let (chain, blocks) = chain_with_blocks(1);
+            let (chain, blocks) = chain_with_blocks(2);
+            let cap = 3;
             let config = PullConfig {
-                max_parts_per_request: NonZeroUsize::new(3).unwrap(),
+                max_parts_per_request: NonZeroUsize::new(cap).unwrap(),
                 ..PullConfig::default()
             };
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             let backer = producers()[0].clone();
             let id = receipt_id(&blocks[0], 0, 1);
-            let mut manager = TestManager::with(&chain, config, producers(), Vec::new());
-            manager.manager.track_block(&blocks[0]).unwrap();
-            manager.push(&backer, &id, &commitment, parts_with_ordinals(&parts, &[0]));
+            let mut manager = TestManager::new(&chain);
+            manager.set_pull_config(config);
+            manager.track_block(&blocks[0]);
+            manager.push_and_assert_collecting(
+                &backer,
+                &id,
+                &commitment,
+                parts_with_ordinals(&parts, &[0]),
+            );
             manager.certify_up_to(1);
 
             let requests: Vec<PullRequest> = manager
-                .on_block_processed(&blocks[0])
+                .on_block_processed(&blocks[1])
                 .into_iter()
                 .filter(|request| request.producer == backer)
                 .collect();
 
-            assert_eq!(requests.len(), 2, "four gaps over a cap of three: {requests:?}");
+            let gaps: BTreeSet<u64> = (1..TOTAL_PARTS as u64).collect();
+            assert_eq!(
+                requests.len(),
+                gaps.len().div_ceil(cap),
+                "{} gaps over a cap of {cap}: {requests:?}",
+                gaps.len()
+            );
             let mut asked = BTreeSet::new();
             for request in &requests {
                 assert_eq!(request.wants.keys().collect::<Vec<_>>(), vec![&id]);
                 let ordinals = &request.wants[&id];
-                assert!(ordinals.len() <= 3, "request over the cap: {request:?}");
+                assert!(ordinals.len() <= cap, "request over the cap: {request:?}");
                 asked.extend(ordinals.iter().copied());
             }
-            assert_eq!(asked, BTreeSet::from([1, 2, 3, 4]));
+            assert_eq!(asked, gaps);
         }
     }
 
     mod recovery {
         use super::*;
 
+        /// A producer's parts under the commitment it backs.
+        struct ProducerParts {
+            producer: AccountId,
+            ordinal: u64,
+            commitment: SpiceDataCommitment,
+            parts: Vec<SpiceDataPart>,
+        }
+
         /// The liars: every producer but one pushes its own fake commitment and serves it.
         struct Liars {
-            fakes: Vec<(AccountId, SpiceDataCommitment, Vec<SpiceDataPart>)>,
+            fakes: Vec<ProducerParts>,
         }
 
         impl Liars {
@@ -1880,26 +2077,36 @@ mod manager {
                     .enumerate()
                     .map(|(i, producer)| {
                         let (commitment, parts) = encode_garbage_to_wire(30 + i);
-                        (producer.clone(), commitment, parts)
+                        ProducerParts {
+                            producer: producer.clone(),
+                            ordinal: i as u64,
+                            commitment,
+                            parts,
+                        }
                     })
                     .collect();
                 Self { fakes }
             }
 
             fn push_own_parts(&self, manager: &mut TestManager, id: &DataId) {
-                for (i, (liar, commitment, parts)) in self.fakes.iter().enumerate() {
-                    manager.push(liar, id, commitment, parts_with_ordinals(parts, &[i as u64]));
+                for fake in &self.fakes {
+                    manager.push_and_assert_collecting(
+                        &fake.producer,
+                        id,
+                        &fake.commitment,
+                        parts_with_ordinals(&fake.parts, &[fake.ordinal]),
+                    );
                 }
             }
 
             /// Every liar completes its fake, which decodes to garbage.
             fn decode_fakes_as_garbage(&self, manager: &mut TestManager, id: &DataId) {
-                for (liar, commitment, parts) in &self.fakes {
+                for fake in &self.fakes {
                     let result = manager.manager.on_parts_received(
-                        liar,
+                        &fake.producer,
                         id,
-                        commitment,
-                        parts_with_ordinals(parts, &[0, 1, 2]),
+                        &fake.commitment,
+                        parts_with_ordinals(&fake.parts, &[0, 1, 2]),
                         TOTAL_PARTS,
                     );
                     assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
@@ -1913,15 +2120,11 @@ mod manager {
                 ordinals: &BTreeSet<u64>,
             ) -> Option<(SpiceDataCommitment, Vec<SpiceDataPart>)> {
                 let ordinals: Vec<u64> = ordinals.iter().copied().collect();
-                self.fakes.iter().find(|(liar, _, _)| liar == producer).map(
-                    |(_, commitment, parts)| {
-                        (commitment.clone(), parts_with_ordinals(parts, &ordinals))
-                    },
-                )
+                self.fakes.iter().find(|fake| &fake.producer == producer).map(|fake| {
+                    (fake.commitment.clone(), parts_with_ordinals(&fake.parts, &ordinals))
+                })
             }
         }
-
-        type Honest = (AccountId, SpiceDataCommitment, Vec<SpiceDataPart>);
 
         /// Answers every request in `requests`: liars serve their fakes, the honest producer
         /// serves the honest data. Returns whether the honest commitment decoded.
@@ -1930,15 +2133,15 @@ mod manager {
             id: &DataId,
             requests: Vec<PullRequest>,
             liars: &Liars,
-            honest: &Honest,
+            honest: &ProducerParts,
         ) -> bool {
             let mut honest_decoded = false;
             for PullRequest { producer, wants } in requests {
                 let ordinals = &wants[id];
                 let (commitment, parts) = liars.serve(&producer, ordinals).unwrap_or_else(|| {
-                    assert_eq!(producer, honest.0);
+                    assert_eq!(producer, honest.producer);
                     let ordinals: Vec<u64> = ordinals.iter().copied().collect();
-                    (honest.1.clone(), parts_with_ordinals(&honest.2, &ordinals))
+                    (honest.commitment.clone(), parts_with_ordinals(&honest.parts, &ordinals))
                 });
                 match manager.manager.on_parts_received(
                     &producer,
@@ -1948,11 +2151,11 @@ mod manager {
                     TOTAL_PARTS,
                 ) {
                     Ok(PartsOutcome::Decoded(data)) => {
-                        assert_eq!(producer, honest.0);
+                        assert_eq!(producer, honest.producer);
                         assert_eq!(data, receipt_data(0, 1));
                         honest_decoded = true;
                     }
-                    Err(SenderFault::GarbageCommitment(_)) => assert_ne!(producer, honest.0),
+                    Err(SenderFault::GarbageCommitment(_)) => assert_ne!(producer, honest.producer),
                     Ok(PartsOutcome::Collecting | PartsOutcome::AlreadySettled) => {}
                     other => panic!("unexpected answer outcome: {other:?}"),
                 }
@@ -1960,35 +2163,25 @@ mod manager {
             honest_decoded
         }
 
-        /// Processes `blocks` in order, answering every request, until the honest commitment
-        /// decodes. Returns how many blocks it took; panics if it never does.
-        fn run_blocks_until_honest_decodes(
-            manager: &mut TestManager,
-            id: &DataId,
-            blocks: &[Arc<Block>],
-            liars: &Liars,
-            honest: &Honest,
-        ) -> usize {
-            for (processed, block) in blocks.iter().enumerate() {
-                let requests = manager.on_block_processed(block);
-                if answer_requests(manager, id, requests, liars, honest) {
-                    return processed + 1;
-                }
-            }
-            panic!("the honest commitment did not decode within {} blocks", blocks.len());
-        }
-
         /// The single-honest-executor setup: `blocks` to process, the item pullable, N−1 liars and
         /// the honest producer's data.
-        fn single_honest_setup() -> (Vec<Arc<Block>>, DataId, TestManager, Liars, Honest) {
-            let (_chain, blocks, id, mut manager) = tracked_item(3);
+        fn single_honest_setup() -> (Vec<Arc<Block>>, DataId, TestManager, Liars, ProducerParts) {
+            let (chain, blocks) = chain_with_blocks(4);
+            let mut manager = TestManager::new(&chain);
+            let id = manager.track_needed_proof(&blocks[0]);
             let producers = producers();
             let (honest_producer, liar_producers) = producers.split_last().unwrap();
             let liars = Liars::new(liar_producers);
             let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
             manager.certify_up_to(1);
             // The chain is dropped with the setup; the store outlives it inside the policies.
-            (blocks, id, manager, liars, (honest_producer.clone(), commitment, parts))
+            let honest = ProducerParts {
+                producer: honest_producer.clone(),
+                ordinal: liar_producers.len() as u64,
+                commitment,
+                parts,
+            };
+            (blocks[1..].to_vec(), id, manager, liars, honest)
         }
 
         #[test]
@@ -1996,12 +2189,11 @@ mod manager {
         fn a_single_honest_producer_whose_push_arrived_completes_at_the_next_block() {
             let (blocks, id, mut manager, liars, honest) = single_honest_setup();
             liars.push_own_parts(&mut manager, &id);
-            let honest_ordinal = liars.fakes.len() as u64;
-            manager.push(
-                &honest.0,
+            manager.push_and_assert_collecting(
+                &honest.producer,
                 &id,
-                &honest.1,
-                parts_with_ordinals(&honest.2, &[honest_ordinal]),
+                &honest.commitment,
+                parts_with_ordinals(&honest.parts, &[honest.ordinal]),
             );
 
             // One block: it asks the honest producer, the one backer of its commitment, for the
@@ -2009,12 +2201,15 @@ mod manager {
             // answer decodes.
             let requests = manager.on_block_processed(&blocks[0]);
             let gaps: BTreeSet<u64> =
-                (0..TOTAL_PARTS as u64).filter(|ordinal| *ordinal != honest_ordinal).collect();
-            assert_eq!(wants_for(requests.clone(), &id)[&honest.0], gaps);
+                (0..TOTAL_PARTS as u64).filter(|ordinal| *ordinal != honest.ordinal).collect();
+            assert_eq!(wants_for(requests.clone(), &id)[&honest.producer], gaps);
             assert!(answer_requests(&mut manager, &id, requests, &liars, &honest));
 
-            for (_, fake, _) in &liars.fakes {
-                assert_matches!(manager.item(&id).commitments[fake], CommitmentState::Settled);
+            for fake in &liars.fakes {
+                assert_matches!(
+                    manager.item(&id).commitments[&fake.commitment],
+                    CommitmentState::Settled
+                );
             }
         }
 
@@ -2023,17 +2218,22 @@ mod manager {
         fn a_single_honest_producer_whose_push_was_dropped_is_found_by_the_own_ordinal_pull() {
             let (blocks, id, mut manager, liars, honest) = single_honest_setup();
             liars.push_own_parts(&mut manager, &id);
-            let honest_ordinal = liars.fakes.len() as u64;
 
             // The first block asks the silent honest producer for exactly its own ordinal;
             // its answer binds it, and the next block's tracker pull completes the commitment.
             let requests = manager.on_block_processed(&blocks[0]);
-            assert_eq!(wants_for(requests.clone(), &id)[&honest.0], ordinals(&[honest_ordinal]));
+            assert_eq!(
+                wants_for(requests.clone(), &id)[&honest.producer],
+                ordinals(&[honest.ordinal])
+            );
             assert!(!answer_requests(&mut manager, &id, requests, &liars, &honest));
-            let processed =
-                run_blocks_until_honest_decodes(&mut manager, &id, &blocks[1..], &liars, &honest);
 
-            assert_eq!(processed, 1);
+            // The next block asks the now-bound honest producer for its commitment's gaps.
+            let requests = manager.on_block_processed(&blocks[1]);
+            let gaps: BTreeSet<u64> =
+                (0..TOTAL_PARTS as u64).filter(|ordinal| *ordinal != honest.ordinal).collect();
+            assert_eq!(wants_for(requests.clone(), &id)[&honest.producer], gaps);
+            assert!(answer_requests(&mut manager, &id, requests, &liars, &honest));
         }
 
         #[test]
@@ -2041,19 +2241,21 @@ mod manager {
         fn a_single_honest_producer_is_found_after_every_fake_decoded_as_garbage() {
             let (blocks, id, mut manager, liars, honest) = single_honest_setup();
             liars.decode_fakes_as_garbage(&mut manager, &id);
-            let honest_ordinal = liars.fakes.len() as u64;
 
             // Every liar is bound to a settled commitment, so only the honest producer is asked.
             let requests = manager.on_block_processed(&blocks[0]);
             assert_eq!(
                 wants_for(requests.clone(), &id),
-                BTreeMap::from([(honest.0.clone(), ordinals(&[honest_ordinal]))])
+                BTreeMap::from([(honest.producer.clone(), ordinals(&[honest.ordinal]))])
             );
             assert!(!answer_requests(&mut manager, &id, requests, &liars, &honest));
-            let processed =
-                run_blocks_until_honest_decodes(&mut manager, &id, &blocks[1..], &liars, &honest);
 
-            assert_eq!(processed, 1);
+            // The next block asks the now-bound honest producer for its commitment's gaps.
+            let requests = manager.on_block_processed(&blocks[1]);
+            let gaps: BTreeSet<u64> =
+                (0..TOTAL_PARTS as u64).filter(|ordinal| *ordinal != honest.ordinal).collect();
+            assert_eq!(wants_for(requests.clone(), &id)[&honest.producer], gaps);
+            assert!(answer_requests(&mut manager, &id, requests, &liars, &honest));
         }
     }
 }

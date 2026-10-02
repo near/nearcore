@@ -963,16 +963,18 @@ fn test_an_invalid_network_receipt_is_dropped() {
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 }
 
-/// A pulled receipt proof can be delivered before the first processed block creates the
-/// destination shard's executor (a restart, or an epoch boundary).
+/// A receipt for a tracked shard that arrives before anything created that shard's
+/// executor is buffered, not dropped, and saved once the source block's execution results
+/// are endorsed.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_receipt_delivered_before_the_first_processed_block_is_saved_once_results_land() {
+fn test_receipt_arriving_before_its_executor_exists_is_buffered_until_execution_results_are_endorsed()
+ {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
     let block = produce_block(&mut actors, &genesis_block);
-    // Only the source shard's node executes; the recipient has not processed a block yet.
+    // Only the other actor executes, so this one never reconciles its tracked shards.
     actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     assert!(block_executed(&actors[1], &block));
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);

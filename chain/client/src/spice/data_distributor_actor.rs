@@ -9,7 +9,7 @@ use crate::spice::chunk_validator_actor::{
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
     PartsOutcome, PendingPartialData, Policies, PullConfig, PullRequest, SenderFault, SpiceData,
-    SpiceDataManager, VerifiedCodedPart, rotated_source_index,
+    SpiceDataManager, VerifiedCodedPart,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -82,6 +82,8 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use strum::IntoStaticStr;
@@ -1025,13 +1027,11 @@ impl SpiceDataDistributorActor {
         for data in ready_data {
             let data_id = data.id.clone();
             let commitment = data.commitment.clone();
-            match self.receive_verified_data_with_block(data, &block) {
-                Ok(()) => {}
-                Err(err @ Error::DataIsIrrelevant(_)) => {
+            if let Err(err) = self.receive_verified_data_with_block(data, &block) {
+                if let Error::DataIsIrrelevant(_) = err {
                     self.waiting_on_data.remove(&data_id);
                     tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "processing irrelevant data");
-                }
-                Err(err) => {
+                } else {
                     tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to process partial data");
                 }
             }
@@ -1482,7 +1482,8 @@ impl SpiceDataDistributorActor {
             // TODO(spice): Request data only we know may be available. (For example based on
             // execution and certification heads.)
             let total_parts = producers.len();
-            let producer_index = rotated_source_index(total_parts, id, me, self.request_round);
+            let producer_index =
+                producer_index_to_request_from(total_parts, id, me, self.request_round);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceDataRequest {
                     // TODO(spice): Batch the ids that resolve to the same producer.
@@ -1865,4 +1866,19 @@ pub(crate) fn validate_wants(
         return Err(Error::MalformedRequest(MalformedDataRequest::TooManyOrdinals));
     }
     Ok(())
+}
+
+/// The starting producer index is derived from a hash of (data_id, requester), so requests for the
+/// same data are spread across producers instead of all landing on one. Adding `round` advances the
+/// index each tick, so retries move along rather than repeatedly targeting an unresponsive producer.
+fn producer_index_to_request_from(
+    num_producers: usize,
+    data_id: &SpiceDataIdentifier,
+    requester: &AccountId,
+    round: u64,
+) -> usize {
+    let mut hasher = DefaultHasher::new();
+    data_id.hash(&mut hasher);
+    requester.hash(&mut hasher);
+    (hasher.finish().wrapping_add(round) % num_producers as u64) as usize
 }
