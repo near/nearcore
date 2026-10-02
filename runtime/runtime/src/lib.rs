@@ -1351,9 +1351,13 @@ impl Runtime {
             )?;
         } else {
             // price decreased, burning resulted in a surplus
+            // When the refund is capped, more gas can be burnt than was purchased. The
+            // surplus is only owed for the gas that was purchased.
+            let surplus_gas =
+                if refund_capped { result.gas_burnt.min(prepaid_gas) } else { result.gas_burnt };
             gas_refund_result.price_surplus = safe_gas_to_balance(
                 gas_purchase_price.checked_sub(gas_burn_price).unwrap(),
-                result.gas_burnt,
+                surplus_gas,
             )?;
         };
 
@@ -1394,7 +1398,11 @@ impl Runtime {
 
             // sanity check: as long as the purchase price is high enough, there should always be
             // enough refund balance to cover the cost of creating an account.
-            if gas_purchase_price >= config.min_gas_purchase_price {
+            // When the refund is capped and more gas was burnt than purchased, the surplus
+            // is limited to the purchased gas and may not cover the charge.
+            if gas_purchase_price >= config.min_gas_purchase_price
+                && !(refund_capped && result.gas_burnt > prepaid_gas)
+            {
                 debug_assert!(burned_gas_refund >= amount_to_charge);
             }
 
