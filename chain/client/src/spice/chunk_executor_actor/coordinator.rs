@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::instrument;
 
+mod boundary;
+
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStoreAdapter,
     transaction_validity_period: NumBlocks,
@@ -234,6 +236,7 @@ impl ChunkExecutorActor {
         // of block processing and has no spice state to work from, so this returns
         // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            self.bootstrap_last_pre_spice_block(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -394,6 +397,15 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
+        }
+        // The head can be a last pre-spice block, which is still pre-spice, so this
+        // must run before the spice-at-head gate below.
+        if let Err(err) = self.recover_boundary_bootstrap() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to re-run boundary bootstrap on startup",
+            );
         }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active

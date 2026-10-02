@@ -271,6 +271,16 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, rate: Rational32) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(
+            auto.gas_price_adjustment_rate.is_none(),
+            "gas_price_adjustment_rate is already set"
+        );
+        auto.gas_price_adjustment_rate = Some(rate);
+        self
+    }
+
     pub fn add_user_account(mut self, account_id: &AccountId, initial_balance: Balance) -> Self {
         let auto = self.setup_config.ensure_auto();
         auto.user_accounts.push((account_id.clone(), initial_balance));
@@ -742,6 +752,7 @@ struct AutoSetupConfig {
     max_inflation_rate: Option<Rational32>,
     minimum_stake_ratio: Option<Rational32>,
     gas_prices: Option<(Balance, Balance)>,
+    gas_price_adjustment_rate: Option<Rational32>,
 }
 
 impl SetupConfig {
@@ -804,6 +815,7 @@ impl AutoSetupConfig {
             max_inflation_rate: None,
             minimum_stake_ratio: None,
             gas_prices: None,
+            gas_price_adjustment_rate: None,
         }
     }
 
@@ -838,6 +850,9 @@ impl AutoSetupConfig {
         }
         if let Some((min, max)) = self.gas_prices {
             genesis_builder = genesis_builder.gas_prices(min, max);
+        }
+        if let Some(rate) = self.gas_price_adjustment_rate {
+            genesis_builder = genesis_builder.gas_price_adjustment_rate(rate);
         }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);

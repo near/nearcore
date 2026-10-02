@@ -588,6 +588,7 @@ fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_b
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),
@@ -843,6 +844,7 @@ fn setup_with_senders(
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         chunk_executor_sender,
@@ -856,6 +858,7 @@ fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),

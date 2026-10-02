@@ -360,6 +360,11 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, rate: Rational32) -> Self {
+        self.gas_price_adjustment_rate = rate;
+        self
+    }
+
     pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
         self.gas_limit = gas_limit;
         self
