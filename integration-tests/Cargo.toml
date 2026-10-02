@@ -126,4 +126,3 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-calimero_zero_storage = []
