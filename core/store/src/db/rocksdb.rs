@@ -716,9 +716,8 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) ->
         // tier value (State lives there) at the DB level for the cold store.
         // With direct I/O this is the size of each prefetch read, i.e. how
         // many requests a compaction keeps in flight.
-        let readahead =
-            RocksDbCfConfig::resolve_for_column(DBCol::State, &store_config.rocksdb)
-                .compaction_readahead_size;
+        let readahead = RocksDbCfConfig::resolve_for_column(DBCol::State, &store_config.rocksdb)
+            .compaction_readahead_size;
         opts.set_compaction_readahead_size(readahead.as_u64() as usize);
     }
 
