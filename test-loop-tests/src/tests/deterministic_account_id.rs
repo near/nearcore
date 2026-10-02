@@ -983,7 +983,7 @@ impl TestEnv {
             .protocol_version(protocol_version)
             .build();
 
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         let env = TestLoopBuilder::new()
             .genesis(genesis)
             .epoch_config_store_from_genesis()

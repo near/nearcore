@@ -49,7 +49,7 @@ fn measure_contract(
     contract: &ContractCode,
     cache: &dyn ContractRuntimeCache,
 ) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
     let start = GasCost::measure(gas_metric);
@@ -190,7 +190,7 @@ fn measure_instantiation_overhead(
     vm_kind: VMKind,
     contract_bytes: &[u8],
 ) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
     config.vm_kind = vm_kind;
     let config = Arc::new(config);
@@ -241,7 +241,7 @@ pub(crate) fn op_wide_arithmetic(metric: GasMetric, vm_kind: VMKind) -> GasCost 
 /// Compile + run an infinite loop until gas exhaustion (100 Tgas), return ns
 /// per WASM instruction.
 fn measure_op_loop(metric: GasMetric, vm_kind: VMKind, contract_bytes: &[u8]) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
     let gas_limit = Gas::from_teragas(100);
     config.limit_config.max_gas_burnt = gas_limit;

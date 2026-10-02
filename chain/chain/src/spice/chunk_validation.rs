@@ -52,20 +52,19 @@ pub fn spice_pre_validate_chunk_state_witness(
     let witness = match state_witness {
         SpiceChunkStateWitness::V1(witness) => witness,
         SpiceChunkStateWitness::Boundary(witness) => {
-            return pre_validate_boundary_chunk_state_witness(
-                witness,
-                block,
-                prev_execution_results,
-                epoch_manager,
-                store,
-                prev_validator_proposals,
-            );
+            return pre_validate_boundary_chunk_state_witness(witness, block, epoch_manager, store);
         }
     };
-    // Genesis is rejected below as on any spice chain.
-    if !block.is_spice_block() && !block.header().is_genesis() {
+    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
+    // witnesses. Execution results for genesis can be calculated on each node on their own.
+    if block.header().is_genesis() {
         return Err(Error::InvalidChunkStateWitness(
-            "regular witness for a pre-spice block".to_string(),
+            "State witness is for genesis block".to_string(),
+        ));
+    }
+    if !block.is_spice_block() {
+        return Err(Error::InvalidChunkStateWitness(
+            "regular spice witness for a pre-spice block".to_string(),
         ));
     }
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
@@ -152,14 +151,6 @@ pub fn spice_pre_validate_chunk_state_witness(
                 .is_ok()
         })
         .collect::<Vec<_>>();
-
-    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
-    // witnesses.
-    if block.header().is_genesis() {
-        return Err(Error::InvalidChunkStateWitness(
-            "State witness is for genesis block".to_string(),
-        ));
-    }
 
     let new_chunk_data = {
         let prev_chunk_chunk_extra = {
@@ -262,7 +253,12 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice-resharding): Handle possible resharding transitions.
 
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let shard_layout = match &state_witness {
+        SpiceChunkStateWitness::V1(_) => epoch_manager.get_shard_layout(&epoch_id)?,
+        SpiceChunkStateWitness::Boundary(_) => {
+            epoch_manager.get_shard_layout_from_prev_block(block_hash)?
+        }
+    };
     let outgoing_receipts_hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
@@ -383,7 +379,7 @@ fn validate_source_receipts_proofs(
     Ok(receipt_proofs.into_iter().map(|proof| proof.0).flatten().collect())
 }
 
-pub(super) fn validate_receipt_proof(
+fn validate_receipt_proof(
     receipt_proof: &ReceiptProof,
     from_shard_id: ShardId,
     target_chunk_shard_id: ShardId,
@@ -411,7 +407,7 @@ pub(super) fn validate_receipt_proof(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
@@ -486,8 +482,10 @@ mod tests {
             .chunk_id(SpiceChunkId { block_hash, shard_id: ShardId::new(42) })
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "doesn't contain witness shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "doesn't contain witness shard",
+        );
     }
 
     #[test]
@@ -501,9 +499,8 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(
-            &error_message,
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
             "source_receipt_proofs contains incorrect number of proofs",
         );
     }
@@ -522,8 +519,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "Missing source receipt proof");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "Missing source receipt proof",
+        );
     }
 
     #[test]
@@ -544,8 +543,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "is from shard 42, expected shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "is from shard 42, expected shard",
+        );
     }
 
     #[test]
@@ -566,8 +567,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "is for shard 42, expected shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "is for shard 42, expected shard",
+        );
     }
 
     #[test]
@@ -599,9 +602,8 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(
-            &error_message,
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
             "invalid merkle path, doesn't match outgoing receipts root",
         );
     }
@@ -617,8 +619,10 @@ mod tests {
             .applied_receipts_hash(invalid_receipts_hash)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected receipts hash");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected receipts hash",
+        );
     }
 
     #[test]
@@ -636,8 +640,10 @@ mod tests {
             .transactions(invalid_transactions)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected transaction root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected transaction root",
+        );
     }
 
     #[test]
@@ -668,8 +674,7 @@ mod tests {
             vec![],
         );
 
-        let error_message = unwrap_error_message(result);
-        assert_contains(&error_message, "witness is for genesis");
+        assert_invalid_witness(result, "witness is for genesis");
     }
 
     #[test]
@@ -710,8 +715,7 @@ mod tests {
             vec![],
         );
 
-        let error_message = unwrap_error_message(result);
-        assert_contains(&error_message, "genesis source_receipt_proofs should be empty");
+        assert_invalid_witness(result, "genesis source_receipt_proofs should be empty");
     }
 
     #[test]
@@ -725,8 +729,10 @@ mod tests {
         let invalid_witness =
             TestWitnessBuilder::from_default(valid_witness).transactions(transactions).build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected transaction root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected transaction root",
+        );
     }
 
     #[test]
@@ -776,8 +782,7 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(any_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "non-new chunk");
+        assert_invalid_witness(test_chain.run_pre_validation(&invalid_witness), "non-new chunk");
     }
 
     #[test]
@@ -792,8 +797,10 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(any_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "non-empty transactions");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "non-empty transactions",
+        );
     }
 
     #[test]
@@ -810,8 +817,10 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(wrong_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "encoded_merkle_root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "encoded_merkle_root",
+        );
     }
 
     #[test]
@@ -829,8 +838,7 @@ mod tests {
         let witness =
             test_chain.witness_with_proof_of_invalid_chunk(correct_tx_root, correct_receipts_root);
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&witness));
-        assert_contains(&error_message, "fraudulent");
+        assert_invalid_witness(test_chain.run_pre_validation(&witness), "fraudulent");
     }
 
     #[test]
@@ -847,8 +855,7 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "missing parts");
+        assert_invalid_witness(test_chain.run_pre_validation(&invalid_witness), "missing parts");
     }
 
     #[test]
@@ -881,23 +888,14 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_contains(message: &str, substring: &str) {
-        assert!(
-            message.contains(substring),
-            "assertion failed: \"{}\".contains(\"{}\")",
-            message,
-            substring
-        );
-    }
-
-    #[track_caller]
-    fn unwrap_error_message<T>(result: Result<T, Error>) -> String {
-        assert!(result.is_err());
-        let err = result.err().unwrap();
-        let Error::InvalidChunkStateWitness(message) = err else {
-            panic!("wrong error kind: {:?}", err);
-        };
-        message
+    pub(in crate::spice) fn assert_invalid_witness<T>(result: Result<T, Error>, reason: &str) {
+        match result {
+            Err(Error::InvalidChunkStateWitness(message)) => {
+                assert!(message.contains(reason), "{message:?} does not contain {reason:?}")
+            }
+            Err(err) => panic!("wrong error kind: {err:?}"),
+            Ok(_) => panic!("witness must be rejected"),
+        }
     }
 
     fn setup() -> TestChain {

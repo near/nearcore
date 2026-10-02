@@ -234,7 +234,7 @@ async fn test_protocol_config_rpc() {
                 .await
                 .unwrap();
 
-            let runtime_config_store = RuntimeConfigStore::new(None);
+            let runtime_config_store = RuntimeConfigStore::new();
             let latest_runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
             assert_eq!(
                 serde_json::json!(config_response.config_view.runtime_config),

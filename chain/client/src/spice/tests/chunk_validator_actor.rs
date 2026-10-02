@@ -919,7 +919,7 @@ fn test_malicious_accesses_first_then_correct() {
 /// number of unique contracts that can be called in a single chunk.
 #[test]
 fn max_contracts_per_request_covers_chunk_gas_limit() {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = store.get_config(PROTOCOL_VERSION);
     let function_call_base = config.fees.fee(ActionCosts::function_call_base).exec_fee();
     let max_calls_per_chunk = INITIAL_GAS_LIMIT.as_gas() / function_call_base.gas.as_gas();

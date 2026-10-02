@@ -359,7 +359,7 @@ impl SpiceChunkValidatorActor {
             Err(err) => return Err(err),
         };
         if !block.is_spice_block() {
-            let context = self.boundary_witness_validation_context(block, shard_id)?;
+            let context = self.boundary_witness_validation_context(block)?;
             return Ok(WitnessProcessingReadiness::Ready(context));
         }
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
