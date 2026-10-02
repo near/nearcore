@@ -549,7 +549,7 @@ impl ActionReceiptResult {
 #[derive(Debug, Default)]
 pub struct GasRefundResult {
     /// The deficit due to increased gas prices since receipt creation, plus the value of any gas
-    /// burnt beyond what was purchased when the refund is capped.
+    /// burnt beyond what was purchased when the config changed since the previous epoch.
     pub price_deficit: Balance,
     /// The surplus due to decreased gas prices since receipt creation.
     pub price_surplus: Balance,
@@ -1343,9 +1343,9 @@ impl Runtime {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let actions = action_receipt.actions();
         let mut prepaid_fee_gas = total_prepaid_fees_gas(config, &actions, receipt.receiver_id())?;
-        let refund_capped = ProtocolFeature::CapRefundAtPrevEpochFees.enabled(protocol_version)
+        let config_changed = ProtocolFeature::CapRefundAtPrevEpochFees.enabled(protocol_version)
             && !Arc::ptr_eq(config, refund_config);
-        if refund_capped {
+        if config_changed {
             // The receipt may have been funded under the previous epoch's fees.
             // Never refund more than the cheaper schedule would have charged.
             let refund_fee_gas =
@@ -1357,7 +1357,7 @@ impl Runtime {
             .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gas_spent = if result.result.is_err() { result.gas_burnt } else { result.gas_used };
-        let gross_gas_refund = if refund_capped {
+        let gross_gas_refund = if config_changed {
             // The executed actions can cost more under the current fees than
             // what was prepaid for them, in which case nothing is left to refund.
             prepaid_gas.saturating_sub(gas_spent)
@@ -1393,16 +1393,16 @@ impl Runtime {
             )?;
         } else {
             // price decreased, burning resulted in a surplus
-            // When the refund is capped, more gas can be burnt than was purchased. The
+            // When the config changed, more gas can be burnt than was purchased. The
             // surplus is only owed for the gas that was purchased.
             let surplus_gas =
-                if refund_capped { result.gas_burnt.min(prepaid_gas) } else { result.gas_burnt };
+                if config_changed { result.gas_burnt.min(prepaid_gas) } else { result.gas_burnt };
             gas_refund_result.price_surplus = safe_gas_to_balance(
                 gas_purchase_price.checked_sub(gas_burn_price).unwrap(),
                 surplus_gas,
             )?;
         };
-        if refund_capped && result.gas_burnt > prepaid_gas {
+        if config_changed && result.gas_burnt > prepaid_gas {
             // The gas burnt beyond what was purchased was never paid for. Book its value as a
             // deficit rather than as burnt tokens.
             let unpurchased_gas = result.gas_burnt.checked_sub(prepaid_gas).unwrap();
@@ -1449,10 +1449,10 @@ impl Runtime {
 
             // sanity check: as long as the purchase price is high enough, there should always be
             // enough refund balance to cover the cost of creating an account.
-            // When the refund is capped and more gas was burnt than purchased, the surplus
+            // When the config changed and more gas was burnt than purchased, the surplus
             // is limited to the purchased gas and may not cover the charge.
             if gas_purchase_price >= config.min_gas_purchase_price
-                && !(refund_capped && result.gas_burnt > prepaid_gas)
+                && !(config_changed && result.gas_burnt > prepaid_gas)
             {
                 debug_assert!(burned_gas_refund >= amount_to_charge);
             }
