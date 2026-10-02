@@ -17,8 +17,7 @@ ignore = [
 
     # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
     # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
-    # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive
-    # dependency of the wallet contract (separate workspace in runtime/near-wallet-contract/implementation/).
+    # it's only a dev-dependency (test-loop-tests, integration-tests).
     "RUSTSEC-2025-0161",
 
     # RUSTSEC-2026-0097: rand unsoundness only triggers when rand's `log` feature is on and a

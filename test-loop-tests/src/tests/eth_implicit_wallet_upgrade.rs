@@ -7,11 +7,13 @@ use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::chains::MOCKNET;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{ContractCodeView, QueryRequest, QueryResponseKind};
+use near_test_contracts::wallet_contract::global_mainnet;
 
 const FUNDED_BALANCE: Balance = Balance::from_near(5);
 
@@ -27,8 +29,7 @@ fn test_eth_implicit_account_wallet_contract_upgrade() {
         return;
     }
 
-    let wallet_contract =
-        include_bytes!("../../../runtime/near-wallet-contract/res/global_contract_mainnet.wasm");
+    let wallet_contract = global_mainnet();
     let old_pv = ProtocolFeature::UpdatedEthWalletContract.protocol_version() - 1;
     let epoch_length = 10;
     let relayer = create_account_id("relayer");
@@ -114,14 +115,17 @@ fn check_eth_implicit_contract_hash(
     assert!(account.global_contract_hash.is_some(), "eth-implicit accounts have a global contract");
 
     let global_contract_hash = account.global_contract_hash.unwrap();
-    let expected_global_contract_hash =
-        near_wallet_contract::eth_wallet_global_contract_hash(MOCKNET, pv);
+    let expected_global_contract_hash: CryptoHash =
+        if ProtocolFeature::UpdatedEthWalletContract.enabled(pv) {
+            hash(global_mainnet())
+        } else {
+            "2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4".parse().unwrap()
+        };
     assert_eq!(global_contract_hash, expected_global_contract_hash);
 }
 
 fn check_eth_implicit_view_code(env: &TestLoopEnv, eth_account: AccountId) {
-    let expected_hash =
-        near_wallet_contract::eth_wallet_global_contract_hash(MOCKNET, PROTOCOL_VERSION);
+    let expected_hash = hash(global_mainnet());
     let query_result =
         env.validator().runtime_query(QueryRequest::ViewCode { account_id: eth_account });
     match query_result.expect("Wallet contract exists").kind {
