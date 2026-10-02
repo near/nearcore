@@ -46,7 +46,7 @@ impl DataPolicy for ReceiptProofPolicy {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
         // Applying the source shard ourselves produces the proof locally; this is
-        // also why a producer never fetches its own proof. 
+        // also why a producer never fetches its own proof.
         let mut sources = Vec::new();
         for shard_id in shard_layout.shard_ids() {
             if !applies_chunk_itself(
