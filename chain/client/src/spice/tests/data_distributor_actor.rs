@@ -500,7 +500,7 @@ impl SpicePartialDataBuilder {
 
 fn data_into_verified(data: SpicePartialData) -> SpiceVerifiedPartialData {
     let signer = create_test_signer(data.sender().as_str());
-    data.into_verified(&signer.public_key()).unwrap()
+    data.into_verified(&[signer.public_key()]).unwrap()
 }
 
 fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_validators: usize) {
@@ -3105,7 +3105,7 @@ fn produce_block_carrying_endorsement(
 fn endorsement_core_statement(chunk_id: &SpiceChunkId, endorser: AccountId) -> SpiceCoreStatement {
     let signer = create_test_signer(endorser.as_str());
     SpiceChunkEndorsement::new(chunk_id.clone(), test_execution_result(), &signer)
-        .into_verified(&signer.public_key())
+        .into_verified(&[signer.public_key()])
         .unwrap()
         .to_stored()
         .into_core_statement(chunk_id.clone(), endorser)

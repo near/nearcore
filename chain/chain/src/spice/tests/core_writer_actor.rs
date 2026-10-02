@@ -888,7 +888,7 @@ fn test_chunk_endorsement(
 
 fn endorsement_into_verified(endorsement: SpiceChunkEndorsement) -> SpiceVerifiedEndorsement {
     let signer = create_test_signer(endorsement.account_id().as_str());
-    endorsement.into_verified(&signer.public_key()).unwrap()
+    endorsement.into_verified(&[signer.public_key()]).unwrap()
 }
 
 fn endorsement_into_core_statement(endorsement: SpiceChunkEndorsement) -> SpiceCoreStatement {

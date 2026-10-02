@@ -620,18 +620,21 @@ impl SpiceCoreReader {
         Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }
 
-    /// Verifies `endorsement`'s signature against its signer's key in `epoch_id`, returning the
-    /// signed data and signature. The error is a reason string for `InvalidCoreStatement`.
+    /// Verifies `endorsement`'s signature against its signer's keys for the endorsed chunk's
+    /// block, returning the signed data and signature. The error is a reason string for
+    /// `InvalidCoreStatement`.
     fn verify_endorsement_signature<'e>(
         &self,
-        epoch_id: &EpochId,
         endorsement: &'e SpiceEndorsementCoreStatement,
     ) -> Result<(&'e SpiceEndorsementSignedData, &'e Signature), &'static str> {
-        let validator_info = self
+        let public_keys = self
             .epoch_manager
-            .get_validator_by_account_id(epoch_id, endorsement.account_id())
+            .get_validator_signing_keys_for_block(
+                &endorsement.chunk_id().block_hash,
+                endorsement.account_id(),
+            )
             .map_err(|_| "endorsement from non-validator")?;
-        endorsement.verified_signed_data(validator_info.public_key()).ok_or("invalid signature")
+        endorsement.verified_signed_data(&public_keys).ok_or("invalid signature")
     }
 
     pub fn validate_core_statements_in_block(
@@ -722,12 +725,9 @@ impl SpiceCoreReader {
                         });
                     }
 
-                    let (signed_data, signature) = self
-                        .verify_endorsement_signature(
-                            endorsement_block.header().epoch_id(),
-                            endorsement,
-                        )
-                        .map_err(|reason| InvalidCoreStatement { index, reason })?;
+                    let (signed_data, signature) =
+                        self.verify_endorsement_signature(endorsement)
+                            .map_err(|reason| InvalidCoreStatement { index, reason })?;
 
                     // Reject more than one endorsement per (chunk, account) regardless of result
                     // hash, so an equivocating validator cannot count toward two results.
