@@ -43,6 +43,7 @@ enum InvalidChunkCleanup {
 pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
+    StateSync,
 }
 
 impl fmt::Debug for GCMode {
@@ -50,6 +51,7 @@ impl fmt::Debug for GCMode {
         match self {
             GCMode::Fork(_) => write!(f, "GCMode::Fork"),
             GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
+            GCMode::StateSync => write!(f, "GCMode::StateSync"),
         }
     }
 }
@@ -528,6 +530,86 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    fn indexed_heights(
+        &self,
+        col: DBCol,
+        first_height: BlockHeight,
+        end_height: BlockHeight,
+    ) -> Vec<BlockHeight> {
+        let mut heights = self
+            .store()
+            .iter_raw_bytes(col)
+            .filter_map(|(key, _)| {
+                let height = BlockHeight::from_le_bytes(key.get(..8)?.try_into().ok()?);
+                (first_height <= height && height < end_height).then_some(height)
+            })
+            .collect_vec();
+        heights.sort_unstable();
+        heights.dedup();
+        heights
+    }
+
+    /// Clears indexed data below the tails selected after state sync.
+    pub(crate) fn clear_data_before_state_sync_tail_update(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        new_tail: BlockHeight,
+        new_chunk_tail: BlockHeight,
+    ) -> Result<(), Error> {
+        let first_block_height = self.tail().max(self.get_genesis_height().saturating_add(1));
+        for height in self.indexed_heights(DBCol::BlockPerHeight, first_block_height, new_tail) {
+            let block_hashes = self
+                .chain_store()
+                .get_all_block_hashes_by_height(height)
+                .values()
+                .flatten()
+                .copied()
+                .collect_vec();
+            for block_hash in block_hashes {
+                self.clear_block_data(epoch_manager, block_hash, GCMode::StateSync)?;
+            }
+
+            let key = index_to_bytes(height);
+            let mut store_update = self.store().store_update();
+            store_update.delete(DBCol::BlockPerHeight, &key);
+            self.merge(store_update);
+            if self.is_height_processed(height) {
+                self.gc_col(DBCol::ProcessedBlockHeights, &key);
+            }
+        }
+
+        let first_chunk_height = self.chunk_tail();
+        let chunk_heights =
+            self.indexed_heights(DBCol::ChunkHashesByHeight, first_chunk_height, new_chunk_tail);
+        #[cfg(feature = "protocol_feature_spice")]
+        let chunk_heights = {
+            let mut chunk_heights = chunk_heights;
+            chunk_heights.extend(self.indexed_heights(
+                DBCol::spice_invalid_chunks(),
+                first_chunk_height,
+                new_chunk_tail,
+            ));
+            chunk_heights.sort_unstable();
+            chunk_heights.dedup();
+            chunk_heights
+        };
+        for height in chunk_heights {
+            self.clear_chunk_data_at_height(height)?;
+        }
+
+        for height in
+            self.indexed_heights(DBCol::HeaderHashesByHeight, first_chunk_height, new_chunk_tail)
+        {
+            #[cfg(feature = "nightly")]
+            for header_hash in self.chain_store().get_all_header_hashes_by_height(height) {
+                self.gc_chunk_producers_for_block(&header_hash);
+            }
+            self.gc_col(DBCol::HeaderHashesByHeight, &index_to_bytes(height));
+        }
+
+        Ok(())
+    }
+
     /// GC every ChunkProducers row anchored at `block_hash`. Rows are keyed by
     /// (block_hash, shard_id), so the hash prefixes all shards' rows. Callers delete alongside
     /// the block's `BlockInfo`, except the `clear_chunk_data_and_headers` sweep, which uses it
@@ -781,7 +863,9 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_spice_core_data(&block_hash, &shard_layout);
 
         // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
+        if !matches!(&gc_mode, GCMode::StateSync) {
+            self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
+        }
 
         match gc_mode {
             GCMode::Fork(_) => {
@@ -799,6 +883,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 self.clear_chunk_data_and_headers(min_chunk_height)?;
             }
+            GCMode::StateSync => {}
         };
         self.merge(store_update.into());
         Ok(())
@@ -936,6 +1021,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     // If the block is on canonical chain, we delete the state that's before applying this block
                     tries.apply_deletions(&trie_changes, shard_uid, store_update);
                 }
+                GCMode::StateSync => {}
             }
 
             self.gc_col(DBCol::TrieChanges, &trie_changes_key);
@@ -1348,5 +1434,25 @@ mod tests {
         let store = chain.chain_store().store();
         assert!(chain.chain_store().chunk_tail() > height, "gc did not pass the height");
         assert!(!store.exists(DBCol::spice_invalid_chunks(), &key), "hot gc kept evidence");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn state_sync_tail_update_deletes_invalid_chunk_evidence() {
+        let mut chain = get_chain(Clock::real());
+        let epoch_manager = chain.epoch_manager.clone();
+        let tail = chain.tail();
+        let height = chain.chain_store().chunk_tail();
+        let key = plant_invalid_chunk(&chain, height);
+
+        let mut update = chain.mut_chain_store().store_update();
+        update
+            .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), tail, height + 1)
+            .unwrap();
+        update.update_chunk_tail(height + 1);
+        update.commit().unwrap();
+
+        let store = chain.chain_store().store();
+        assert!(!store.exists(DBCol::spice_invalid_chunks(), &key));
     }
 }
