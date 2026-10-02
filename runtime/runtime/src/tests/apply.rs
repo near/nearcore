@@ -15,7 +15,7 @@ use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
-use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
@@ -33,8 +33,8 @@ use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
-    InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, EpochError,
+    FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
@@ -60,15 +60,19 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
-    set_access_key, set_account,
+    KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
+    TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
+    get_received_data, remove_account, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
+use near_wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
@@ -1008,7 +1012,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1018,6 +1022,12 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1032,9 +1042,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
@@ -1159,9 +1167,23 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     // The deficit does not affect refunds, hence we should expect a
     // normal refund of the unspent gas. However, this is small enough to
     // cancel out, so we add the refund cost to tx_burnt and expect no
-    // refund. This ends up burning all gas and not refunding anything.
+    // refund. With fixed contract loading costs, the call instead exhausts its
+    // attached gas, and the receiver gets its share of that gas as a reward.
     assert_eq!(result.outgoing_receipts.len(), 0);
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    let function_call_gas_burnt = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        Gas::from_gas(gas)
+            .min(apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base))
+    } else {
+        Gas::ZERO
+    };
+    let receiver_gas_reward = function_call_gas_burnt
+        .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+        .unwrap()
+        .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+        .unwrap();
+    let receiver_reward = gas_price.checked_mul(u128::from(receiver_gas_reward.as_gas())).unwrap();
+    let expected_tx_burnt = total_receipt_cost.checked_sub(receiver_reward).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_tx_burnt);
 }
 
 #[test]
@@ -1185,7 +1207,7 @@ fn test_apply_surplus_gas_for_function_call() {
         deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1195,6 +1217,12 @@ fn test_apply_surplus_gas_for_function_call() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1209,9 +1237,7 @@ fn test_apply_surplus_gas_for_function_call() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
@@ -1934,6 +1960,161 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
     }
 }
 
+enum ContractLoadingFailure {
+    Base,
+    Bytes,
+}
+
+struct ContractLoadingFailureResult {
+    apply_result: ApplyResult,
+    state_root: CryptoHash,
+    code_key: TrieKey,
+    code_len: u32,
+}
+
+/// Deploy a contract and record the state accesses made by a call that cannot
+/// afford either the loading base or the complete per-byte loading charge.
+fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLoadingFailureResult {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
+
+    let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
+    let code_len = contract_code.code().len();
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    account.set_contract(AccountContract::Local(*contract_code.hash())).unwrap();
+    set_account(&mut state_update, alice_account(), &account);
+    state_update.set(code_key.clone(), contract_code.code().to_vec());
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let state_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let costs = &apply_state.config.wasm_config.ext_costs;
+    let loading_base = costs.gas_cost(ExtCosts::contract_loading_base);
+    let loading_bytes =
+        costs.gas_cost(ExtCosts::contract_loading_bytes).checked_mul(code_len as u64).unwrap();
+    let gas = match failure {
+        ContractLoadingFailure::Base => loading_base.checked_sub(Gas::from_gas(1)).unwrap(),
+        ContractLoadingFailure::Bytes => {
+            loading_base.checked_add(loading_bytes).unwrap().checked_sub(Gas::from_gas(1)).unwrap()
+        }
+    };
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas,
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+    let apply_result = runtime
+        .apply(
+            tries
+                .get_trie_for_shard(ShardUId::single_shard(), state_root)
+                .recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let assert_out_of_gas_without_contract_access = |result: &ApplyResult| {
+        let call_outcome = result
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.id == call_id)
+            .expect("function call outcome missing");
+        assert_matches!(
+            &call_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(message)),
+                ..
+            })) if message == "Exceeded the prepaid gas."
+        );
+        assert!(result.contract_updates.contract_accesses.is_empty());
+    };
+    assert_out_of_gas_without_contract_access(&apply_result);
+
+    // Replay from only the recorded values. This succeeds only if the abort path does not read
+    // anything beyond what the producer recorded, in particular contract metadata/body.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    let replay_result = runtime
+        .apply(
+            Trie::from_recorded_storage(apply_result.proof.clone().unwrap(), state_root, false),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_out_of_gas_without_contract_access(&replay_result);
+
+    ContractLoadingFailureResult {
+        apply_result,
+        state_root,
+        code_key,
+        code_len: code_len.try_into().unwrap(),
+    }
+}
+
+#[test]
+fn test_contract_loading_base_failure_skips_contract_metadata() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Base);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    assert!(matches!(
+        state_update.get_ref(
+            &result.code_key,
+            KeyLookupMode::MemOrFlatOrTrie,
+            AccessOptions::DEFAULT,
+        ),
+        Err(StorageError::MissingTrieValue(_))
+    ));
+}
+
+#[test]
+fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Bytes);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    let value_ref = state_update
+        .get_ref(&result.code_key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)
+        .unwrap()
+        .expect("contract metadata should be present");
+    assert_eq!(value_ref.len(), result.code_len);
+    let value_hash = value_ref.value_hash();
+    assert_matches!(
+        state_update.get(&result.code_key, AccessOptions::DEFAULT),
+        Err(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        })) if hash == value_hash
+    );
+}
+
 /// Deploys a contract, records a witness for a call to it (which excludes the
 /// contract body), then applies that call over the recorded storage.
 fn apply_call_to_contract_missing_from_witness(
@@ -2149,7 +2330,7 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
 
 /// The hash of a global contract that is never deployed in these tests.
 fn missing_global_contract_hash() -> CryptoHash {
-    hash(b"global contract that was never deployed")
+    eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id(), PROTOCOL_VERSION)
 }
 
 fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
@@ -2169,28 +2350,79 @@ fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
     );
 }
 
-/// Points alice at a global contract hash that was never deployed, calls it as
-/// the chunk producer and replays the recorded witness as a chunk validator
-/// running `validator_protocol_version`. ETH implicit accounts are created this
-/// way, with a hardcoded wallet contract hash and no existence check. The
-/// producer must fail the call with `CodeDoesNotExist` instead of treating the
+/// Points alice at the missing wallet contract, calls it as the chunk producer
+/// and replays the recorded witness as a chunk validator running
+/// `validator_protocol_version`. The producer must fail the call with
+/// `CodeDoesNotExist` instead of treating the
 /// missing code as an inconsistent state; the validator's verdict is returned
 /// together with the call's receipt id.
 fn apply_call_to_missing_global_contract(
     validator_protocol_version: ProtocolVersion,
 ) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
+    apply_call_to_missing_global_contract_for_account(
+        alice_account(),
+        missing_global_contract_hash(),
+        &MockEpochInfoProvider::default().chain_id(),
+        PROTOCOL_VERSION,
+        validator_protocol_version,
+    )
+}
+
+/// Calls an account whose wallet reference resolves to absent code, and replays its witness.
+fn apply_call_to_missing_global_contract_for_account(
+    wallet_account: AccountId,
+    wallet_hash: CryptoHash,
+    chain_id: &str,
+    producer_protocol_version: ProtocolVersion,
+    validator_protocol_version: ProtocolVersion,
+) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
+        vec![wallet_account.clone()],
         Balance::from_near(1_000_000),
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
 
+    apply_state.current_protocol_version = producer_protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version));
+
+    // Override only the chain identity; preserve the setup's validators and shard layout.
+    struct WalletEpochInfoProvider<'a, T> {
+        inner: T,
+        chain_id: &'a str,
+    }
+    impl<T: EpochInfoProvider> EpochInfoProvider for WalletEpochInfoProvider<'_, T> {
+        fn validator_stake(
+            &self,
+            epoch_id: &EpochId,
+            account_id: &AccountId,
+        ) -> Result<Option<Balance>, EpochError> {
+            self.inner.validator_stake(epoch_id, account_id)
+        }
+
+        fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
+            self.inner.validator_total_stake(epoch_id)
+        }
+
+        fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
+            self.inner.minimum_stake(prev_block_hash)
+        }
+
+        fn chain_id(&self) -> String {
+            self.chain_id.to_owned()
+        }
+
+        fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+            self.inner.shard_layout(epoch_id)
+        }
+    }
+    let epoch_info_provider = WalletEpochInfoProvider { inner: epoch_info_provider, chain_id };
+
     // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
-    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
-    set_account(&mut state_update, alice_account(), &alice);
+    let mut wallet = get_account(&state_update, &wallet_account).unwrap().unwrap();
+    wallet.set_contract(AccountContract::Global(wallet_hash)).unwrap();
+    set_account(&mut state_update, wallet_account.clone(), &wallet);
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
@@ -2198,7 +2430,7 @@ fn apply_call_to_missing_global_contract(
     store_update.commit();
 
     let call_receipt = create_receipt_with_actions(
-        alice_account(),
+        wallet_account,
         signers[0].clone(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "rlp_execute".to_string(),
@@ -2231,6 +2463,7 @@ fn apply_call_to_missing_global_contract(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -2241,6 +2474,32 @@ fn apply_call_to_missing_global_contract(
         Default::default(),
     );
     (call_id, apply_result)
+}
+
+/// Old wallet hashes are remapped for named accounts too. An absent replacement
+/// must fail only the call, not the whole chunk, on both producer and validator.
+#[test]
+fn test_named_account_old_wallet_hash_with_missing_replacement() {
+    let feature_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+    for chain_id in [MAINNET, TESTNET] {
+        let old_version = ProtocolFeature::UpdatedEthWalletContract.protocol_version() - 1;
+        let old_hash = eth_wallet_global_contract_hash(chain_id, old_version);
+        for protocol_version in [feature_version - 1, feature_version] {
+            assert!(is_earlier_eth_wallet_global_contract_hash(
+                &old_hash,
+                chain_id,
+                protocol_version
+            ));
+            let (call_id, apply_result) = apply_call_to_missing_global_contract_for_account(
+                alice_account(),
+                old_hash,
+                chain_id,
+                protocol_version,
+                protocol_version,
+            );
+            assert_code_does_not_exist(&apply_result.unwrap(), call_id);
+        }
+    }
 }
 
 /// The witness proves the global contract key is absent, so the validator
@@ -2543,7 +2802,9 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                // Exercise actual loading, after `FixContractLoadingCost` it
+                // skips even metadata lookup when the loading base cannot be paid.
+                gas: Gas::from_teragas(1),
                 deposit: Balance::ZERO,
             }))],
         )

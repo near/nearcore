@@ -7,7 +7,8 @@ use crate::logic::errors::{
 };
 use crate::logic::host as logic;
 use crate::logic::{
-    Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
+    Config, ExecutionResultState, External, GasCounter, HostCtx, HostError,
+    PreparedContractGasCounter, VMContext, VMOutcome,
 };
 use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
 use crate::runner::VMResult;
@@ -750,7 +751,7 @@ impl WasmtimeVM {
         &self,
         cache: &dyn ContractRuntimeCache,
         contract: &dyn Contract,
-        mut gas_counter: GasCounter,
+        gas_counter: PreparedContractGasCounter,
         method: &str,
         closure: impl FnOnce(
             GasCounter,
@@ -810,10 +811,13 @@ impl WasmtimeVM {
                 let module = match unsafe { Module::deserialize(&self.engine, &module) } {
                     Ok(module) => module,
                     Err(err) => {
+                        // A paid loading fee must stay a gas-bearing abort if deserialization fails.
+                        let deserialize_error_charges_gas = self.config.fix_contract_loading_error
+                            || matches!(gas_counter, PreparedContractGasCounter::Paid(_));
                         // Propagate failed contract loading as a cached `FunctionCallError`, mirroring
                         // the memory-export check below, so it flows through the fee-charge points
                         // and finalizes as a gas-bearing abort.
-                        if self.config.fix_contract_loading_error {
+                        if deserialize_error_charges_gas {
                             let err = FunctionCallError::LoadingError { msg: err.to_string() };
                             return Ok((
                                 err.size_bytes_approximate() as u64,
@@ -874,20 +878,32 @@ impl WasmtimeVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
         let config = Arc::clone(&self.config);
-        let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
-        if let Err(e) = result {
-            let result = PreparationResult::OutcomeAbort(e);
-            return Ok(PreparedContract { config, gas_counter, result });
-        }
-        match pre_result {
-            Ok(res) => {
-                let result = gas_counter.after_loading_executable(&config, wasm_bytes);
-                if let Err(e) = result {
+        let gas_counter = match gas_counter {
+            PreparedContractGasCounter::Legacy(mut gas_counter) => {
+                if method.is_empty() {
+                    let e =
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName);
                     let result = PreparationResult::OutcomeAbort(e);
                     return Ok(PreparedContract { config, gas_counter, result });
                 }
-                closure(gas_counter, res)
+                if pre_result.is_ok() && gas_counter.add_contract_loading_fee(wasm_bytes).is_err() {
+                    let e = FunctionCallError::HostError(HostError::GasExceeded);
+                    let result = PreparationResult::OutcomeAbort(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
+                }
+                gas_counter
             }
+            PreparedContractGasCounter::Paid(loading_fee_paid) => {
+                let (gas_counter, charged_code_len) = loading_fee_paid.into_parts();
+                assert_eq!(
+                    charged_code_len, wasm_bytes,
+                    "contract loading gas was charged for a different code length"
+                );
+                gas_counter
+            }
+        };
+        match pre_result {
+            Ok(res) => closure(gas_counter, res),
             Err(e) => {
                 let result =
                     PreparationResult::OutcomeAbort(FunctionCallError::CompilationError(e));
@@ -957,9 +973,14 @@ impl crate::runner::VM for WasmtimeVM {
         self: Box<Self>,
         code: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
-        gas_counter: GasCounter,
+        gas_counter: PreparedContractGasCounter,
         method: &str,
     ) -> Box<dyn crate::PreparedContract> {
+        assert_eq!(
+            matches!(gas_counter, PreparedContractGasCounter::Paid(_)),
+            self.config.fix_contract_loading_cost,
+            "contract loading gas was prepared for a different configuration"
+        );
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         let prepd =
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
