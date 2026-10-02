@@ -228,12 +228,13 @@ fn write_processed_receipts(
 
 pub fn build_spice_apply_chunk_block_context(
     block_header: &BlockHeader,
+    prev_block_header: &BlockHeader,
     prev_block_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<ApplyChunkBlockContext, Error> {
     // TODO(spice): gas price should be based on execution results and not part of the
     // block since it's calculated based on gas usage during execution.
-    let gas_price = block_header.next_gas_price();
+    let gas_price = prev_block_header.next_gas_price();
     let congestion_info =
         build_block_congestion_info(block_header, prev_block_execution_results, epoch_manager)?;
     let bandwidth_requests =

@@ -61,7 +61,7 @@ let mut env = TestLoopBuilder::new()
     .build();
 ```
 
-Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
+Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`, `gas_price_adjustment_rate`.
 
 ### Manual genesis setup
 
