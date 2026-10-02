@@ -327,6 +327,10 @@ struct SourceBlock {
 enum ChainError {
     #[error("unknown")]
     Unknown,
+    /// The source store holds no state by design (a cloud archive reader store
+    /// bootstrapped with `--skip-state`), so a state query cannot be answered.
+    #[error("the source store has no state")]
+    NoState,
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -1330,6 +1334,22 @@ impl<T: ChainAccess> TxMirror<T> {
                     }
                 }
             }
+            Err(ChainError::NoState) => {
+                // The source store has no state by design (a cloud archive reader store
+                // bootstrapped with `--skip-state`), so the account's full access keys
+                // cannot be looked up. Fall back to the default extra key, as we already
+                // do when the account has no full access keys. Any other error, a
+                // missing block or chunk extra included, aborts the run as it always has.
+                tracing::warn!(
+                    target: "mirror",
+                    provenance = %provenance,
+                    source_signer_id = %predecessor_id,
+                    target_signer_id = %target_signer_id,
+                    ?block_hash,
+                    "source store has no state to look up full access keys at block; preparing the transaction with the default extra key"
+                );
+                self.default_extra_key.clone()
+            }
             Err(e) => {
                 return Err(e)
                     .with_context(|| format!("failed fetching access key for {}", predecessor_id));
@@ -1460,7 +1480,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     );
                     continue;
                 }
-                Err(ChainError::Other(e)) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
 
             if let VersionedReceiptEnum::Action(r) | VersionedReceiptEnum::PromiseYield(r) =

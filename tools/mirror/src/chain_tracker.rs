@@ -207,8 +207,8 @@ impl TxTracker {
             match source_chain.get_next_block_height(h).await {
                 Ok(h) => next_heights.push_back(h),
                 Err(ChainError::Unknown) => break,
-                Err(ChainError::Other(e)) => {
-                    return Err(e)
+                Err(e) => {
+                    return Err(anyhow::Error::from(e))
                         .with_context(|| format!("failed fetching next height after {}", h));
                 }
             };
