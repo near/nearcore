@@ -454,6 +454,7 @@ fn garbage_backer_stays_bound_to_the_settled_commitment() {
 mod manager {
     use super::*;
     use crate::spice::chunk_executor_actor::save_receipt_proof;
+    use itertools::Itertools;
     use near_async::time::Clock;
     use near_chain::test_utils::{get_chain_with_num_shards, process_block_sync};
     use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
@@ -471,20 +472,11 @@ mod manager {
     /// height `i + 1`.
     fn chain_with_blocks(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
         let mut chain = get_chain_with_num_shards(Clock::real(), 2);
-        let signer = Arc::new(create_test_signer("test1"));
         let genesis_hash = chain.chain_store.head().unwrap().last_block_hash;
         let mut prev = chain.chain_store.get_block(&genesis_hash).unwrap();
         let mut blocks = Vec::new();
         for _ in 0..num_blocks {
-            let block =
-                TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone()).build();
-            process_block_sync(
-                &mut chain,
-                block.clone().into(),
-                Provenance::PRODUCED,
-                &mut BlockProcessingArtifact::default(),
-            )
-            .unwrap();
+            let block = process_block_at(&mut chain, &prev, prev.header().height() + 1);
             blocks.push(block.clone());
             prev = block;
         }
@@ -505,18 +497,6 @@ mod manager {
         )
         .unwrap();
         block
-    }
-
-    /// A chain with canonical blocks at heights 1, 2 and 4, and two forks off height 2:
-    /// one at the skipped height 3, one at height 4. Returned as
-    /// `(chain, canonical, [fork_at_3, fork_at_4])`.
-    fn chain_with_forks() -> (Chain, Vec<Arc<Block>>, [Arc<Block>; 2]) {
-        let (mut chain, mut canonical) = chain_with_blocks(2);
-        let fork_at_3 = process_block_at(&mut chain, &canonical[1], 3);
-        canonical.push(process_block_at(&mut chain, &canonical[1], 4));
-        let fork_at_4 = process_block_at(&mut chain, &canonical[1], 4);
-        assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical[2].hash());
-        (chain, canonical, [fork_at_3, fork_at_4])
     }
 
     /// The chain's policies with a fixed producer list in place of the chain's single
@@ -730,27 +710,34 @@ mod manager {
         assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
         assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
         assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
-        assert_eq!(manager.items_by_height.keys().copied().collect::<Vec<_>>(), vec![4]);
+        assert_eq!(
+            manager.items_by_height.keys().copied().collect_vec(),
+            vec![blocks[2].header().height()],
+        );
     }
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn a_fork_item_expires_by_height_with_the_final_execution_head() {
-        let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
+        let (mut chain, blocks) = chain_with_blocks(2);
+        let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+        let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+        let fork_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+        assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_4.hash());
         let mut manager = manager(&chain);
-        for block in canonical.iter().chain([&fork_at_3, &fork_at_4]) {
+        for block in blocks.iter().chain([&canonical_at_4, &fork_at_3, &fork_at_4]) {
             manager.track_block(block.header()).unwrap();
         }
         let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
 
-        set_final_execution_head(&chain, &canonical[1]);
-        manager.on_block_processed(canonical[2].hash());
+        set_final_execution_head(&chain, &blocks[1]);
+        manager.on_block_processed(canonical_at_4.hash());
         for id in &fork_ids {
             assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
         }
 
-        set_final_execution_head(&chain, &canonical[2]);
-        manager.on_block_processed(canonical[2].hash());
+        set_final_execution_head(&chain, &canonical_at_4);
+        manager.on_block_processed(canonical_at_4.hash());
         for id in &fork_ids {
             assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
         }
@@ -777,7 +764,7 @@ mod manager {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn an_item_is_removed_only_after_its_delivery_is_in_the_store() {
-        let (chain, blocks) = chain_with_blocks(3);
+        let (chain, blocks) = chain_with_blocks(4);
         let mut manager = manager(&chain);
         for block in &blocks {
             manager.track_block(block.header()).unwrap();
@@ -786,20 +773,22 @@ mod manager {
 
         // The proof is on disk but nothing delivered it: the item stays tracked.
         save_proof(&chain, &blocks[0], &receipt_data(0, 1));
-        manager.on_block_processed(blocks[2].hash());
+        manager.on_block_processed(blocks[3].hash());
         assert!(manager.is_tracking(&ids[0]));
 
         // Delivered but not saved: the item stays tracked.
         deliver(&mut manager, &producers()[0], &ids[1], &receipt_data(0, 1));
-        manager.on_block_processed(blocks[2].hash());
+        manager.on_block_processed(blocks[3].hash());
         assert!(manager.is_tracking(&ids[1]));
 
-        // Delivered and saved: the next block removes it and leaves the others.
-        deliver(&mut manager, &producers()[0], &ids[0], &receipt_data(0, 1));
-        manager.on_block_processed(blocks[2].hash());
-        assert!(!manager.is_tracking(&ids[0]));
+        // Delivered, then saved: the next block removes it and leaves the others.
+        deliver(&mut manager, &producers()[0], &ids[2], &receipt_data(0, 1));
+        save_proof(&chain, &blocks[2], &receipt_data(0, 1));
+        manager.on_block_processed(blocks[3].hash());
+        assert!(!manager.is_tracking(&ids[2]));
+        assert!(manager.is_tracking(&ids[0]));
         assert!(manager.is_tracking(&ids[1]));
-        assert!(manager.is_tracking(&ids[2]));
+        assert!(manager.is_tracking(&ids[3]));
     }
 
     #[test]

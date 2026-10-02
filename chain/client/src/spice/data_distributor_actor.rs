@@ -740,11 +740,9 @@ impl SpiceDataDistributorActor {
 
         // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
-        self.start_waiting_on_data(block.hash())?;
-        self.data_manager.track_block(block.header())?;
-
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                self.data_manager.track_block(block.header())?;
                 let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
                 match self.data_manager.on_parts_received(
                     &sender,
@@ -768,6 +766,7 @@ impl SpiceDataDistributorActor {
                 }
             }
             SpiceDataIdentifier::Witness { .. } => {
+                self.start_waiting_on_data(block.hash())?;
                 self.receive_witness_data_with_block(id, commitment, parts, block, &producers)
             }
         }

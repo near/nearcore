@@ -21,7 +21,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem::replace;
+use std::mem;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -242,7 +242,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             return;
         };
         let live = self.items_by_height.split_off(&next_height);
-        let expired = replace(&mut self.items_by_height, live);
+        let expired = mem::replace(&mut self.items_by_height, live);
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");
         }
