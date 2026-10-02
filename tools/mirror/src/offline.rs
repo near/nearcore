@@ -34,6 +34,10 @@ pub(crate) struct ChainAccess {
     chain: ChainStore,
     epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
+    /// Set when the store was built without state (`--source-skip-state`): a state
+    /// query that fails in the trie then reports `ChainError::NoState`, which the
+    /// mirror falls back from, instead of the error aborting the run.
+    skip_state: bool,
 }
 
 impl ChainAccess {
@@ -58,7 +62,7 @@ impl ChainAccess {
         let runtime =
             NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;
-        Ok(Self { chain, epoch_manager, runtime })
+        Ok(Self { chain, epoch_manager, runtime, skip_state: false })
     }
 }
 
@@ -101,8 +105,8 @@ impl crate::ChainAccess for ChainAccess {
             match self.get_next_block_height(last_height).await {
                 Ok(h) => block_heights.push(h),
                 Err(ChainError::Unknown) => break,
-                Err(ChainError::Other(e)) => {
-                    return Err(e).with_context(|| {
+                Err(e) => {
+                    return Err(anyhow::Error::from(e)).with_context(|| {
                         format!("failed getting next block height after {}", last_height)
                     });
                 }
@@ -214,6 +218,7 @@ impl crate::ChainAccess for ChainAccess {
                 .into_chain_error()?;
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
+        // A missing chunk extra is a `DBNotFoundErr`, which already maps to `ChainError::Unknown`.
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         let mut after_key = None;
         loop {
@@ -236,6 +241,24 @@ impl crate::ChainAccess for ChainAccess {
                     QueryError::UnknownAccount { .. } | QueryError::UninitializedAccount { .. },
                 ) => {
                     return Ok(ret);
+                }
+                // For `ViewAccessKeyList`, `InternalError` wraps a `StorageError` raised while
+                // reading the trie (e.g. `MissingTrieValue`). On a store built without state
+                // (`--source-skip-state`) that is expected at every block, and the caller
+                // falls back; on any other store it is corruption or state garbage-collected
+                // under the mirror, and it aborts the run like every other error.
+                Err(near_chain_primitives::error::QueryError::InternalError {
+                    error_message,
+                    ..
+                }) if self.skip_state => {
+                    tracing::debug!(
+                        target: "mirror",
+                        %account_id,
+                        %block_hash,
+                        %error_message,
+                        "source store has no state for the access key query",
+                    );
+                    return Err(ChainError::NoState);
                 }
                 Err(e) => return Err(e.into()),
             };

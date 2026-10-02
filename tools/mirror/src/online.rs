@@ -68,7 +68,7 @@ impl crate::ChainAccess for ChainAccess {
                     }
                 },
                 Err(ChainError::Unknown) => {}
-                Err(ChainError::Other(e)) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
 
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -92,8 +92,8 @@ impl crate::ChainAccess for ChainAccess {
                 Err(ChainError::Unknown) => {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
-                Err(ChainError::Other(e)) => {
-                    return Err(e)
+                Err(e) => {
+                    return Err(anyhow::Error::from(e))
                         .with_context(|| format!("failed fetching next block after #{}", height));
                 }
             }
