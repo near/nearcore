@@ -1119,10 +1119,15 @@ impl Client {
 
         // Last final block **after this block is produced**
         let last_final_block = prev.last_final_block_for_height(height);
+        let prev_last_certified_block_epoch_id = ProtocolFeature::Spice
+            .enabled(protocol_version)
+            .then(|| self.chain.spice_core_reader.prev_last_certified_block_epoch_id(&prev_hash))
+            .transpose()?;
         let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
             height,
             &prev_hash,
             &last_final_block,
+            prev_last_certified_block_epoch_id.as_ref(),
         )?;
 
         // Compute shard_split if this is the last block of the epoch
