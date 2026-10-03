@@ -277,6 +277,18 @@ fn test_spice_epoch_gated_by_certification() {
         current_epoch_id, new_epoch_id,
         "epoch should have advanced after delay is lifted with normal amount of blocks"
     );
+
+    // Endorsement stats are only on the last block of each epoch, also while
+    // certification held the epoch open.
+    let chain = &env.node(0).client().chain;
+    let blocks = (chain.genesis().height() + 1..=chain.head().unwrap().height)
+        .filter_map(|height| chain.get_block_by_height(height).ok())
+        .collect_vec();
+    for (block, next_block) in blocks.iter().tuple_windows() {
+        let is_epoch_last_block = block.header().epoch_id() != next_block.header().epoch_id();
+        let has_stats = !block.header().spice_chunk_endorsement_stats().unwrap().is_empty();
+        assert_eq!(has_stats, is_epoch_last_block, "height {}", block.header().height());
+    }
 }
 
 /// Sets up a spice env with delayed endorsements so execution lags behind

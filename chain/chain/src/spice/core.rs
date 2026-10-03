@@ -540,10 +540,13 @@ impl SpiceCoreReader {
         height: BlockHeight,
     ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
         let last_final_block = prev_header.last_final_block_for_height(height);
+        let prev_last_certified_block_epoch_id =
+            self.prev_last_certified_block_epoch_id(prev_header.hash())?;
         let is_last_block_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
             height,
             prev_header.hash(),
             &last_final_block,
+            Some(&prev_last_certified_block_epoch_id),
         )?;
         if !is_last_block_in_epoch {
             return Ok(Vec::new());
