@@ -28,15 +28,15 @@ pub fn far_horizon_height(epoch_length: u64) -> u64 {
 /// Distinct epoch ids along `client`'s canonical chain, in chain order, excluding
 /// genesis.
 ///
-/// Walks the height index, so it sees only the block region: header-only heights below
-/// the tail have no index entry.
+/// Starts at the tail: GC keeps the height index below it but deletes the `BlockInfo`.
 pub fn collect_distinct_epoch_ids(client: &Client) -> Vec<EpochId> {
     let chain = &client.chain;
     let head = chain.head().unwrap();
     let genesis_height = chain.genesis().height();
 
     let mut epoch_ids = Vec::new();
-    for height in (genesis_height + 1)..=head.height {
+    let first_height = (genesis_height + 1).max(chain.tail());
+    for height in first_height..=head.height {
         let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
         let epoch_id = client.epoch_manager.get_epoch_id(&hash).unwrap();
         if epoch_ids.last() != Some(&epoch_id) {

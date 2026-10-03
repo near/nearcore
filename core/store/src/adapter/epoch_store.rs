@@ -113,6 +113,7 @@ impl EpochStoreAdapter {
     }
 }
 
+#[must_use = "call `commit()`, or the writes are lost"]
 pub struct EpochStoreUpdateAdapter<'a> {
     store_update: StoreUpdateHolder<'a>,
 }
