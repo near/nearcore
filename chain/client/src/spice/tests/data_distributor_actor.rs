@@ -3391,12 +3391,21 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     produce_block_certifying_uncertified_chunks(&mut chain, &fork_block);
     save_final_execution_head(&chain, &block);
     let proof_id = |block: &Block| DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
-    let requested_proof_blocks = |outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>| {
-        drain_outgoing_data_requests(outgoing_rc)
-            .into_iter()
-            .filter(|(data_id, _)| matches!(data_id, SpiceDataIdentifier::ReceiptProof { .. }))
-            .map(|(data_id, _requester)| *data_id.block_hash())
-            .collect::<HashSet<_>>()
+    // The blocks whose witnesses and whose receipt proofs were requested, in that order.
+    let requested_blocks = |outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>| {
+        let mut witness_blocks = HashSet::new();
+        let mut proof_blocks = HashSet::new();
+        for (data_id, _requester) in drain_outgoing_data_requests(outgoing_rc) {
+            match data_id {
+                SpiceDataIdentifier::Witness { block_hash, .. } => {
+                    witness_blocks.insert(block_hash)
+                }
+                SpiceDataIdentifier::ReceiptProof { block_hash, .. } => {
+                    proof_blocks.insert(block_hash)
+                }
+            };
+        }
+        (witness_blocks, proof_blocks)
     };
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
@@ -3423,7 +3432,10 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
     assert!(actor.is_tracking(&proof_id(&next_block)));
     assert!(actor.is_tracking(&proof_id(&fork_block)));
-    assert!(requested_proof_blocks(&mut outgoing_rc).contains(fork_block.hash()));
+    let (witness_blocks, proof_blocks) = requested_blocks(&mut outgoing_rc);
+    assert!(!witness_blocks.contains(fork_block.hash()));
+    assert!(witness_blocks.contains(next_block.hash()));
+    assert!(proof_blocks.contains(fork_block.hash()));
 
     // Once the final execution head passes their height, both items expire, and the fork's
     // proof is not asked for again after its request times out.
@@ -3433,7 +3445,8 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
     assert!(!actor.is_tracking(&proof_id(&fork_block)));
-    assert!(!requested_proof_blocks(&mut outgoing_rc).contains(fork_block.hash()));
+    let (_witness_blocks, proof_blocks) = requested_blocks(&mut outgoing_rc);
+    assert!(!proof_blocks.contains(fork_block.hash()));
 }
 
 #[test]

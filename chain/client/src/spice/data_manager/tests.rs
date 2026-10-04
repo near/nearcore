@@ -688,7 +688,6 @@ mod manager {
             self.manager.pull_config = config;
         }
 
-        /// Tracks `block` and returns the id of the one proof the policy needs from it.
         fn track_block(&mut self, block: &Block) {
             self.manager.track_block(block).unwrap();
         }
@@ -697,6 +696,7 @@ mod manager {
             self.manager.is_tracking(id)
         }
 
+        /// Tracks `block` and returns the id of the one proof the policy needs from it.
         fn track_needed_proof(&mut self, block: &Block) -> DataId {
             self.track_block(block);
             receipt_id(block, 0, 1)
