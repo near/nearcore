@@ -7,14 +7,13 @@ import time
 
 import requests
 from rc import run, pmap
-from rc.exception import DownloadException, UploadException
-from rc.machine import Machine
 
 import data
 from cluster import GCloudNode
 from configured_logger import logger
 from key import Key
 from metrics import Metrics
+from mocknet_ssh import share_ssh_connections
 
 # cspell:ignore loadtester
 NODE_SSH_KEY_PATH = None
@@ -39,143 +38,6 @@ done
 ONE_NEAR = 10**24
 MIN_STAKE = 64 * (10**3)
 
-# --- SSH connection sharing -------------------------------------------------
-#
-# python-rc opens a brand new ssh session (TCP handshake, key exchange, auth)
-# for every Machine.run()/upload()/download() call, and the forknet tooling
-# issues many short commands per host (neard-runner JSON-RPC over `curl
-# localhost:3000`, systemd-run, file uploads...). Let OpenSSH multiplex all
-# of them over one persistent master connection per (user, host, port) with
-# ControlMaster/ControlPersist. The first command to a host still pays for the
-# full handshake; subsequent ones reuse the master socket.
-#
-# Set MOCKNET_SSH_NO_CONTROLMASTER=1 to disable the sharing (plain python-rc
-# behaviour).
-#
-# How long an idle master stays alive (ssh_config(5) ControlPersist) depends
-# on the entry point, because the tooling is used at very different paces:
-#   * tests/mocknet/mirror.py (manual, human-paced iteration) sets 30m,
-#   * tests/mocknet/forknet_scenario.py (scripted scenario runner) keeps the
-#     10m default,
-# via set_default_ssh_control_persist(). MOCKNET_SSH_CONTROL_PERSIST
-# overrides both. The value is fixed when a master is created: a later
-# invocation that attaches to an existing master inherits its timeout.
-#
-# Master sockets live in ~/.ssh/cm-<hash>; %C is sha1(local hostname, remote
-# host, port, remote user), so the name does not depend on cwd, TMPDIR, the
-# key path or the process, and every later mirror.py / forknet_scenario.py
-# run from the same user and machine attaches to the same master. List them
-# with `ls ~/.ssh/cm-*` (or `ssh -O check -o ControlPath=~/.ssh/cm-%C
-# ubuntu@<ip>`), close one with `ssh -O exit -o ControlPath=~/.ssh/cm-%C
-# ubuntu@<ip>` or all of them with `rm ~/.ssh/cm-*` (e.g. after a host was
-# rebooted while a master was still alive). ssh unlinks stale sockets of
-# dead masters by itself.
-SSH_CONTROL_DIR = os.path.expanduser('~/.ssh')
-SSH_CONTROL_PATH = os.path.join(SSH_CONTROL_DIR, 'cm-%C')
-SSH_CONTROL_PERSIST_DEFAULT = '10m'
-
-
-def set_default_ssh_control_persist(value):
-    """
-    Entry points call this to pick the ControlPersist used when a master is
-    created. MOCKNET_SSH_CONTROL_PERSIST still overrides it.
-    """
-    global SSH_CONTROL_PERSIST_DEFAULT
-    SSH_CONTROL_PERSIST_DEFAULT = value
-
-
-def ssh_control_persist():
-    return os.getenv(
-        'MOCKNET_SSH_CONTROL_PERSIST') or SSH_CONTROL_PERSIST_DEFAULT
-
-
-def ssh_control_master_enabled():
-    value = os.getenv('MOCKNET_SSH_NO_CONTROLMASTER', '').strip().lower()
-    return value in ('', '0', 'false', 'no')
-
-
-def ssh_control_master_options():
-    """ssh(1) arguments that make every session share one master connection."""
-    if not ssh_control_master_enabled():
-        return []
-    # ControlPath must point into an existing, private directory.
-    os.makedirs(SSH_CONTROL_DIR, mode=0o700, exist_ok=True)
-    return [
-        '-o',
-        'ControlMaster=auto',
-        '-o',
-        f'ControlPersist={ssh_control_persist()}',
-        '-o',
-        f'ControlPath={SSH_CONTROL_PATH}',
-        # Only used when a master is created: make a master whose peer silently
-        # went away (host reboot, network partition) notice and exit within a
-        # minute instead of leaving every multiplexed command hanging on it.
-        '-o',
-        'ServerAliveInterval=15',
-        '-o',
-        'ServerAliveCountMax=3',
-    ]
-
-
-class SshSharingMachine(Machine):
-    """
-    rc.Machine whose ssh and rsync invocations go through a shared
-    ControlMaster connection. Everything else (key, user, StrictHostKeyChecking,
-    rsync flags, sudo handling) is identical to rc.Machine.
-    """
-
-    @classmethod
-    def from_machine(cls, machine):
-        if isinstance(machine, cls):
-            return machine
-        shared = cls.__new__(cls)
-        shared.__dict__.update(machine.__dict__)
-        return shared
-
-    # Used by run(), running(), run_stream(), bash(), sudo(), python()...
-    def _ssh_shell(self):
-        shell = super()._ssh_shell()
-        return [shell[0], *ssh_control_master_options(), *shell[1:]]
-
-    def _rsync_ssh_arg(self):
-        # Same ssh command as _ssh_shell() without the trailing 'user@ip --'.
-        return shlex.quote(' '.join(self._ssh_shell()[:-2]))
-
-    def upload(self,
-               local_path,
-               machine_path,
-               switch_user=None,
-               su=None,
-               user=None):
-        user = user or su or switch_user
-        if user:
-            rsync = f"--rsync-path='sudo -u {user} rsync' "
-        else:
-            rsync = ''
-        p = run(f"rsync -e {self._rsync_ssh_arg()} -r "
-                f"{rsync}--progress {local_path} "
-                f"{self.username}@{self.ip}:{machine_path}")
-        if p.returncode != 0:
-            raise UploadException(p.stderr)
-        return p
-
-    def download(self, machine_path, local_path, sudo=True):
-        if sudo:
-            rsync = "--rsync-path='sudo rsync' "
-        else:
-            rsync = ''
-        p = run(f"rsync -e {self._rsync_ssh_arg()} -r "
-                f"{rsync}--progress {self.username}@{self.ip}:{machine_path} "
-                f"{local_path}")
-        if p.returncode != 0:
-            raise DownloadException(p.stderr)
-        return p
-
-
-def _share_ssh_connections(node):
-    node.machine = SshSharingMachine.from_machine(node.machine)
-    return node
-
 
 def get_node(hostname, project=PROJECT):
     instance_name = hostname
@@ -185,7 +47,7 @@ def get_node(hostname, project=PROJECT):
         project=project,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
-    return _share_ssh_connections(n)
+    return share_ssh_connections(n)
 
 
 def get_nodes(pattern=None, project=PROJECT):
@@ -195,7 +57,7 @@ def get_nodes(pattern=None, project=PROJECT):
         username=NODE_USERNAME,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
-    return [_share_ssh_connections(n) for n in nodes]
+    return [share_ssh_connections(n) for n in nodes]
 
 
 def get_validator_account(node):
