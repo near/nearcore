@@ -7,7 +7,6 @@ use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -27,7 +26,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::logic::{ExecutionMode, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -80,7 +79,7 @@ pub(crate) fn action_function_call(
         function_call,
         action_hash,
         is_last_action,
-        None,
+        ExecutionMode::Internal,
     );
 
     // Witness-size tests expect garbage injection to work even when contract preparation aborts.
@@ -264,7 +263,7 @@ pub(crate) fn function_call_context(
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     is_last_action: bool,
-    view_config: Option<ViewConfig>,
+    execution_mode: ExecutionMode,
 ) -> VMContext {
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -293,7 +292,7 @@ pub(crate) fn function_call_context(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config,
+        execution_mode,
         output_data_receivers,
     }
 }
@@ -401,7 +400,7 @@ pub(crate) fn execute_function_call(
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            if context.view_config.is_none() {
+            if !context.is_view() {
                 // Do not commit a potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");
             } else {
@@ -415,7 +414,7 @@ pub(crate) fn execute_function_call(
         Ok(r) => r,
     };
 
-    if !context.view_config.is_some() {
+    if !context.is_view() {
         let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;

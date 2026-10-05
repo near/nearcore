@@ -1,5 +1,5 @@
-use crate::logic::External;
 use crate::logic::tests::helpers::assert_costs;
+use crate::logic::{ExecutionMode, External};
 use crate::map;
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
 use near_parameters::ExtCosts;
@@ -102,8 +102,9 @@ fn test_attached_deposit_view() {
     fn test_view(amount: Balance) {
         let mut logic_builder = VMLogicBuilder::default();
         let context = &mut logic_builder.context;
-        context.view_config =
-            Some(ViewConfig { max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt });
+        context.execution_mode = ExecutionMode::View(ViewConfig {
+            max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt,
+        });
         context.account_balance = Balance::ZERO;
         context.attached_deposit = amount;
         let mut logic = logic_builder.build();

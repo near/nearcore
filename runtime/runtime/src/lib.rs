@@ -85,6 +85,7 @@ use near_vm_runner::CompilePriority;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use near_vm_runner::logic::ExecutionMode;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
@@ -690,7 +691,7 @@ impl Runtime {
                     account_contract,
                     &state_update,
                     function_call,
-                    None,
+                    &ExecutionMode::Internal,
                     AccessOptions::DEFAULT,
                     apply_state.current_protocol_version,
                 )?;

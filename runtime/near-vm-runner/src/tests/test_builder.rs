@@ -1,5 +1,6 @@
 use crate::logic::{
-    ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
+    ExecutionMode, ProtocolVersion, ReturnData, VMContext, VMOutcome,
+    mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
@@ -28,7 +29,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();

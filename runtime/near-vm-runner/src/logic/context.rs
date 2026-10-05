@@ -1,4 +1,6 @@
+use super::GasCounter;
 use super::types::{PromiseResult, PublicKey};
+use near_parameters::vm::{Config, LimitConfig};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
@@ -55,10 +57,9 @@ pub struct VMContext {
     pub prepaid_gas: Gas,
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
-    /// If Some, it means that execution is made in a view mode and defines its configuration.
-    /// View mode means that only read-only operations are allowed.
-    /// See <https://nomicon.io/Proposals/0018-view-change-method.html> for more details.
-    pub view_config: Option<ViewConfig>,
+    /// How this execution was initiated, which determines its gas limits and
+    /// which host functions are available.
+    pub execution_mode: ExecutionMode,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
@@ -66,23 +67,59 @@ pub struct VMContext {
 
 impl VMContext {
     pub fn is_view(&self) -> bool {
-        self.view_config.is_some()
+        self.execution_mode.is_view()
     }
 
     /// Make a gas counter based on the configuration in this VMContext.
     ///
     /// Meant for use in tests only.
-    pub fn make_gas_counter(&self, config: &near_parameters::vm::Config) -> super::GasCounter {
-        let max_gas_burnt = match self.view_config {
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt }) => max_gas_burnt,
-            None => config.limit_config.max_gas_burnt,
-        };
-        crate::logic::GasCounter::new(
+    pub fn make_gas_counter(&self, config: &Config) -> GasCounter {
+        let GasLimits { max_gas_burnt, prepaid_gas } =
+            self.execution_mode.gas_limits(&config.limit_config, self.prepaid_gas);
+        GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
             config.regular_op_cost,
-            self.prepaid_gas,
+            prepaid_gas,
             self.is_view(),
         )
     }
+}
+
+/// How the current contract execution was initiated.
+#[derive(Clone, Debug)]
+pub enum ExecutionMode {
+    /// Execution of a receipt: a transaction or a cross-contract call.
+    Internal,
+    /// Read-only execution of a view call. Defines the view configuration.
+    /// See <https://github.com/near/NEPs/pull/18> for more details.
+    View(ViewConfig),
+}
+
+impl ExecutionMode {
+    pub fn is_view(&self) -> bool {
+        matches!(self, Self::View(_))
+    }
+
+    /// The gas limits of an execution in this mode, where `prepaid_gas` is
+    /// the gas attached to the function call.
+    pub fn gas_limits(&self, limit_config: &LimitConfig, prepaid_gas: Gas) -> GasLimits {
+        match self {
+            Self::Internal => GasLimits { max_gas_burnt: limit_config.max_gas_burnt, prepaid_gas },
+            // There is no real prepaid gas in view mode; the per-call budget is
+            // `max_gas_burnt`. See `GasCounter::new` for why it is bounded.
+            Self::View(ViewConfig { max_gas_burnt }) => {
+                GasLimits { max_gas_burnt: *max_gas_burnt, prepaid_gas: *max_gas_burnt }
+            }
+        }
+    }
+}
+
+/// Gas limits of a single contract execution, used to build a `GasCounter`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GasLimits {
+    /// Max gas that can be burnt, excluding gas attached to promises.
+    pub max_gas_burnt: Gas,
+    /// Max gas that can be used: burnt gas plus gas attached to promises.
+    pub prepaid_gas: Gas,
 }

@@ -29,7 +29,7 @@ use near_store::{
     Trie, TrieAccess as _, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
     get_gas_key_nonce,
 };
-use near_vm_runner::logic::{ProtocolVersion, ReturnData};
+use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
 use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
 use std::ops::Bound;
@@ -503,13 +503,13 @@ impl TrieViewer {
             apply_state.current_protocol_version,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
-        let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
+        let execution_mode = ExecutionMode::View(ViewConfig { max_gas_burnt: max_gas_burnt_view });
         let preparation = pipeline.prepare_contract_metadata(
             contract_id,
             account.contract().into_owned(),
             &state_update,
             &function_call,
-            view_config.as_ref(),
+            &execution_mode,
             AccessOptions::DEFAULT,
             apply_state.current_protocol_version,
         )?;
@@ -536,7 +536,7 @@ impl TrieViewer {
             &function_call,
             &empty_hash,
             true,
-            view_config,
+            execution_mode,
         );
         let outcome = match preparation {
             ContractPreparation::Ready { contract: code_ext, gas_counter } => {
