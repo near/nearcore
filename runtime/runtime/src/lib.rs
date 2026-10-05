@@ -124,6 +124,7 @@ mod tests;
 mod types;
 mod universal_account_id;
 mod verifier;
+mod wallet_contract;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 

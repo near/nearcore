@@ -6,6 +6,9 @@ use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
 };
+use crate::wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
+};
 use crate::{
     ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
 };
@@ -70,9 +73,6 @@ use near_store::{
     get_received_data, remove_account, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
-use near_wallet_contract::{
-    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
-};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
