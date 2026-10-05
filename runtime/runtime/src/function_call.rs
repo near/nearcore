@@ -1,7 +1,8 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
+use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
-use crate::pipelining::{ContractPreparation, ReceiptPreparationPipeline};
+use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
@@ -90,13 +91,8 @@ pub(crate) fn action_function_call(
     let outcome = match preparation {
         ContractPreparation::Ready { contract: code_ext, gas_counter } => {
             let contract_id = code_ext.identifier.clone();
-            let contract = preparation_pipeline.get_contract(
-                receipt,
-                code_ext,
-                gas_counter,
-                action_index,
-                false,
-            );
+            let contract =
+                preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
 
             execute_function_call(

@@ -109,6 +109,7 @@ pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
+mod contract_preparation;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;

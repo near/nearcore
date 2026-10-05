@@ -1,8 +1,10 @@
 use crate::ApplyState;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
+use crate::contract_preparation::{
+    ContractPreparation, prepare_contract_metadata, prepare_function_call,
+};
 use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, function_call_context};
-use crate::pipelining::{ContractPreparation, ReceiptPreparationPipeline};
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
@@ -12,9 +14,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
-};
+use near_primitives::receipt::{ActionReceipt, VersionedActionReceipt};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::{self, parse_key_handle_from_access_key_key};
@@ -485,26 +485,12 @@ impl TrieViewer {
             input_data_ids: vec![],
             actions: vec![function_call.clone().into()],
         };
-        let receipt = Receipt::V0(ReceiptV0 {
-            predecessor_id: contract_id.clone(),
-            receiver_id: contract_id.clone(),
-            receipt_id: empty_hash,
-            receipt: ReceiptEnum::Action(action_receipt.clone()),
-        });
-        let pipeline = ReceiptPreparationPipeline::new(
-            Arc::clone(config),
-            apply_state.next_wasm_config.clone(),
-            apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage().clone(),
-            epoch_info_provider.chain_id(),
-            apply_state.shard_id,
-            // View calls are user-facing (RPC) but off the block-production path.
-            CompilePriority::Interactive,
-            apply_state.current_protocol_version,
-        );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
-        let preparation = pipeline.prepare_contract_metadata(
+        let preparation = prepare_contract_metadata(
+            config,
+            state_update.contract_storage(),
+            &epoch_info_provider.chain_id(),
             contract_id,
             account.contract().into_owned(),
             &state_update,
@@ -541,7 +527,16 @@ impl TrieViewer {
         let outcome = match preparation {
             ContractPreparation::Ready { contract: code_ext, gas_counter } => {
                 let contract_id_resolved = code_ext.identifier.clone();
-                let contract = pipeline.get_contract(&receipt, code_ext, gas_counter, 0, true);
+                // Views prepare directly: speculative tasks use non-view gas accounting.
+                let contract = prepare_function_call(
+                    &code_ext,
+                    apply_state.cache.as_deref(),
+                    Arc::clone(&config.wasm_config),
+                    gas_counter,
+                    &function_call.method_name,
+                    // View calls are user-facing (RPC) but off the block-production path.
+                    CompilePriority::Interactive,
+                );
                 execute_function_call(
                     contract,
                     &contract_id_resolved,
