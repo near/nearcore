@@ -10,6 +10,7 @@
 
 ### Non-protocol Changes
 
+* Preserve child-shard `ChunkExtra` rows in cold storage across a resharding boundary. Split-storage archival nodes previously derived copy keys from the block's parent layout, so child-layout rows were deleted from hot storage by garbage collection without first reaching cold storage.
 * Added the opt-in `EXPERIMENTAL_indexer_block` RPC to fetch indexer messages by block hash. Enable it with `rpc.enable_indexer_rpc`; `rpc.indexer_max_concurrent_requests` controls request concurrency.
 * Added an experimental `enable_compiler_daemon` node setting for compiling Wasmtime contracts in isolated, memory-limited subprocesses. It is disabled by default. On Linux, enabling it requires Landlock support and causes startup to fail if the sandbox cannot be activated. ([#16067](https://github.com/near/nearcore/pull/16067))
 
