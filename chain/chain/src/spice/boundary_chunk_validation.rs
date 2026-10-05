@@ -88,6 +88,22 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
             shard_uid,
         });
     }
+    let implicit_transitions = &state_witness.implicit_transitions;
+    if boundary_replays.len() != implicit_transitions.len() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "implicit transitions count mismatch: expected {}, found {}",
+            boundary_replays.len(),
+            implicit_transitions.len(),
+        )));
+    }
+    for (replay, transition) in boundary_replays.iter().zip(implicit_transitions) {
+        if transition.block_hash != replay.block_hash {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "implicit transition block hash {:?} does not match expected block hash {:?}",
+                transition.block_hash, replay.block_hash,
+            )));
+        }
+    }
 
     let source_blocks = get_incoming_receipt_blocks_for_shard(
         store,
@@ -174,7 +190,8 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
 }
 
 /// Replays the witness's old-chunk transitions on top of the main transition's
-/// `chunk_extra`, checking each against the post state root it claims.
+/// `chunk_extra`, checking each against the post state root it claims. Pre-validation
+/// already matched `boundary_replays` to the witness's transitions one to one.
 pub(super) fn replay_boundary_implicit_transitions(
     state_witness: &SpiceBoundaryChunkStateWitness,
     boundary_replays: Vec<BoundaryReplay>,
@@ -182,22 +199,11 @@ pub(super) fn replay_boundary_implicit_transitions(
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<ChunkExtra, Error> {
     let implicit_transitions = &state_witness.implicit_transitions;
-    if boundary_replays.len() != implicit_transitions.len() {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "implicit transitions count mismatch: expected {}, found {}",
-            boundary_replays.len(),
-            implicit_transitions.len(),
-        )));
-    }
+    debug_assert_eq!(boundary_replays.len(), implicit_transitions.len());
     for (BoundaryReplay { block_hash, block_context, shard_uid }, transition) in
         boundary_replays.into_iter().zip(implicit_transitions)
     {
-        if transition.block_hash != block_hash {
-            return Err(Error::InvalidChunkStateWitness(format!(
-                "implicit transition block hash {:?} does not match expected block hash {:?}",
-                transition.block_hash, block_hash,
-            )));
-        }
+        debug_assert_eq!(transition.block_hash, block_hash);
         let old_chunk_data = OldChunkData {
             prev_chunk_extra: chunk_extra.clone(),
             block: block_context,
@@ -236,10 +242,8 @@ pub(super) fn replay_boundary_implicit_transitions(
 mod tests {
     use super::*;
     use crate::spice::boundary_synthesis::get_undelivered_receipt_carriers;
+    use crate::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
     use crate::spice::chunk_validation::tests::assert_invalid_witness;
-    use crate::spice::chunk_validation::{
-        spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
-    };
     use crate::spice::tests::pre_spice::{
         build_pre_spice_block_with_chunks, grow_to_last_pre_spice_block, save_and_record_block,
         setup_pre_spice_chain,
@@ -257,8 +261,7 @@ mod tests {
     use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
     use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
     use near_primitives::types::{
-        AccountId, Balance, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ShardId,
-        SpiceChunkId,
+        AccountId, Balance, BlockExecutionResults, BlockHeight, ShardId, SpiceChunkId,
     };
     use std::collections::{BTreeSet, HashMap};
     use std::sync::Arc;
@@ -452,8 +455,8 @@ mod tests {
                 .collect()
         }
 
-        /// A boundary witness with valid source receipts and no implicit
-        /// transitions.
+        /// A boundary witness with valid source receipts and the boundary block's
+        /// old-chunk transition, claiming an arbitrary post state root.
         fn witness(&self) -> SpiceBoundaryChunkStateWitness {
             let source_receipt_proofs = self
                 .sources()
@@ -478,7 +481,11 @@ mod tests {
                 applied_receipts_hash: hash(&borsh::to_vec(&self.expected_receipts()).unwrap()),
                 transactions: vec![],
                 contract_accesses: BTreeSet::new(),
-                implicit_transitions: vec![],
+                implicit_transitions: vec![ChunkStateTransition {
+                    block_hash: *self.boundary_block.hash(),
+                    base_state: PartialState::TrieValues(vec![]),
+                    post_state_root: CryptoHash::default(),
+                }],
                 undelivered_receipt_proofs: self.undelivered_receipt_proofs(),
             }
         }
@@ -499,7 +506,7 @@ mod tests {
             )])
         }
 
-        /// [`Self::witness`] claiming one old-chunk transition at `block_hash`
+        /// [`Self::witness`] claiming its one old-chunk transition at `block_hash`
         /// with an empty base state and `post_state_root`.
         fn witness_with_implicit_transition(
             &self,
@@ -545,19 +552,6 @@ mod tests {
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
                 vec![],
-            )
-        }
-
-        fn run_validation(
-            &self,
-            witness: SpiceBoundaryChunkStateWitness,
-        ) -> Result<ChunkExecutionResult, Error> {
-            let output = self.run_pre_validation(&witness)?;
-            spice_validate_chunk_state_witness(
-                SpiceChunkStateWitness::Boundary(witness),
-                output,
-                self.chain.epoch_manager.as_ref(),
-                self.chain.runtime_adapter.as_ref(),
             )
         }
     }
@@ -833,14 +827,16 @@ mod tests {
     }
 
     /// The boundary block's chunk is missing, so the witness must carry its
-    /// old-chunk transition: one without any is rejected after the main apply.
+    /// old-chunk transition: one without any is rejected before the main apply.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_boundary_witness_rejected_without_implicit_transitions() {
         let boundary_chain = setup_boundary_chain();
+        let mut witness = boundary_chain.witness();
+        witness.implicit_transitions.clear();
 
         assert_invalid_witness(
-            boundary_chain.run_validation(boundary_chain.witness()),
+            boundary_chain.run_pre_validation(&witness),
             "implicit transitions count mismatch",
         );
     }
@@ -856,7 +852,7 @@ mod tests {
         );
 
         assert_invalid_witness(
-            boundary_chain.run_validation(witness),
+            boundary_chain.run_pre_validation(&witness),
             "implicit transition block hash",
         );
     }
