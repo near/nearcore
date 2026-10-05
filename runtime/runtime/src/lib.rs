@@ -685,10 +685,9 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let account_contract = account.contract().into_owned();
                 let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
-                    account_contract,
+                    account,
                     &state_update,
                     function_call,
                     &ExecutionMode::Internal,

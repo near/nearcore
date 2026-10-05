@@ -506,7 +506,7 @@ impl TrieViewer {
         let execution_mode = ExecutionMode::View(ViewConfig { max_gas_burnt: max_gas_burnt_view });
         let preparation = pipeline.prepare_contract_metadata(
             contract_id,
-            account.contract().into_owned(),
+            &account,
             &state_update,
             &function_call,
             &execution_mode,

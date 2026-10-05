@@ -6,6 +6,7 @@ use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
+use std::cmp::min;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -78,8 +79,9 @@ impl VMContext {
     ///
     /// Meant for use in tests only.
     pub fn make_gas_counter(&self, config: &Config) -> GasCounter {
+        let balance = self.account_balance.saturating_add(self.attached_deposit);
         let GasLimits { max_gas_burnt, prepaid_gas } =
-            self.execution_mode.gas_limits(&config.limit_config, self.prepaid_gas);
+            self.execution_mode.gas_limits(&config.limit_config, self.prepaid_gas, balance);
         GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
@@ -97,8 +99,14 @@ pub enum ExecutionMode {
     Internal,
     /// Execution of an external contract call, authorized and paid for by the
     /// contract itself.
+    ///
+    /// There is no prepaid gas: the contract pays for all the gas the call
+    /// uses from its balance, both the gas it burns and the gas of the
+    /// promises it creates. The balance takes the place of prepaid gas, so the
+    /// call fails with `GasExceeded` if it uses more gas than the contract can
+    /// pay for.
     External {
-        /// Gas price used to charge the contract for gas attached to promises.
+        /// Gas price at which the contract pays for gas.
         gas_price: Balance,
     },
     /// Read-only execution of a view call. Defines the view configuration.
@@ -116,15 +124,24 @@ impl ExecutionMode {
     }
 
     /// The gas limits of an execution in this mode, where `prepaid_gas` is
-    /// the gas attached to the function call.
-    pub fn gas_limits(&self, limit_config: &LimitConfig, prepaid_gas: Gas) -> GasLimits {
+    /// the gas attached to the function call and `balance` is the balance of
+    /// the contract, including the attached deposit.
+    pub fn gas_limits(
+        &self,
+        limit_config: &LimitConfig,
+        prepaid_gas: Gas,
+        balance: Balance,
+    ) -> GasLimits {
         match self {
             Self::Internal => GasLimits { max_gas_burnt: limit_config.max_gas_burnt, prepaid_gas },
             // There is no prepaid gas in an external call; the contract pays for
-            // the gas, up to the limits set by the protocol.
-            Self::External { .. } => GasLimits {
+            // the gas with its balance, up to the limits set by the protocol.
+            Self::External { gas_price } => GasLimits {
                 max_gas_burnt: limit_config.max_gas_burnt_external,
-                prepaid_gas: limit_config.max_total_prepaid_gas,
+                prepaid_gas: min(
+                    limit_config.max_total_prepaid_gas,
+                    affordable_gas(balance, *gas_price),
+                ),
             },
             // There is no real prepaid gas in view mode; the per-call budget is
             // `max_gas_burnt`. See `GasCounter::new` for why it is bounded.
@@ -133,6 +150,15 @@ impl ExecutionMode {
             }
         }
     }
+}
+
+/// The amount of gas that `balance` pays for at `gas_price`.
+pub(crate) fn affordable_gas(balance: Balance, gas_price: Balance) -> Gas {
+    let gas = balance
+        .as_yoctonear()
+        .checked_div(gas_price.as_yoctonear())
+        .map_or(u64::MAX, |gas| u64::try_from(gas).unwrap_or(u64::MAX));
+    Gas::from_gas(gas)
 }
 
 /// Gas limits of a single contract execution, used to build a `GasCounter`.

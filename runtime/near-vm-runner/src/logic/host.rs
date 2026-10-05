@@ -942,17 +942,16 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 /// The current balance of the given account. This includes the attached_deposit that was
 /// attached to the transaction.
 ///
+/// In an external contract call this excludes the cost of the gas used so far,
+/// which the contract pays for.
+///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(
-        &mut ctx.result_state.gas_counter,
-        memory,
-        balance_ptr,
-        ctx.result_state.current_account_balance.as_yoctonear(),
-    )
+    let balance = ctx.result_state.available_balance();
+    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, balance.as_yoctonear())
 }
 
 /// The current amount of tokens locked due to staking.
