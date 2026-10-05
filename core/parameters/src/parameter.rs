@@ -195,6 +195,7 @@ pub enum Parameter {
 
     // Smart contract limits
     MaxGasBurnt,
+    MaxGasBurntExternal,
     MaxGasBurntView,
     MaxStackHeight,
     InitialMemoryPages,
@@ -373,6 +374,7 @@ impl Parameter {
     pub fn vm_limits() -> slice::Iter<'static, Parameter> {
         [
             Parameter::MaxGasBurnt,
+            Parameter::MaxGasBurntExternal,
             Parameter::MaxStackHeight,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
