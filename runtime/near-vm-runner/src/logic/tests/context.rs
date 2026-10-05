@@ -1,10 +1,11 @@
 use crate::logic::tests::helpers::assert_costs;
-use crate::logic::{ExecutionMode, External};
+use crate::logic::{ExecutionMode, External, HostError, VMLogicError};
 use crate::map;
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
 use near_parameters::ExtCosts;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::Balance;
+use std::fmt::Debug;
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -120,6 +121,62 @@ fn test_attached_deposit_view() {
     test_view(Balance::ZERO);
     test_view(Balance::from_yoctonear(1));
     test_view(Balance::MAX);
+}
+
+#[track_caller]
+fn assert_host_error<T: Debug>(result: Result<T, VMLogicError>, want: HostError) {
+    assert_eq!(result.unwrap_err(), VMLogicError::HostError(want));
+}
+
+#[test]
+fn test_external_signer_account_id() {
+    let mut logic_builder = VMLogicBuilder::external();
+    let want = logic_builder.context.current_account_id.as_bytes().to_vec();
+    let mut logic = logic_builder.build();
+    logic.signer_account_id(0).expect("signer_account_id should be allowed in external calls");
+    logic.assert_read_register(&want, 0);
+}
+
+#[test]
+fn test_external_refund_to_account_id() {
+    let mut logic_builder = VMLogicBuilder::external();
+    let want = logic_builder.context.current_account_id.as_bytes().to_vec();
+    let mut logic = logic_builder.build();
+    logic
+        .refund_to_account_id(0)
+        .expect("refund_to_account_id should be allowed in external calls");
+    logic.assert_read_register(&want, 0);
+}
+
+#[test]
+fn test_external_used_gas() {
+    let mut logic_builder = VMLogicBuilder::external();
+    let mut logic = logic_builder.build();
+    logic.used_gas().expect("used_gas should be allowed in external calls");
+}
+
+#[test]
+fn test_prohibited_in_external_call() {
+    let mut logic_builder = VMLogicBuilder::external();
+    let mut logic = logic_builder.build();
+    let prohibited =
+        |method_name: &str| HostError::ProhibitedInExternalCall { method_name: method_name.into() };
+    assert_host_error(logic.signer_account_pk(0), prohibited("signer_account_pk"));
+    assert_host_error(logic.predecessor_account_id(0), prohibited("predecessor_account_id"));
+    assert_host_error(logic.prepaid_gas(), prohibited("prepaid_gas"));
+}
+
+#[test]
+fn test_prohibited_in_view() {
+    let mut logic_builder = VMLogicBuilder::view();
+    let mut logic = logic_builder.build();
+    let prohibited =
+        |method_name: &str| HostError::ProhibitedInView { method_name: method_name.into() };
+    assert_host_error(logic.signer_account_id(0), prohibited("signer_account_id"));
+    assert_host_error(logic.signer_account_pk(0), prohibited("signer_account_pk"));
+    assert_host_error(logic.predecessor_account_id(0), prohibited("predecessor_account_id"));
+    assert_host_error(logic.refund_to_account_id(0), prohibited("refund_to_account_id"));
+    assert_host_error(logic.prepaid_gas(), prohibited("prepaid_gas"));
 }
 
 #[test]
