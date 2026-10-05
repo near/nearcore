@@ -16,7 +16,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Gas, ProtocolVersion, ShardId};
+use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
@@ -243,7 +243,7 @@ impl ReceiptPreparationPipeline {
                     let Ok(ContractPreparation::Ready { contract: code_ext, gas_counter }) = self
                         .prepare_contract_metadata(
                             &account_id,
-                            account.contract().into_owned(),
+                            account,
                             state_update,
                             function_call,
                             &ExecutionMode::Internal,
@@ -337,14 +337,17 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn prepare_contract_metadata(
         &self,
         account_id: &AccountId,
-        account_contract: AccountContract,
+        account: &Account,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
         execution_mode: &ExecutionMode,
         access: AccessOptions,
         protocol_version: ProtocolVersion,
     ) -> Result<ContractPreparation, StorageError> {
-        let gas_counter = self.gas_counter(execution_mode, function_call.gas);
+        // The balance the contract has during the call, as in `VMContext`.
+        let balance = account.amount().saturating_add(function_call.deposit);
+        let gas_counter = self.gas_counter(execution_mode, function_call.gas, balance);
+        let account_contract = account.contract().into_owned();
         if !self.config.wasm_config.fix_contract_loading_cost {
             let identifier = RuntimeContractIdentifier::resolve(
                 account_id,
@@ -501,9 +504,14 @@ impl ReceiptPreparationPipeline {
         }
     }
 
-    fn gas_counter(&self, execution_mode: &ExecutionMode, gas: Gas) -> GasCounter {
+    fn gas_counter(
+        &self,
+        execution_mode: &ExecutionMode,
+        gas: Gas,
+        balance: Balance,
+    ) -> GasCounter {
         let GasLimits { max_gas_burnt, prepaid_gas } =
-            execution_mode.gas_limits(&self.config.wasm_config.limit_config, gas);
+            execution_mode.gas_limits(&self.config.wasm_config.limit_config, gas, balance);
         GasCounter::new(
             self.config.wasm_config.ext_costs.clone(),
             max_gas_burnt,

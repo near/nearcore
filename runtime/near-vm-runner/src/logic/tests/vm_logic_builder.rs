@@ -39,6 +39,10 @@ impl VMLogicBuilder {
             builder.config.limit_config.max_gas_burnt;
         builder.context.execution_mode =
             ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) };
+        // The contract pays for the gas of an external call, and nobody sends
+        // it a deposit.
+        builder.context.account_balance = Balance::from_near(1);
+        builder.context.attached_deposit = Balance::ZERO;
         builder
     }
 
