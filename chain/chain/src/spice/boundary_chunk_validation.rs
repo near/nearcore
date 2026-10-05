@@ -775,7 +775,7 @@ mod tests {
         );
 
         // Dropping the older carrier's proof is rejected.
-        let mut missing_older = proofs.clone();
+        let mut missing_older = proofs;
         missing_older.remove(carriers[1].chunk_header.chunk_hash());
         assert_invalid_witness(
             validate_undelivered_receipt_proofs(
