@@ -12,7 +12,6 @@ use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, FunctionCallAction, GlobalContractIdentifier};
-use near_primitives::config::ViewConfig;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
@@ -21,7 +20,9 @@ use near_primitives::types::{AccountId, Gas, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_vm_runner::logic::{ContractLoadingAbort, GasCounter, PreparedContractGasCounter};
+use near_vm_runner::logic::{
+    ContractLoadingAbort, ExecutionMode, GasCounter, GasLimits, PreparedContractGasCounter,
+};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -245,7 +246,7 @@ impl ReceiptPreparationPipeline {
                             account.contract().into_owned(),
                             state_update,
                             function_call,
-                            None,
+                            &ExecutionMode::Internal,
                             AccessOptions::NO_SIDE_EFFECTS,
                             self.current_protocol_version,
                         )
@@ -339,11 +340,11 @@ impl ReceiptPreparationPipeline {
         account_contract: AccountContract,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
-        view_config: Option<&ViewConfig>,
+        execution_mode: &ExecutionMode,
         access: AccessOptions,
         protocol_version: ProtocolVersion,
     ) -> Result<ContractPreparation, StorageError> {
-        let gas_counter = self.gas_counter(view_config, function_call.gas);
+        let gas_counter = self.gas_counter(execution_mode, function_call.gas);
         if !self.config.wasm_config.fix_contract_loading_cost {
             let identifier = RuntimeContractIdentifier::resolve(
                 account_id,
@@ -500,17 +501,15 @@ impl ReceiptPreparationPipeline {
         }
     }
 
-    fn gas_counter(&self, view_config: Option<&ViewConfig>, gas: Gas) -> GasCounter {
-        let max_gas_burnt = match view_config {
-            Some(ViewConfig { max_gas_burnt }) => *max_gas_burnt,
-            None => self.config.wasm_config.limit_config.max_gas_burnt,
-        };
+    fn gas_counter(&self, execution_mode: &ExecutionMode, gas: Gas) -> GasCounter {
+        let GasLimits { max_gas_burnt, prepaid_gas } =
+            execution_mode.gas_limits(&self.config.wasm_config.limit_config, gas);
         GasCounter::new(
             self.config.wasm_config.ext_costs.clone(),
             max_gas_burnt,
             self.config.wasm_config.regular_op_cost,
-            gas,
-            view_config.is_some(),
+            prepaid_gas,
+            execution_mode.is_view(),
         )
     }
 }

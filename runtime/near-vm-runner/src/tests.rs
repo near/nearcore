@@ -16,7 +16,7 @@ mod universal_state_init_to_account_id_integration;
 mod view_call_gas_limit;
 mod wasm_validation;
 
-use crate::logic::VMContext;
+use crate::logic::{ExecutionMode, VMContext};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
 use near_primitives_core::types::{Balance, Gas};
@@ -67,7 +67,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     }
 }
