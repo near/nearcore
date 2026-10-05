@@ -6055,8 +6055,8 @@ mod self_signed_state_init {
     /// A self-signed state init against an account that is *already* initialized,
     /// signed with a key added later that the account id does not commit to.
     ///
-    /// This is legal today and must stay legal: it is how a deposit top-up is
-    /// sent, relying on the state init being idempotent. It is only reachable
+    /// This is legal today and must stay legal: a repeated state init is an
+    /// idempotent no-op that refunds its deposit. It is only reachable
     /// because the key-membership condition classifies rather than rejects, so
     /// the transaction falls through to the ordinary access-key path.
     #[test]
