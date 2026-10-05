@@ -3,11 +3,13 @@ name = "near-wallet-contract"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Builds and exposes Wallet Contract code."
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
+# The contract source in `implementation/` is a copy of near/near-wallet-contract;
+# only the prebuilt wasm files are published.
+include = ["src/**", "res/*.wasm", "build.rs", "README.md", "LICENSE-*"]
 
 [lints]
 workspace = true

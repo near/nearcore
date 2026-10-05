@@ -271,7 +271,7 @@ near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
-node-runtime = { path = "runtime/runtime" }
+node-runtime = { path = "runtime/runtime", package = "near-runtime" }
 num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
