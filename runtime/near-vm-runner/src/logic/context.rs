@@ -70,6 +70,10 @@ impl VMContext {
         self.execution_mode.is_view()
     }
 
+    pub fn is_external(&self) -> bool {
+        self.execution_mode.is_external()
+    }
+
     /// Make a gas counter based on the configuration in this VMContext.
     ///
     /// Meant for use in tests only.
@@ -91,6 +95,12 @@ impl VMContext {
 pub enum ExecutionMode {
     /// Execution of a receipt: a transaction or a cross-contract call.
     Internal,
+    /// Execution of an external contract call, authorized and paid for by the
+    /// contract itself.
+    External {
+        /// Gas price used to charge the contract for gas attached to promises.
+        gas_price: Balance,
+    },
     /// Read-only execution of a view call. Defines the view configuration.
     /// See <https://github.com/near/NEPs/pull/18> for more details.
     View(ViewConfig),
@@ -101,11 +111,21 @@ impl ExecutionMode {
         matches!(self, Self::View(_))
     }
 
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::External { .. })
+    }
+
     /// The gas limits of an execution in this mode, where `prepaid_gas` is
     /// the gas attached to the function call.
     pub fn gas_limits(&self, limit_config: &LimitConfig, prepaid_gas: Gas) -> GasLimits {
         match self {
             Self::Internal => GasLimits { max_gas_burnt: limit_config.max_gas_burnt, prepaid_gas },
+            // There is no prepaid gas in an external call; the contract pays for
+            // the gas, up to the limits set by the protocol.
+            Self::External { .. } => GasLimits {
+                max_gas_burnt: limit_config.max_gas_burnt_external,
+                prepaid_gas: limit_config.max_total_prepaid_gas,
+            },
             // There is no real prepaid gas in view mode; the per-call budget is
             // `max_gas_burnt`. See `GasCounter::new` for why it is bounded.
             Self::View(ViewConfig { max_gas_burnt }) => {

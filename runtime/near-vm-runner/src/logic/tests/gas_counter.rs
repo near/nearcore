@@ -125,6 +125,71 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
+/// An external call ignores the prepaid gas of the context and burns at most
+/// `max_gas_burnt_external`.
+#[test]
+fn test_external_cant_burn_more_than_max_gas_burnt_external() {
+    let gas_limit = 10u64.pow(14);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    let mut logic = logic_builder.build();
+
+    let result = logic.gas_opcodes(op_limit * 2);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasLimitExceeded)));
+    let outcome = logic.compute_outcome();
+
+    // `used_gas` is not checked: on hitting the burnt limit, `GasCounter`
+    // records the gas it failed to burn as promise gas (see
+    // https://github.com/near/nearcore/issues/5148).
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call can attach more gas to promises than it can burn, up to
+/// `max_total_prepaid_gas`.
+#[test]
+fn test_external_attach_more_than_max_gas_burnt_external() {
+    let gas_limit = 10u64.pow(14);
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    let mut logic = logic_builder.build();
+
+    promise_create(&mut logic, b"contract.near", 0, gas_limit * 2)
+        .expect("should create a promise");
+    let outcome = logic.compute_outcome();
+
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert!(outcome.used_gas > Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call cannot use more than `max_total_prepaid_gas` in total.
+#[test]
+fn test_external_cant_attach_more_than_max_total_prepaid_gas() {
+    let gas_limit = 10u64.pow(14);
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    let mut logic = logic_builder.build();
+
+    let result = promise_create(&mut logic, b"contract.near", 0, gas_limit * 3);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasExceeded)));
+    let outcome = logic.compute_outcome();
+
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit * 3));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
 #[test]
 fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);

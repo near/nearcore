@@ -32,6 +32,13 @@ impl VMLogicBuilder {
         builder
     }
 
+    pub fn external() -> Self {
+        let mut builder = Self::default();
+        builder.context.execution_mode =
+            ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) };
+        builder
+    }
+
     pub fn build(&mut self) -> TestVMLogic<'_> {
         TestVMLogic::new(
             &mut self.ext,
