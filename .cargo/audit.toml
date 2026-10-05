@@ -55,4 +55,6 @@ ignore = [
     "RUSTSEC-2026-0253",
     # RUSTSEC-2026-0316: Nearcore doesn't use fuel limits, this doesn't affect us.
     "RUSTSEC-2026-0316",
+    # RUSTSEC-2026-0327: Nearcore doesn't use component-model-async, this doesn't affect us.
+    "RUSTSEC-2026-0327",
 ]
