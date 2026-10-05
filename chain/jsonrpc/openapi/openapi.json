@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.33"
+    "version": "1.3.34"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -12570,6 +12570,14 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_gas_burnt_external": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",

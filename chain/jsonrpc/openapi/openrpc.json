@@ -7320,6 +7320,14 @@
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
           },
+          "max_gas_burnt_external": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
+          },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
             "format": "uint64",
