@@ -99,6 +99,7 @@ pub(crate) fn spawn_lazy_cache_warming(
     cache_handle: Box<dyn ContractRuntimeCache>,
 ) {
     spawn_warming(
+        // Warming fetches code speculatively, without receipt loading charges or size metadata.
         Box::new(move || RuntimeContractExt { storage, identifier }.get_code()),
         config,
         cache_handle,
