@@ -727,10 +727,10 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) ->
     opts.set_use_direct_io_for_flush_and_compaction(direct_io);
 
     // `compaction_readahead_size` is a DB-level option in RocksDB (it is
-    // ignored on column family options). With direct I/O it is the size of
-    // each prefetch read, i.e. how many requests a compaction keeps in flight,
-    // which is what bounds compaction throughput on high-latency disks. The
-    // cold store defaults to 32 MiB; the hot store keeps RocksDB's default.
+    // ignored on column family options). We don't set `use_direct_reads`, so
+    // compaction input reads are buffered: RocksDB issues this as a readahead(2)
+    // hint, and on Linux caps it at the device's `max_sectors_kb`. The cold
+    // store defaults to 32 MiB; the hot store keeps RocksDB's default.
     let readahead = store_config
         .rocksdb
         .compaction_readahead_size
