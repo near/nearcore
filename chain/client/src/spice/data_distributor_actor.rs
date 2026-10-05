@@ -8,8 +8,8 @@ use crate::spice::chunk_validator_actor::{
 };
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
-    PartsOutcome, PendingPartialData, Policies, SenderFault, SpiceData, SpiceDataManager,
-    VerifiedCodedPart,
+    PartsOutcome, PendingPartialData, Policies, PullConfig, PullRequest, SenderFault, SpiceData,
+    SpiceDataManager, VerifiedCodedPart,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -21,7 +21,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
-use near_async::time::Duration;
+use near_async::time::{Clock, Duration};
 use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
@@ -194,6 +194,7 @@ pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
 /// message types (contract-{accesses,response}) to validator via injected senders.
 pub struct SpiceDataDistributorActor {
+    clock: Clock,
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub(crate) core_reader: SpiceCoreReader,
@@ -475,20 +476,23 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
+        // TODO(spice): Allow requesting data without signer using route back. Until then the
+        // manager records the requests below as outstanding on a node that cannot send them.
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
+        let requests = self.data_manager.on_block_processed(&block_hash, self.clock.now());
+        if let Some(requester) = me {
+            self.send_pull_requests(requester, requests);
+        }
         if let Err(err) = self.process_pending_partial_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
-        }
-        match self.chain_store.spice_final_execution_head() {
-            Ok(head) => self.data_manager.on_final_execution_head(head.height),
-            Err(err) => {
-                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when reading the final execution head");
-            }
         }
     }
 }
 
 impl SpiceDataDistributorActor {
     pub fn new(
+        clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
@@ -505,10 +509,17 @@ impl SpiceDataDistributorActor {
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
+            PullConfig {
+                max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
+                max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
+                ..PullConfig::default()
+            },
             DATA_PARTS_RATIO,
+            chain_store.clone(),
             Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         Self {
+            clock,
             data_manager,
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -563,6 +574,19 @@ impl SpiceDataDistributorActor {
         #[cfg(feature = "test_features")]
         {
             *self.malformed_data_requests.entry(*reason).or_default() += 1;
+        }
+    }
+
+    fn send_pull_requests(&self, requester: &AccountId, requests: Vec<PullRequest>) {
+        for PullRequest { producer, wants } in requests {
+            let wants =
+                wants.into_iter().map(|(id, ordinals)| (SpiceDataIdentifier::from(&id), ordinals));
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceDataRequest {
+                    request: SpiceDataRequest::new(wants.collect(), requester.clone()),
+                    producer,
+                },
+            ));
         }
     }
 
@@ -744,10 +768,9 @@ impl SpiceDataDistributorActor {
 
         // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
-        self.start_waiting_on_data(block.hash())?;
-
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                self.data_manager.track_block_items(block.header())?;
                 let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
                 match self.data_manager.on_parts_received(
                     &sender,
@@ -771,6 +794,7 @@ impl SpiceDataDistributorActor {
                 }
             }
             SpiceDataIdentifier::Witness { .. } => {
+                self.start_waiting_on_data(block.hash())?;
                 self.receive_witness_data_with_block(id, commitment, parts, block, &producers)
             }
         }
@@ -1405,8 +1429,6 @@ impl SpiceDataDistributorActor {
             }
             self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
-
-        self.data_manager.track_block(block.header())?;
         Ok(())
     }
 
@@ -1817,6 +1839,8 @@ impl SpiceDataDistributorActor {
             self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             self.start_waiting_on_data(&block_hash)?;
+            let block = self.chain_store.get_block(&block_hash)?;
+            self.data_manager.track_block(&block)?;
             next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
         Ok(())
@@ -1826,7 +1850,9 @@ impl SpiceDataDistributorActor {
 /// Checks a request against the caps before any of it is served, so a request that asks for too
 /// much costs nothing beyond this pass. Ordinals are checked against the producer count when
 /// serving the entry, where that count is known.
-fn validate_wants(wants: &BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>) -> Result<(), Error> {
+pub(crate) fn validate_wants(
+    wants: &BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>,
+) -> Result<(), Error> {
     if wants.is_empty() {
         return Err(Error::MalformedRequest(MalformedDataRequest::NoEntries));
     }

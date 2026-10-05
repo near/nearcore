@@ -1,5 +1,6 @@
 use super::DataId;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Instant;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
@@ -30,6 +31,9 @@ pub(crate) struct FetchItem {
     pub(crate) height: BlockHeight,
     /// The item's producers, in the parts' encoding order, each with its state.
     pub(super) producers: Vec<(AccountId, ProducerState)>,
+    /// Whether a decode has been handed to the consumer. Only then can the store hold the
+    /// item's data.
+    pub(crate) delivered: bool,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
 }
@@ -39,6 +43,8 @@ pub(crate) struct FetchItem {
 pub(super) struct ProducerState {
     /// The commitment this producer backed, once one of its parts verified.
     pub(super) commitment: Option<SpiceDataCommitment>,
+    /// When this node asked it, while that request is unanswered.
+    pub(super) requested_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -53,7 +59,23 @@ impl FetchItem {
     pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
         let producers =
             producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
-        Self { height, producers, commitments: HashMap::new() }
+        Self { height, producers, delivered: false, commitments: HashMap::new() }
+    }
+
+    /// The state of `account` if it is one of the item's producers.
+    pub(super) fn producer_state_mut(&mut self, account: &AccountId) -> Option<&mut ProducerState> {
+        self.producers.iter_mut().find(|(producer, _)| producer == account).map(|(_, state)| state)
+    }
+
+    /// The tracker still collecting under `commitment`, if any.
+    pub(super) fn tracker_mut(
+        &mut self,
+        commitment: &SpiceDataCommitment,
+    ) -> Option<&mut CodedTracker> {
+        match self.commitments.get_mut(commitment) {
+            Some(CommitmentState::Tracking(tracker)) => Some(tracker),
+            Some(CommitmentState::Settled) | None => None,
+        }
     }
 
     /// Senders contributed to `commitment`.
@@ -167,6 +189,9 @@ impl VerifiedCodedPart {
 /// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
+    /// Position in the pool's rotation; starts at random so requesters spread over the
+    /// pool, and moves past each member asked.
+    pub(super) rotation_cursor: u64,
 }
 
 impl fmt::Debug for CodedTracker {
@@ -181,7 +206,18 @@ impl fmt::Debug for CodedTracker {
 
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
-        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
+        Self {
+            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
+            rotation_cursor: rand::random(),
+        }
+    }
+
+    /// Ordinals not held yet.
+    pub(super) fn missing_ordinals(&self) -> Vec<u64> {
+        (0..self.parts.total_parts())
+            .filter(|ordinal| !self.parts.has_part(*ordinal))
+            .map(|ordinal| ordinal as u64)
+            .collect()
     }
 
     /// Inserts a part; the decoding insert checks the data against `commitment`'s hash
