@@ -6061,8 +6061,8 @@ mod self_signed_state_init {
     /// A self-signed state init against an account that is *already* initialized,
     /// signed with a key added later that the account id does not commit to.
     ///
-    /// This is legal today and must stay legal: it is how a deposit top-up is
-    /// sent, relying on the state init being idempotent. It is only reachable
+    /// This is legal today and must stay legal: a repeated state init is an
+    /// idempotent no-op that refunds its deposit. It is only reachable
     /// because the key-membership condition classifies rather than rejects, so
     /// the transaction falls through to the ordinary access-key path.
     #[test]
@@ -6095,6 +6095,98 @@ mod self_signed_state_init {
             outcomes[0].outcome.status,
             ExecutionStatus::SuccessReceiptId(_),
             "an added key must still be able to send an idempotent state init"
+        );
+    }
+
+    /// A repeated state init never tops up storage staking from its deposit, even
+    /// when an earlier action in the same receipt pushed the account below its
+    /// requirement. The receipt then fails at the end-of-receipt storage check
+    /// and rolls back, instead of the state init quietly funding the new key.
+    #[test]
+    fn repeated_init_deposit_does_not_cover_other_actions_storage() {
+        init_test_logger();
+        let committed = signer_for("deposit-committed");
+        let added = signer_for("deposit-added");
+        let state_init = state_init_for(&[committed.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let deposit = Balance::from_near(1);
+        // Enough to pay the deposit and fees while still meeting the storage stake,
+        // but less than the stake of the keys added below.
+        let slack = Balance::from_millinear(100);
+        let storage_usage: u64 = 1_000_000;
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::ZERO);
+        let stake =
+            apply_state.config.storage_amount_per_byte().checked_mul(storage_usage.into()).unwrap();
+
+        // An initialized account holding `added` and staking exactly for its storage.
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = get_account(&state, &account_id).unwrap().unwrap();
+        account.initialize().unwrap();
+        account.set_storage_usage(storage_usage);
+        account.set_amount(stake.checked_add(deposit).unwrap().checked_add(slack).unwrap());
+        set_account(&mut state, account_id.clone(), &account);
+        let mut access_key = AccessKey::full_access();
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Function call keys with long method name lists are the cheapest way to
+        // add a lot of storage in one receipt.
+        let new_keys = (0..3)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("deposit-new-key-{i}")))
+            .map(|secret_key| secret_key.public_key())
+            .collect_vec();
+        let method_names = (0..7).map(|i| format!("{i}{}", "m".repeat(249))).collect_vec();
+        let mut actions = new_keys
+            .iter()
+            .map(|public_key| {
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                            allowance: None,
+                            receiver_id: account_id.to_string(),
+                            method_names: method_names.clone(),
+                        }),
+                    },
+                }))
+            })
+            .collect_vec();
+        actions.push(Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit,
+        })));
+        let tx = SignedTransaction::from_actions(
+            expected_nonce(),
+            account_id.clone(),
+            account_id.clone(),
+            &added,
+            actions,
+            CryptoHash::default(),
+        );
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| matches!(outcome.outcome.status, ExecutionStatus::Failure(_)))
+            .expect("the receipt must fail on the storage stake");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::LackBalanceForState { .. }),
+            "the receipt must fail on storage staking, not something else"
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(
+            new_keys.iter().all(|public_key| get_access_key(&state, &account_id, public_key)
+                .unwrap()
+                .is_none()),
+            "the failed receipt must roll back the added keys"
         );
     }
 
