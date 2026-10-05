@@ -133,9 +133,6 @@ impl RocksDB {
         // above returns early and drops `counter` without logging open or close.
         counter.mark_opened();
         let cf_handles = Self::get_cf_handles(&db, columns);
-        if temp == Temperature::Cold && mode.read_write() {
-            Self::disable_age_based_compactions(&db, columns);
-        }
         Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
     }
 
@@ -149,11 +146,15 @@ impl RocksDB {
     /// rewriting gigabytes to relocate megabytes (observed read-write
     /// amplification >500x). Set via `SetOptions` because the rocksdb crate
     /// does not expose `ttl` on `Options`; both are mutable CF options.
-    fn disable_age_based_compactions(db: &DB, columns: &[DBCol]) {
-        for col in columns.iter().copied() {
-            let Some(cf) = db.cf_handle(&col_name(col)) else { continue };
+    ///
+    /// Every `SetOptions` call persists a new OPTIONS file, which costs tens
+    /// of milliseconds per column family, so this is only called by the
+    /// opener on the final, long-lived cold store instance and not on the
+    /// short-lived instances used for metadata checks and migrations.
+    pub(crate) fn disable_age_based_compactions(&self) {
+        for (col, cf) in self.cf_handles() {
             if let Err(err) =
-                db.set_options_cf(cf, &[("ttl", "0"), ("periodic_compaction_seconds", "0")])
+                self.db.set_options_cf(cf, &[("ttl", "0"), ("periodic_compaction_seconds", "0")])
             {
                 tracing::warn!(target: "db", %col, %err, "failed to disable ttl compaction");
             }
