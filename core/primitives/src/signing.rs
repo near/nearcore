@@ -1,8 +1,7 @@
+use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-
-use crate::validator_signer::ValidatorSigner;
 
 /// A borsh-serializable payload with domain-separated signing.
 ///
