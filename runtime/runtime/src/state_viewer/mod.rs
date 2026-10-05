@@ -492,7 +492,7 @@ impl TrieViewer {
             state_update.contract_storage(),
             &epoch_info_provider.chain_id(),
             contract_id,
-            account.contract().into_owned(),
+            &account,
             &state_update,
             &function_call,
             &execution_mode,

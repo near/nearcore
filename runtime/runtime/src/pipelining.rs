@@ -241,7 +241,7 @@ impl ReceiptPreparationPipeline {
                     let Ok(ContractPreparation::Ready { contract: code_ext, gas_counter }) = self
                         .prepare_contract_metadata(
                             &account_id,
-                            account.contract().into_owned(),
+                            account,
                             state_update,
                             function_call,
                             AccessOptions::NO_SIDE_EFFECTS,
@@ -326,7 +326,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn prepare_contract_metadata(
         &self,
         account_id: &AccountId,
-        account_contract: AccountContract,
+        account: &Account,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
         access: AccessOptions,
@@ -337,7 +337,7 @@ impl ReceiptPreparationPipeline {
             &self.storage,
             &self.chain_id,
             account_id,
-            account_contract,
+            account,
             state_update,
             function_call,
             &ExecutionMode::Internal,
