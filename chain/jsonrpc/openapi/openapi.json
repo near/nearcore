@@ -9154,6 +9154,27 @@
               "MlDsaVerifyInvalidInput"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`method_name` is not allowed in external contract calls",
+            "properties": {
+              "ProhibitedInExternalCall": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ProhibitedInExternalCall"
+            ],
+            "type": "object"
           }
         ]
       },
