@@ -22,7 +22,7 @@ use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_vm_runner::logic::PreparedContractGasCounter;
+use near_vm_runner::logic::{ExecutionMode, PreparedContractGasCounter};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -340,7 +340,7 @@ impl ReceiptPreparationPipeline {
             account_contract,
             state_update,
             function_call,
-            None,
+            &ExecutionMode::Internal,
             access,
             protocol_version,
         )

@@ -5,13 +5,15 @@ use crate::ext::RuntimeContractExt;
 use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::AccountContract;
-use near_primitives::config::ViewConfig;
+use near_primitives::gas::Gas;
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieUpdate};
-use near_vm_runner::logic::{ContractLoadingAbort, GasCounter, PreparedContractGasCounter};
+use near_vm_runner::logic::{
+    ContractLoadingAbort, ExecutionMode, GasCounter, GasLimits, PreparedContractGasCounter,
+};
 use near_vm_runner::{
     CompilePriority, ContractRuntimeCache, PreparedContract, prepare_with_priority,
 };
@@ -43,21 +45,11 @@ pub(crate) fn prepare_contract_metadata(
     account_contract: AccountContract,
     state_update: &TrieUpdate,
     function_call: &FunctionCallAction,
-    view_config: Option<&ViewConfig>,
+    execution_mode: &ExecutionMode,
     access: AccessOptions,
     protocol_version: ProtocolVersion,
 ) -> Result<ContractPreparation, StorageError> {
-    let max_gas_burnt = match view_config {
-        Some(ViewConfig { max_gas_burnt }) => *max_gas_burnt,
-        None => config.wasm_config.limit_config.max_gas_burnt,
-    };
-    let gas_counter = GasCounter::new(
-        config.wasm_config.ext_costs.clone(),
-        max_gas_burnt,
-        config.wasm_config.regular_op_cost,
-        function_call.gas,
-        view_config.is_some(),
-    );
+    let gas_counter = gas_counter(config, execution_mode, function_call.gas);
     if !config.wasm_config.fix_contract_loading_cost {
         let identifier = RuntimeContractIdentifier::resolve(
             account_id,
@@ -107,4 +99,16 @@ pub(crate) fn prepare_function_call(
     priority: CompilePriority,
 ) -> Box<dyn PreparedContract> {
     prepare_with_priority(code_ext, config, cache, *gas_counter, method_name, priority)
+}
+
+fn gas_counter(config: &RuntimeConfig, execution_mode: &ExecutionMode, gas: Gas) -> GasCounter {
+    let GasLimits { max_gas_burnt, prepaid_gas } =
+        execution_mode.gas_limits(&config.wasm_config.limit_config, gas);
+    GasCounter::new(
+        config.wasm_config.ext_costs.clone(),
+        max_gas_burnt,
+        config.wasm_config.regular_op_cost,
+        prepaid_gas,
+        execution_mode.is_view(),
+    )
 }
