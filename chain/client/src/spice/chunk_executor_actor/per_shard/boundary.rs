@@ -9,7 +9,7 @@ use near_async::messaging::{CanSend, IntoSender};
 use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::boundary_synthesis::{
     PreSpiceChunkApplyBlocks, execution_result_and_receipt_proofs_from_pre_spice_apply,
-    get_last_new_chunk_block_and_old_chunk_blocks,
+    get_last_new_chunk_block_and_old_chunk_blocks, get_undelivered_receipt_proofs,
 };
 use near_chain::{Block, Error, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -202,6 +202,12 @@ impl PerShardChunkExecutor {
             transactions,
             contract_accesses: contract_accesses.iter().cloned().collect(),
             implicit_transitions,
+            undelivered_receipt_proofs: get_undelivered_receipt_proofs(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block,
+                shard_id,
+            )?,
         });
         let contract_accesses: HashSet<CodeHash> = contract_accesses.into_iter().collect();
         save_witness_and_contract_accesses(

@@ -1,13 +1,16 @@
 //! Tests for crossing the pre-spice -> spice activation boundary.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_account_id, create_validator_ids};
 use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;
-use near_chain::spice::boundary_synthesis::execution_result_and_receipt_proofs_from_pre_spice_apply;
+use near_chain::spice::boundary_synthesis::{
+    execution_result_and_receipt_proofs_from_pre_spice_apply, get_undelivered_receipts,
+};
 use near_chain::spice::core::get_last_certified_block_header;
-use near_chain::{Block, ChainStoreAccess};
+use near_chain::{Block, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
@@ -927,6 +930,163 @@ fn test_protocol_upgrade_to_spice_receipt_in_flight() {
         final_balance.checked_sub(trickle.initial_receiver_balance).unwrap(),
         expected,
         "every in-flight deposit must land exactly once",
+    );
+}
+
+/// A receipt sent pre-spice to a shard whose chunk is missing at the last pre-spice
+/// block must be applied by that shard's first spice chunk.
+///
+/// Pre-spice, a shard's next chunk applies the incoming receipts of every block since
+/// its previous chunk. The boundary witness of the receiving shard ends at its last
+/// pre-spice chunk, so the sending shard's boundary result commits to the receipt
+/// alongside its last apply's, and the first spice chunk receives it as a regular
+/// incoming receipt.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_receipt_pending_for_shard_missing_boundary_chunk() {
+    init_test_logger();
+    let sender = create_account_id("user");
+    let receiver = create_account_id("receiver");
+    let amount = Balance::from_near(1);
+    let env = setup_upgrading_chain(2, 2);
+    let (receiver_shard_id, receiver_shard_index) = {
+        let node = env.rpc_node();
+        let shard_layout =
+            node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+        let receiver_shard_id = shard_layout.account_id_to_shard_id(&receiver);
+        assert_ne!(shard_layout.account_id_to_shard_id(&sender), receiver_shard_id);
+        (receiver_shard_id, shard_layout.get_shard_index(receiver_shard_id).unwrap())
+    };
+    // The receiving shard misses its chunk at the last pre-spice block.
+    let mut env = env.drop(DropCondition::ProtocolUpgradeChunkRange(
+        ProtocolFeature::Spice.protocol_version(),
+        HashMap::from([(receiver_shard_index, -1..0)]),
+    ));
+
+    env.rpc_runner().run_until(
+        |node| {
+            node.client()
+                .epoch_manager
+                .get_estimated_protocol_upgrade_block_height(node.head().last_block_hash)
+                .unwrap()
+                .is_some()
+        },
+        Duration::seconds((4 * EPOCH_LENGTH) as i64),
+    );
+    let first_spice_height = env
+        .rpc_node()
+        .client()
+        .epoch_manager
+        .get_estimated_protocol_upgrade_block_height(env.rpc_node().head().last_block_hash)
+        .unwrap()
+        .unwrap();
+    let initial_receiver_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+
+    // The bandwidth scheduler sends nothing to a shard whose last chunk is missing, so
+    // the receipt must be sent at the height just before the missing chunk to end up
+    // pending: it is then carried to the receiving shard at the last pre-spice block.
+    // A transaction submitted at head `h` is converted to its receipt at `h + 2`.
+    env.rpc_runner().run_until_head_height(first_spice_height - 4);
+    let tx = env.rpc_node().tx_send_money(&sender, &receiver, amount);
+    let tx_hash = env.rpc_node().submit_tx(tx);
+    env.rpc_runner().run_until_head_height(first_spice_height + 2);
+    env.rpc_runner().run_until_certified(first_spice_height);
+
+    let node = env.rpc_node();
+    let chain = &node.client().chain;
+    let epoch_manager = chain.epoch_manager.as_ref();
+    let first_spice = chain.get_block_by_height(first_spice_height).unwrap();
+    assert!(first_spice.is_spice_block(), "the upgrade landed at an unexpected height");
+    let last_pre_spice = chain.get_block(first_spice.header().prev_hash()).unwrap();
+    assert!(is_last_pre_spice_block(epoch_manager, last_pre_spice.hash()).unwrap());
+
+    // The scenario: the transfer's receipt is pending for the receiving shard at the
+    // last pre-spice block.
+    let shard_layout = epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+    let receiver_last_included_height =
+        last_pre_spice.chunks()[receiver_shard_index].height_included();
+    assert!(
+        receiver_last_included_height < last_pre_spice.header().height(),
+        "the receiving shard's chunk must be missing at the last pre-spice block",
+    );
+    let receipt_id = node.tx_receipt_id(tx_hash);
+    let pending_receipts = get_incoming_receipts_for_shard(
+        &chain.chain_store,
+        epoch_manager,
+        receiver_shard_id,
+        &shard_layout,
+        *last_pre_spice.hash(),
+        receiver_last_included_height,
+        ReceiptFilter::TargetShard,
+    )
+    .unwrap();
+    assert!(
+        pending_receipts
+            .iter()
+            .flat_map(|response| response.1.iter())
+            .flat_map(|proof| proof.0.iter())
+            .any(|receipt| receipt.receipt_id() == &receipt_id),
+        "the transfer receipt must be pending for the receiving shard at the boundary",
+    );
+    let sender_shard_id = shard_layout.account_id_to_shard_id(&sender);
+    assert!(
+        get_undelivered_receipts(
+            &chain.chain_store,
+            epoch_manager,
+            &last_pre_spice,
+            sender_shard_id
+        )
+        .unwrap()
+        .iter()
+        .any(|receipt| receipt.receipt_id() == &receipt_id),
+        "the sending shard's boundary result must commit to the pending receipt",
+    );
+
+    // The first spice chunk of the receiving shard applies it, exactly once.
+    let receipt_outcome = chain
+        .get_execution_outcome(&receipt_id)
+        .expect("the receipt pending at the spice boundary was dropped");
+    assert_eq!(receipt_outcome.block_hash, *first_spice.hash());
+    let final_balance = node.view_account_query(&receiver).unwrap().amount;
+    assert_eq!(final_balance.checked_sub(initial_receiver_balance).unwrap(), amount);
+
+    // The sending shard's boundary result, which commits to the receipt, validated from
+    // its boundary witness.
+    assert_boundary_results_validated(&env, &last_pre_spice);
+
+    // And a validator that did not apply the receiving shard's first spice chunk
+    // endorsed its certified result.
+    let certified = chain
+        .spice_core_reader
+        .get_execution_results_by_shard_id(first_spice.header())
+        .unwrap()
+        .remove(&receiver_shard_id)
+        .expect("the first spice chunk of the receiving shard must be certified");
+    let shard_uid = ShardUId::from_shard_id_and_layout(receiver_shard_id, &shard_layout);
+    let stateless_endorsers = env
+        .node_datas
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            env.node(*index)
+                .client()
+                .chain
+                .chain_store
+                .get_chunk_extra(first_spice.hash(), &shard_uid)
+                .is_err()
+        })
+        .filter(|(_, data)| {
+            chain
+                .spice_core_reader
+                .get_endorsement(first_spice.hash(), receiver_shard_id, &data.account_id)
+                .is_some_and(|endorsement| {
+                    endorsement.execution_result_hash == certified.compute_hash()
+                })
+        })
+        .count();
+    assert!(
+        stateless_endorsers > 0,
+        "no validator endorsed the first spice chunk from its witness",
     );
 }
 
