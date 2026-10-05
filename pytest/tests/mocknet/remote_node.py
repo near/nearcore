@@ -41,6 +41,9 @@ class RemoteNeardRunner:
     def neard_port(self):
         return 3030
 
+    def neard_runner_port(self):
+        return 3000
+
     def init(self):
         cmd_utils.init_node(self.node)
 
@@ -111,7 +114,7 @@ class RemoteNeardRunner:
             --home {self.neard_runner_home}\
             --neard-home "/home/ubuntu/.near"\
             --neard-logs-dir "/home/ubuntu/neard-logs"\
-            --port 3000'
+            --port {self.neard_runner_port()}'
 
         SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner \
             --uid={USER} \
@@ -134,7 +137,7 @@ class RemoteNeardRunner:
     # The runner downloads binaries before it binds the port, so allow time
     # for that (300 s, same as the unit's TimeoutStartSec).
     def wait_neard_runner_up(self, timeout_seconds=300):
-        cmd = 'curl -sS -f -m 3 localhost:3000/status'
+        cmd = f'curl -sS -f -m 3 localhost:{self.neard_runner_port()}/status'
         deadline = time.time() + timeout_seconds
         while True:
             r = cmd_utils.run_cmd(self.node, cmd, return_on_fail=True)
@@ -153,7 +156,7 @@ class RemoteNeardRunner:
         # followed by a new quote started with ' and the rest of the string, to get any single quotes
         # in method or params into the command correctly
         body = body.replace("'", "'\"'\"'")
-        cmd = f'curl localhost:3000 -d \'{body}\''
+        cmd = f'curl localhost:{self.neard_runner_port()} -d \'{body}\''
         if schedule_ctx is not None:
             r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx)
             logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
