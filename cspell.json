@@ -87,6 +87,7 @@
         "colddb",
         "Condvar",
         "Condvars",
+        "CONTROLMASTER",
         "conv",
         "cooldown",
         "cpus",

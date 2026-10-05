@@ -14,6 +14,12 @@ import re
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
+import mocknet_ssh
+
+# Scripted runs issue commands back to back, so an idle shared ssh master
+# connection only needs to survive the gaps between steps. mirror.py uses a
+# longer timeout for manual use; MOCKNET_SSH_CONTROL_PERSIST overrides both.
+mocknet_ssh.set_default_ssh_control_persist('10m')
 
 from forknet_scenarios import get_test_case, get_available_test_cases
 
