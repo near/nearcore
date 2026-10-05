@@ -251,6 +251,7 @@ pub enum Parameter {
     // Contract runtime features
     FixContractLoadingCost,
     FixContractLoadingError,
+    Wasmtime48,
     VmKind,
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
     // past protocol version 87, where the feature is enabled.

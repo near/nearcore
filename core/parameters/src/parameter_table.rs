@@ -455,6 +455,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
                 fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
+                wasmtime_48: params.get(Parameter::Wasmtime48)?,
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,

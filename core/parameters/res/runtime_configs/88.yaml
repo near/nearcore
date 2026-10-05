@@ -1,1 +1,2 @@
 max_globals_per_contract: { new: 65_536 }
+wasmtime48: { old: false, new: true }
