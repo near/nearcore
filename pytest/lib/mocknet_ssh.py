@@ -39,6 +39,9 @@ masters.
 
 SshSharingMachine depends on python-rc internals: the argv shape of
 Machine._ssh_shell() and the rsync commands in Machine.upload()/download().
+tests/mocknet/test_mocknet_ssh.py checks both. NayDuck runs it (see
+nightly/pytest-mocknet.txt). Also run it when you change the python-rc version
+in requirements.txt.
 """
 import os
 import shlex
