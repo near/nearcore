@@ -20,7 +20,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::{DeployContractAction, FunctionCallAction, UniversalStateInitAction};
+use near_primitives::action::{FunctionCallAction, UniversalStateInitAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -57,7 +57,6 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
-use near_test_contracts::trivial_contract;
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
@@ -2865,18 +2864,7 @@ fn test_strict_nonce_gap_ttl_eviction() {
 fn test_storage_proof_garbage() {
     let shard_id = ShardId::new(0);
     let signer = create_test_signer("test1");
-    let mut env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
-    // Contract preparation must succeed to reach the test-only garbage injection hook.
-    let tx_signer = InMemorySigner::test_signer(signer.validator_id());
-    let deploy = SignedTransaction::from_actions(
-        1,
-        signer.validator_id().clone(),
-        signer.validator_id().clone(),
-        &tx_signer,
-        vec![Action::DeployContract(DeployContractAction { code: trivial_contract().to_vec() })],
-        CryptoHash::default(),
-    );
-    env.step_default(vec![deploy]);
+    let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
     let receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: signer.validator_id().clone(),

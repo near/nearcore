@@ -82,6 +82,11 @@ pub(crate) fn action_function_call(
         is_last_action,
         None,
     );
+
+    // Witness-size tests expect garbage injection to work even when contract preparation aborts.
+    #[cfg(feature = "test_features")]
+    apply_recorded_storage_garbage(function_call, runtime_ext.trie_update);
+
     let outcome = match preparation {
         ContractPreparation::Ready { contract: code_ext, gas_counter } => {
             let contract_id = code_ext.identifier.clone();
@@ -93,9 +98,6 @@ pub(crate) fn action_function_call(
                 false,
             );
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
-
-            #[cfg(feature = "test_features")]
-            apply_recorded_storage_garbage(function_call, runtime_ext.trie_update);
 
             execute_function_call(
                 contract,
