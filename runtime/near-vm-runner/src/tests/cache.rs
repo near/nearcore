@@ -135,9 +135,9 @@ fn make_cached_contract_call_vm(
 
 #[test]
 #[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
-fn test_wasmtime_artifact_output_stability() {
+fn test_wasmtime_45_artifact_output_stability() {
     use crate::prepare;
-    use crate::wasmtime_runner::WasmtimeVM;
+    use crate::wasmtime_45_runner::WasmtimeVM;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -209,6 +209,53 @@ fn test_wasmtime_artifact_output_stability() {
     // can be adjusted.
 }
 
+#[test]
+#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
+fn test_wasmtime_48_artifact_output_stability() {
+    use crate::prepare;
+    use crate::wasmtime_48_runner::WasmtimeVM;
+
+    let seeds = [2, 3, 5, 7, 11, 13, 17];
+    let prepared_hashes = [
+        12449640751251113238,
+        6667984442121282965,
+        5326763896713807329,
+        7732431717957140339,
+        3109521814084239259,
+        10353595027846323532,
+        10277454382572670711,
+    ];
+    let compiled_hashes = [
+        5318140329905998884,
+        13259275477635306387,
+        13622922136670371419,
+        12662284745264379445,
+        8473449960270955283,
+        9066765416848662389,
+        10232210943655321086,
+    ];
+    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
+    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
+        let config = test_vm_config(Some(VMKind::Wasmtime));
+        let prepared_code =
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+        let vm = WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into()))
+            .unwrap();
+        let serialized = vm.compile_uncached(&contract).unwrap().unwrap();
+        got_compiled_hashes.push(crate::utils::stable_hash(&serialized));
+    }
+
+    assert!(
+        got_prepared_hashes == prepared_hashes && got_compiled_hashes == compiled_hashes,
+        "let prepared_hashes = {:#?};\nlet compiled_hashes = {:#?};",
+        got_prepared_hashes,
+        got_compiled_hashes
+    );
+}
+
 #[cfg(feature = "wasmtime_vm")]
 fn sparse_wasm_contract() -> Vec<u8> {
     // A tiny contract declaring 1 MiB of linear memory with data bytes at
@@ -227,7 +274,7 @@ fn sparse_wasm_contract() -> Vec<u8> {
 #[test]
 #[cfg(feature = "wasmtime_vm")]
 fn test_wasmtime_sparse_contract_compiled_size() {
-    use crate::wasmtime_runner::WasmtimeVM;
+    use crate::wasmtime_48_runner::WasmtimeVM;
     let contract = ContractCode::new(sparse_wasm_contract(), None);
     let config = test_vm_config(Some(VMKind::Wasmtime));
     let vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
@@ -241,9 +288,9 @@ fn test_wasmtime_sparse_contract_compiled_size() {
 
 #[test]
 #[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
-fn test_wasmtime_sparse_contract_stability() {
+fn test_wasmtime_45_sparse_contract_stability() {
     use crate::prepare;
-    use crate::wasmtime_runner::WasmtimeVM;
+    use crate::wasmtime_45_runner::WasmtimeVM;
     // Companion to `test_wasmtime_artifact_output_stability`: exercises the
     // sparse-data-segment case that `arbitrary_contract` does not cover.
     // See comments on that test for how to update these hashes.
@@ -268,18 +315,52 @@ fn test_wasmtime_sparse_contract_stability() {
     );
 }
 
-#[cfg(feature = "wasmtime_vm")]
-impl crate::wasmtime_runner::CachedArtifact {
-    /// Convenience helper for tests
-    fn unwrap(self) -> Vec<u8> {
-        match self {
-            Self::CompiledBytes(bytes) => bytes,
-            Self::CompilerError(_) => {
-                panic!("contract compilation failed")
+#[test]
+#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
+fn test_wasmtime_48_sparse_contract_stability() {
+    use crate::prepare;
+    use crate::wasmtime_48_runner::WasmtimeVM;
+
+    let expected_prepared_hash: u64 = 16694328674582109973;
+    let expected_compiled_hash: u64 = 15970173946266203448;
+    let contract = ContractCode::new(sparse_wasm_contract(), None);
+    let config = test_vm_config(Some(VMKind::Wasmtime));
+    let prepared_code =
+        prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+    let prepared_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+    let vm =
+        WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into())).unwrap();
+    let serialized = vm.compile_uncached(&contract).unwrap().unwrap();
+    let compiled_hash = crate::utils::stable_hash(&serialized);
+
+    assert!(
+        prepared_hash == expected_prepared_hash && compiled_hash == expected_compiled_hash,
+        "let expected_prepared_hash: u64 = {};\nlet expected_compiled_hash: u64 = {};",
+        prepared_hash,
+        compiled_hash
+    );
+}
+
+macro_rules! impl_cached_artifact_unwrap {
+    ($cached_artifact:path) => {
+        impl $cached_artifact {
+            /// Convenience helper for tests.
+            fn unwrap(self) -> Vec<u8> {
+                match self {
+                    Self::CompiledBytes(bytes) => bytes,
+                    Self::CompilerError(_) => {
+                        panic!("contract compilation failed")
+                    }
+                }
             }
         }
-    }
+    };
 }
+
+#[cfg(feature = "wasmtime_vm")]
+impl_cached_artifact_unwrap!(crate::wasmtime_45_runner::CachedArtifact);
+#[cfg(feature = "wasmtime_vm")]
+impl_cached_artifact_unwrap!(crate::wasmtime_48_runner::CachedArtifact);
 
 /// [`ContractRuntimeCache`] which simulates failures in the underlying
 /// database.
@@ -327,7 +408,7 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
 fn test_no_duplicate_compilation() {
     use crate::cache::get_contract_cache_key;
     use crate::runner::VM;
-    use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
+    use crate::wasmtime_48_runner::{WasmtimeVM, compilation_locks};
 
     let config = test_vm_config(Some(VMKind::Wasmtime));
     let cache = MockContractRuntimeCache::default();
