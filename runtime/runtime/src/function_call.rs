@@ -401,7 +401,8 @@ pub(crate) fn execute_function_call(
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
             if !context.is_view() {
-                // Do not commit a potentially nondeterministic error on chain.
+                // Internal and external calls change state. Do not commit a
+                // potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");
             } else {
                 // A view call does not change state, so returning the local
@@ -414,10 +415,18 @@ pub(crate) fn execute_function_call(
         Ok(r) => r,
     };
 
-    if !context.is_view() {
-        let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
-        let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
-        outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
+    match context.execution_mode {
+        ExecutionMode::Internal => {
+            let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
+            let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
+            outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
+        }
+        // An external call has no prepaid gas to distribute: promises get
+        // exactly the gas they were created with, which the contract has
+        // already paid for. Gas weights have no effect.
+        ExecutionMode::External { .. } => {}
+        // View calls cannot create promises.
+        ExecutionMode::View(_) => {}
     }
 
     Ok(outcome)
