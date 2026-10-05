@@ -26,6 +26,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (129, include_config!("129.yaml")),
+    (150, include_config!("150.yaml")),
     (155, include_config!("155.yaml")),
 ];
 
@@ -340,6 +341,18 @@ mod tests {
         // accumulate, so if the feature moved to a later version and the diff stayed
         // put, the flag would still read as on at the feature's own version.
         assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
+    }
+
+    /// Make sure that protocol feature flag and runtime config are in sync for
+    /// the external contract calls gas budget.
+    #[test]
+    fn test_external_contract_calls_budget() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let budget =
+            |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
+        assert_eq!(budget(version), Gas::from_teragas(20));
+        assert_eq!(budget(version - 1), Gas::ZERO);
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions
