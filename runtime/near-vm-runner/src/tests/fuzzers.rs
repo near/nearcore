@@ -113,7 +113,7 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 #[test]
 #[cfg(feature = "wasmtime_vm")]
 fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
-    use crate::wasmtime_runner::{CachedArtifact, WasmtimeVM};
+    use crate::wasmtime_48_runner::{CachedArtifact, WasmtimeVM};
     use near_primitives_core::hash::CryptoHash;
 
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {

@@ -367,7 +367,11 @@ wasm-encoder = "0.236"
 wasmparser-236 = { package = "wasmparser", version = "0.236" } # Exact version must not change without protocol change.
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { version = "45.0.0", default-features = false, features = [
+wasmtime-45 = { package = "wasmtime", version = "=45.0.0", default-features = false, features = [
+    "cranelift",
+    "winch",
+] }
+wasmtime-48 = { package = "wasmtime", version = "=48.0.5", default-features = false, features = [
     "cranelift",
     "winch",
 ] }

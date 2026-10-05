@@ -10,7 +10,8 @@
 
 use super::protocol::{
     COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    DaemonStatus, IsolationStatus, WorkerConfig, read_compile_response, read_frame, write_frame,
+    DaemonStatus, IsolationStatus, WasmtimeVersion, WorkerConfig, read_compile_response,
+    read_frame, write_frame,
 };
 use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
@@ -21,7 +22,7 @@ use crate::compiler_daemon::{
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::metrics::COMPILATION_PATH_TOTAL;
-use crate::wasmtime_runner::compiler_compatibility_hash;
+use crate::{wasmtime_45_runner, wasmtime_48_runner};
 #[cfg(target_os = "linux")]
 use libc::{SCHED_OTHER, sched_param, sched_setscheduler};
 use near_parameters::vm::LimitConfig;
@@ -42,7 +43,7 @@ use std::time::{Duration, Instant};
 static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
 static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
 static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
-static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
+static EXPECTED_COMPILER_COMPATIBILITY_HASHES: OnceLock<Result<[u64; 2], String>> = OnceLock::new();
 
 #[cfg(feature = "test_features")]
 thread_local! {
@@ -235,16 +236,22 @@ fn validate_daemon_status(
     status: DaemonStatus,
     expected_config: WorkerConfig,
 ) -> Result<DaemonStatus, String> {
-    let expected_hash = EXPECTED_COMPILER_COMPATIBILITY_HASH
+    let expected_hashes = EXPECTED_COMPILER_COMPATIBILITY_HASHES
         .get_or_init(|| {
-            compiler_compatibility_hash()
-                .map_err(|err| format!("failed to create local compatibility engine: {err}"))
+            Ok([
+                wasmtime_45_runner::compiler_compatibility_hash().map_err(|err| {
+                    format!("failed to create local Wasmtime 45 compatibility engine: {err}")
+                })?,
+                wasmtime_48_runner::compiler_compatibility_hash().map_err(|err| {
+                    format!("failed to create local Wasmtime 48 compatibility engine: {err}")
+                })?,
+            ])
         })
         .clone()?;
-    if status.compiler_compatibility_hash != expected_hash {
+    if status.compiler_compatibility_hashes != expected_hashes {
         return Err(format!(
-            "compiler compatibility mismatch: daemon reported {}, expected {expected_hash}",
-            status.compiler_compatibility_hash
+            "compiler compatibility mismatch: daemon reported {:?}, expected {expected_hashes:?}",
+            status.compiler_compatibility_hashes
         ));
     }
     if status.worker_config != expected_config {
@@ -563,10 +570,12 @@ pub fn compile_in_subprocess(
     prepared_code: &[u8],
     limit_config: &LimitConfig,
     priority: CompilePriority,
+    wasmtime_version: WasmtimeVersion,
 ) -> Result<Result<Vec<u8>, CompilationError>, VMRunnerError> {
     let request = CompileRequest {
         prepared_code: Cow::Borrowed(prepared_code),
         max_memory_pages: limit_config.max_memory_pages,
+        wasmtime_version,
         #[cfg(feature = "test_features")]
         test_action: NEXT_TEST_ACTION.with(Cell::take),
     };

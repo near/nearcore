@@ -1,3 +1,6 @@
+#![allow(clippy::duplicate_mod)]
+
+use super::{WASMTIME_VERSION, apply_version_specific_config, wasmtime};
 use crate::cache::get_contract_cache_key;
 use crate::compile_priority::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
@@ -40,6 +43,7 @@ use wasmtime::{
 #[cfg(test)]
 mod test_instance_limits;
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) mod test_logic;
 mod trap_classification;
 
@@ -113,6 +117,7 @@ impl CompilationLockMap {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn contains_key(&self, key: &CryptoHash) -> bool {
         self.inner.contains_key(key)
     }
@@ -174,6 +179,7 @@ fn guest_memory_size(pages: u32) -> Option<usize> {
 /// Everything that influences the serialized artifact lives here, only the
 /// instance allocation strategy differs between the two engines.
 fn apply_compiler_config(config: &mut wasmtime::Config, max_memory_size: usize) {
+    apply_version_specific_config(config);
     config
         // From official documentation:
         // > Note that systems loading many modules may wish to disable this
@@ -601,6 +607,7 @@ impl WasmtimeVM {
                 &prepared_code,
                 &self.config.limit_config,
                 self.priority,
+                WASMTIME_VERSION,
             );
             let serialized = match result {
                 Ok(serialized) => serialized,

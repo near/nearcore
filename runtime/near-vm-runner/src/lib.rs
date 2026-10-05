@@ -20,7 +20,9 @@ mod runner;
 mod tests;
 mod utils;
 #[cfg(feature = "wasmtime_vm")]
-mod wasmtime_runner;
+mod wasmtime_45_runner;
+#[cfg(feature = "wasmtime_vm")]
+mod wasmtime_48_runner;
 
 pub use crate::compile_priority::CompilePriority;
 pub use crate::logic::with_ext_cost_counter;
