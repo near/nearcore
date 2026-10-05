@@ -394,6 +394,35 @@ pub struct RocksDbConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_direct_io_for_flush_and_compaction: Option<bool>,
 
+    /// Size of the reads RocksDB issues when prefetching compaction input.
+    ///
+    /// This is a DB-level RocksDB option. With direct I/O it is the size of
+    /// each prefetch read and so decides how many requests a compaction keeps
+    /// in flight, which matters on high-latency disks. If unset, defaults to
+    /// 32 MiB for the cold store and RocksDB's default (2 MiB) for the hot
+    /// store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_readahead_size: Option<bytesize::ByteSize>,
+
+    /// Estimated pending compaction bytes above which RocksDB slows down
+    /// writes to a column family (`delayed_write_rate`). 0 disables the limit.
+    ///
+    /// If unset, defaults to 512 GiB for the cold store and RocksDB's default
+    /// (64 GiB) for the hot store. The cold store is append-only with a single
+    /// writer (the cold store loop), and the RocksDB defaults are easily
+    /// exceeded when the engine reshapes its multi-TB LSM, which stalls the
+    /// loop for no benefit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub soft_pending_compaction_bytes_limit: Option<bytesize::ByteSize>,
+
+    /// Estimated pending compaction bytes above which RocksDB stops writes to
+    /// a column family until compaction catches up. 0 disables the limit.
+    ///
+    /// If unset, defaults to 2 TiB for the cold store and RocksDB's default
+    /// (256 GiB) for the hot store. See `soft_pending_compaction_bytes_limit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hard_pending_compaction_bytes_limit: Option<bytesize::ByteSize>,
+
     /// Column-family tuning overrides for write-heavy columns.
     ///
     /// Applies to: PartialChunks, State, TrieChanges.
@@ -424,6 +453,9 @@ impl Default for RocksDbConfig {
             max_total_wal_size: default_rocksdb_max_total_wal_size(),
             parallelism: None,
             use_direct_io_for_flush_and_compaction: None,
+            compaction_readahead_size: None,
+            soft_pending_compaction_bytes_limit: None,
+            hard_pending_compaction_bytes_limit: None,
             cf_high_load_overrides: None,
             cf_medium_load_overrides: None,
             cf_low_load_overrides: None,
@@ -514,7 +546,6 @@ define_cf_config_fields! {
         max_subcompactions: u32,
         target_file_size_base: bytesize::ByteSize,
         max_write_buffer_number: i32,
-        compaction_readahead_size: bytesize::ByteSize,
     }
 }
 
@@ -545,7 +576,6 @@ impl RocksDbCfConfig {
             max_subcompactions: 2,
             target_file_size_base: bytesize::ByteSize::mib(128),
             max_write_buffer_number: 8,
-            compaction_readahead_size: bytesize::ByteSize::mib(6),
         }
     }
 
@@ -558,7 +588,6 @@ impl RocksDbCfConfig {
             max_subcompactions: 1,
             target_file_size_base: bytesize::ByteSize::mib(128),
             max_write_buffer_number: 6,
-            compaction_readahead_size: bytesize::ByteSize::mib(4),
         }
     }
 
@@ -571,7 +600,6 @@ impl RocksDbCfConfig {
             max_subcompactions: 1,
             target_file_size_base: bytesize::ByteSize::mib(96),
             max_write_buffer_number: 4,
-            compaction_readahead_size: bytesize::ByteSize::mib(2),
         }
     }
 }
@@ -621,14 +649,14 @@ mod tests {
 
     #[test]
     fn cf_medium_override_fields() {
-        let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12, "compaction_readahead_size": 8388608 } }"#;
+        let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12, "max_subcompactions": 3 } }"#;
         let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
 
         // Medium: apply overrides over preset
         let medium_base = RocksDbCfConfig::medium_load_defaults();
         let medium = RocksDbCfConfig::resolve_for_column(crate::DBCol::FlatState, &cfg);
         assert_eq!(medium.max_write_buffer_number, 12);
-        assert_eq!(medium.compaction_readahead_size.as_u64(), 8388608);
+        assert_eq!(medium.max_subcompactions, 3);
         // Another medium default remains intact
         assert_eq!(
             medium.target_file_size_base.as_u64(),
