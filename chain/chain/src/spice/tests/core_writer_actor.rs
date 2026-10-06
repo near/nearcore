@@ -624,7 +624,7 @@ fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_b
     // Only the last pre-spice block takes the boundary branch of `handle_processed_block`;
     // any other pre-spice block returns without touching pending endorsements.
     assert!(
-        is_last_pre_spice_block(epoch_manager.as_ref(), block.hash()).unwrap(),
+        is_last_pre_spice_block(epoch_manager.as_ref(), block.header()).unwrap(),
         "sibling should be a last pre-spice block"
     );
     core_writer_actor.handle_processed_block(*block.hash()).unwrap();

@@ -2,6 +2,7 @@ use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -163,6 +164,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         last_final_block_hash: &CryptoHash,
         prev_last_certified_block_epoch_id: Option<&EpochId>,
     ) -> Result<bool, EpochError>;
+
+    /// `is_produced_block_last_in_epoch` for a block with `header`. Reads only the block's
+    /// ancestors, so it works before the block's own `BlockInfo` is committed.
+    fn is_block_last_in_epoch(&self, header: &BlockHeader) -> Result<bool, EpochError> {
+        self.is_produced_block_last_in_epoch(
+            header.height(),
+            header.prev_hash(),
+            header.last_final_block(),
+            header.prev_last_certified_block_epoch_id(),
+        )
+    }
 
     /// Returns true if the block after the one being produced will be the last in the epoch.
     /// **Can produce false positives**, but will never return a false negative.

@@ -1891,15 +1891,14 @@ impl Chain {
         let epoch_to_check = self.protocol_version_check;
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
-        let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
-            block,
+            Arc::clone(&block),
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
         )?;
         if new_head.is_some() {
-            chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
+            chain_update.check_protocol_version(block.header(), epoch_to_check)?;
         }
         chain_update.commit()?;
         self.sandbox_patches.mark_committed(sandbox_patch_gen);

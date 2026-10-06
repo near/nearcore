@@ -6,6 +6,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 #[cfg(feature = "test_features")]
 use std::collections::HashMap;
@@ -75,8 +76,14 @@ pub fn is_spice_or_last_pre_spice_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
-    Ok(spice_enabled_for_block(chain_store, block_hash)?
-        || is_last_pre_spice_block(epoch_manager, block_hash)?)
+    let header = chain_store.get_block_header(block_hash)?;
+    if header.is_spice() {
+        return Ok(true);
+    }
+    // A pre-spice block without a committed epoch record is not decided from its
+    // header; callers fall back to the head.
+    chain_store.epoch_store().get_block_info(block_hash)?;
+    is_last_pre_spice_block(epoch_manager, &header)
 }
 
 /// Whether spice is active at the head, for actor startup, where there is no caller to
