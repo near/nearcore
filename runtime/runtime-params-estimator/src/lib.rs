@@ -752,7 +752,7 @@ fn adversarial_compile_max_blocks(ctx: &mut EstimatorContext) -> GasCost {
     vm_estimator::adversarial_compile_max_blocks(ctx.config.metric, ctx.config.vm_kind)
 }
 
-/// Average fresh-cache precompilations, excluding the requested warmup samples.
+/// Average fresh-cache pre-compilations, excluding the requested warmup samples.
 fn repeated_compile_cost(ctx: &EstimatorContext, code: &[u8]) -> GasCost {
     let iters = ctx.config.iter_per_block;
     assert!(iters > 0, "compilation measurements require --iters > 0");
