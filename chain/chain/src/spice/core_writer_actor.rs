@@ -1,4 +1,4 @@
-use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
 use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::core::SpiceCoreReader;
@@ -580,8 +580,9 @@ impl SpiceCoreWriterActor {
         // A pre-spice block carries no core statements. The last pre-spice block's chunks
         // still certify under spice, so endorsements that arrived for it before the block
         // did are recorded now.
-        if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
-            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &block_hash)? {
+        let header = self.chain_store.get_block_header(&block_hash)?;
+        if !header.is_spice() {
+            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &header)? {
                 self.record_pending_endorsements_for_last_pre_spice_block(&block_hash)?;
             }
             return Ok(());

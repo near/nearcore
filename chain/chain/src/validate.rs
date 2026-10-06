@@ -196,12 +196,7 @@ pub fn validate_block_shard_split(
     header: &BlockHeader,
     chunk_headers: &[ShardChunkHeader],
 ) -> Result<(), Error> {
-    let is_last_block = epoch_manager.is_produced_block_last_in_epoch(
-        header.height(),
-        header.prev_hash(),
-        header.last_final_block(),
-        header.prev_last_certified_block_epoch_id(),
-    )?;
+    let is_last_block = epoch_manager.is_block_last_in_epoch(header)?;
 
     let expected_shard_split = if is_last_block {
         let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;

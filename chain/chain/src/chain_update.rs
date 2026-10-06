@@ -67,15 +67,15 @@ impl<'a> ChainUpdate<'a> {
 
     pub fn check_protocol_version(
         &self,
-        block_hash: &CryptoHash,
+        header: &BlockHeader,
         epoch_to_check: ProtocolVersionCheckConfig,
     ) -> Result<(), Error> {
-        if !self.epoch_manager.is_next_block_epoch_start(block_hash)? {
+        if !self.epoch_manager.is_block_last_in_epoch(header)? {
             return Ok(());
         }
         let epoch_id = match epoch_to_check {
-            ProtocolVersionCheckConfig::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
-            ProtocolVersionCheckConfig::NextNext => EpochId(*block_hash),
+            ProtocolVersionCheckConfig::Next => *header.next_epoch_id(),
+            ProtocolVersionCheckConfig::NextNext => EpochId(*header.hash()),
         };
         // Note: this lookup comes from the epoch_manager's cache in case of the next next epoch,
         // as it is not persisted to disk yet.

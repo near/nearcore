@@ -110,7 +110,7 @@ pub(crate) fn grow_to_last_pre_spice_block(chain: &mut Chain) -> (Arc<Block>, Ar
     for _ in 0..MAX_BLOCKS {
         let block = build_pre_spice_block(chain, &prev_block, &all_shards, spice_protocol_version);
         save_and_record_block(chain, &block, pre_spice_protocol_version());
-        if is_last_pre_spice_block(epoch_manager.as_ref(), block.hash()).unwrap() {
+        if is_last_pre_spice_block(epoch_manager.as_ref(), block.header()).unwrap() {
             return (block, prev_block);
         }
         prev_block = block;

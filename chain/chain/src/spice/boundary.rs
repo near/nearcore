@@ -12,22 +12,22 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
 
-/// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
-/// whose next epoch is spice, so every child of it is a first spice block. The
+/// Whether the block with `header` is a last pre-spice block: a last block of a pre-spice
+/// epoch whose next epoch is spice, so every child of it is a first spice block. The
 /// predicate is per block, not per chain: concurrent forks can each hold one.
 pub fn is_last_pre_spice_block(
     epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
+    header: &BlockHeader,
 ) -> Result<bool, Error> {
-    if !epoch_manager.is_next_block_epoch_start(block_hash)? {
+    if !epoch_manager.is_block_last_in_epoch(header)? {
         return Ok(false);
     }
-    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
-    let epoch_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    let epoch_protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
     if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
         return Ok(false);
     }
-    let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
+    let next_epoch_protocol_version =
+        epoch_manager.get_epoch_protocol_version(header.next_epoch_id())?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
@@ -41,7 +41,7 @@ pub fn seed_activation_boundary(
 ) -> Result<(), Error> {
     if block.is_spice_block() {
         seed_execution_heads_at_activation(store_update, block, prev_header)
-    } else if is_last_pre_spice_block(epoch_manager, block.hash())? {
+    } else if is_last_pre_spice_block(epoch_manager, block.header())? {
         write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())
     } else {
         Ok(())

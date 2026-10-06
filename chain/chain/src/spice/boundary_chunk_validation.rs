@@ -46,7 +46,7 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
 ) -> Result<SpicePreValidationOutput, Error> {
-    if !is_last_pre_spice_block(epoch_manager, block.hash())? {
+    if !is_last_pre_spice_block(epoch_manager, block.header())? {
         return Err(Error::InvalidChunkStateWitness(
             "boundary witness for a block other than the last pre-spice block".to_string(),
         ));
@@ -294,7 +294,7 @@ mod tests {
         let last_new_chunk_block = add_block(&mut chain, &mid_range_block, target_shard_id);
         let boundary_block = add_block(&mut chain, &last_new_chunk_block, None);
         assert!(
-            is_last_pre_spice_block(chain.epoch_manager.as_ref(), boundary_block.hash()).unwrap(),
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), boundary_block.header()).unwrap(),
             "the staggered gap must end at the last pre-spice block"
         );
         BoundaryChain {

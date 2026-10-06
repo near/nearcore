@@ -13,7 +13,7 @@ impl SpiceChunkValidatorActor {
         &self,
         block: Arc<Block>,
     ) -> Result<WitnessValidationContext, Error> {
-        if !is_last_pre_spice_block(self.epoch_manager.as_ref(), block.hash())? {
+        if !is_last_pre_spice_block(self.epoch_manager.as_ref(), block.header())? {
             return Err(Error::InvalidChunkStateWitness(
                 "witness for a pre-spice block other than the last one".to_string(),
             ));
