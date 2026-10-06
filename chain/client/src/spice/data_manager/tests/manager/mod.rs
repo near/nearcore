@@ -23,6 +23,7 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
+mod walk;
 
 /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
 /// height `i + 1`.
@@ -119,8 +120,8 @@ impl DataPolicy for TestPolicy {
         self.chain_policies.is_done(id)
     }
 
-    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
-        self.chain_policies.chunks_to_certify_before_pull(id)
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
+        self.chain_policies.made_pullable_by(block)
     }
 }
 
@@ -199,8 +200,8 @@ impl TestManager {
         }
     }
 
-    /// Records a block certifying both shards' chunks of every canonical block up to
-    /// `height`, as tracking it would.
+    /// Marks the tracked items pullable as a block certifying both shards' chunks of every
+    /// canonical block up to `height` would.
     fn certify_up_to(&mut self, height: BlockHeight) {
         let chain_store = self.store.chain_store();
         let chunk_ids: Vec<SpiceChunkId> = (1..=height)
@@ -210,7 +211,7 @@ impl TestManager {
             })
             .collect();
         let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
-        self.manager.record_chunks_certified_by(&certifying_block(&head, &chunk_ids)).unwrap();
+        self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids)).unwrap();
         self.certified_height = self.certified_height.max(height);
     }
 
@@ -238,6 +239,22 @@ impl TestManager {
 
     fn is_tracking(&self, id: &DataId) -> bool {
         self.manager.is_tracking(id)
+    }
+
+    fn asked_for(&self, id: &DataId) -> HashSet<AccountId> {
+        self.manager.outstanding.asked_for(id)
+    }
+
+    fn is_pullable(&self, id: &DataId) -> bool {
+        self.manager.pullable.values().any(|ids| ids.contains(id))
+    }
+
+    /// Asserts no item and no index entry is left for `id`.
+    fn assert_forgotten(&self, id: &DataId) {
+        assert!(!self.is_tracking(id));
+        assert!(!self.manager.items_by_height.values().any(|ids| ids.contains(id)));
+        assert!(!self.is_pullable(id));
+        assert!(!self.manager.delivered.contains(id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
@@ -289,14 +306,14 @@ impl TestManager {
         self.manager.items.get(id).unwrap_or_else(|| panic!("no item for {id:?}"))
     }
 
-    fn state(&self, id: &DataId, producer: &AccountId) -> &ProducerState {
-        let (_, state) = self
+    fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
+        let (_, bound) = self
             .item(id)
             .producers
             .iter()
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        state
+        bound.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {

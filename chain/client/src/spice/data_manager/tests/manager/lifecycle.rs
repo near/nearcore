@@ -130,8 +130,8 @@ fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_
 
     manager.track_block(&certifying_block(&canonical_at_4, &[certified]));
 
-    assert!(manager.manager.is_pullable(&canonical_id));
-    assert!(!manager.manager.is_pullable(&fork_id));
+    assert!(manager.is_pullable(&canonical_id));
+    assert!(!manager.is_pullable(&fork_id));
 }
 
 #[test]
@@ -155,15 +155,18 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
     assert_eq!(requests, own_ordinal_asks);
 }
 
+// A failed store read at the block's trigger leaves its items untracked until data for them
+// arrives; a certification in between still makes them pullable.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn an_item_tracked_after_its_certifying_block_is_pulled() {
+fn an_item_made_pullable_before_it_is_tracked_is_pulled() {
     let (chain, blocks) = chain_with_blocks(2);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain);
     manager.certify_up_to(1);
+    assert!(!manager.is_tracking(&id));
 
-    manager.track_block(&blocks[0]);
+    manager.manager.track_block_items(blocks[0].header()).unwrap();
 
     let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
     let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
@@ -176,20 +179,38 @@ fn an_item_tracked_after_its_certifying_block_is_pulled() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn certified_chunks_are_forgotten_at_the_final_execution_head() {
+fn ids_made_pullable_before_tracking_are_forgotten_at_the_final_execution_head() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let id = receipt_id(&blocks[0], 0, 1);
+    let mut manager = TestManager::new(&chain);
+    manager.certify_up_to(1);
+    let marking_height = chain.chain_store.head().unwrap().height + 1;
+    assert_eq!(manager.manager.pullable_before_tracking.get(&id), Some(&marking_height));
+
+    manager.manager.expire_at_or_below(marking_height - 1);
+    assert!(manager.manager.pullable_before_tracking.contains_key(&id));
+
+    manager.manager.expire_at_or_below(marking_height);
+    assert!(manager.manager.pullable_before_tracking.is_empty());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn expiry_drops_the_expired_items_from_every_index() {
     let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
-    manager.track_needed_proof(&blocks[0]);
+    let expired = manager.track_needed_proof(&blocks[0]);
+    let live = manager.track_needed_proof(&blocks[1]);
     manager.certify_up_to(2);
-    assert_eq!(manager.manager.certified.len(), 4);
+    manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
+    manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
     manager.set_final_execution_head(&blocks[0]);
     manager.on_block_processed(&blocks[2]);
-    assert!(manager.manager.certified.values().all(|height| *height == 2));
 
-    manager.set_final_execution_head(&blocks[1]);
-    manager.on_block_processed(&blocks[2]);
-    assert!(manager.manager.certified.is_empty());
+    manager.assert_forgotten(&expired);
+    assert!(manager.is_pullable(&live));
+    assert!(manager.manager.delivered.contains(&live));
 }
 
 #[test]
@@ -211,7 +232,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.asked_for(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its
@@ -242,8 +263,7 @@ fn a_done_item_is_removed_at_the_processed_block_without_a_request() {
     let requests = manager.on_block_processed(&blocks[1]);
 
     assert_eq!(requests, vec![]);
-    assert!(!manager.is_tracking(&id));
-    assert!(!manager.manager.items_by_height.contains_key(&blocks[0].header().height()));
+    manager.assert_forgotten(&id);
 }
 
 #[test]
