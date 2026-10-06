@@ -176,10 +176,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         );
         let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
             BTreeMap::new();
-        for id in self.items_by_height.values().flatten() {
-            if !self.is_pullable(id) {
-                continue;
-            }
+        for id in self.pullable.values().flatten() {
             let item = self.items.get_mut(id).expect("index entry names a tracked item");
             for (producer, ordinals) in item.pull_wants(now, &mut budget) {
                 wants_by_producer.entry(producer).or_default().insert(id.clone(), ordinals);

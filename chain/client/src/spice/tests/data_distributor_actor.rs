@@ -1791,11 +1791,11 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 }
 
-/// Certifications recorded by the startup walk persist: a block certifying the source
-/// chunk is on disk before startup, and a later block that certifies nothing pulls the proof.
+/// The source chunk was certified before startup; after the restart, a block that certifies
+/// nothing pulls the proof from its producers.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_startup_restores_certifications_so_a_later_block_pulls_the_proof() {
+fn test_a_proof_certified_before_startup_is_pulled_after_it() {
     let (genesis, mut chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
         genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();

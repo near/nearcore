@@ -19,11 +19,11 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
-use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId};
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
 pub(crate) use pull::{PullConfig, PullRequest};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
 
@@ -95,8 +95,8 @@ impl DataPolicy for Policies {
         self.for_id(id).is_done(id)
     }
 
-    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
-        self.for_id(id).chunks_to_certify_before_pull(id)
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
+        self.receipt_proofs.made_pullable_by(block)
     }
 }
 
@@ -113,12 +113,19 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
-    items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
+    items_by_height: BTreeMap<BlockHeight, BTreeSet<DataId>>,
+    /// Ids of tracked items that may be pulled, by their block's height.
+    pullable: BTreeMap<BlockHeight, BTreeSet<DataId>>,
+    // TODO(spice-data-distribution): keep these only for blocks whose tracking failed, with
+    // the orphan pool.
+    /// Ids made pullable before they were tracked, with the height of the block that made
+    /// them pullable; tracking one makes it pullable at once.
+    pullable_before_tracking: HashMap<DataId, BlockHeight>,
+    /// Ids of tracked items whose decode was handed to the consumer. Only their data can be
+    /// in the store.
+    delivered: HashSet<DataId>,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
-    /// Chunks certified by the blocks tracked so far, with their block's height; pruned with
-    /// the items at the final execution head.
-    certified: HashMap<SpiceChunkId, BlockHeight>,
 }
 
 impl<P: DataPolicy> SpiceDataManager<P> {
@@ -135,8 +142,10 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
+            pullable: BTreeMap::new(),
+            pullable_before_tracking: HashMap::new(),
+            delivered: HashSet::new(),
             final_execution_head: None,
-            certified: HashMap::new(),
         }
     }
 
@@ -146,30 +155,28 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         self.items.contains_key(id)
     }
 
-    /// Records the chunks `block` certifies, then starts tracking every item this node needs
-    /// from `block` and doesn't already have or track. Idempotent.
+    /// Starts tracking every item this node needs from `block` and doesn't already have or
+    /// track, then marks the tracked items `block` makes pullable. Idempotent.
     pub(crate) fn track_block(&mut self, block: &Block) -> Result<(), Error> {
-        self.record_chunks_certified_by(block)?;
-        self.track_block_items(block.header())
+        self.track_block_items(block.header())?;
+        self.mark_pullable_by(block)
     }
 
-    /// Records the chunks `block` certifies.
-    fn record_chunks_certified_by(&mut self, block: &Block) -> Result<(), Error> {
-        let mut certified = Vec::new();
-        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
-            let height = self.chain_store.get_block_header(&chunk_id.block_hash)?.height();
-            certified.push((chunk_id.clone(), height));
+    /// Marks the items `block` makes pullable; an item not tracked yet is marked when tracked.
+    fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
+        let height = block.header().height();
+        for id in self.policies.made_pullable_by(block)? {
+            match self.items.get(&id) {
+                Some(item) => {
+                    self.pullable.entry(item.height).or_default().insert(id);
+                }
+                None => {
+                    let marked_at = self.pullable_before_tracking.entry(id).or_insert(height);
+                    *marked_at = (*marked_at).max(height);
+                }
+            }
         }
-        self.certified.extend(certified);
         Ok(())
-    }
-
-    /// Whether every chunk to certify before pulling `id` is certified.
-    fn is_pullable(&self, id: &DataId) -> bool {
-        self.policies
-            .chunks_to_certify_before_pull(id)
-            .iter()
-            .all(|chunk_id| self.certified.contains_key(chunk_id))
     }
 
     // TODO(spice-data-distribution): Fold back into `track_block` once data for a block not
@@ -187,15 +194,18 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             if self.items.contains_key(&id) || self.policies.is_done(&id) {
                 continue;
             }
-            self.items_by_height.entry(height).or_default().push(id.clone());
+            self.items_by_height.entry(height).or_default().insert(id.clone());
+            if self.pullable_before_tracking.remove(&id).is_some() {
+                self.pullable.entry(height).or_default().insert(id.clone());
+            }
             self.items.insert(id, FetchItem::new(height, producers));
         }
         Ok(())
     }
 
     /// The block was processed at `now`: expires the items at or below the final execution
-    /// head, records the chunks the block certifies, tracks the items needed from the block,
-    /// removes the delivered ones already in the store, and returns the requests for the
+    /// head, tracks the items needed from the block, marks the items the block makes pullable,
+    /// removes the delivered items already in the store, and returns the requests for the
     /// pullable rest, grouped by producer. A failed chain read is logged and skips only its
     /// own step.
     pub(crate) fn on_block_processed(
@@ -211,11 +221,11 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         }
         match self.chain_store.get_block(block_hash) {
             Ok(block) => {
-                if let Err(err) = self.record_chunks_certified_by(&block) {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to record the chunks the block certifies");
-                }
                 if let Err(err) = self.track_block_items(block.header()) {
                     tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to track the block");
+                }
+                if let Err(err) = self.mark_pullable_by(&block) {
+                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to mark the items the block makes pullable");
                 }
             }
             Err(err) => {
@@ -278,7 +288,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         for part in verified {
             match item.insert_part(&encoder, id, producer_index, part) {
                 PartInsertResult::Decoded(data) => {
-                    item.delivered = true;
+                    self.delivered.insert(id.clone());
                     return Ok(PartsOutcome::Decoded(data));
                 }
                 PartInsertResult::Garbage(error) => {
@@ -297,28 +307,23 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     /// Stops tracking items at or below `height`.
     fn expire_at_or_below(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));
-        self.certified.retain(|_, chunk_height| *chunk_height > height);
+        self.pullable_before_tracking.retain(|_, marked_at| *marked_at > height);
         let Some(next_height) = height.checked_add(1) else {
             return;
         };
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
+        self.pullable = self.pullable.split_off(&next_height);
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");
+            self.delivered.remove(&id);
         }
     }
 
-    // TODO(spice-data-distribution): poll a set of delivered, not yet done ids instead of
-    // walking every item, together with the bounded pull walk.
     /// Removes the items whose delivered data is in the store.
     fn remove_done_items(&mut self) {
-        let mut done = Vec::new();
-        for id in self.items_by_height.values().flatten() {
-            let item = self.items.get(id).expect("index entry names a tracked item");
-            if item.delivered && self.policies.is_done(id) {
-                done.push(id.clone());
-            }
-        }
+        let done: Vec<DataId> =
+            self.delivered.iter().filter(|id| self.policies.is_done(id)).cloned().collect();
         for id in done {
             self.remove_item(&id);
         }
@@ -328,10 +333,22 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         let Some(item) = self.items.remove(id) else {
             return;
         };
-        let ids = self.items_by_height.get_mut(&item.height).expect("tracked item is indexed");
-        ids.retain(|indexed| indexed != id);
+        remove_indexed(&mut self.items_by_height, item.height, id);
+        remove_indexed(&mut self.pullable, item.height, id);
+        self.delivered.remove(id);
+    }
+}
+
+/// Removes `id` from `index` under `height`, dropping the height once it holds no id.
+fn remove_indexed(
+    index: &mut BTreeMap<BlockHeight, BTreeSet<DataId>>,
+    height: BlockHeight,
+    id: &DataId,
+) {
+    if let Some(ids) = index.get_mut(&height) {
+        ids.remove(id);
         if ids.is_empty() {
-            self.items_by_height.remove(&item.height);
+            index.remove(&height);
         }
     }
 }

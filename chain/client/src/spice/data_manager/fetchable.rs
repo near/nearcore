@@ -1,11 +1,11 @@
 use super::DataId;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
-use near_chain::Error;
+use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::sync::Arc;
@@ -22,8 +22,8 @@ pub(crate) trait DataPolicy {
     /// Whether the durable artifact this item exists to obtain is already in the store.
     fn is_done(&self, id: &DataId) -> bool;
 
-    /// The chunks that must all be certified before the item is pulled.
-    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId>;
+    /// The ids of this type that `block` makes pullable, tracked or not.
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
@@ -83,9 +83,23 @@ impl DataPolicy for ReceiptProofPolicy {
         )
     }
 
-    /// The source chunk.
-    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
-        let DataId::ReceiptProof { source, .. } = id;
-        vec![source.clone()]
+    /// The proofs from every chunk `block` certifies, to every shard this node applies after
+    /// the source block.
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
+        let mut ids = Vec::new();
+        for (source, _) in block.spice_core_statements().iter_execution_results() {
+            let epoch_id = self.epoch_manager.get_epoch_id(&source.block_hash)?;
+            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            for to_shard in shard_layout.shard_ids() {
+                if self.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::IsCaughtUp,
+                    &source.block_hash,
+                    to_shard,
+                ) {
+                    ids.push(DataId::ReceiptProof { source: source.clone(), to_shard });
+                }
+            }
+        }
+        Ok(ids)
     }
 }
