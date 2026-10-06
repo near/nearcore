@@ -1188,11 +1188,11 @@ fn endorsement_contribution_of_block(
     let mut stats = vec![SpiceChunkEndorsementStats::default(); epoch_info.validators_iter().len()];
     for (chunk_id, execution_result) in statements.iter_execution_results() {
         let certified_hash = execution_result.compute_hash();
-        let chunk_block = epoch_manager.get_block_info(&chunk_id.block_hash)?;
+        let chunk_block_header = chain_store.get_block_header(&chunk_id.block_hash)?;
         let assignments = epoch_manager.get_chunk_validator_assignments(
-            chunk_block.epoch_id(),
+            chunk_block_header.epoch_id(),
             chunk_id.shard_id,
-            chunk_block.height(),
+            chunk_block_header.height(),
         )?;
         credit_chunk_endorsement_stats(
             &mut stats,
