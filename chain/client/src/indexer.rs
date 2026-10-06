@@ -28,7 +28,7 @@ use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
-    ReceiptView, StateChangesView,
+    ReceiptView, StateChangesView, TransactionEnvelopeView,
 };
 use node_runtime::config::calculate_tx_cost;
 use std::collections::HashMap;
@@ -136,6 +136,10 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
+                // TODO(ecc): index ECCs once they have outcomes
+                let TransactionEnvelopeView::Signed(transaction) = transaction else {
+                    return None;
+                };
                 let outcome = outcomes.remove(&transaction.hash);
                 if outcome.is_none() {
                     tracing::error!(

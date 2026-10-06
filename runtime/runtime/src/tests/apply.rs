@@ -49,9 +49,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ExecutionMetadata,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
-    SignedTransaction, TransactionNonce, TransferAction,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, EccTransaction,
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    FunctionCallAction, SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
@@ -672,6 +672,54 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
             })
         })
         .collect()
+}
+
+/// An ECC in a chunk fails with an outcome of its own and does not stop the signed
+/// transactions around it, since nothing can execute it yet.
+#[test]
+fn test_apply_ecc_in_chunk_fails_without_panic() {
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    let transfer = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &*signers[0],
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let transactions =
+        vec![TransactionEnvelope::from(ecc.clone()), TransactionEnvelope::from(transfer.clone())];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; 2]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let ecc_outcome = &apply_result.outcomes[0];
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.executor_id, bob_account());
+    assert_eq!(
+        ecc_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidTransactionVersion
+        ))
+    );
+    let transfer_outcome = &apply_result.outcomes[1];
+    assert_eq!(transfer_outcome.id, transfer.get_hash());
+    assert_matches!(transfer_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
 }
 
 #[test]

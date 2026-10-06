@@ -2,7 +2,7 @@ use crate::sharding::{ChunkHash, EncodedShardChunkBody, ReceiptProof};
 use crate::state::PartialState;
 use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use crate::stateless_validation::state_witness::ChunkStateTransition;
-use crate::transaction::SignedTransaction;
+use crate::transaction::TransactionEnvelope;
 use crate::types::SpiceChunkId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
@@ -54,7 +54,7 @@ pub struct SpiceChunkStateWitnessV1 {
     pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEnvelope>,
     /// Code hashes of the contracts accessed during chunk application. Validators
     /// check the contract accesses message against this and fetch missing code.
     pub contract_accesses: BTreeSet<CodeHash>,
@@ -86,7 +86,7 @@ pub struct SpiceBoundaryChunkStateWitness {
     pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEnvelope>,
     /// Code hashes of the contracts accessed during chunk application. Validators
     /// check the contract accesses message against this and fetch missing code.
     pub contract_accesses: BTreeSet<CodeHash>,
@@ -100,7 +100,7 @@ impl SpiceChunkStateWitness {
         pre_state: PartialState,
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<TransactionEnvelope>,
         contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     ) -> Self {
@@ -145,7 +145,7 @@ impl SpiceChunkStateWitness {
         }
     }
 
-    pub fn transactions(&self) -> &[SignedTransaction] {
+    pub fn transactions(&self) -> &[TransactionEnvelope] {
         match self {
             Self::V1(witness) => &witness.transactions,
             Self::Boundary(witness) => &witness.transactions,

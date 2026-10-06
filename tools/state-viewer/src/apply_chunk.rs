@@ -165,7 +165,8 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-    let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
+    let valid_txs =
+        chain_store.compute_transaction_validity(prev_block.header(), chunk.to_transactions());
 
     let target_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &target_epoch_id)?;

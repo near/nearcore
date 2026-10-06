@@ -23,7 +23,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
@@ -131,7 +131,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             *chunk_header.tx_root()
         } else {
             // Missing chunks are treated as empty chunks.
-            let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
+            let (empty_txs_root, _) = merklize::<TransactionEnvelope>(&[]);
             empty_txs_root
         };
         if chunk_tx_root != tx_root_from_state_witness {
@@ -142,15 +142,8 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     }
 
-    let transaction_validity_check_results = state_witness
-        .transactions()
-        .iter()
-        .map(|tx| {
-            store
-                .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())
-                .is_ok()
-        })
-        .collect::<Vec<_>>();
+    let transaction_validity_check_results =
+        store.compute_transaction_validity(&prev_block_header, state_witness.transactions());
 
     let new_chunk_data = {
         let prev_chunk_chunk_extra = {
@@ -426,7 +419,7 @@ pub(super) mod tests {
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
     use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{AccountId, BlockHeight, ChunkExecutionResult, SpiceChunkId};
@@ -830,7 +823,7 @@ pub(super) mod tests {
 
         // Build a body where everything is correct — the chunk is actually valid,
         // so claiming it's invalid is fraudulent.
-        let (correct_tx_root, _) = merklize::<SignedTransaction>(&[]);
+        let (correct_tx_root, _) = merklize::<TransactionEnvelope>(&[]);
         let shard_layout = test_chain.shard_layout();
         let empty_receipt_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (correct_receipts_root, _) = merklize(&empty_receipt_hashes);
@@ -965,7 +958,7 @@ pub(super) mod tests {
 
     fn test_transactions_from_prev_block_hash(
         prev_block_hash: CryptoHash,
-    ) -> Vec<SignedTransaction> {
+    ) -> Vec<TransactionEnvelope> {
         let nonce = 1;
         let from = AccountId::from_str(TEST_VALIDATORS[0]).unwrap();
         let signer = create_user_test_signer(from.as_ref());
@@ -980,6 +973,7 @@ pub(super) mod tests {
                 amount,
                 prev_block_hash,
             )
+            .into()
         };
 
         vec![
@@ -1003,7 +997,7 @@ pub(super) mod tests {
         pre_state: PartialState,
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<TransactionEnvelope>,
         contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     }
@@ -1021,7 +1015,7 @@ pub(super) mod tests {
         builder_setter!(chunk_id, SpiceChunkId);
         builder_setter!(source_receipt_proofs, HashMap<ShardId, ReceiptProof>);
         builder_setter!(applied_receipts_hash, CryptoHash);
-        builder_setter!(transactions, Vec<SignedTransaction>);
+        builder_setter!(transactions, Vec<TransactionEnvelope>);
         builder_setter!(proof_of_invalid_chunk, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
@@ -1144,7 +1138,7 @@ pub(super) mod tests {
 
         /// RS-encodes an empty TransactionReceipt. Returns the fully reconstructed body
         /// (all parts filled) and the encoded_length. The decoded tx_root of the resulting
-        /// chunk will be `merklize::<SignedTransaction>(&[]).0`.
+        /// chunk will be `merklize::<TransactionEnvelope>(&[]).0`.
         fn make_empty_encoded_body(&self) -> (EncodedShardChunkBody, u64) {
             let total_parts = self.chain.epoch_manager.num_total_parts();
             let data_parts = self.chain.epoch_manager.num_data_parts();
@@ -1319,7 +1313,7 @@ pub(super) mod tests {
             hash(&borsh::to_vec(receipts.as_slice()).unwrap())
         }
 
-        fn transactions(&self) -> Vec<SignedTransaction> {
+        fn transactions(&self) -> Vec<TransactionEnvelope> {
             let block = self.block();
             test_transactions_from_prev_block_hash(*block.header().prev_hash())
         }
@@ -1435,7 +1429,7 @@ pub(super) mod tests {
         fn simulate_chunk_application_for_block(
             &self,
             block: &Block,
-            transactions: Vec<SignedTransaction>,
+            transactions: Vec<TransactionEnvelope>,
         ) -> (PartialState, ChunkExecutionResult) {
             let prev_execution_results = self.prev_execution_results();
             let receipts = self.receipts_for_shard(self.shard_id());

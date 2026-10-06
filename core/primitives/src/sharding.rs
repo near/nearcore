@@ -3,7 +3,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
-use crate::transaction::SignedTransaction;
+use crate::transaction::TransactionEnvelope;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
@@ -1086,7 +1086,7 @@ impl std::fmt::Debug for PartialEncodedChunkPart {
 pub struct ShardChunkV1 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeaderV1,
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEnvelope>,
     pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
@@ -1094,7 +1094,7 @@ pub struct ShardChunkV1 {
 pub struct ShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEnvelope>,
     pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
@@ -1110,7 +1110,7 @@ pub enum ShardChunk {
 impl ShardChunk {
     pub fn new(
         header: ShardChunkHeader,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<TransactionEnvelope>,
         prev_outgoing_receipts: Vec<Receipt>,
     ) -> Self {
         ShardChunk::V2(ShardChunkV2 {
@@ -1222,14 +1222,14 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn to_transactions(&self) -> &[SignedTransaction] {
+    pub fn to_transactions(&self) -> &[TransactionEnvelope] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
         }
     }
 
-    pub fn into_transactions(self) -> Vec<SignedTransaction> {
+    pub fn into_transactions(self) -> Vec<TransactionEnvelope> {
         match self {
             Self::V1(chunk) => chunk.transactions,
             Self::V2(chunk) => chunk.transactions,
@@ -1306,7 +1306,7 @@ impl EncodedShardChunkBody {
 pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct TransactionReceipt(pub Vec<SignedTransaction>, pub Vec<Receipt>);
+pub struct TransactionReceipt(pub Vec<TransactionEnvelope>, pub Vec<Receipt>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct EncodedShardChunkV1 {
@@ -1544,8 +1544,11 @@ impl ShardChunkWithEncoding {
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
         protocol_version: ProtocolVersion,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        let signed_txs =
-            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        // TODO(ecc): include ECCs once the pool can hold them (#16423)
+        let signed_txs = validated_txs
+            .into_iter()
+            .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
+            .collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
         let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
@@ -1594,8 +1597,11 @@ impl ShardChunkWithEncoding {
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        let signed_txs =
-            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        // TODO(ecc): include ECCs once the pool can hold them (#16423)
+        let signed_txs = validated_txs
+            .into_iter()
+            .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
+            .collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
         let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
@@ -1648,7 +1654,7 @@ impl ShardChunkWithEncoding {
 pub struct ArcedShardChunkV1 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeaderV1,
-    pub transactions: Vec<Arc<SignedTransaction>>,
+    pub transactions: Vec<Arc<TransactionEnvelope>>,
     pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
 }
 
@@ -1656,7 +1662,7 @@ pub struct ArcedShardChunkV1 {
 pub struct ArcedShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
-    pub transactions: Vec<Arc<SignedTransaction>>,
+    pub transactions: Vec<Arc<TransactionEnvelope>>,
     pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
 }
 
@@ -1672,7 +1678,7 @@ pub enum ArcedShardChunk {
 }
 
 impl ArcedShardChunk {
-    pub fn to_transactions(&self) -> &[Arc<SignedTransaction>] {
+    pub fn to_transactions(&self) -> &[Arc<TransactionEnvelope>] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
@@ -1809,7 +1815,7 @@ mod tests {
         let chunk = ShardChunkV1 {
             chunk_hash,
             header,
-            transactions: vec![SignedTransaction::empty(hash)],
+            transactions: vec![SignedTransaction::empty(hash).into()],
             prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV1::from(chunk.clone());
@@ -1828,7 +1834,7 @@ mod tests {
         let chunk = ShardChunkV2 {
             chunk_hash: chunk_hash.clone(),
             header,
-            transactions: vec![SignedTransaction::empty(hash)],
+            transactions: vec![SignedTransaction::empty(hash).into()],
             prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV2::from(chunk.clone());
@@ -1846,7 +1852,7 @@ mod tests {
         let chunk = ShardChunkV2 {
             chunk_hash,
             header,
-            transactions: vec![SignedTransaction::empty(hash)],
+            transactions: vec![SignedTransaction::empty(hash).into()],
             prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV2::from(chunk.clone());
@@ -1861,8 +1867,11 @@ mod tests {
         let shard_id = ShardId::new(3);
         let hash = CryptoHash([1; 32]);
         let header = ShardChunkHeader::new_dummy(1, shard_id, hash, PROTOCOL_VERSION);
-        let chunk =
-            ShardChunk::new(header, vec![SignedTransaction::empty(hash)], vec![get_receipt()]);
+        let chunk = ShardChunk::new(
+            header,
+            vec![SignedTransaction::empty(hash).into()],
+            vec![get_receipt()],
+        );
         let arced = ArcedShardChunk::from(chunk.clone());
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
 

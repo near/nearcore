@@ -37,9 +37,10 @@ use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
-    PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, EccTransaction, ExecutionMetadata, ExecutionOutcome,
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, FunctionCallAction, NonceMode,
+    PartialExecutionOutcome, PartialExecutionStatus, SignedTransaction, StakeAction,
+    TransactionEnvelope, TransferAction,
 };
 use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
@@ -1324,7 +1325,7 @@ impl BlockView {
 pub struct ChunkView {
     pub author: AccountId,
     pub header: ChunkHeaderView,
-    pub transactions: Vec<SignedTransactionView>,
+    pub transactions: Vec<TransactionEnvelopeView>,
     pub receipts: Vec<ReceiptView>,
 }
 
@@ -1780,6 +1781,43 @@ impl From<SignedTransaction> for SignedTransactionView {
             hash,
             _priority_fee: 0,
             nonce_mode,
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct EccTransactionView {
+    pub contract_id: AccountId,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub payload: Vec<u8>,
+    pub hash: CryptoHash,
+}
+
+impl From<EccTransaction> for EccTransactionView {
+    fn from(tx: EccTransaction) -> Self {
+        let hash = tx.get_hash();
+        Self { contract_id: tx.contract_id, payload: tx.payload, hash }
+    }
+}
+
+/// A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it
+/// always had.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum TransactionEnvelopeView {
+    Signed(SignedTransactionView),
+    Unsigned(EccTransactionView),
+}
+
+impl From<TransactionEnvelope> for TransactionEnvelopeView {
+    fn from(tx: TransactionEnvelope) -> Self {
+        match tx {
+            TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
+            TransactionEnvelope::Unsigned(tx) => Self::Unsigned(tx.into()),
         }
     }
 }

@@ -23,7 +23,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
-    SignedTransaction,
+    SignedTransaction, TransactionEnvelope,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -182,7 +182,7 @@ pub trait ChainStoreAccess {
         chunk_hash: &ChunkHash,
     ) -> Option<Arc<EncodedShardChunk>>;
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>>;
 
     /// Fetch a receipt by id, if it is stored in the store.
     ///
@@ -507,16 +507,18 @@ impl ChainStore {
         )
     }
 
+    /// Computes, for each of `transactions`, whether it is still within its validity period
+    /// relative to `prev_block_header`. Transactions without `block_hash` (ECC) count as valid.
     pub fn compute_transaction_validity(
         &self,
         prev_block_header: &BlockHeader,
-        chunk: &ShardChunk,
+        transactions: &[TransactionEnvelope],
     ) -> Vec<bool> {
         compute_transaction_validity(
             &self.store,
             self.transaction_validity_period,
             prev_block_header,
-            chunk,
+            transactions,
         )
     }
 
@@ -992,7 +994,7 @@ impl ChainStoreAccess for ChainStore {
         self.chunk_store().is_invalid_chunk(height_created, chunk_hash)
     }
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         ChainStoreAdapter::get_transaction(self, tx_hash)
     }
 
@@ -1038,7 +1040,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
-    transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
+    transactions: HashMap<CryptoHash, Arc<TransactionEnvelope>>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
@@ -1375,7 +1377,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         if let Some(tx) = self.chain_store_cache_update.transactions.get(tx_hash) {
             Some(Arc::clone(tx))
         } else {

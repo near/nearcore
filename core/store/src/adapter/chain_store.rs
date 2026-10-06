@@ -12,7 +12,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
@@ -282,7 +282,7 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::receipt_proofs(), &key)
     }
 
-    pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         self.store.get_ser(DBCol::Transactions, tx_hash.as_ref())
     }
 

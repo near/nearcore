@@ -543,7 +543,7 @@ fn simulate_chunk_application(
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
     let chunk_header = &chunks[0];
-    let transactions = SignedValidPeriodTransactions::new(vec![], vec![]);
+    let transactions = SignedValidPeriodTransactions::empty();
     let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
     let shard_uid = ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &shard_layout);
     let apply_result = actor

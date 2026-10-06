@@ -71,7 +71,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -554,7 +554,11 @@ impl Client {
                     removed_hashes.push(tx.get_hash());
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                pool_guard.remove_transactions(shard_uid, transactions);
+                // TODO(ecc): remove ECCs from the pool once it can hold them (#16423)
+                pool_guard.remove_transactions(
+                    shard_uid,
+                    transactions.iter().filter_map(TransactionEnvelope::as_signed),
+                );
             }
         }
         Ok(removed_hashes)
@@ -586,7 +590,8 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .filter(|tx| !exclude.contains(&tx.get_hash()))
-                    .cloned()
+                    // TODO(ecc): reintroduce ECCs once the pool can hold them
+                    .filter_map(|tx| tx.as_signed().cloned())
                     .filter_map(|signed_tx| {
                         match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
                             Ok(validated_tx) => Some(validated_tx),
@@ -661,7 +666,8 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                transactions,
+                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
             );
@@ -713,7 +719,8 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    transactions,
+                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,
                 );

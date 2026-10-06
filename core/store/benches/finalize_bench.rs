@@ -26,7 +26,7 @@ use near_primitives::sharding::{
     ShardChunkV2, ShardChunkWithEncoding, ShardProof,
 };
 use near_primitives::transaction::{
-    Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
+    Action, FunctionCallAction, TransactionEnvelope, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -182,7 +182,7 @@ fn create_data_receipt(account_id: &AccountId, data_id: CryptoHash, data_size: u
 
 fn create_shard_chunk(
     chunk_hash: &ChunkHash,
-    transactions: Vec<SignedTransaction>,
+    transactions: Vec<TransactionEnvelope>,
     receipts: Vec<Receipt>,
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {

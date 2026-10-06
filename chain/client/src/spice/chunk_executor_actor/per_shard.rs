@@ -698,14 +698,14 @@ impl PerShardChunkExecutor {
                     &self.chain_store,
                     self.transaction_validity_period,
                     prev_block_header,
-                    &chunk,
+                    chunk.to_transactions(),
                 );
                 (
                     SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
                     Some(chunk_hash),
                 )
             }
-            None => (SignedValidPeriodTransactions::new(vec![], vec![]), None),
+            None => (SignedValidPeriodTransactions::empty(), None),
         };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;

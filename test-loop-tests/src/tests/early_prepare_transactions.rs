@@ -148,7 +148,7 @@ fn collect_chain_txs(
                 ChunkType::New(chunk_header) => {
                     let chunk = chain.get_chunk(chunk_header.chunk_hash()).unwrap();
                     for tx in chunk.into_transactions() {
-                        result.txs.push(tx);
+                        result.txs.push(tx.into_signed().expect("no ECCs in this test"));
                         contains_txs = true;
                     }
                 }
