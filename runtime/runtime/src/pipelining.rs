@@ -396,13 +396,16 @@ impl ReceiptPreparationPipeline {
     /// If the preparation hasn't been started yet (either because it hasn't been scheduled for any
     /// reason, or because the pipeline didn't make it in time), this function will prepare the
     /// contract in the calling thread.
+    ///
+    /// Speculative preparation is only used for internal calls, because it
+    /// charges the loading fee to a gas counter built for an internal call.
     pub(crate) fn get_contract(
         &self,
         receipt: &Receipt,
         code_ext: RuntimeContractExt,
         gas_counter: Box<PreparedContractGasCounter>,
         action_index: usize,
-        is_view: bool,
+        execution_mode: &ExecutionMode,
     ) -> Box<dyn PreparedContract> {
         let account_id = receipt.receiver_id();
         let action = match receipt.receipt() {
@@ -424,11 +427,13 @@ impl ReceiptPreparationPipeline {
             panic!("referenced receipt action is not a function call!");
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-        // Views never consume speculative preparation, which uses non-view gas accounting.
+        // Only internal calls consume speculative preparation, which uses the
+        // gas limits of an internal call. A view or external call has its own
+        // limits, which the gas counter passed in already uses.
         // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
         let Some(task) = self.map.get(&key).filter(|t| {
-            !is_view
+            matches!(execution_mode, ExecutionMode::Internal)
                 // Identical code hashes imply identical source bytes and length.
                 && t.expected_hash == code_ext.identifier.hash()
         }) else {

@@ -541,7 +541,13 @@ impl TrieViewer {
         let outcome = match preparation {
             ContractPreparation::Ready { contract: code_ext, gas_counter } => {
                 let contract_id_resolved = code_ext.identifier.clone();
-                let contract = pipeline.get_contract(&receipt, code_ext, gas_counter, 0, true);
+                let contract = pipeline.get_contract(
+                    &receipt,
+                    code_ext,
+                    gas_counter,
+                    0,
+                    &context.execution_mode,
+                );
                 execute_function_call(
                     contract,
                     &contract_id_resolved,
