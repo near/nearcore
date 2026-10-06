@@ -94,7 +94,7 @@ pub(crate) fn action_function_call(
                 code_ext,
                 gas_counter,
                 action_index,
-                false,
+                &context.execution_mode,
             );
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
 
