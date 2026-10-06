@@ -52,8 +52,8 @@ fn measure_contract(
     let config_store = RuntimeConfigStore::new();
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
-    let start = GasCost::measure(gas_metric);
     let vm = vm_kind.runtime(vm_config).unwrap();
+    let start = GasCost::measure(gas_metric);
     let result = vm.precompile(contract, cache).unwrap();
     let end = start.elapsed();
     result.unwrap_or_else(|err| panic!("compilation failed, {err}"));
