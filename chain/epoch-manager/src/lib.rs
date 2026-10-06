@@ -1602,6 +1602,7 @@ impl EpochManager {
         self.is_next_block_in_next_epoch_impl(
             block_height,
             last_final_block_height,
+            parent_info.epoch_id(),
             epoch_first_block,
             prev_last_certified_block_epoch_id,
         )
@@ -1633,6 +1634,7 @@ impl EpochManager {
         self.is_next_block_in_next_epoch_impl(
             block_height + 1,
             max_last_final_height,
+            parent_info.epoch_id(),
             epoch_first_block,
             None,
         )
@@ -1991,24 +1993,24 @@ impl EpochManager {
     /// Parameters:
     /// - `block_height`: the height of the block
     /// - `last_final_height`: the height of the last final block for the block in question
+    /// - `epoch_id`: the epoch of the block
     /// - `epoch_first_block`: the first block of the current epoch
     /// - `last_certified_block_epoch`: on SPICE, the epoch of the last certified block
     fn is_next_block_in_next_epoch_impl(
         &self,
         block_height: BlockHeight,
         last_final_height: BlockHeight,
+        epoch_id: &EpochId,
         epoch_first_block: &CryptoHash,
         last_certified_block_epoch: Option<&EpochId>,
     ) -> Result<bool, EpochError> {
-        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
         // In SPICE, do not transition to the next epoch if the last certified
         // block's epoch is different from the current block epoch. This
         // prevents execution from lagging more than one epoch behind.
-        if last_certified_block_epoch
-            .is_some_and(|epoch_id| epoch_id != epoch_first_block_info.epoch_id())
-        {
+        if last_certified_block_epoch.is_some_and(|certified_epoch| certified_epoch != epoch_id) {
             return Ok(false);
         }
+        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
         let protocol_version =
             self.get_epoch_info(&epoch_first_block_info.epoch_id())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
@@ -2034,6 +2036,7 @@ impl EpochManager {
         self.is_next_block_in_next_epoch_impl(
             block_info.height(),
             block_info.last_finalized_height(),
+            block_info.epoch_id(),
             block_info.epoch_first_block(),
             block_info.last_certified_block_epoch(),
         )
