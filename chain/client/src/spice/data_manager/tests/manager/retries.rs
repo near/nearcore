@@ -97,9 +97,8 @@ fn a_settled_commitments_producers_are_never_asked() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn outstanding_requests_per_producer_are_capped_lowest_heights_first_across_items() {
-    let (chain, blocks) = chain_with_blocks(7);
-    let mut manager = TestManager::new(&chain);
-    manager.set_extra_pairs(vec![(1, 1)]);
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 7);
+    let mut manager = TestManager::applying(&chain, 2);
     for block in &blocks[..6] {
         manager.track_block(&block);
     }
@@ -111,7 +110,7 @@ fn outstanding_requests_per_producer_are_capped_lowest_heights_first_across_item
 
     let expected_ids: BTreeSet<DataId> = blocks[..2]
         .iter()
-        .flat_map(|block| [receipt_id(block, 0, 1), receipt_id(block, 1, 1)])
+        .flat_map(|block| [receipt_id(block, 0, 2), receipt_id(block, 1, 2)])
         .collect();
     assert_eq!(requests.len(), TOTAL_PARTS);
     // Each producer is asked only about the 4 lowest items (the cap), each time for its
@@ -128,9 +127,8 @@ fn outstanding_requests_per_producer_are_capped_lowest_heights_first_across_item
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_saturated_producer_set_does_not_hold_back_items_other_producers_serve() {
-    let (chain, blocks) = chain_with_blocks(7);
-    let mut manager = TestManager::new(&chain);
-    manager.set_extra_pairs(vec![(1, 1)]);
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 7);
+    let mut manager = TestManager::applying(&chain, 2);
     let others: Vec<AccountId> =
         (0..TOTAL_PARTS).map(|i| account(&format!("other{i}.near"))).collect();
     manager.set_producers_for(1, others.clone());
@@ -146,7 +144,7 @@ fn a_saturated_producer_set_does_not_hold_back_items_other_producers_serve() {
     assert_eq!(requests.len(), 2 * TOTAL_PARTS);
     for (producers, from_shard) in [(producers(), 0), (others, 1)] {
         let expected_ids: BTreeSet<DataId> =
-            blocks[..cap].iter().map(|block| receipt_id(block, from_shard, 1)).collect();
+            blocks[..cap].iter().map(|block| receipt_id(block, from_shard, 2)).collect();
         for producer in &producers {
             assert_eq!(requests[producer].keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
         }
