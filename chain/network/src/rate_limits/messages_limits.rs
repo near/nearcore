@@ -142,12 +142,7 @@ impl Config {
         config.rate_limits.insert(StatePartRequest, state_sync_config.clone());
         config.rate_limits.insert(StateHeaderRequest, state_sync_config.clone());
         config.rate_limits.insert(StateRequestAck, state_sync_config.clone());
-        config.rate_limits.insert(VersionedStateResponse, state_sync_config.clone());
-
-        // Older versions of state sync messages, not really used anymore.
-        config.rate_limits.insert(StateRequestHeader, state_sync_config.clone());
-        config.rate_limits.insert(StateRequestPart, state_sync_config.clone());
-        config.rate_limits.insert(StateResponse, state_sync_config);
+        config.rate_limits.insert(VersionedStateResponse, state_sync_config);
 
         config.rate_limits.insert(BlockApproval, basic_config(2_000));
 
@@ -239,14 +234,11 @@ pub enum RateLimitedPeerMessageKey {
     Block,
     Transaction,
     SyncSnapshotHosts,
-    StateRequestHeader,
-    StateRequestPart,
     VersionedStateResponse,
     BlockApproval,
     ForwardTx,
     TxStatusRequest,
     TxStatusResponse,
-    StateResponse,
     PartialEncodedChunkRequest,
     PartialEncodedChunkResponse,
     VersionedPartialEncodedChunk,
@@ -350,8 +342,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             },
         },
         PeerMessage::SyncSnapshotHosts(_) => Some((SyncSnapshotHosts, 1)),
-        PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
-        PeerMessage::StateRequestPart(_, _, _) => Some((StateRequestPart, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
         PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
@@ -504,14 +494,14 @@ mod tests {
         overrides.rate_limits.insert(BlockHeaders, None);
         overrides
             .rate_limits
-            .insert(StateRequestHeader, Some(SingleMessageConfig::new(5, 1.0, None)));
+            .insert(StateHeaderRequest, Some(SingleMessageConfig::new(5, 1.0, None)));
 
         config.apply_overrides(overrides);
         assert_eq!(config.rate_limits.len(), 3);
         assert_eq!(config.rate_limits.get(&Block), Some(&SingleMessageConfig::new(4, 1.0, None)));
         assert_eq!(config.rate_limits.get(&BlockHeaders), None);
         assert_eq!(
-            config.rate_limits.get(&StateRequestHeader),
+            config.rate_limits.get(&StateHeaderRequest),
             Some(&SingleMessageConfig::new(5, 1.0, None))
         );
     }
