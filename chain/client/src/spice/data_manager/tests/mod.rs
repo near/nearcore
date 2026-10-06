@@ -1,4 +1,4 @@
-use super::item::{CodedTracker, CommitmentState, FetchItem, PartInsertResult, ProducerState};
+use super::item::{CodedTracker, CommitmentState, FetchItem, PartInsertResult};
 use super::*;
 use crate::spice::data_distributor_actor::DATA_PARTS_RATIO;
 use assert_matches::assert_matches;

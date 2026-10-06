@@ -17,11 +17,12 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::reed_solomon::ReedSolomonEncoderCache;
+use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
+use pull::Pulls;
 pub(crate) use pull::{PullConfig, PullRequest};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem;
@@ -119,8 +120,13 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     /// Ids of tracked items whose decode was handed to the consumer. Only their data can be
     /// in the store.
     delivered_items: HashSet<DataId>,
+    /// Pulls in flight, and per producer the pullable items it is a source for.
+    pulls: Pulls,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
+    /// Items the pull traversal visited, over all triggers.
+    #[cfg(test)]
+    items_visited_by_traversal: usize,
 }
 
 impl<P: DataPolicy> SpiceDataManager<P> {
@@ -139,7 +145,10 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             items_by_height: BTreeMap::new(),
             pullable_items: BTreeMap::new(),
             delivered_items: HashSet::new(),
+            pulls: Pulls::default(),
             final_execution_head: None,
+            #[cfg(test)]
+            items_visited_by_traversal: 0,
         }
     }
 
@@ -161,7 +170,9 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
         for id in self.policies.made_pullable_by(block)? {
             if let Some(item) = self.items.get(&id) {
-                self.pullable_items.entry(item.height).or_default().insert(id);
+                if self.pullable_items.entry(item.height).or_default().insert(id) {
+                    self.pulls.add_sources(item.pull_sources());
+                }
             }
         }
         Ok(())
@@ -218,7 +229,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             }
         }
         self.remove_done_items();
-        self.pull_requests(now)
+        self.pulls_to_issue(now)
     }
 
     /// Height of the final execution head; the genesis height before the first one is recorded.
@@ -268,25 +279,24 @@ impl<P: DataPolicy> SpiceDataManager<P> {
                     .ok_or(SenderFault::InvalidMerkleProof)?;
             verified.push(part);
         }
-        item.note_pull_response(sender);
+        self.pulls.clear(id, sender);
+        let is_pullable = self.pullable_items.get(&item.height).is_some_and(|ids| ids.contains(id));
+        let sources_before = if is_pullable { item.pull_sources() } else { HashSet::new() };
         let encoder = self.encoders.entry(total_parts);
-        for part in verified {
-            match item.insert_part(&encoder, id, producer_index, part) {
-                PartInsertResult::Decoded(data) => {
-                    self.delivered_items.insert(id.clone());
-                    return Ok(PartsOutcome::Decoded(data));
-                }
-                PartInsertResult::Garbage(error) => {
-                    return Err(SenderFault::GarbageCommitment(error));
-                }
-                PartInsertResult::ConflictingCommitment => {
-                    return Err(SenderFault::ConflictingCommitment);
-                }
-                PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
-                PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
+        let outcome = insert_verified_parts(item, &encoder, id, producer_index, verified);
+        if is_pullable {
+            let sources_after = item.pull_sources();
+            let dropped: Vec<AccountId> =
+                sources_before.difference(&sources_after).cloned().collect();
+            for producer in &dropped {
+                self.pulls.clear(id, producer);
             }
+            self.pulls.remove_sources(dropped);
         }
-        Ok(PartsOutcome::Collecting)
+        if let Ok(PartsOutcome::Decoded(_)) = &outcome {
+            self.delivered_items.insert(id.clone());
+        }
+        outcome
     }
 
     /// Stops tracking items at or below `height`.
@@ -297,9 +307,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         };
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
-        self.pullable_items = self.pullable_items.split_off(&next_height);
+        let live_pullable = self.pullable_items.split_off(&next_height);
+        let expired_pullable: HashSet<DataId> =
+            mem::replace(&mut self.pullable_items, live_pullable).into_values().flatten().collect();
         for id in expired.into_values().flatten() {
-            self.items.remove(&id).expect("index entry names a tracked item");
+            let item = self.items.remove(&id).expect("index entry names a tracked item");
+            self.release_pulls(&id, &item, expired_pullable.contains(&id));
             self.delivered_items.remove(&id);
         }
     }
@@ -318,21 +331,59 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             return;
         };
         remove_indexed(&mut self.items_by_height, item.height, id);
-        remove_indexed(&mut self.pullable_items, item.height, id);
+        let was_pullable = remove_indexed(&mut self.pullable_items, item.height, id);
+        self.release_pulls(id, &item, was_pullable);
         self.delivered_items.remove(id);
+    }
+
+    /// Forgets the requests in flight for `item`, just removed, and, if it was pullable, its
+    /// sources.
+    fn release_pulls(&mut self, id: &DataId, item: &FetchItem, was_pullable: bool) {
+        for (producer, _) in &item.producers {
+            self.pulls.clear(id, producer);
+        }
+        if was_pullable {
+            self.pulls.remove_sources(item.pull_sources());
+        }
     }
 }
 
+/// Inserts `verified` parts from the producer at `producer_index` until one settles a
+/// commitment or fails.
+fn insert_verified_parts(
+    item: &mut FetchItem,
+    encoder: &Arc<ReedSolomonEncoder>,
+    id: &DataId,
+    producer_index: usize,
+    verified: Vec<VerifiedCodedPart>,
+) -> Result<PartsOutcome, SenderFault> {
+    for part in verified {
+        match item.insert_part(encoder, id, producer_index, part) {
+            PartInsertResult::Decoded(data) => return Ok(PartsOutcome::Decoded(data)),
+            PartInsertResult::Garbage(error) => return Err(SenderFault::GarbageCommitment(error)),
+            PartInsertResult::ConflictingCommitment => {
+                return Err(SenderFault::ConflictingCommitment);
+            }
+            PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
+            PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
+        }
+    }
+    Ok(PartsOutcome::Collecting)
+}
+
 /// Removes `id` from `index` under `height`, dropping the height once it holds no id.
+/// Returns whether `id` was there.
 fn remove_indexed(
     index: &mut BTreeMap<BlockHeight, BTreeSet<DataId>>,
     height: BlockHeight,
     id: &DataId,
-) {
-    if let Some(ids) = index.get_mut(&height) {
-        ids.remove(id);
-        if ids.is_empty() {
-            index.remove(&height);
-        }
+) -> bool {
+    let Some(ids) = index.get_mut(&height) else {
+        return false;
+    };
+    let removed = ids.remove(id);
+    if ids.is_empty() {
+        index.remove(&height);
     }
+    removed
 }

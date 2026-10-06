@@ -29,6 +29,7 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
+mod traversal;
 
 /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
 /// height `i + 1`.
@@ -141,6 +142,15 @@ fn ordinals(ordinals: &[u64]) -> BTreeSet<u64> {
     ordinals.iter().copied().collect()
 }
 
+/// Each producer pulled from for its own ordinal.
+fn own_ordinal_pulls() -> BTreeMap<AccountId, BTreeSet<u64>> {
+    producers()
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
+        .collect()
+}
+
 type WantsByProducer = BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>>;
 
 fn by_producer(requests: Vec<PullRequest>) -> WantsByProducer {
@@ -249,6 +259,10 @@ impl TestManager {
         self.manager.is_tracking(id)
     }
 
+    fn pulling_from(&self, id: &DataId) -> HashSet<AccountId> {
+        self.manager.pulls.pulling_from(id)
+    }
+
     fn is_pullable(&self, id: &DataId) -> bool {
         self.manager.pullable_items.values().any(|ids| ids.contains(id))
     }
@@ -310,14 +324,14 @@ impl TestManager {
         self.manager.items.get(id).unwrap_or_else(|| panic!("no item for {id:?}"))
     }
 
-    fn state(&self, id: &DataId, producer: &AccountId) -> &ProducerState {
-        let (_, state) = self
+    fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
+        let (_, bound) = self
             .item(id)
             .producers
             .iter()
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        state
+        bound.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {
@@ -326,6 +340,13 @@ impl TestManager {
             other => panic!("commitment is not tracked: {other:?}"),
         }
     }
+}
+
+/// One item from each of `blocks`, tracked and made pullable.
+fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataId> {
+    let ids = blocks.iter().map(|block| manager.track_needed_proof(block)).collect();
+    manager.certify_up_to(blocks.last().unwrap().header().height());
+    ids
 }
 
 fn receipt_id(block: &Block, from_shard: u64, to_shard: u64) -> DataId {

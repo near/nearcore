@@ -37,10 +37,7 @@ fn a_pullable_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbou
             (producers[4].clone(), ordinals(&[4])),
         ])
     );
-    assert_eq!(
-        manager.item(&id).outstanding_pulls().cloned().collect::<HashSet<_>>(),
-        producers.iter().cloned().collect()
-    );
+    assert_eq!(manager.pulling_from(&id), producers.iter().cloned().collect());
 }
 
 #[test]
@@ -171,14 +168,14 @@ fn a_held_slot_makes_higher_items_wait_and_a_stale_request_frees_it() {
     assert!(requests.values().all(|wants| wants.keys().eq([&low])));
     // Height 4, within the timeout: the slots are still held, so the higher item waits.
     assert_eq!(manager.on_block_processed(&blocks[3]), vec![]);
-    assert!(manager.item(&high).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&high).is_empty());
     // Height 5, the timeout elapsed: the requests are stale and dropped; the freed
     // slots go to the lowest item again.
     manager.clock.advance(request_timeout);
     let requests = by_producer(manager.on_block_processed(&blocks[4]));
     assert_eq!(requests.len(), TOTAL_PARTS);
     assert!(requests.values().all(|wants| wants.keys().eq([&low])));
-    assert!(manager.item(&high).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&high).is_empty());
 }
 
 #[test]
@@ -215,7 +212,7 @@ fn a_tracker_skips_a_saturated_pool_member_in_rotation() {
     let cursor_before = manager.tracker(&high, &commitment).rotation_cursor;
     let requests = by_producer(manager.on_block_processed(&blocks[2]));
     assert!(requests.values().all(|wants| wants.keys().eq([&low])));
-    assert!(manager.item(&high).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&high).is_empty());
     assert_eq!(manager.tracker(&high, &commitment).rotation_cursor, cursor_before);
 
     // One member answers the lowest item with a decoding push, which frees its slot;
@@ -359,7 +356,7 @@ fn an_answer_clears_its_senders_requests_binds_it_and_lands_in_the_right_tracker
             (producers[4].clone(), ordinals(&[4])),
         ])
     );
-    assert!(manager.state(&id, &producers[2]).requested_at.is_some());
+    assert!(manager.pulling_from(&id).contains(&producers[2]));
 
     // An own-ordinal answer binds its sender and feeds the tracker its part verifies
     // against; the backer answering, even with a part already held, clears the
@@ -377,9 +374,9 @@ fn an_answer_clears_its_senders_requests_binds_it_and_lands_in_the_right_tracker
         parts_with_ordinals(&parts, &[0]),
     );
 
-    assert!(manager.state(&id, &producers[2]).requested_at.is_none());
-    assert_eq!(manager.state(&id, &producers[2]).commitment.as_ref(), Some(&commitment));
-    assert!(manager.state(&id, &producers[0]).requested_at.is_none());
+    assert!(!manager.pulling_from(&id).contains(&producers[2]));
+    assert_eq!(manager.bound_commitment(&id, &producers[2]), Some(&commitment));
+    assert!(!manager.pulling_from(&id).contains(&producers[0]));
     assert_eq!(manager.tracker(&id, &commitment).missing_ordinals(), vec![1, 3, 4]);
     // Once the timeout elapsed, the next block asks one of the two backers for the
     // rest, and again only the producers still unbound for their own ordinal.
@@ -448,9 +445,9 @@ fn an_unverifiable_answer_leaves_the_request_outstanding() {
     // Nothing landed, and neither request counts as answered, so within the timeout
     // nothing is re-sent.
     assert_eq!(manager.tracker(&id, &commitment).missing_ordinals(), missing_before);
-    assert!(manager.state(&id, &producers[0]).requested_at.is_some());
-    assert!(manager.state(&id, &producers[1]).requested_at.is_some());
-    assert!(manager.state(&id, &producers[1]).commitment.is_none());
+    assert!(manager.pulling_from(&id).contains(&producers[0]));
+    assert!(manager.pulling_from(&id).contains(&producers[1]));
+    assert!(manager.bound_commitment(&id, &producers[1]).is_none());
     assert_eq!(manager.on_block_processed(&blocks[2]), vec![]);
 }
 
@@ -488,4 +485,83 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
         )
         .unwrap();
     assert_matches!(result, PartsOutcome::Decoded(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn an_answer_frees_its_senders_slot_at_the_next_trigger() {
+    let (chain, blocks) = chain_with_blocks(4);
+    let mut manager = TestManager::new(&chain);
+    manager
+        .set_pull_config(PullConfig { max_outstanding_per_producer: 1, ..PullConfig::default() });
+    let ids = pullable_items(&mut manager, &blocks[..2]);
+    let producers = producers();
+    manager.on_block_processed(&blocks[2]);
+    assert_eq!(manager.pulling_from(&ids[0]), producers.iter().cloned().collect());
+
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    manager.push_and_assert_collecting(
+        &producers[0],
+        &ids[0],
+        &commitment,
+        parts_with_ordinals(&parts, &[0]),
+    );
+
+    // The clock stands still: only the answer can have freed the slot.
+    let requests = by_producer(manager.on_block_processed(&blocks[3]));
+    assert_eq!(
+        requests,
+        WantsByProducer::from([(
+            producers[0].clone(),
+            BTreeMap::from([(ids[0].clone(), ordinals(&[1, 2, 3, 4]))]),
+        )])
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn removing_an_item_frees_the_slots_its_requests_held() {
+    let (chain, blocks) = chain_with_blocks(4);
+    let mut manager = TestManager::new(&chain);
+    manager
+        .set_pull_config(PullConfig { max_outstanding_per_producer: 1, ..PullConfig::default() });
+    let ids = pullable_items(&mut manager, &blocks[..2]);
+    manager.on_block_processed(&blocks[2]);
+    assert!(manager.pulling_from(&ids[1]).is_empty());
+
+    manager.deliver(&producers()[0], &ids[0], &receipt_data(0, 1));
+    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+
+    // The clock stands still: the removed item's requests free every slot.
+    let requests = wants_for(manager.on_block_processed(&blocks[3]), &ids[1]);
+    assert_eq!(requests, own_ordinal_pulls());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_settled_commitment_frees_the_slots_its_other_backers_held_for_it() {
+    let (chain, blocks) = chain_with_blocks(4);
+    let mut manager = TestManager::new(&chain);
+    manager
+        .set_pull_config(PullConfig { max_outstanding_per_producer: 1, ..PullConfig::default() });
+    let ids = pullable_items(&mut manager, &blocks[..2]);
+    let producers = producers();
+    let (decoder, backer) = (&producers[0], &producers[1]);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    manager.push_and_assert_collecting(
+        backer,
+        &ids[0],
+        &commitment,
+        parts_with_ordinals(&parts, &[1]),
+    );
+    manager.on_block_processed(&blocks[2]);
+    assert!(manager.pulling_from(&ids[0]).contains(backer));
+
+    // Another producer decodes the commitment the backer was pulled for; the backer is no
+    // longer a source of that item.
+    manager.deliver(decoder, &ids[0], &receipt_data(0, 1));
+
+    // The clock stands still: only the settled commitment can have freed the backer's slot.
+    let requests = wants_for(manager.on_block_processed(&blocks[3]), &ids[1]);
+    assert_eq!(requests.get(backer), Some(&ordinals(&[1])));
 }
