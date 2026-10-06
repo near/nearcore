@@ -165,22 +165,35 @@ pub(crate) fn adversarial_compile_max_blocks(metric: GasMetric, vm_kind: VMKind)
     compile_single_contract_cost(metric, vm_kind, &code)
 }
 
-pub(crate) fn adversarial_load_many_globals(metric: GasMetric, vm_kind: VMKind) -> GasCost {
-    let code = near_test_contracts::contract_with_num_globals(50_000);
-    measure_instantiation_overhead(metric, vm_kind, &code)
+pub(crate) fn adversarial_load_many_globals(
+    metric: GasMetric,
+    vm_kind: VMKind,
+    count: u32,
+    warmup_iters: usize,
+    iters: usize,
+) -> GasCost {
+    let code = near_test_contracts::contract_with_num_globals(count);
+    measure_instantiation_overhead(metric, vm_kind, &code, warmup_iters, iters)
 }
 
-pub(crate) fn adversarial_load_many_data_segments(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+pub(crate) fn adversarial_load_many_data_segments(
+    metric: GasMetric,
+    vm_kind: VMKind,
+    warmup_iters: usize,
+    iters: usize,
+) -> GasCost {
     let code = near_test_contracts::many_data_segments_contract(50_000);
-    measure_instantiation_overhead(metric, vm_kind, &code)
+    measure_instantiation_overhead(metric, vm_kind, &code, warmup_iters, iters)
 }
 
 pub(crate) fn adversarial_load_many_element_segments(
     metric: GasMetric,
     vm_kind: VMKind,
+    warmup_iters: usize,
+    iters: usize,
 ) -> GasCost {
     let code = near_test_contracts::many_element_segments_contract(10_000);
-    measure_instantiation_overhead(metric, vm_kind, &code)
+    measure_instantiation_overhead(metric, vm_kind, &code, warmup_iters, iters)
 }
 
 /// Warm the compile cache, then measure N invocations (instantiation + trivial execution).
@@ -189,7 +202,10 @@ fn measure_instantiation_overhead(
     metric: GasMetric,
     vm_kind: VMKind,
     contract_bytes: &[u8],
+    warmup_iters: usize,
+    iters: usize,
 ) -> GasCost {
+    assert!(iters > 0, "instantiation measurements require --iters > 0");
     let config_store = RuntimeConfigStore::new();
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
     config.vm_kind = vm_kind;
@@ -216,14 +232,19 @@ fn measure_instantiation_overhead(
     };
 
     // Warm: compiles and caches the module; subsequent calls only instantiate + execute.
-    run_once();
+    let outcome = run_once();
+    assert!(outcome.aborted.is_none(), "warmup invocation failed: {:?}", outcome.aborted);
 
-    let n = 10_usize;
-    let start = GasCost::measure(metric);
-    for _ in 0..n {
-        run_once();
+    for _ in 0..warmup_iters {
+        let outcome = run_once();
+        assert!(outcome.aborted.is_none(), "warmup invocation failed: {:?}", outcome.aborted);
     }
-    start.elapsed() / n as u64
+    let start = GasCost::measure(metric);
+    for _ in 0..iters {
+        let outcome = run_once();
+        assert!(outcome.aborted.is_none(), "invocation failed: {:?}", outcome.aborted);
+    }
+    start.elapsed() / iters as u64
 }
 
 pub(crate) fn op_float_nan_canonicalization(metric: GasMetric, vm_kind: VMKind) -> GasCost {

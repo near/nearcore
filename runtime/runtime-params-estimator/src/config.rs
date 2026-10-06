@@ -36,6 +36,8 @@ pub struct Config {
     pub rocksdb_test_config: RocksDBTestConfig,
     /// Print extra details on estimations.
     pub debug: bool,
+    /// Number of globals for the globals compilation and invocation controls.
+    pub globals_count: u32,
     /// Print JSON output for estimation results.
     pub json_output: bool,
     /// Clear all OS caches between measured blocks.

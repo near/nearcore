@@ -85,6 +85,9 @@ struct CliArgs {
     /// Print extra debug information.
     #[clap(long)]
     debug: bool,
+    /// Number of globals in Adversarial{Compile,Load}ManyGlobals.
+    #[clap(long, default_value_t = 50_000)]
+    globals_count: u32,
     /// Print detailed estimation results in JSON format. One line with one JSON
     /// object per estimation.
     #[clap(long)]
@@ -303,6 +306,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         costs_to_measure: cli_args.costs,
         rocksdb_test_config,
         debug: cli_args.debug,
+        globals_count: cli_args.globals_count,
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
         in_memory_db: cli_args.in_memory_db,
@@ -549,6 +553,7 @@ mod tests {
             container_shell: false,
             drop_os_cache: false,
             debug: true,
+            globals_count: 50_000,
             json_output: false,
             tracing_span_tree: false,
             record_io_trace: None,
