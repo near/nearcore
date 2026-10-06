@@ -1943,6 +1943,7 @@ fn core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
     SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),

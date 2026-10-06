@@ -1,6 +1,5 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
-use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -8,6 +7,7 @@ use near_cache::SyncLruCache;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+mod boundary;
+
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionResultEndorsed {
@@ -50,6 +52,7 @@ pub struct SpiceCoreWriterActor {
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
@@ -79,7 +82,19 @@ impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
             return;
         }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
+            match err {
+                ProcessChunkError::InvalidEndorsement(
+                    InvalidSpiceEndorsementError::EndorsementIsNotRelevant,
+                )
+                | ProcessChunkError::InvalidPendingEndorsement(
+                    InvalidSpiceEndorsementError::EndorsementIsNotRelevant,
+                ) => {
+                    tracing::debug!(target: "spice_core_writer", ?err, "dropping irrelevant spice chunk endorsement");
+                }
+                err => {
+                    tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
+                }
+            }
         }
     }
 }
@@ -88,6 +103,7 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
         core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
@@ -98,6 +114,7 @@ impl SpiceCoreWriterActor {
             core_reader,
             chain_store,
             epoch_manager,
+            shard_tracker,
             validator_signer,
             chunk_executor_sender,
             spice_chunk_validator_sender,
@@ -131,8 +148,9 @@ impl SpiceCoreWriterActor {
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
     ) -> StoreUpdate {
-        let key = get_execution_results_key(block_hash, shard_id);
+        self.check_boundary_execution_result(block_hash, shard_id, execution_result);
         let mut store_update = self.chain_store.store().store_update();
+        let key = get_execution_results_key(block_hash, shard_id);
         store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
         store_update
     }
@@ -581,9 +599,7 @@ impl SpiceCoreWriterActor {
         // still certify under spice, so endorsements that arrived for it before the block
         // did are recorded now.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
-            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &block_hash)? {
-                self.record_pending_endorsements_for_last_pre_spice_block(&block_hash)?;
-            }
+            self.handle_processed_last_pre_spice_block(&block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();
@@ -592,21 +608,6 @@ impl SpiceCoreWriterActor {
         store_update.commit();
         self.send_execution_result_endorsements(&block);
         Ok(())
-    }
-
-    fn record_pending_endorsements_for_last_pre_spice_block(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let block = self.chain_store.get_block(block_hash)?;
-        let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
-        if pending_endorsements.is_empty() {
-            return Ok(());
-        }
-        let store_update =
-            self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
-        store_update.commit();
-        self.try_sending_execution_result_endorsed(block_hash)
     }
 }
 
