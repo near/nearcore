@@ -126,15 +126,34 @@ impl PeerSelector {
             .choose(&mut self.rng)
     }
 
-    /// The median advertised head among peers that did not fail recently, or among all
-    /// of them when every one did.
-    pub fn median_advertised_head_without_recent_failures<'a>(
+    /// The sync target from claimed heights. When peers are split around
+    /// `trigger_height`, only those above it count, so the target starts sync.
+    /// With none above it, all candidates count.
+    pub fn sync_target_from_claimed_peers<'a>(
         &self,
         candidates: &'a [PeerAdvertisedHead],
+        trigger_height: BlockHeight,
         now: Utc,
     ) -> Option<&'a PeerAdvertisedHead> {
+        let above_trigger: Vec<&PeerAdvertisedHead> =
+            candidates.iter().filter(|peer| peer.highest_block_height > trigger_height).collect();
+        if above_trigger.is_empty() {
+            return self.median_advertised_head_without_recent_failures(candidates, now);
+        }
+        self.median_advertised_head_without_recent_failures(above_trigger, now)
+    }
+
+    /// The median advertised head among peers that did not fail recently, or among all
+    /// of them when every one did.
+    fn median_advertised_head_without_recent_failures<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = &'a PeerAdvertisedHead>,
+        now: Utc,
+    ) -> Option<&'a PeerAdvertisedHead> {
+        let candidates: Vec<&PeerAdvertisedHead> = candidates.into_iter().collect();
         let without_recent_failures: Vec<&PeerAdvertisedHead> = candidates
             .iter()
+            .copied()
             .filter(|peer| !self.failed_recently(&peer.peer_info.id, now))
             .collect();
         if without_recent_failures.is_empty() {
@@ -343,6 +362,21 @@ mod tests {
         let after_failures =
             selector.median_advertised_head_without_recent_failures(&candidates, clock.now_utc());
         assert_eq!(after_failures.unwrap().highest_block_height, honest_height);
+    }
+
+    #[test]
+    fn sync_target_comes_from_peers_above_trigger() {
+        let (clock, selector) = selector();
+        let trigger_height = 101;
+        let tip_height = 1_000;
+        let candidates = vec![
+            advertised("lagging_one", trigger_height),
+            advertised("lagging_two", trigger_height),
+            advertised("tip", tip_height),
+        ];
+        let target =
+            selector.sync_target_from_claimed_peers(&candidates, trigger_height, clock.now_utc());
+        assert_eq!(target.unwrap().peer_info.id, peer_id("tip"));
     }
 
     #[test]

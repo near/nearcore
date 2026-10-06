@@ -1771,8 +1771,9 @@ impl ClientActor {
         let eligible_peers = self.peers_advertising_above(head.height);
         let now = self.clock.now_utc();
         let selector = &self.client.sync_handler.peer_selector;
+        let trigger_height = self.client.sync_trigger_height(head.height);
         let Some(peer_info) =
-            selector.median_advertised_head_without_recent_failures(&eligible_peers, now)
+            selector.sync_target_from_claimed_peers(&eligible_peers, trigger_height, now)
         else {
             return Ok(SyncRequirement::NoPeers);
         };
@@ -1826,7 +1827,7 @@ impl ClientActor {
         highest_height: BlockHeight,
         head: Tip,
     ) -> SyncRequirement {
-        if self.client.peer_height_requires_sync(highest_height, head.height) {
+        if highest_height > self.client.sync_trigger_height(head.height) {
             SyncRequirement::SyncNeeded {
                 source: HighestHeightSource::Peer(peer_id),
                 highest_height,

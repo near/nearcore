@@ -1226,18 +1226,15 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// A height that fails this test cannot change the sync decision, so it needs no proof.
-    pub(crate) fn peer_height_requires_sync(
-        &self,
-        peer_height: BlockHeight,
-        head_height: BlockHeight,
-    ) -> bool {
+    /// A peer must advertise above this height to start or continue sync. A height at
+    /// or below it cannot change the sync decision, so it needs no proof.
+    pub(crate) fn sync_trigger_height(&self, head_height: BlockHeight) -> BlockHeight {
         let threshold = if self.sync_handler.sync_status.is_syncing() {
             0
         } else {
             self.config.sync_height_threshold
         };
-        peer_height > head_height + threshold
+        head_height + threshold
     }
 
     /// Record `peer_id`'s verified height if the relayed block's approvals verify as
@@ -1247,7 +1244,7 @@ impl Client {
         let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
-        if !self.peer_height_requires_sync(height, head_height) {
+        if height <= self.sync_trigger_height(head_height) {
             return;
         }
         self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
