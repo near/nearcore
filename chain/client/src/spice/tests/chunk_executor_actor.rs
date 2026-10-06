@@ -1648,8 +1648,6 @@ fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
     ));
 }
 
-const BOUNDARY_NUM_SHARDS: NumShards = 3;
-
 /// A node tracking every shard, with a fabricated chain whose tip is a last pre-spice
 /// block. `outgoing_rc` collects the actor's outgoing messages.
 struct BoundaryActor {
@@ -1666,12 +1664,15 @@ fn setup_boundary_actor() -> BoundaryActor {
 }
 
 /// `producers` and `chunk_validators_only` are the epoch validators; the node runs
-/// as `me`, which need not be one of them, or without a validator signer when `None`.
+/// as `node_account`, which need not be one of them, or without a validator signer when
+/// `None`.
 fn setup_boundary_actor_with(
     producers: &[&str],
     chunk_validators_only: &[&str],
-    me: Option<&str>,
+    node_account: Option<&str>,
 ) -> BoundaryActor {
+    const BOUNDARY_NUM_SHARDS: NumShards = 3;
+
     init_test_logger();
     let (outgoing_sc, outgoing_rc) = unbounded();
     let signer = Arc::new(create_test_signer(producers[0]));
@@ -1685,10 +1686,10 @@ fn setup_boundary_actor_with(
         .validators_spec(ValidatorsSpec::desired_roles(producers, chunk_validators_only))
         .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
         .build();
-    let my_signer = me.map(|account| Arc::new(create_test_signer(account)));
+    let node_signer = node_account.map(|account| Arc::new(create_test_signer(account)));
     let mut test_actor = TestActor::new(
         genesis,
-        MutableConfigValue::new(my_signer, "validator_signer"),
+        MutableConfigValue::new(node_signer, "validator_signer"),
         shard_layout.shard_uids().collect(),
         outgoing_sc,
     );
@@ -1807,12 +1808,12 @@ impl BoundaryActor {
         sends
     }
 
-    /// What `me`'s roles at the last pre-spice block say the bootstrap sends for
-    /// `shard_id`: receipts and, when recorded, a witness as a chunk producer; an
+    /// What `node_account`'s roles at the last pre-spice block say the bootstrap sends
+    /// for `shard_id`: receipts and, when recorded, a witness as a chunk producer; an
     /// endorsement broadcast as a designated chunk validator.
     fn expected_sends(
         &self,
-        me: &AccountId,
+        node_account: &AccountId,
         shard_id: ShardId,
         witness_recorded: bool,
     ) -> BoundarySends {
@@ -1821,11 +1822,11 @@ impl BoundaryActor {
         let is_producer = epoch_manager
             .get_epoch_chunk_producers_for_shard(header.epoch_id(), shard_id)
             .unwrap()
-            .contains(me);
+            .contains(node_account);
         let is_designated = epoch_manager
             .get_chunk_validator_assignments(header.epoch_id(), shard_id, header.height())
             .unwrap()
-            .contains(me);
+            .contains(node_account);
         BoundarySends {
             receipts: is_producer,
             witness: is_producer && witness_recorded,
@@ -1833,10 +1834,10 @@ impl BoundaryActor {
         }
     }
 
-    /// Runs the bootstrap as `me` and asserts each shard's sends match its roles, and
-    /// that its own endorsement is recorded locally for every shard iff it is an
-    /// epoch validator.
-    fn bootstrap_and_assert_sends(&mut self, me: &AccountId, witness_recorded: bool) {
+    /// Runs the bootstrap as `node_account` and asserts each shard's sends match its
+    /// roles, and that its own endorsement is recorded locally for every shard iff it
+    /// is an epoch validator.
+    fn bootstrap_and_assert_sends(&mut self, node_account: &AccountId, witness_recorded: bool) {
         let shard_uids: Vec<ShardUId> = self.shard_layout.shard_uids().collect();
         self.seed_pre_spice_apply_artifacts(&shard_uids);
         self.test_actor.actor.handle_processed_block(self.last_pre_spice.hash()).unwrap();
@@ -1844,16 +1845,17 @@ impl BoundaryActor {
         let mut sends = self.drain_sends();
         let epoch_manager = self.test_actor.chain.epoch_manager.clone();
         let epoch_id = self.last_pre_spice.header().epoch_id();
-        let is_validator = epoch_manager.get_validator_by_account_id(epoch_id, me).is_ok();
+        let is_validator =
+            epoch_manager.get_validator_by_account_id(epoch_id, node_account).is_ok();
         let core_reader = core_reader(&self.test_actor.chain);
         for shard_id in self.shard_layout.shard_ids() {
             assert_eq!(
                 sends.remove(&shard_id).unwrap_or_default(),
-                self.expected_sends(me, shard_id, witness_recorded),
+                self.expected_sends(node_account, shard_id, witness_recorded),
                 "sends of shard {shard_id}",
             );
             assert_eq!(
-                core_reader.endorsement_exists(self.last_pre_spice.hash(), shard_id, me),
+                core_reader.endorsement_exists(self.last_pre_spice.hash(), shard_id, node_account),
                 is_validator,
                 "local endorsement of shard {shard_id}",
             );
@@ -1977,8 +1979,8 @@ fn test_boundary_bootstrap_wakes_parked_first_spice_block() {
 fn test_boundary_bootstrap_sends_by_role() {
     let mut boundary = setup_boundary_actor_with(&["test0", "test1"], &[], Some("test0"));
     boundary.record_pre_spice_state_transitions();
-    let me = AccountId::from_str("test0").unwrap();
-    boundary.bootstrap_and_assert_sends(&me, true);
+    let node_account = AccountId::from_str("test0").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, true);
 }
 
 /// Without recorded transitions a chunk producer has no witness to send; its receipts
@@ -1987,8 +1989,8 @@ fn test_boundary_bootstrap_sends_by_role() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_boundary_bootstrap_without_recorded_transitions_sends_no_witness() {
     let mut boundary = setup_boundary_actor_with(&["test0", "test1"], &[], Some("test0"));
-    let me = AccountId::from_str("test0").unwrap();
-    boundary.bootstrap_and_assert_sends(&me, false);
+    let node_account = AccountId::from_str("test0").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, false);
 }
 
 /// An epoch validator outside a chunk's designated set records its endorsement only
@@ -2030,6 +2032,6 @@ fn test_boundary_bootstrap_non_designated_validator_endorses_locally() {
 fn test_boundary_bootstrap_non_validator_sends_nothing() {
     let mut boundary = setup_boundary_actor_with(&["test0"], &[], Some("test1"));
     boundary.record_pre_spice_state_transitions();
-    let me = AccountId::from_str("test1").unwrap();
-    boundary.bootstrap_and_assert_sends(&me, true);
+    let node_account = AccountId::from_str("test1").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, true);
 }

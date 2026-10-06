@@ -182,12 +182,6 @@ impl PerShardChunkExecutor {
         self.try_apply_pending();
     }
 
-    /// Local-path fanout entry: a sibling shard's apply produced receipts for
-    /// this shard (already on disk), so re-check the parked queue.
-    pub(crate) fn handle_local_chunk_applied(&mut self) {
-        self.try_apply_pending();
-    }
-
     /// Network receipt arrival for this shard: buffer it, verify-drain if ready,
     /// then re-drive the parked queue.
     pub(crate) fn handle_incoming_receipt(

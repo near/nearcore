@@ -37,7 +37,7 @@ impl ChunkExecutorActor {
         }
         // The proofs are on disk now; a first spice block parked on them, as after a
         // restart, is re-driven like after a regular apply.
-        self.wake_local_destinations(&outgoing_proofs);
+        self.try_progress_receiving_shards(&outgoing_proofs);
         Ok(())
     }
 

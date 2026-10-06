@@ -23,8 +23,7 @@ use std::collections::HashSet;
 
 impl PerShardChunkExecutor {
     /// Returns the receipt proofs it persisted, for local-path fanout. `block` must be a
-    /// last pre-spice block. The sends are independent: a failed one is logged and does
-    /// not hold back the others.
+    /// last pre-spice block.
     pub(crate) fn endorse_and_send_receipts_and_witness_for_last_pre_spice_block(
         &self,
         block: &Block,

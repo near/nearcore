@@ -280,7 +280,7 @@ impl ChunkExecutorActor {
         }
     }
 
-    /// After a shard applies, wake local destination shards (their incoming
+    /// After a shard applies, progress its receiving shards (their incoming
     /// receipts are now on disk — local-path fanout), then finalize the block once
     /// all its tracked shards are applied.
     pub(crate) fn coordinator_post_apply(
@@ -288,7 +288,7 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
-        self.wake_local_destinations(outgoing_proofs);
+        self.try_progress_receiving_shards(outgoing_proofs);
         // Each tracked shard's apply-done lands here; finalize the block once all of
         // them are applied. `finalize_block` is idempotent, so being driven here
         // repeatedly is harmless.
@@ -298,14 +298,14 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Wakes the local destination shards of `outgoing_proofs`, whose incoming
-    /// receipts are now on disk.
-    fn wake_local_destinations(&mut self, outgoing_proofs: &[ReceiptProof]) {
+    /// Local-path fanout: the receipts in `outgoing_proofs` are already on disk, so
+    /// re-check the parked queue of each locally tracked receiving shard.
+    fn try_progress_receiving_shards(&mut self, outgoing_proofs: &[ReceiptProof]) {
         let destinations: HashSet<ShardId> =
             outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
         for to_shard_id in destinations {
             if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
-                executor.handle_local_chunk_applied();
+                executor.try_apply_pending();
             }
         }
     }
