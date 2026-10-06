@@ -49,6 +49,47 @@ Use this tool to measure the running time of elementary runtime operations that 
 
 Note, if you use the plotting functionality you would need to install [gnuplot](http://www.gnuplot.info/) to see the graphs.
 
+## Benchmarking Wasmtime upgrades
+
+Build each revision in a separate worktree and target directory. For wall-clock
+comparisons, pin one CPU and run several paired processes in alternating order.
+Use separate estimator homes so compiled artifacts are not shared between versions.
+
+```bash
+cargo build --release -p runtime-params-estimator --features required
+BIN="$PWD/target/release/runtime-params-estimator"
+
+COSTS=ContractLoadingBase,ContractLoadingPerByte,\
+AdversarialLoadManyGlobals,AdversarialLoadManyDataSegments,\
+AdversarialLoadManyElementSegments,AdversarialCompileMaxBlocks,\
+ContractCompileEmpty,ContractCompileMinimal,ContractCompileBaseV2,\
+ContractCompileBytesV2
+
+taskset -c 0 "$BIN" --metric time --vm-kind wasmtime \
+  --accounts-num 2 --additional-accounts-num 0 \
+  --costs "$COSTS" --iters 5 --warmup-iters 3 --debug --json-output
+```
+
+Also sweep global counts to compare compilation and cached instantiation scaling:
+
+```bash
+for n in 0 1 100 1000 10000 50000; do
+  taskset -c 0 "$BIN" --metric time --vm-kind wasmtime \
+    --accounts-num 2 --additional-accounts-num 0 \
+    --costs AdversarialCompileManyGlobals,AdversarialLoadManyGlobals \
+    --globals-count "$n" --iters 5 --warmup-iters 3 --json-output
+done
+```
+
+Compilation samples use fresh caches and exclude runtime/engine creation. Loading
+benchmarks prime the compile cache before measuring cached invocations. Use zero
+warmups when investigating early invocations and nonzero warmups for steady state.
+`--debug` emits the raw `compile_v2` corpus and fit diagnostics.
+
+Repeat focused regressions with `--metric icount` under the configured QEMU
+plugin or container, and profile important wall-clock regressions. Do not run
+`--metric icount` directly without QEMU.
+
 ## Replaying IO traces
 
 Compiling `neard` with `--features=io_trace` and then running it with
