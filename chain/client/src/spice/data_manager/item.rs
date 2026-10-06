@@ -1,6 +1,5 @@
 use super::DataId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Instant;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
@@ -29,19 +28,11 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
-    /// The item's producers, in the parts' encoding order, each with its state.
-    pub(super) producers: Vec<(AccountId, ProducerState)>,
+    /// The item's producers, in the parts' encoding order, each with the commitment it backed
+    /// once one of its parts verified.
+    pub(super) producers: Vec<(AccountId, Option<SpiceDataCommitment>)>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-}
-
-/// One producer's part in fetching this item.
-#[derive(Debug, Default)]
-pub(super) struct ProducerState {
-    /// The commitment this producer backed, once one of its parts verified.
-    pub(super) commitment: Option<SpiceDataCommitment>,
-    /// When this node asked it, while that request is unanswered.
-    pub(super) requested_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -54,14 +45,23 @@ pub(super) enum CommitmentState {
 
 impl FetchItem {
     pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
-        let producers =
-            producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
+        let producers = producers.into_iter().map(|producer| (producer, None)).collect();
         Self { height, producers, commitments: HashMap::new() }
     }
 
-    /// The state of `account` if it is one of the item's producers.
-    pub(super) fn producer_state_mut(&mut self, account: &AccountId) -> Option<&mut ProducerState> {
-        self.producers.iter_mut().find(|(producer, _)| producer == account).map(|(_, state)| state)
+    /// The producers that can still be asked for the item: unbound, or bound to a commitment
+    /// still collecting.
+    pub(super) fn askable_producers(&self) -> Vec<AccountId> {
+        self.producers
+            .iter()
+            .filter(|(_, bound)| match bound {
+                None => true,
+                Some(commitment) => {
+                    matches!(self.commitments.get(commitment), Some(CommitmentState::Tracking(_)))
+                }
+            })
+            .map(|(producer, _)| producer.clone())
+            .collect()
     }
 
     /// The tracker still collecting under `commitment`, if any.
@@ -79,7 +79,7 @@ impl FetchItem {
     pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
         self.producers
             .iter()
-            .filter(|(_, state)| state.commitment.as_ref() == Some(commitment))
+            .filter(|(_, bound)| bound.as_ref() == Some(commitment))
             .map(|(producer, _)| producer)
             .collect()
     }
@@ -95,11 +95,11 @@ impl FetchItem {
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        let state = &mut self.producers[producer_index].1;
-        if state.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
+        let bound = &mut self.producers[producer_index].1;
+        if bound.as_ref().is_some_and(|backed| backed != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        state.commitment = Some(commitment.clone());
+        *bound = Some(commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
             return PartInsertResult::AlreadySettled;

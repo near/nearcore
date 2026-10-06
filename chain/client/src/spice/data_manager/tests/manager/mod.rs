@@ -23,6 +23,7 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
+mod walk;
 
 /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
 /// height `i + 1`.
@@ -240,6 +241,10 @@ impl TestManager {
         self.manager.is_tracking(id)
     }
 
+    fn asked_for(&self, id: &DataId) -> HashSet<AccountId> {
+        self.manager.outstanding.asked_for(id)
+    }
+
     fn is_pullable(&self, id: &DataId) -> bool {
         self.manager.pullable.values().any(|ids| ids.contains(id))
     }
@@ -301,14 +306,14 @@ impl TestManager {
         self.manager.items.get(id).unwrap_or_else(|| panic!("no item for {id:?}"))
     }
 
-    fn state(&self, id: &DataId, producer: &AccountId) -> &ProducerState {
-        let (_, state) = self
+    fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
+        let (_, bound) = self
             .item(id)
             .producers
             .iter()
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        state
+        bound.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {

@@ -232,7 +232,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.asked_for(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its
