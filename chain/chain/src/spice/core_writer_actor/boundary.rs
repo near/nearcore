@@ -12,10 +12,7 @@ use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
 impl SpiceCoreWriterActor {
     /// Checks a certified execution result of a pre-spice chunk against this node's local
     /// synthesis. A certified result carries 2/3 of the stake, so a mismatch means this
-    /// node's own pre-spice state is wrong, and it panics rather than build on it. A check
-    /// that fails to run lets the result be saved unchecked: the core state has to follow
-    /// the chain, and a local lookup failure would otherwise fail every block carrying the
-    /// result.
+    /// node's own pre-spice state is wrong, and it panics rather than build on it.
     pub(super) fn check_boundary_execution_result(
         &self,
         block_hash: &CryptoHash,

@@ -205,8 +205,6 @@ fn recorded_state_transition(
 /// `block`, assembled from the state transitions this node recorded while applying
 /// it pre-spice, in the shape [`pre_validate_boundary_chunk_state_witness`] checks.
 /// `None` when a transition it needs was never recorded or is gone.
-///
-/// [`pre_validate_boundary_chunk_state_witness`]: crate::spice::boundary_chunk_validation::pre_validate_boundary_chunk_state_witness
 pub fn boundary_state_witness(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,

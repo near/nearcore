@@ -829,10 +829,6 @@ mod manager {
         policies.needed_items(block.header()).unwrap().into_iter().map(|(id, _)| id).collect()
     }
 
-    /// A shard the node tracks only from the next epoch on is applied with a pre-spice
-    /// block only once caught up, which the boundary cannot know: at the last
-    /// pre-spice block its proofs are fetched rather than assumed local, while at an
-    /// earlier block the caught-up assumption holds and they are not.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {

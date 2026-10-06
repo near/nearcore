@@ -486,9 +486,6 @@ mod tests {
             chunk_extra
         }
 
-        /// Writes what a node's pre-spice applies leave on disk for the target shard,
-        /// short of the recorded transitions: the anchor's chunk and the incoming
-        /// receipts of the consumed range.
         fn record_pre_spice_chunk_and_receipts(&mut self) {
             let shard_layout = self
                 .chain
@@ -524,9 +521,6 @@ mod tests {
             store_update.commit().unwrap();
         }
 
-        /// Records the transitions of the anchor's apply and of the boundary block's
-        /// replay, the latter ending at `replay_post_state_root`, with the empty base
-        /// state the fabricated headers' empty trie needs.
         fn record_pre_spice_state_transitions(&mut self, replay_post_state_root: CryptoHash) {
             let empty_base_state =
                 || Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) });
@@ -837,10 +831,7 @@ mod tests {
     }
 
     /// The witness a chunk producer assembles from its own pre-spice apply must be
-    /// the one the validator accepts: structurally the hand-built witness the tests
-    /// above validate, passing pre-validation with the same receipts and replaying to
-    /// the recorded chunk extra. Without recorded transitions there is nothing to
-    /// attest.
+    /// the one the validator accepts.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_producer_boundary_witness_round_trips_through_validation() {
