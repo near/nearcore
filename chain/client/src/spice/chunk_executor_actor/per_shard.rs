@@ -50,6 +50,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
+mod boundary;
+
 /// Data required for validators to initiate the chunk application
 struct ChunkExecutionData {
     pub witness: SpiceChunkStateWitness,
