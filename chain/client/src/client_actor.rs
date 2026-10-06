@@ -20,7 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
-use crate::sync::peers::{PeerAdvertisedHead, PeerSelector, SyncPeers};
+use crate::sync::peers::{PeerAdvertisedHead, SyncPeers};
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
@@ -1769,7 +1769,11 @@ impl ClientActor {
     ) -> Result<SyncRequirement, near_chain::Error> {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let eligible_peers = self.peers_advertising_above(head.height);
-        let Some(peer_info) = PeerSelector::median_advertised_head(&eligible_peers) else {
+        let now = self.clock.now_utc();
+        let selector = &self.client.sync_handler.peer_selector;
+        let Some(peer_info) =
+            selector.median_advertised_head_without_recent_failures(&eligible_peers, now)
+        else {
             return Ok(SyncRequirement::NoPeers);
         };
         let peer_id = peer_info.peer_info.id.clone();

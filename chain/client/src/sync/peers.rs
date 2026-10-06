@@ -126,11 +126,28 @@ impl PeerSelector {
             .choose(&mut self.rng)
     }
 
+    /// The median advertised head among peers that did not fail recently, or among all
+    /// of them when every one did.
+    pub fn median_advertised_head_without_recent_failures<'a>(
+        &self,
+        candidates: &'a [PeerAdvertisedHead],
+        now: Utc,
+    ) -> Option<&'a PeerAdvertisedHead> {
+        let without_recent_failures: Vec<&PeerAdvertisedHead> = candidates
+            .iter()
+            .filter(|peer| !self.failed_recently(&peer.peer_info.id, now))
+            .collect();
+        if without_recent_failures.is_empty() {
+            return Self::median_advertised_head(candidates);
+        }
+        Self::median_advertised_head(without_recent_failures)
+    }
+
     /// The peer at the median advertised height.
     ///
     /// For an even count, the lower of the two middle peers, so liars need a
     /// strict majority to set it.
-    pub fn median_advertised_head<'a>(
+    fn median_advertised_head<'a>(
         candidates: impl IntoIterator<Item = &'a PeerAdvertisedHead>,
     ) -> Option<&'a PeerAdvertisedHead> {
         let mut by_height: Vec<&PeerAdvertisedHead> = candidates.into_iter().collect();
@@ -303,6 +320,29 @@ mod tests {
         ];
         let median = PeerSelector::median_advertised_head(&candidates).unwrap();
         assert_eq!(median.highest_block_height, honest_height);
+    }
+
+    #[test]
+    fn median_without_recent_failures_stops_following_majority_once_it_fails() {
+        let (clock, mut selector) = selector();
+        let honest_height = 100;
+        let fake_height = 1_000_000;
+        let honest = ["honest_one", "honest_two", "honest_three", "honest_four"];
+        let liars = ["liar_one", "liar_two", "liar_three", "liar_four", "liar_five"];
+        let mut candidates: Vec<_> =
+            honest.iter().map(|name| advertised(name, honest_height)).collect();
+        candidates.extend(liars.iter().map(|name| advertised(name, fake_height)));
+
+        let before_failures =
+            selector.median_advertised_head_without_recent_failures(&candidates, clock.now_utc());
+        assert_eq!(before_failures.unwrap().highest_block_height, fake_height);
+
+        for liar in liars {
+            selector.record_failed_to_serve(&peer_id(liar), clock.now_utc());
+        }
+        let after_failures =
+            selector.median_advertised_head_without_recent_failures(&candidates, clock.now_utc());
+        assert_eq!(after_failures.unwrap().highest_block_height, honest_height);
     }
 
     #[test]
