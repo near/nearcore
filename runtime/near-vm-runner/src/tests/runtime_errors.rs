@@ -33,7 +33,10 @@ fn test_max_core_instance_size_breached() {
             let fees = Arc::new(RuntimeFeesConfig::test());
             let mut ext = MockedExternal::with_code(code.clone_for_tests());
             let context = super::create_context(vec![]);
-            let gas_counter = context.make_gas_counter(&config);
+            let gas_counter = context
+                .make_gas_counter(&config)
+                .prepare_for_contract(&config, "main", ext.code_len())
+                .expect("contract loading charge failed");
             vm_kind
                 .runtime(config)
                 .unwrap()
@@ -53,6 +56,7 @@ fn test_max_core_instance_size_breached() {
                 // Pre-fix: zero-gas nop, loading work uncharged.
                 let before = near_parameters::vm::Config {
                     fix_contract_loading_error: false,
+                    fix_contract_loading_cost: false,
                     ..base_config.clone()
                 };
                 let result = run(before);

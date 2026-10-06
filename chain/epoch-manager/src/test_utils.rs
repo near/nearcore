@@ -439,6 +439,29 @@ pub fn record_block_with_final_and_mask_at_version(
     chunk_mask: Vec<bool>,
     protocol_version: ProtocolVersion,
 ) {
+    let block_info = block_info_with_final_and_mask(
+        em,
+        prev,
+        cur,
+        height,
+        last_final_hash,
+        last_final_height,
+        chunk_mask,
+        protocol_version,
+    );
+    em.record_block_info(block_info, [0; 32]).unwrap().commit();
+}
+
+pub fn block_info_with_final_and_mask(
+    em: &EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+    protocol_version: ProtocolVersion,
+) -> BlockInfo {
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
@@ -456,26 +479,21 @@ pub fn record_block_with_final_and_mask_at_version(
             })
             .collect(),
     );
-    em.record_block_info(
-        BlockInfo::new(
-            cur,
-            height,
-            last_final_height,
-            last_final_hash,
-            prev,
-            vec![],
-            chunk_mask,
-            DEFAULT_TOTAL_SUPPLY,
-            protocol_version,
-            protocol_version,
-            height * NUM_NS_IN_SECOND,
-            chunk_endorsements,
-            None,
-        ),
-        [0; 32],
+    BlockInfo::new(
+        cur,
+        height,
+        last_final_height,
+        last_final_hash,
+        prev,
+        vec![],
+        chunk_mask,
+        DEFAULT_TOTAL_SUPPLY,
+        protocol_version,
+        protocol_version,
+        height * NUM_NS_IN_SECOND,
+        chunk_endorsements,
+        None,
     )
-    .unwrap()
-    .commit();
 }
 
 pub fn record_block_with_final_block_hash(

@@ -17,8 +17,7 @@ ignore = [
 
     # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
     # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
-    # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive
-    # dependency of the wallet contract (separate workspace in runtime/near-wallet-contract/implementation/).
+    # it's only a dev-dependency (test-loop-tests, integration-tests).
     "RUSTSEC-2025-0161",
 
     # RUSTSEC-2026-0097: rand unsoundness only triggers when rand's `log` feature is on and a
@@ -53,4 +52,8 @@ ignore = [
     # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
     # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
     "RUSTSEC-2026-0253",
+    # RUSTSEC-2026-0316: Nearcore doesn't use fuel limits, this doesn't affect us.
+    "RUSTSEC-2026-0316",
+    # RUSTSEC-2026-0327: Nearcore doesn't use component-model-async, this doesn't affect us.
+    "RUSTSEC-2026-0327",
 ]

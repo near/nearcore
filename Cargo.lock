@@ -3294,7 +3294,6 @@ dependencies = [
  "near-test-contracts",
  "near-undo-block",
  "near-vm-runner",
- "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "num-rational 0.3.2",
@@ -5109,15 +5108,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-wallet-contract"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "near-primitives-core",
- "near-vm-runner",
-]
-
-[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
@@ -5274,7 +5264,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
- "near-wallet-contract",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -7728,7 +7717,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
- "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "p256",

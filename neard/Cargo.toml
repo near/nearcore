@@ -97,8 +97,6 @@ nightly = [
 ]
 shadow_chunk_validation = ["near-client/shadow_chunk_validation"]
 
-calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
-
 actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 
 # Compile with option to emit a detailed trace of IO operations and their

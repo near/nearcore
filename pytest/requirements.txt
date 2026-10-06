@@ -14,6 +14,9 @@ prometheus-client
 psutil
 pydantic
 pynacl
+# SshSharingMachine in pytest/lib/mocknet_ssh.py depends on python-rc internals.
+# pytest/tests/mocknet/test_mocknet_ssh.py checks them; run it when you change
+# this version.
 python-rc==0.4.1
 requests
 retrying

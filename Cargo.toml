@@ -62,7 +62,6 @@ members = [
     "nearcore",
     "neard",
     "runtime/near-vm-runner",
-    "runtime/near-wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
@@ -267,7 +266,6 @@ near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
 near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
-near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
@@ -309,6 +307,8 @@ reqwest = { version = "0.13", features = ["blocking", "native-tls-vendored", "fo
 ripemd = "0.1.1"
 rlimit = "0.7"
 rlp = "0.5.2"
+# When upgrading: core/store/src/db/rocksdb.rs matches the "Direct I/O is not
+# supported" message from RocksDB's DB::Open to give operators a config hint.
 rocksdb = { version = "0.24.0", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rust-s3 = { version = "0.36", features = ["blocking"] }

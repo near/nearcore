@@ -29,7 +29,7 @@ use wasmtime::Result as WasmtimeResult;
 
 #[test]
 fn metadata_cap_activation() {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let bounded = Arc::clone(&store.get_config(88).wasm_config);
     let legacy = Arc::clone(&store.get_config(87).wasm_config);
     assert!(bounded.limit_config.max_globals_per_contract.is_some());
@@ -64,7 +64,7 @@ fn prepared_defined_functions_high_water_loads() {
 }
 
 fn assert_prepared_metadata_high_water_loads(function_kind: FunctionKind) {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = Arc::clone(&store.get_config(PROTOCOL_VERSION).wasm_config);
     let wasm = metadata_heavy_module(&config.as_ref().limit_config, function_kind);
     assert!(wasm.len() as u64 <= config.limit_config.max_contract_size);

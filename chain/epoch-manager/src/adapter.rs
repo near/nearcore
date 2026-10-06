@@ -1161,7 +1161,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         };
         Ok(epoch_manager
             .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
-            .blacklist)
+            .blacklist
+            .clone())
     }
 
     fn get_chunk_validator_assignments(

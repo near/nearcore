@@ -41,7 +41,7 @@ fn add_full_access_key(env: &mut TestLoopEnv, account: &AccountId, public_key: P
 /// A runtime config identical to the shipped one except for a low
 /// `combined_transactions_size_limit`.
 fn config_with_tx_size_limit(limit: usize) -> RuntimeConfigStore {
-    let mut config = RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+    let mut config = RuntimeConfigStore::new().get_config(PROTOCOL_VERSION).as_ref().clone();
     config.witness_config.combined_transactions_size_limit = limit;
     RuntimeConfigStore::with_one_config(config)
 }

@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let mut config =
         near_parameters::vm::Config::clone(&store.get_config(PROTOCOL_VERSION).wasm_config);
     config.vm_kind = VMKind::Wasmtime;
@@ -58,6 +58,9 @@ fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
 
     let gas_counter = context.make_gas_counter(&config);
     let mut ext = MockedExternal::with_code(ContractCode::new(code.to_vec(), None));
+    let gas_counter = gas_counter
+        .prepare_for_contract(&config, "burn", ext.code_len())
+        .expect("contract loading charge failed");
     let fees = Arc::new(RuntimeFeesConfig::test());
     let runtime = VMKind::Wasmtime.runtime(Arc::clone(&config)).expect("wasmtime not compiled in");
     runtime
