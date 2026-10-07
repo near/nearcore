@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::universal_state_init::UniversalStateInit;
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::account::id::AccountType;
 use near_vm_runner::logic::LimitConfig;
 
 /// Validates that the number of deploy actions in the given list of actions doesn't exceed the limit.
@@ -179,7 +180,7 @@ fn validate_action_with_mode(
         Action::FunctionCall(a) => {
             validate_function_call_action(limit_config, a, current_protocol_version, mode)
         }
-        Action::Transfer(_) => Ok(()),
+        Action::Transfer(_) => validate_transfer_action(receiver, current_protocol_version, mode),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
         Action::DeleteKey(_) => Ok(()),
@@ -227,6 +228,27 @@ fn validate_action_with_mode(
             validate_withdraw_from_gas_key_action(current_protocol_version)
         }
     }
+}
+
+/// Rejects a new transfer to a universal account from the ban until universal accounts are
+/// enabled. Receipts already in flight keep executing.
+fn validate_transfer_action(
+    receiver: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
+) -> Result<(), ActionsValidationError> {
+    let transfers_banned = ProtocolFeature::BanUniversalAccountTransfers
+        .enabled(current_protocol_version)
+        && !ProtocolFeature::UniversalAccounts.enabled(current_protocol_version);
+    if mode == ValidateReceiptMode::NewReceipt
+        && transfers_banned
+        && receiver.get_account_type() == AccountType::UniversalAccount
+    {
+        return Err(ActionsValidationError::TransferToUniversalAccountNotAllowed {
+            account_id: receiver.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_delegate_action(
