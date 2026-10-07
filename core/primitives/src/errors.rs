@@ -509,6 +509,10 @@ pub enum ActionsValidationError {
         number_of_entries: u64,
         limit: u64,
     } = 29,
+    /// A transfer to a universal account while transfers to them are banned.
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
+    } = 30,
 }
 
 /// Describes the error for validating a receipt.
@@ -766,6 +770,9 @@ impl Display for ActionsValidationError {
                     f,
                     "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
                 )
+            }
+            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
+                write!(f, "transfers to the universal account {account_id} are not allowed yet")
             }
         }
     }

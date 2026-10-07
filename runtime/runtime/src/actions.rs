@@ -2500,45 +2500,85 @@ mod tests {
         );
     }
 
-    /// A state init on an already initialized account refunds the whole deposit,
-    /// even when the account lacks balance for its storage staking. The deposit
-    /// only covers storage staking for the action that initializes the account.
-    #[test]
-    fn repeated_universal_state_init_refunds_whole_deposit() {
-        let account_id = account_id();
-        let apply_state = create_apply_state(1);
+    /// Applies a universal state init carrying `deposit` to an initialized account that lacks
+    /// balance for its storage staking, under `protocol_version`.
+    fn apply_repeated_universal_state_init(
+        protocol_version: ProtocolVersion,
+        receipt: &Receipt,
+        deposit: Balance,
+    ) -> (Account, ActionResult) {
+        let mut apply_state = create_apply_state(1);
+        apply_state.current_protocol_version = protocol_version;
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let balance = Balance::from_yoctonear(1);
         let mut account =
             Some(Account::new(balance, Balance::ZERO, AccountContract::None, 1_000_000));
-        assert!(matches!(
-            check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config),
-            Err(StorageStakingError::LackBalanceForStorageStaking(_))
-        ));
-        let deposit = Balance::from_near(1);
+        let missing =
+            match check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config) {
+                Err(StorageStakingError::LackBalanceForStorageStaking(missing)) => missing,
+                _ => panic!("the account must lack balance for storage staking"),
+            };
+        assert!(missing > deposit, "the deposit must not cover the missing storage stake");
         let action = UniversalStateInitAction { state_init: RawStateInit(vec![]), deposit };
-        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
         let mut result = ActionResult::default();
 
         action_universal_state_init(
             &mut state_update,
             &apply_state,
             &mut account,
-            &account_id,
-            &receipt,
+            &account_id(),
+            receipt,
             &action,
             &mut result,
         )
         .unwrap();
+        (account.unwrap(), result)
+    }
+
+    /// A state init on an already initialized account refunds the whole deposit,
+    /// even when the account lacks balance for its storage staking. The deposit
+    /// only covers storage staking for the action that initializes the account.
+    #[test]
+    fn repeated_universal_state_init_refunds_whole_deposit() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let deposit = Balance::from_near(1);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version(),
+            &receipt,
+            deposit,
+        );
 
         assert!(result.result.is_ok());
-        assert_eq!(account.unwrap().amount(), balance, "the account must not be topped up");
+        assert_eq!(
+            account.amount(),
+            Balance::from_yoctonear(1),
+            "the account must not be topped up"
+        );
         assert_eq!(
             result.new_receipts,
             vec![Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit)]
         );
+    }
+
+    /// Before the refund feature, the deposit of a repeated state init still settles the
+    /// storage stake, so a deposit short of the missing stake fails the action.
+    #[test]
+    fn repeated_universal_state_init_settles_storage_before_refund_feature() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version() - 1,
+            &receipt,
+            Balance::from_near(1),
+        );
+
+        assert!(matches!(
+            result.result,
+            Err(ActionError { kind: ActionErrorKind::LackBalanceForState { .. }, .. })
+        ));
+        assert_eq!(account.amount(), Balance::from_yoctonear(1));
+        assert!(result.new_receipts.is_empty());
     }
 
     fn config_with(eth_implicit_accounts: bool, universal_accounts: bool) -> RuntimeConfig {

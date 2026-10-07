@@ -2401,6 +2401,28 @@
             ],
             "title": "TotalNumberOfStateInitEntriesExceeded",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A transfer to a universal account while transfers to them are banned.",
+            "properties": {
+              "TransferToUniversalAccountNotAllowed": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TransferToUniversalAccountNotAllowed"
+            ],
+            "title": "TransferToUniversalAccountNotAllowed",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
