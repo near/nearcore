@@ -4,8 +4,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::spice::partial_data::SpicePartialData;
 use std::num::NonZeroUsize;
 
-/// Signed partial data whose block is not known yet, grouped by block hash. Its signature is verified
-/// again once the block is known, since the keys accepted for the block may differ.
+/// Partial data whose block is not known yet, grouped by block hash. With the final head in
+/// epoch E, it was checked against the sender's keys in E and E+1. It is checked again when the
+/// block arrives, because a block in epoch X accepts only the sender's keys in X and X+1.
 pub(crate) struct PendingPartialData {
     by_block: LruCache<CryptoHash, Vec<SpicePartialData>>,
 }

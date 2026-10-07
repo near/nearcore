@@ -702,17 +702,19 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_ids: &[EpochId],
         account_id: &AccountId,
-    ) -> Vec<PublicKey> {
+    ) -> Result<Vec<PublicKey>, EpochError> {
         let mut keys = Vec::new();
         for epoch_id in epoch_ids {
-            let Ok(validator) = self.get_validator_by_account_id(epoch_id, account_id) else {
-                continue;
+            let validator = match self.get_validator_by_account_id(epoch_id, account_id) {
+                Ok(validator) => validator,
+                Err(EpochError::NotAValidator(..)) => continue,
+                Err(err) => return Err(err),
             };
             if !keys.contains(validator.public_key()) {
                 keys.push(validator.take_public_key());
             }
         }
-        keys
+        Ok(keys)
     }
 
     /// WARNING: this call may be expensive.

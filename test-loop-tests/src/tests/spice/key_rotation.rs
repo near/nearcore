@@ -7,6 +7,7 @@ use near_primitives::action::{Action, StakeAction};
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::types::Balance;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use std::collections::BTreeSet;
 use std::slice::from_ref;
 use std::sync::Arc;
 
@@ -26,15 +27,10 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
     let producer = clients[0].clone();
     let rotating = clients[1].clone();
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
-        .add_user_account_simple(rotating.clone(), Balance::from_near(10))
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .add_user_account(&rotating, Balance::from_near(10))
         .build();
 
     let new_signer =
@@ -90,7 +86,7 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
     env.runner_for_account(&producer).run_until_certified(target_height);
 
     // The endorsements signed with the new key for chunks of E are on chain.
-    let mut endorsed_heights_in_e = Vec::new();
+    let mut endorsed_heights_in_e = BTreeSet::new();
     let mut block = env.node_for_account(&producer).head_block();
     while block.header().height() > swap_height {
         for statement in block.spice_core_statements() {
@@ -107,13 +103,11 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
                     endorsement.verified_signed_data(from_ref(&new_key)).is_some(),
                     "endorsement of a chunk after the swap isn't signed with the new key"
                 );
-                endorsed_heights_in_e.push(endorsed_block.header().height());
+                endorsed_heights_in_e.insert(endorsed_block.header().height());
             }
         }
         block = env.node_for_account(&producer).block(*block.header().prev_hash());
     }
-    assert!(
-        !endorsed_heights_in_e.is_empty(),
-        "no endorsements signed with the next epoch's key for chunks of E"
-    );
+    let expected_heights = (swap_height + 1..epoch_start_height + epoch_length).collect();
+    assert_eq!(endorsed_heights_in_e, expected_heights);
 }

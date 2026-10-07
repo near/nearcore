@@ -699,7 +699,7 @@ impl SpiceDataDistributorActor {
         let final_head = self.chain_store.final_head()?;
         let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
         let public_keys =
-            self.epoch_manager.get_validator_keys_in_epochs(&possible_epoch_ids, data.sender());
+            self.epoch_manager.get_validator_keys_in_epochs(&possible_epoch_ids, data.sender())?;
         if public_keys.is_empty() {
             return Err(Error::SenderIsNotValidator);
         }
@@ -983,8 +983,10 @@ impl SpiceDataDistributorActor {
                         self.waiting_on_data.remove(&data_id);
                         tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
                     }
-                    Error::InvalidPartialDataSignature => {
-                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "pending partial data has invalid signature for its block");
+                    // Pending data was checked against the epochs of the final head, which may
+                    // differ from the epoch of its block.
+                    Error::InvalidPartialDataSignature | Error::SenderIsNotValidator => {
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "pending partial data is invalid for its block");
                     }
                     _ => {
                         tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");

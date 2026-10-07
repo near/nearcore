@@ -356,8 +356,10 @@ impl SpiceCoreWriterActor {
         // next epoch.
         let final_head = self.chain_store.final_head().map_err(NearChainError)?;
         let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
-        let public_keys =
-            self.epoch_manager.get_validator_keys_in_epochs(&possible_epoch_ids, account_id);
+        let public_keys = self
+            .epoch_manager
+            .get_validator_keys_in_epochs(&possible_epoch_ids, account_id)
+            .map_err(EpochError)?;
         if public_keys.is_empty() {
             return Err(AccountIsNotValidator);
         }
