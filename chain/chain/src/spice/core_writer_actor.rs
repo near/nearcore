@@ -161,9 +161,9 @@ impl SpiceCoreWriterActor {
         Ok(())
     }
 
-    /// Whether `chunk_id`'s stored endorsements certify `result_hash`: by 2/3 of its designated
-    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. A fallback-only chunk
-    /// skips the designated rule. `endorsers` seeds it.
+    /// Whether `chunk_id`'s stored endorsements certify `result_hash`: by more than 2/3 of its
+    /// designated assignment, or, once fallback-eligible, by more than 1/3 of total epoch stake. A
+    /// fallback-only chunk skips the designated rule. `endorsers` seeds it.
     fn endorsed_by_designated_or_fallback(
         &self,
         chunk_id: &SpiceChunkId,
@@ -180,12 +180,13 @@ impl SpiceCoreWriterActor {
                 chunk_id.shard_id,
                 chunk_block.height(),
             )?;
-            if self.core_reader.reaches_endorsement_threshold(
+            let designated_endorsers = self.core_reader.extend_with_stored_endorsers(
                 chunk_id,
                 result_hash,
                 &designated,
                 endorsers.clone(),
-            ) {
+            );
+            if designated.is_endorsed(&designated_endorsers) {
                 return Ok(true);
             }
             if !self.core_reader.fallback_eligible_in_carrying_block(
@@ -197,12 +198,13 @@ impl SpiceCoreWriterActor {
             }
         }
         let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
-        Ok(self.core_reader.reaches_endorsement_threshold(
+        let all_stake_endorsers = self.core_reader.extend_with_stored_endorsers(
             chunk_id,
             result_hash,
             &all_validators,
             endorsers,
-        ))
+        );
+        Ok(all_validators.is_endorsed_by_more_than_one_third(&all_stake_endorsers))
     }
 
     fn record_chunk_endorsements_with_block(
