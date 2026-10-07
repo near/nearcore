@@ -136,9 +136,14 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
-                // TODO(ecc): index ECCs once they have outcomes
-                let TransactionEnvelopeView::Signed(transaction) = transaction else {
-                    return None;
+                let transaction = match transaction {
+                    TransactionEnvelopeView::Signed(transaction) => transaction,
+                    TransactionEnvelopeView::Unsigned(ecc) => {
+                        // TODO(ecc): index ECCs once they have outcomes
+                        // Drop its outcome too, so it is not mistaken for a receipt outcome.
+                        outcomes.remove(&ecc.hash);
+                        return None;
+                    }
                 };
                 let outcome = outcomes.remove(&transaction.hash);
                 if outcome.is_none() {

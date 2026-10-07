@@ -595,8 +595,8 @@ pub struct EccTransaction {
     ///
     /// It must stay the first field: the borsh encoding relies on it for telling this
     /// transaction apart from the signed ones (see [`TransactionEnvelope`]).
-    pub contract_id: AccountId,
-    pub payload: Vec<u8>,
+    contract_id: AccountId,
+    payload: Vec<u8>,
     hash: CryptoHash,
     size: u64,
 }
@@ -612,6 +612,18 @@ impl EccTransaction {
         let bytes = borsh::to_vec(self).expect("failed to serialize an ECC transaction");
         self.hash = hash(&bytes);
         self.size = bytes.len() as u64;
+    }
+
+    pub fn contract_id(&self) -> &AccountId {
+        &self.contract_id
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    pub fn into_parts(self) -> (AccountId, Vec<u8>) {
+        (self.contract_id, self.payload)
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -707,10 +719,6 @@ impl TransactionEnvelope {
         }
     }
 
-    pub fn is_ecc(&self) -> bool {
-        matches!(self, Self::Unsigned(_))
-    }
-
     /// The block the transaction was created at, which anchors its validity period.
     ///
     /// An ECC has none and is exempt from the validity period: nothing signs it, so anyone
@@ -741,21 +749,16 @@ impl TransactionEnvelope {
         config: &RuntimeConfig,
         protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        let tx = match self {
-            Self::Signed(tx) => {
-                return ValidatedTransaction::check_valid_for_config(config, tx, protocol_version);
-            }
-            Self::Unsigned(tx) => tx,
-        };
+        if let Self::Signed(tx) = self {
+            return ValidatedTransaction::check_valid_for_config(config, tx, protocol_version);
+        }
         if !ProtocolFeature::ExternalContractCalls.enabled(protocol_version) {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
+        let size = self.size_for_limits(protocol_version);
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-        if tx.get_size() > max_tx_size {
-            return Err(InvalidTxError::TransactionSizeExceeded {
-                size: tx.get_size(),
-                limit: max_tx_size,
-            });
+        if size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
         }
         Ok(())
     }
@@ -1041,7 +1044,7 @@ impl ExecutionOutcomeWithId {
         Self {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
-                executor_id: transaction.contract_id.clone(),
+                executor_id: transaction.contract_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
                 gas_burnt: Gas::ZERO,
                 compute_usage: Some(0),
@@ -1345,7 +1348,7 @@ mod tests {
 
         let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
         assert_eq!(decoded, envelope);
-        assert!(decoded.is_ecc());
+        assert!(matches!(decoded, TransactionEnvelope::Unsigned(_)));
         assert_eq!(decoded.get_hash(), hash(&bytes));
         assert_eq!(decoded.get_size(), bytes.len() as u64);
         assert_eq!(decoded.wire_size(), bytes.len() as u64);
@@ -1358,7 +1361,7 @@ mod tests {
     fn test_ecc_hash_covers_all_fields() {
         let ecc = test_ecc();
         let other_contract = EccTransaction::new("other.near".parse().unwrap(), vec![1, 2, 3]);
-        let other_payload = EccTransaction::new(ecc.contract_id.clone(), vec![]);
+        let other_payload = EccTransaction::new(ecc.contract_id().clone(), vec![]);
         for other in [other_contract, other_payload] {
             assert_ne!(other.get_hash(), ecc.get_hash());
         }

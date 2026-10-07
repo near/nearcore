@@ -1799,7 +1799,8 @@ pub struct EccTransactionView {
 impl From<EccTransaction> for EccTransactionView {
     fn from(tx: EccTransaction) -> Self {
         let hash = tx.get_hash();
-        Self { contract_id: tx.contract_id, payload: tx.payload, hash }
+        let (contract_id, payload) = tx.into_parts();
+        Self { contract_id, payload, hash }
     }
 }
 
@@ -3221,17 +3222,52 @@ impl CongestionInfoView {
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 mod tests {
-    use super::{ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
+    use super::{
+        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum,
+        TransactionEnvelopeView,
+    };
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-    use crate::transaction::ExecutionMetadata;
+    use crate::transaction::{
+        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+    };
     use crate::trie_split::TrieSplit;
     use crate::version::ProtocolFeature;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
+    use near_crypto::InMemorySigner;
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::Balance;
     use serde_json::json;
+
+    /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
+    /// the JSON shape it always had.
+    #[test]
+    fn test_transaction_envelope_view_json_roundtrip() {
+        let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            "alice.near".parse().unwrap(),
+            "bob.near".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+
+        let signed_view = TransactionEnvelopeView::from(TransactionEnvelope::from(signed_tx));
+        let ecc_view = TransactionEnvelopeView::from(TransactionEnvelope::from(ecc));
+        assert_matches!(signed_view, TransactionEnvelopeView::Signed(_));
+        assert_matches!(ecc_view, TransactionEnvelopeView::Unsigned(_));
+
+        for view in [signed_view.clone(), ecc_view] {
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
+        }
+        let signed_json = serde_json::to_value(&signed_view).unwrap();
+        assert_eq!(signed_json["signer_id"], "alice.near");
+    }
 
     #[test]
     fn test_chunk_header_proposed_split_json_roundtrip() {
