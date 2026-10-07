@@ -367,7 +367,12 @@ pub fn check_pre_spice_execution_result(
     if !applies_chunk_itself(shard_tracker, epoch_manager, &header, chunk_id.shard_id)? {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
-    // Header sync runs ahead of block sync, so the header can be here without the body.
+    // A block this node never processed, e.g. one in the gap state sync leaves, can be
+    // here as a header only.
+    // TODO(spice-sync): from here on the check assumes a node that tracks the shard and
+    // holds the block applied its chunk pre-spice. Spice state sync must keep that true,
+    // or replace it with a marker only a real apply writes (e.g. the recorded state
+    // transition); otherwise a synced node may synthesize from data it never produced.
     let block = match chain_store.get_block(&chunk_id.block_hash) {
         Ok(block) => block,
         Err(Error::DBNotFoundErr(_)) => return Ok(PreSpiceExecutionResultCheck::NotCheckable),
@@ -586,7 +591,7 @@ mod tests {
         assert!(matches!(err, Error::DBNotFoundErr(_)), "{err}");
     }
 
-    /// Header sync runs ahead of block sync: a block this node holds only the header of has
+    /// A block this node holds only the header of, as in the gap state sync leaves, has
     /// nothing to check against, whatever the tracking config.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
