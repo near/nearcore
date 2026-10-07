@@ -195,7 +195,6 @@ impl ProtocolFeature {
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::EarlyKickout => 87,
-            ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
@@ -211,6 +210,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExternalContractCalls => 150,
+            ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
