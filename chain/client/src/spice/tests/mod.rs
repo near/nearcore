@@ -53,7 +53,7 @@ pub(crate) fn build_to_last_pre_spice_block(
         let chunks = get_fake_next_block_chunk_headers(&block, epoch_manager.as_ref());
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.hash()).unwrap();
         let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(block.hash()).unwrap();
-        let height = block.header().height() + 1;
+        let height = block.header().height().checked_add(1).unwrap();
         // The epoch info aggregator asserts one bitmap slot per assigned chunk
         // validator, so the endorsement vectors have to be sized from the epoch.
         let chunk_endorsements = epoch_manager

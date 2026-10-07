@@ -56,7 +56,8 @@ impl DataPolicy for ReceiptProofPolicy {
             .shard_ids()
             .filter(|shard_id| !applied_itself.contains(shard_id))
             .collect();
-        // The proof feeds applying the destination shard in the next block.
+        // The proof feeds applying the destination shard in the next block. `block` is a
+        // spice or last pre-spice block, so the next one is a spice block: no boundary case.
         let destinations: Vec<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {

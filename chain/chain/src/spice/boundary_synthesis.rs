@@ -309,12 +309,12 @@ pub fn boundary_state_witness(
 }
 
 /// Outcome of [`check_pre_spice_execution_result`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreSpiceExecutionResultCheck {
     /// The result matches this node's local synthesis.
     Consistent,
     /// The result differs from this node's local synthesis.
-    Mismatch,
+    Mismatch { synthesized: Box<ChunkExecutionResult> },
     /// This node has nothing local to check the result against: the chunk is not a
     /// pre-spice one, its shard was not applied here, or the block is not on disk.
     NotCheckable,
@@ -360,7 +360,7 @@ pub fn check_pre_spice_execution_result(
     Ok(if &synthesized == execution_result {
         PreSpiceExecutionResultCheck::Consistent
     } else {
-        PreSpiceExecutionResultCheck::Mismatch
+        PreSpiceExecutionResultCheck::Mismatch { synthesized: Box::new(synthesized) }
     })
 }
 
@@ -393,9 +393,9 @@ mod tests {
         TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
     };
     use near_primitives::types::Balance;
-    use near_primitives::types::SpiceChunkId;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
@@ -468,9 +468,8 @@ mod tests {
     }
 
     /// The consistency check accepts a certified pre-spice result equal to the local synthesis,
-    /// reports one that differs as a mismatch, skips a shard this node does not track, skips
-    /// a block it holds only the header of, and fails on a tracked shard it has no artifacts
-    /// for.
+    /// reports one that differs as a mismatch, skips a shard this node does not track, and
+    /// fails on a tracked shard it has no artifacts for.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_pre_spice_execution_result_consistency_check() {
@@ -524,7 +523,7 @@ mod tests {
             PreSpiceExecutionResultCheck::Consistent,
         );
 
-        let mut forged = synthesized;
+        let mut forged = synthesized.clone();
         forged.outgoing_receipts_root = CryptoHash::hash_bytes(b"forged root");
         assert_eq!(
             check_pre_spice_execution_result(
@@ -535,7 +534,7 @@ mod tests {
                 &forged,
             )
             .unwrap(),
-            PreSpiceExecutionResultCheck::Mismatch,
+            PreSpiceExecutionResultCheck::Mismatch { synthesized: Box::new(synthesized) },
         );
 
         // A forged result for an untracked shard is not checkable: nothing local to check
@@ -563,19 +562,31 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, Error::DBNotFoundErr(_)), "{err}");
+    }
 
-        // Header sync runs ahead of block sync: a block this node holds only the header
-        // of has nothing to check against, whatever the tracking config. Header sync
-        // records the header's block info in the epoch manager, as here.
+    /// Header sync runs ahead of block sync: a block this node holds only the header of has
+    /// nothing to check against, whatever the tracking config.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_spice_execution_result_check_header_only_block() {
+        let mut chain = setup_pre_spice_chain(1);
+        let epoch_manager = chain.epoch_manager.clone();
+        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let shard_layout =
+            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
+        let shard_id = all_shards[0];
+
+        // Header sync records the header's block info in the epoch manager, as here.
         let header_only_block = build_pre_spice_block(
             &chain,
-            &unapplied_block,
+            &genesis_block,
             &all_shards,
             pre_spice_protocol_version(),
         );
         let header = header_only_block.header();
-        let last_finalized_height =
-            chain.chain_store.get_block_header(header.last_final_block()).unwrap().height();
+        // A child of genesis has no final block yet.
+        let last_finalized_height = genesis_block.header().height();
         let block_info =
             BlockInfo::from_header(header, last_finalized_height, pre_spice_protocol_version());
         let epoch_manager_update =
@@ -584,14 +595,25 @@ mod tests {
         store_update.save_block_header(header.clone()).unwrap();
         store_update.merge(epoch_manager_update.into());
         store_update.commit().unwrap();
-        let header_only_chunk_id = SpiceChunkId { block_hash: *header_only_block.hash(), shard_id };
+
+        let chain_store = chain.chain_store.store().chain_store();
+        let tracking_all = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
+        );
+        let chunk_id = SpiceChunkId { block_hash: *header_only_block.hash(), shard_id };
+        let execution_result = ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a")),
+            outgoing_receipts_root: CryptoHash::default(),
+        };
         assert_eq!(
             check_pre_spice_execution_result(
                 &chain_store,
                 epoch_manager.as_ref(),
                 &tracking_all,
-                &header_only_chunk_id,
-                &forged,
+                &chunk_id,
+                &execution_result,
             )
             .unwrap(),
             PreSpiceExecutionResultCheck::NotCheckable,

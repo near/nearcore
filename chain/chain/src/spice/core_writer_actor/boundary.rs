@@ -31,16 +31,16 @@ impl SpiceCoreWriterActor {
                 PreSpiceExecutionResultCheck::Consistent
                 | PreSpiceExecutionResultCheck::NotCheckable,
             ) => {}
-            Ok(PreSpiceExecutionResultCheck::Mismatch) => {
+            Ok(PreSpiceExecutionResultCheck::Mismatch { synthesized }) => {
                 panic!(
                     "certified execution result of pre-spice chunk {chunk_id:?} does not match local synthesis: \
                      this node's state of shard {shard_id} diverged from the network and cannot be repaired in place; \
                      restore the data directory from a snapshot, or wipe it and re-sync from the network; \
-                     certified result: {execution_result:?}"
+                     certified result: {execution_result:?}, synthesized result: {synthesized:?}"
                 );
             }
             Err(err) => {
-                tracing::warn!(
+                tracing::error!(
                     target: "spice_core_writer",
                     ?err,
                     %block_hash,

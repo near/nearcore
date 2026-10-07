@@ -65,7 +65,8 @@ pub fn shards_applied_itself(
 // known here, so this answers with the lower bound, `NotCaughtUp`: a caught-up node
 // then fetches what it actually holds, a wasted fetch, rather than waiting on
 // artifacts it may never have produced. Every other block is answered with
-// `IsCaughtUp`.
+// `IsCaughtUp`. The two differ only for a node that starts tracking a shard in the
+// first spice epoch.
 fn own_apply_mode(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &BlockHeader,
