@@ -619,22 +619,6 @@ pub(crate) fn delegate_signature_verification_compute(
     fees.signature_verification_costs[signature_kind(public_key.key_type())].compute
 }
 
-/// Gas prepaid for a receipt's fees under `config`: the send fees of delegate
-/// inner actions, the execution fees of all the actions and the receipt
-/// creation execution fee.
-pub fn total_prepaid_fees_gas(
-    config: &RuntimeConfig,
-    actions: &[Action],
-    receiver_id: &AccountId,
-) -> Result<Gas, IntegerOverflowError> {
-    let send_gas = total_prepaid_send_fees(config, actions)?.gas;
-    let exec_gas = total_prepaid_exec_fees(config, actions, receiver_id)?
-        .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
-        .ok_or(IntegerOverflowError)?
-        .gas;
-    send_gas.checked_add(exec_gas).ok_or(IntegerOverflowError)
-}
-
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
 pub fn total_prepaid_exec_fees(
     config: &RuntimeConfig,

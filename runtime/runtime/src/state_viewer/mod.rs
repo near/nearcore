@@ -441,7 +441,6 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
-            refund_config: Arc::clone(config),
             next_wasm_config: None,
             cache: view_state.cache,
             is_new_chunk: false,

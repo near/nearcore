@@ -1,7 +1,5 @@
 use super::GAS_PRICE;
-use crate::SignedValidPeriodTransactions;
 use crate::access_keys::initial_nonce_value;
-use crate::config::total_prepaid_exec_fees;
 use crate::config::{total_send_fees, tx_cost};
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
@@ -11,6 +9,7 @@ use crate::tests::{
 use crate::{
     ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
 };
+use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
@@ -183,7 +182,6 @@ fn setup_runtime_for_shard(
     let shards_congestion_info =
         shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
-    let apply_config = Arc::new(RuntimeConfig::test());
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
@@ -196,8 +194,7 @@ fn setup_runtime_for_shard(
         gas_limit: Some(gas_limit),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
-        config: Arc::clone(&apply_config),
-        refund_config: apply_config,
+        config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
@@ -4191,7 +4188,6 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
-        refund_config: Arc::clone(&config),
         config,
         next_wasm_config: None,
         cache: Some(Box::new(contract_cache)),
@@ -5743,7 +5739,6 @@ mod self_signed_state_init {
             .shard_ids()
             .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
-        let apply_config = Arc::new(config);
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: CREATION_HEIGHT + 1,
@@ -5756,8 +5751,7 @@ mod self_signed_state_init {
             gas_limit: Some(Gas::from_teragas(1000)),
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::clone(&apply_config),
-            refund_config: apply_config,
+            config: Arc::new(config),
             next_wasm_config: None,
             cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
             is_new_chunk: true,

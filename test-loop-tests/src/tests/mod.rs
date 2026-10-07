@@ -66,7 +66,6 @@ mod processed_receipts_gc;
 mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
-mod refund_fee_schedule_change;
 mod reject_delegate_v2;
 mod reject_delegated_gas_key_withdraw;
 mod reject_empty_method_name;
