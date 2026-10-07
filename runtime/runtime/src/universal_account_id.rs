@@ -11,6 +11,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, Nonce};
 use near_primitives::universal_state_init::UniversalStateInit;
+use near_primitives::version::ProtocolFeature;
 use near_store::{TrieUpdate, set_access_key_by_handle};
 use std::cmp::max;
 
@@ -31,8 +32,9 @@ pub(crate) fn action_universal_state_init(
     let storage_usage_config = &fees.storage_usage_config;
 
     // The account may already exist without its state: a transfer to a `0u` id
-    // creates an uninitialized account. Install on the first state init and
-    // refund the deposit on a repeat, without touching the state already there.
+    // creates an uninitialized account. Install on the first state init. A repeat
+    // keeps the state already there and refunds the deposit, or below
+    // `RefundRepeatedUniversalStateInitDeposit` settles it against storage staking.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),
@@ -48,6 +50,18 @@ pub(crate) fn action_universal_state_init(
     };
 
     if account.is_initialized() {
+        if !ProtocolFeature::RefundRepeatedUniversalStateInitDeposit
+            .enabled(apply_state.current_protocol_version)
+        {
+            return settle_state_init_deposit(
+                account,
+                action.deposit,
+                account_id,
+                receipt,
+                &apply_state.config,
+                result,
+            );
+        }
         if action.deposit > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),

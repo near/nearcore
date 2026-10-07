@@ -489,6 +489,9 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
+    /// A universal state init on an already initialized account refunds the whole deposit.
+    /// Before it, the deposit also tops up storage staking.
+    RefundRepeatedUniversalStateInitDeposit,
 }
 
 impl ProtocolFeature {
@@ -627,6 +630,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -677,7 +681,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 88;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
