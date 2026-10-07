@@ -3294,7 +3294,6 @@ dependencies = [
  "near-test-contracts",
  "near-undo-block",
  "near-vm-runner",
- "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "num-rational 0.3.2",
@@ -4903,24 +4902,6 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
-name = "near-state-parts"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "near-jsonrpc",
- "near-network",
- "near-o11y",
- "near-ping",
- "near-primitives",
- "near-time",
- "sha2 0.10.6",
- "time",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -5127,15 +5108,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-wallet-contract"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "near-primitives-core",
- "near-vm-runner",
-]
-
-[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
@@ -5225,7 +5197,6 @@ dependencies = [
  "near-primitives",
  "near-replay-archive-tool",
  "near-replay-tool",
- "near-state-parts",
  "near-store",
  "near-undo-block",
  "near-vm-runner",
@@ -5293,7 +5264,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
- "near-wallet-contract",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -7747,7 +7717,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
- "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "p256",

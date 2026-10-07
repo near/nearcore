@@ -4,12 +4,8 @@ use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::AnnounceAccountRequest;
 use crate::client::ClientSenderForNetwork;
-use crate::client::StatePartOrHeader;
-use crate::client::StateRequestPart;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::StateResponseInfo;
-use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -24,7 +20,6 @@ use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
-use crate::types::StateRequestSenderForNetwork;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
@@ -35,8 +30,6 @@ use near_async::messaging::{
 };
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::ShardStateSyncResponse;
-use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -609,19 +602,6 @@ pub(crate) async fn start(
         Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
     });
 
-    let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
-    state_request_sender.state_request_part =
-        AsyncSender::from_fn(move |msg: StateRequestPart| {
-            // NOTE: See above comment for explanation about this code.
-            let StateRequestPart { part_idx, shard_id, sync_hash } = msg;
-            let part = Some((part_idx, vec![]));
-            let state_response =
-                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-            Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
-                StateResponseInfoV2 { shard_id, sync_hash, state_response },
-            )))))
-        });
-
     let actor_system = ActorSystem::new();
     let (actor, tcp) = PeerManagerActor::spawn(
         clock,
@@ -629,7 +609,7 @@ pub(crate) async fn start(
         store,
         cfg.clone(),
         client_sender,
-        state_request_sender,
+        noop().into_multi_sender(),
         noop().into_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),

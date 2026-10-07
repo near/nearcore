@@ -145,6 +145,11 @@ After headers are synced, the node downloads the full state snapshot at a
 sync hash (near the beginning of the most recent epoch). For each shard the
 node tracks, it downloads state parts from peers and assembles the full state.
 
+State header and part requests are routed to snapshot hosts over Tier 2. Hosts
+return acknowledgements over Tier 2, then connect back to the requester over
+Tier 3 to send the state headers and parts. State response payloads are accepted
+only on Tier 3 connections.
+
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for
 non-archival nodes, as that data would be garbage collected after a few epochs

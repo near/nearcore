@@ -446,8 +446,6 @@ pub enum PeerMessage {
     Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
 
     EpochSyncRequest,
@@ -506,8 +504,6 @@ impl PeerMessage {
         match self {
             PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::StateRequestHeader(_, _)
-            | PeerMessage::StateRequestPart(_, _, _)
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::Tier1Handshake(_)
             | PeerMessage::Tier2Handshake(_)

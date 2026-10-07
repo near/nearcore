@@ -4,8 +4,8 @@ use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
     EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
-    StateResponseReceived, TxStatusRequest, TxStatusResponse,
+    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::outgoing_queue_limiter::OutgoingQueueLimiter;
@@ -1287,20 +1287,6 @@ impl NetworkState {
                 None
             }
             PeerMessage::Challenge(_) => None,
-            PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
-                let response = self
-                    .state_request_adapter
-                    .send_async(StateRequestHeader { shard_id, sync_hash })
-                    .await;
-                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
-            }
-            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
-                let response = self
-                    .state_request_adapter
-                    .send_async(StateRequestPart { shard_id, sync_hash, part_idx })
-                    .await;
-                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
-            }
             PeerMessage::VersionedStateResponse(info) => {
                 self.client
                     .send_async(

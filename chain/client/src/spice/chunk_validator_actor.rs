@@ -44,6 +44,8 @@ use std::iter::repeat_n;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+mod boundary;
+
 // Each pending chunk stores the uncompressed witness plus uncompressed contracts.
 // In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
 // and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), giving
@@ -356,6 +358,10 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err),
         };
+        if !block.is_spice_block() {
+            let context = self.boundary_witness_validation_context(block)?;
+            return Ok(WitnessProcessingReadiness::Ready(context));
+        }
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
@@ -412,7 +418,9 @@ impl SpiceChunkValidatorActor {
 
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
-        if self.core_reader.get_block_execution_results(prev_block.header())?.is_none() {
+        if block.is_spice_block()
+            && self.core_reader.get_block_execution_results(prev_block.header())?.is_none()
+        {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
@@ -426,19 +434,21 @@ impl SpiceChunkValidatorActor {
         let mut unready_witnesses = Vec::new();
         for witness in witnesses {
             let shard_id = witness.chunk_id().shard_id;
-            match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::debug!(
-                        target: "spice_chunk_validator",
-                        ?prev_hash,
-                        chunk_id=?witness.chunk_id(),
-                        ?err,
-                        "witness not ready; missing execution results for validator proposals");
-                    unready_witnesses.push(witness);
-                    continue;
-                }
-            };
+            if block.is_spice_block() {
+                match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::debug!(
+                            target: "spice_chunk_validator",
+                            ?prev_hash,
+                            chunk_id=?witness.chunk_id(),
+                            ?err,
+                            "witness not ready; missing execution results for validator proposals");
+                        unready_witnesses.push(witness);
+                        continue;
+                    }
+                };
+            }
             let chunk_id = witness.chunk_id().clone();
             tracing::debug!(
                 target: "spice_chunk_validator",
