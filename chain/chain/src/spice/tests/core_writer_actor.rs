@@ -12,7 +12,8 @@ use crate::spice::tests::pre_spice::{
     setup_pre_spice_chain_with_epoch_length,
 };
 use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    SpiceKeyRotationSetup, get_chain_with_genesis, get_fake_next_block_chunk_headers,
+    process_block_sync, setup_spice_key_rotation,
 };
 use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
@@ -577,6 +578,59 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
     ))
 }
 
+/// Sends the producer's endorsement of the first block of the epoch in which its key rotates,
+/// before that block is known, signed with its key from before the rotation or after it. Returns
+/// whether the endorsement is recorded once the block is processed.
+fn records_pending_endorsement_across_key_rotation(sign_with_new_key: bool) -> bool {
+    let SpiceKeyRotationSetup {
+        mut chain,
+        producer,
+        new_signer,
+        rotation_epoch_id,
+        first_rotated_block: block,
+        ..
+    } = setup_spice_key_rotation();
+    let core_writer_actor = new_core_writer_actor(&chain);
+    // While the block is unknown, endorsements are checked against the keys of the final head's
+    // epoch and the next one, which is where the block is.
+    assert_eq!(chain.chain_store().final_head().unwrap().next_epoch_id, rotation_epoch_id);
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let signer = if sign_with_new_key {
+        new_signer
+    } else {
+        Arc::new(create_test_signer(producer.as_str()))
+    };
+    let endorsement = SpiceChunkEndorsement::new(
+        chunk_id.clone(),
+        test_execution_result_for_chunk(chunk_header),
+        &signer,
+    );
+    // Ok means the endorsement passed the check without its block and is kept as pending.
+    core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
+
+    process_block(&mut chain, block.clone());
+    core_writer_actor.handle_processed_block(*block.hash()).unwrap();
+    core_writer_actor.core_reader.endorsement_exists(block.hash(), chunk_id.shard_id, &producer)
+}
+
+/// An endorsement of a chunk in epoch X may be signed with the endorser's key in X or X+1. One
+/// received before its block is known passes a first check against the keys of the final head's
+/// epoch and the next one, so it is checked again once the block shows its epoch.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_endorsement_signed_with_key_rotated_out_by_its_block_is_dropped() {
+    assert!(!records_pending_endorsement_across_key_rotation(false));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_endorsement_signed_with_key_of_its_block_is_recorded() {
+    assert!(records_pending_endorsement_across_key_rotation(true));
+}
+
 /// Endorsements of the last pre-spice block's chunks that arrive before the block wait
 /// as pending like any spice endorsement, and are recorded once the block is processed
 /// even though the block itself is pre-spice.
@@ -853,15 +907,19 @@ fn setup_with_senders(
 
 fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let chain = get_chain_with_genesis(Clock::real(), genesis);
-    let core_writer_actor = SpiceCoreWriterActor::new(
+    let core_writer_actor = new_core_writer_actor(&chain);
+    (chain, core_writer_actor)
+}
+
+fn new_core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
+    SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
-        core_reader(&chain),
+        core_reader(chain),
         noop().into_sender(),
         noop().into_sender(),
-    );
-    (chain, core_writer_actor)
+    )
 }
 
 fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {

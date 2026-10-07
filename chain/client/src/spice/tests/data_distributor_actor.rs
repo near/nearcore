@@ -23,7 +23,8 @@ use near_chain::spice::all_stake_fallback::{
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    SpiceKeyRotationSetup, get_chain_with_genesis, get_fake_next_block_chunk_headers,
+    process_block_sync, setup_spice_key_rotation,
 };
 use near_chain::types::Tip;
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
@@ -108,13 +109,7 @@ fn build_block_with_core_statements(
 
 fn produce_block(chain: &mut Chain, prev_block: &Block) -> Arc<Block> {
     let block = build_block(chain.epoch_manager.as_ref(), &prev_block);
-    process_block_sync(
-        chain,
-        block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(chain, &block);
     block
 }
 
@@ -212,15 +207,20 @@ fn setup_with_shard_layout(
     let first_block = build_block(epoch_manager, &genesis_block);
     let second_block = build_block(epoch_manager, &first_block);
     for block in [first_block, second_block] {
-        process_block_sync(
-            &mut chain,
-            block.into(),
-            Provenance::PRODUCED,
-            &mut BlockProcessingArtifact::default(),
-        )
-        .unwrap();
+        process_block(&mut chain, &block);
     }
     (genesis, chain)
+}
+
+#[track_caller]
+fn process_block(chain: &mut Chain, block: &Arc<Block>) {
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
 }
 
 fn new_chain(chain: &Chain, genesis: &Genesis) -> Chain {
@@ -233,13 +233,7 @@ fn new_chain(chain: &Chain, genesis: &Genesis) -> Chain {
         last_block = chain.chain_store.get_block(last_block.header().prev_hash()).unwrap();
     }
     for block in blocks.into_iter().rev() {
-        process_block_sync(
-            &mut cloned_chain,
-            block.into(),
-            Provenance::PRODUCED,
-            &mut BlockProcessingArtifact::default(),
-        )
-        .unwrap();
+        process_block(&mut cloned_chain, &block);
     }
     cloned_chain
 }
@@ -1365,13 +1359,7 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                     // We use next_block to get starting incoming data calling into data
                     // distribution.
                     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-                    process_block_sync(
-                        &mut chain,
-                        next_block.clone().into(),
-                        Provenance::PRODUCED,
-                        &mut BlockProcessingArtifact::default(),
-                    )
-                    .unwrap();
+                    process_block(&mut chain, &next_block);
                     let (incoming_data, recipient) = $partial_data_func(&chain, &next_block);
 
                     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
@@ -1464,13 +1452,7 @@ fn test_invalid_incoming_partial_data_without_block_node_is_not_recipient() {
     // We use next_block to get starting incoming data calling into data
     // distribution.
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
     let (incoming_data, _recipient) = witness_incoming_data(&chain, &next_block);
     let verified = data_into_verified(incoming_data.data);
 
@@ -1498,13 +1480,7 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     // We use next_block to get starting incoming data calling into data
     // distribution.
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &next_block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
@@ -1513,13 +1489,7 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
@@ -1830,13 +1800,7 @@ fn test_requesting_witness_for_new_block_when_validator() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_witness_data, witness_recipient) = witness_incoming_data(&chain, &next_block);
     let data_id = data_into_verified(incoming_witness_data.data).id;
@@ -1845,13 +1809,7 @@ fn test_requesting_witness_for_new_block_when_validator() {
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &witness_recipient);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -1867,13 +1825,7 @@ fn test_not_requesting_witness_for_new_block_when_not_validator() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_witness_data, _witness_recipient) = witness_incoming_data(&chain, &next_block);
     let data_id = data_into_verified(incoming_witness_data.data).id;
@@ -1886,13 +1838,7 @@ fn test_not_requesting_witness_for_new_block_when_not_validator() {
     );
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -1908,13 +1854,7 @@ fn test_not_requesting_witness_for_new_block_without_signer() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_witness_data, _witness_recipient) = witness_incoming_data(&chain, &next_block);
     let data_id = data_into_verified(incoming_witness_data.data).id;
@@ -1923,13 +1863,7 @@ fn test_not_requesting_witness_for_new_block_without_signer() {
     let mut actor = ActorBuilder::new(None).build(outgoing_sc, &receiver_chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -1945,13 +1879,7 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (_, receipts_recipient) = receipt_proof_incoming_data(&chain, &next_block);
     let data_id = test_receipt_proof_data_id(&next_block);
@@ -1960,13 +1888,7 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &receipts_recipient);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -1985,13 +1907,7 @@ fn test_not_waiting_on_receipts_we_produce_for_new_block() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (_, receipts_recipient) = receipt_proof_incoming_data(&chain, &next_block);
     let data_id = test_receipt_proof_data_id(&next_block);
@@ -2002,13 +1918,7 @@ fn test_not_waiting_on_receipts_we_produce_for_new_block() {
         .build(outgoing_sc, &receiver_chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -2025,13 +1935,7 @@ fn test_not_requesting_witnesses_we_produce_for_new_block() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_witness_data, witness_recipient) =
         receipt_proof_incoming_data(&chain, &next_block);
@@ -2043,13 +1947,7 @@ fn test_not_requesting_witnesses_we_produce_for_new_block() {
         .build(outgoing_sc, &receiver_chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
@@ -2065,13 +1963,7 @@ fn test_not_requesting_data_we_already_received() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &next_block);
     let data_id = data_into_verified(incoming_data.data.clone()).id;
@@ -2080,13 +1972,7 @@ fn test_not_requesting_data_we_already_received() {
     let mut actor = ActorBuilder::new(Some(recipient)).build(outgoing_sc, &receiver_chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     actor.handle(incoming_data);
 
@@ -2103,13 +1989,7 @@ fn test_not_requesting_data_we_already_received_before_block() {
     let mut receiver_chain = new_chain(&chain, &genesis);
 
     let next_block = build_block(chain.epoch_manager.as_ref(), &block);
-    process_block_sync(
-        &mut chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut chain, &next_block);
 
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &next_block);
     let data_id = data_into_verified(incoming_data.data.clone()).id;
@@ -2119,18 +1999,81 @@ fn test_not_requesting_data_we_already_received_before_block() {
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     actor.handle(incoming_data);
-    process_block_sync(
-        &mut receiver_chain,
-        next_block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().map(|(data_id, _)| data_id).contains(&&data_id),);
+}
+
+/// Sends a validator the witness of the first block of the epoch in which the producer's key
+/// rotates, before the validator knows that block, signed with the producer's key from before
+/// the rotation or after it. Returns whether the validator reconstructs the witness once the block
+/// arrives.
+fn reconstructs_pending_witness_across_key_rotation(sign_with_new_key: bool) -> bool {
+    let SpiceKeyRotationSetup {
+        genesis,
+        mut chain,
+        producer,
+        new_signer,
+        rotation_epoch_id,
+        first_rotated_block: block,
+    } = setup_spice_key_rotation();
+    let mut receiver_chain = new_chain(&chain, &genesis);
+    // While the block is unknown, data is checked against the keys of the final head's epoch and
+    // the next one, which is where the block is.
+    assert_eq!(receiver_chain.chain_store.final_head().unwrap().next_epoch_id, rotation_epoch_id);
+    process_block(&mut chain, &block);
+
+    // The producer's actor signs with the key from before the rotation.
+    let (producer_sc, mut producer_rc) = unbounded_channel();
+    let mut producer_actor = new_actor_for_account(producer_sc, &chain, &producer);
+    producer_actor.handle(SpiceDistributorStateWitness {
+        contract_accesses: HashSet::new(),
+        state_witness: new_test_witness(&block),
+    });
+    let old_keys = [create_test_signer(producer.as_str()).public_key()];
+
+    let validator: AccountId = "test-validator-0".parse().unwrap();
+    let (receiver_sc, mut receiver_rc) = unbounded_channel();
+    let mut receiver = new_actor_for_account(receiver_sc, &receiver_chain, &validator);
+    for (data, recipients) in drain_outgoing_partial_data(&mut producer_rc) {
+        assert!(recipients.contains(&validator));
+        let data = if sign_with_new_key {
+            let SpiceVerifiedPartialData { id, commitment, parts, .. } =
+                data.into_verified(&old_keys).unwrap();
+            SpicePartialData::new(id, commitment, parts, &new_signer)
+        } else {
+            data
+        };
+        // Ok means the data passed the check without its block and is kept as pending.
+        assert_matches!(receiver.receive_data(data), Ok(()));
+    }
+    assert_matches!(receiver_rc.try_recv(), Err(TryRecvError::Empty));
+
+    process_block(&mut receiver_chain, &block);
+    receiver.handle(ProcessedBlock { block_hash: *block.hash() });
+    let mut reconstructed = false;
+    while let Ok(message) = receiver_rc.try_recv() {
+        reconstructed |= matches!(message, OutgoingMessage::ChunkStateWitnessMessage(_));
+    }
+    reconstructed
+}
+
+/// Data for a block in epoch X may be signed with the sender's key in X or X+1. Data received
+/// before its block is known passes a first check against the keys of the final head's epoch and
+/// the next one, so it is checked again once the block shows its epoch.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_data_signed_with_key_rotated_out_by_its_block_is_discarded() {
+    assert!(!reconstructs_pending_witness_across_key_rotation(false));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_data_signed_with_key_of_its_block_is_used() {
+    assert!(reconstructs_pending_witness_across_key_rotation(true));
 }
 
 #[test]
@@ -3092,13 +3035,7 @@ fn produce_block_carrying_endorsement(
         prev_block,
         vec![core_statement],
     );
-    process_block_sync(
-        chain,
-        block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(chain, &block);
     block
 }
 
@@ -3156,13 +3093,7 @@ fn produce_block_certifying_uncertified_chunks(
     }
     let block =
         build_block_with_core_statements(chain.epoch_manager.as_ref(), prev_block, core_statements);
-    process_block_sync(
-        chain,
-        block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    process_block(chain, &block);
     block
 }
 
@@ -3514,13 +3445,7 @@ fn catch_up_to(chain: &mut Chain, source: &Chain, target: &Block) {
         block = source.chain_store.get_block(block.header().prev_hash()).unwrap();
     }
     for block in blocks.into_iter().rev() {
-        process_block_sync(
-            chain,
-            block.into(),
-            Provenance::PRODUCED,
-            &mut BlockProcessingArtifact::default(),
-        )
-        .unwrap();
+        process_block(chain, &block);
     }
 }
 
