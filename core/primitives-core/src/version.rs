@@ -148,6 +148,12 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
+    /// Reject new transfers to `0u` ids until `UniversalAccounts` is enabled, so no receipt
+    /// funded without the account creation fee executes once the fee applies.
+    RejectUniversalAccountTransfers,
+    /// A universal state init on an already initialized account refunds the whole deposit.
+    /// Before it, the deposit also tops up storage staking.
+    RefundRepeatedUniversalStateInitDeposit,
     /// Use the new version of the eth-wallet contract.
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
@@ -193,6 +199,8 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
+            ProtocolFeature::RejectUniversalAccountTransfers => 87,
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
