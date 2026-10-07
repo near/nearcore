@@ -1,5 +1,8 @@
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
+use crate::spice::boundary_chunk_validation::{
+    BoundaryReplay, pre_validate_boundary_chunk_state_witness, replay_boundary_implicit_transitions,
+};
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
@@ -30,7 +33,10 @@ use std::sync::Arc;
 use tracing::Span;
 
 pub struct SpicePreValidationOutput {
-    new_chunk_data: NewChunkData,
+    pub(super) new_chunk_data: NewChunkData,
+    /// Old-chunk replays of a boundary witness, oldest first; empty for a regular
+    /// witness.
+    pub(super) boundary_replays: Vec<BoundaryReplay>,
 }
 
 pub fn spice_pre_validate_chunk_state_witness(
@@ -43,6 +49,24 @@ pub fn spice_pre_validate_chunk_state_witness(
     prev_validator_proposals: Vec<ValidatorStake>,
 ) -> Result<SpicePreValidationOutput, Error> {
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
+    let witness = match state_witness {
+        SpiceChunkStateWitness::V1(witness) => witness,
+        SpiceChunkStateWitness::Boundary(witness) => {
+            return pre_validate_boundary_chunk_state_witness(witness, block, epoch_manager, store);
+        }
+    };
+    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
+    // witnesses. Execution results for genesis can be calculated on each node on their own.
+    if block.header().is_genesis() {
+        return Err(Error::InvalidChunkStateWitness(
+            "State witness is for genesis block".to_string(),
+        ));
+    }
+    if !block.is_spice_block() {
+        return Err(Error::InvalidChunkStateWitness(
+            "regular spice witness for a pre-spice block".to_string(),
+        ));
+    }
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
     let shard_id = state_witness.chunk_id().shard_id;
 
@@ -73,7 +97,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     // get_resharding_transition in c/c/s/stateless_validation/chunk_validation.rs
 
     let receipts_to_apply = validate_source_receipts_proofs(
-        &state_witness.source_receipt_proofs(),
+        &witness.source_receipt_proofs,
         prev_execution_results,
         &shard_layout,
         shard_id,
@@ -128,14 +152,6 @@ pub fn spice_pre_validate_chunk_state_witness(
         })
         .collect::<Vec<_>>();
 
-    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
-    // witnesses. Execution results for genesis can be calculated on each node on their own.
-    if block.header().is_genesis() {
-        return Err(Error::InvalidChunkStateWitness(
-            "State witness is for genesis block".to_string(),
-        ));
-    }
-
     let new_chunk_data = {
         let prev_chunk_chunk_extra = {
             let (_, prev_shard_id, _prev_shard_index) =
@@ -177,7 +193,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(SpicePreValidationOutput { new_chunk_data })
+    Ok(SpicePreValidationOutput { new_chunk_data, boundary_replays: Vec::new() })
 }
 
 #[tracing::instrument(
@@ -206,12 +222,13 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
     // the same witnesses.
+    let SpicePreValidationOutput { new_chunk_data, boundary_replays } = pre_validation_output;
     let (chunk_extra, outgoing_receipts) = {
-        let gas_limit = pre_validation_output.new_chunk_data.gas_limit;
+        let gas_limit = new_chunk_data.gas_limit;
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
             &Span::current(),
-            pre_validation_output.new_chunk_data,
+            new_chunk_data,
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
             // Recorded-storage replay; no memtrie path.
@@ -224,9 +241,24 @@ pub fn spice_validate_chunk_state_witness(
         (chunk_extra, outgoing_receipts)
     };
 
+    let chunk_extra = match &state_witness {
+        SpiceChunkStateWitness::V1(_) => chunk_extra,
+        SpiceChunkStateWitness::Boundary(witness) => replay_boundary_implicit_transitions(
+            witness,
+            boundary_replays,
+            chunk_extra,
+            runtime_adapter,
+        )?,
+    };
+
     // TODO(spice-resharding): Handle possible resharding transitions.
 
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let shard_layout = match &state_witness {
+        SpiceChunkStateWitness::V1(_) => epoch_manager.get_shard_layout(&epoch_id)?,
+        SpiceChunkStateWitness::Boundary(_) => {
+            epoch_manager.get_shard_layout_from_prev_block(block_hash)?
+        }
+    };
     let outgoing_receipts_hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
@@ -375,7 +407,7 @@ fn validate_receipt_proof(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
@@ -450,8 +482,10 @@ mod tests {
             .chunk_id(SpiceChunkId { block_hash, shard_id: ShardId::new(42) })
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "doesn't contain witness shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "doesn't contain witness shard",
+        );
     }
 
     #[test]
@@ -465,9 +499,8 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(
-            &error_message,
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
             "source_receipt_proofs contains incorrect number of proofs",
         );
     }
@@ -478,7 +511,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let proof = valid_witness.source_receipt_proofs().values().next().unwrap();
+        let proof = v1_source_receipt_proofs(&valid_witness).values().next().unwrap();
         let invalid_receipt_proofs = (0..test_chain.prev_block().chunks().len())
             .map(|i| -> (ShardId, ReceiptProof) { (ShardId::new(42 + i as u64), proof.clone()) })
             .collect();
@@ -486,8 +519,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "Missing source receipt proof");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "Missing source receipt proof",
+        );
     }
 
     #[test]
@@ -496,8 +531,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, mut proof)| {
@@ -509,8 +543,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "is from shard 42, expected shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "is from shard 42, expected shard",
+        );
     }
 
     #[test]
@@ -519,8 +555,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, mut proof)| {
@@ -532,8 +567,10 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "is for shard 42, expected shard");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "is for shard 42, expected shard",
+        );
     }
 
     #[test]
@@ -544,8 +581,7 @@ mod tests {
 
         let shard_layout = &test_chain.shard_layout();
         let receipts = vec![];
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, valid_proof)| {
@@ -566,9 +602,8 @@ mod tests {
             .source_receipt_proofs(invalid_receipt_proofs)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(
-            &error_message,
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
             "invalid merkle path, doesn't match outgoing receipts root",
         );
     }
@@ -584,8 +619,10 @@ mod tests {
             .applied_receipts_hash(invalid_receipts_hash)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected receipts hash");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected receipts hash",
+        );
     }
 
     #[test]
@@ -603,8 +640,10 @@ mod tests {
             .transactions(invalid_transactions)
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected transaction root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected transaction root",
+        );
     }
 
     #[test]
@@ -635,8 +674,7 @@ mod tests {
             vec![],
         );
 
-        let error_message = unwrap_error_message(result);
-        assert_contains(&error_message, "witness is for genesis");
+        assert_invalid_witness(result, "witness is for genesis");
     }
 
     #[test]
@@ -677,8 +715,7 @@ mod tests {
             vec![],
         );
 
-        let error_message = unwrap_error_message(result);
-        assert_contains(&error_message, "genesis source_receipt_proofs should be empty");
+        assert_invalid_witness(result, "genesis source_receipt_proofs should be empty");
     }
 
     #[test]
@@ -692,8 +729,10 @@ mod tests {
         let invalid_witness =
             TestWitnessBuilder::from_default(valid_witness).transactions(transactions).build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match expected transaction root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "does not match expected transaction root",
+        );
     }
 
     #[test]
@@ -743,8 +782,7 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(any_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "non-new chunk");
+        assert_invalid_witness(test_chain.run_pre_validation(&invalid_witness), "non-new chunk");
     }
 
     #[test]
@@ -759,8 +797,10 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(any_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "non-empty transactions");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "non-empty transactions",
+        );
     }
 
     #[test]
@@ -777,8 +817,10 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(wrong_body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "encoded_merkle_root");
+        assert_invalid_witness(
+            test_chain.run_pre_validation(&invalid_witness),
+            "encoded_merkle_root",
+        );
     }
 
     #[test]
@@ -796,8 +838,7 @@ mod tests {
         let witness =
             test_chain.witness_with_proof_of_invalid_chunk(correct_tx_root, correct_receipts_root);
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&witness));
-        assert_contains(&error_message, "fraudulent");
+        assert_invalid_witness(test_chain.run_pre_validation(&witness), "fraudulent");
     }
 
     #[test]
@@ -814,8 +855,7 @@ mod tests {
             .proof_of_invalid_chunk(Some(Box::new(body)))
             .build();
 
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "missing parts");
+        assert_invalid_witness(test_chain.run_pre_validation(&invalid_witness), "missing parts");
     }
 
     #[test]
@@ -848,23 +888,14 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_contains(message: &str, substring: &str) {
-        assert!(
-            message.contains(substring),
-            "assertion failed: \"{}\".contains(\"{}\")",
-            message,
-            substring
-        );
-    }
-
-    #[track_caller]
-    fn unwrap_error_message<T>(result: Result<T, Error>) -> String {
-        assert!(result.is_err());
-        let err = result.err().unwrap();
-        let Error::InvalidChunkStateWitness(message) = err else {
-            panic!("wrong error kind: {:?}", err);
-        };
-        message
+    pub(in crate::spice) fn assert_invalid_witness<T>(result: Result<T, Error>, reason: &str) {
+        match result {
+            Err(Error::InvalidChunkStateWitness(message)) => {
+                assert!(message.contains(reason), "{message:?} does not contain {reason:?}")
+            }
+            Err(err) => panic!("wrong error kind: {err:?}"),
+            Ok(_) => panic!("witness must be rejected"),
+        }
     }
 
     fn setup() -> TestChain {
@@ -958,6 +989,15 @@ mod tests {
         ]
     }
 
+    fn v1_source_receipt_proofs(
+        witness: &SpiceChunkStateWitness,
+    ) -> &HashMap<ShardId, ReceiptProof> {
+        let SpiceChunkStateWitness::V1(witness) = witness else {
+            panic!("expected a regular witness");
+        };
+        &witness.source_receipt_proofs
+    }
+
     struct TestWitnessBuilder {
         chunk_id: SpiceChunkId,
         pre_state: PartialState,
@@ -985,16 +1025,17 @@ mod tests {
         builder_setter!(proof_of_invalid_chunk, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
+            let SpiceChunkStateWitness::V1(default) = default else {
+                panic!("test builder only builds regular witnesses");
+            };
             Self {
-                chunk_id: default.chunk_id().clone(),
-                pre_state: default.pre_state().clone(),
-                source_receipt_proofs: default.source_receipt_proofs().clone(),
-                applied_receipts_hash: *default.applied_receipts_hash(),
-                transactions: default.transactions().to_vec(),
-                contract_accesses: default.contract_accesses().clone(),
-                proof_of_invalid_chunk: default
-                    .proof_of_invalid_chunk()
-                    .map(|b| Box::new(b.clone())),
+                chunk_id: default.chunk_id,
+                pre_state: default.pre_state,
+                source_receipt_proofs: default.source_receipt_proofs,
+                applied_receipts_hash: default.applied_receipts_hash,
+                transactions: default.transactions,
+                contract_accesses: default.contract_accesses,
+                proof_of_invalid_chunk: default.proof_of_invalid_chunk,
             }
         }
 

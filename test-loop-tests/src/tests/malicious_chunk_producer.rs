@@ -22,8 +22,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use parking_lot::Mutex;
@@ -73,18 +72,8 @@ fn test_producer_with_expired_transactions() {
         let sender = account.clone();
         let receiver = accounts[0].clone();
         test_loop.send_adhoc_event("transaction".into(), move |data| {
-            let signer = create_user_test_signer(&sender);
             let node = TestLoopNode { data, node_data: &chunk_producer };
-            let access_key = node.view_access_key_query(&sender, &signer.public_key()).unwrap();
-            let anchor_hash = node.head().last_block_hash;
-            let tx = SignedTransaction::send_money(
-                access_key.nonce + 1,
-                sender,
-                receiver,
-                &signer,
-                Balance::from_near(1),
-                anchor_hash,
-            );
+            let tx = node.tx_send_money(&sender, &receiver, Balance::from_near(1));
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
             chunk_producer.rpc_handler_sender.send(process_tx_request);

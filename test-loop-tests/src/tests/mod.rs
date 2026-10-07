@@ -33,10 +33,12 @@ mod early_kickout_boundary;
 #[cfg(feature = "test_features")]
 mod early_kickout_e2e;
 mod early_kickout_probe;
+mod early_kickout_withheld_block;
 mod early_prepare_transactions;
 mod eth_implicit_missing_global_contract;
 mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;
+mod fix_contract_loading_cost;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;

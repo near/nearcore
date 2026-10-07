@@ -2753,7 +2753,7 @@ mod tests {
     /// the shard executing receipts that chunk.
     #[test]
     fn test_worst_accepted_universal_state_init_converts_within_the_tx_gas_budget() {
-        let store = near_parameters::RuntimeConfigStore::new(None);
+        let store = near_parameters::RuntimeConfigStore::new();
         let config = store.get_config(PROTOCOL_VERSION);
         let limits = &config.wasm_config.limit_config;
         let max_size = limits.max_transaction_size;

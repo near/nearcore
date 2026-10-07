@@ -18,16 +18,8 @@ fn test_save_receipt_to_tx_false() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
@@ -76,15 +68,10 @@ fn test_receipt_to_tx_persists_across_restart() {
     let restart_identifier = restart_node_data.identifier.clone();
     let stable_node_idx = 1;
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.node_for_account(&restart_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
+    let tx = env.node_for_account(&restart_account).tx_send_money(
+        &user_account,
+        &user_account,
         Balance::from_yoctonear(100),
-        block_hash,
     );
 
     // execute_tx polls until result available. More reliable than
@@ -134,16 +121,8 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
@@ -199,15 +178,8 @@ fn test_no_index_when_both_disabled() {
         .expect("access key exists")
         .nonce;
 
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
@@ -269,15 +241,10 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
     let restart_identifier = restart_node_data.identifier.clone();
     let stable_node_idx = 1;
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.node_for_account(&restart_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
+    let tx = env.node_for_account(&restart_account).tx_send_money(
+        &user_account,
+        &user_account,
         Balance::from_yoctonear(100),
-        block_hash,
     );
     let tx_hash = tx.get_hash();
     env.node_for_account(&restart_account).submit_tx(tx);
@@ -352,29 +319,18 @@ fn test_refund_receipt_has_receipt_to_tx() {
         .gas_prices(min_gas_price, min_gas_price)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Deploy test contract.
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     // Cheap method, 300 TGas — most unused → refund.
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
 
@@ -432,15 +388,8 @@ fn test_receipt_to_tx_rpc_direct() {
         .epoch_length(EPOCH_LENGTH)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::from_yoctonear(100),
-        env.rpc_node().head().last_block_hash,
-    );
+    let tx =
+        env.rpc_node().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
@@ -474,29 +423,18 @@ fn test_receipt_to_tx_rpc_chain_walk() {
         .gas_prices(min_gas_price, min_gas_price)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Deploy test contract.
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.rpc_node().head().last_block_hash,
-    );
+    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     // Cheap method, 300 TGas — most unused → refund.
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.rpc_node().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.rpc_node().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
@@ -734,16 +672,11 @@ fn test_receipt_to_tx_rpc_cross_shard() {
         .gas_prices(min_gas_price, min_gas_price)
         .build();
 
-    let signer = create_user_test_signer(&sender_account);
-
     // Cross-shard transfer: sender (shard 0) → receiver (shard 1).
-    let tx = SignedTransaction::send_money(
-        1,
-        sender_account.clone(),
-        receiver_account,
-        &signer,
+    let tx = env.rpc_node().tx_send_money(
+        &sender_account,
+        &receiver_account,
         Balance::from_yoctonear(100),
-        env.rpc_node().head().last_block_hash,
     );
     let tx_hash = tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
@@ -796,15 +729,8 @@ fn test_column_unaffected_without_hint() {
         .epoch_length(EPOCH_LENGTH)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::from_yoctonear(100),
-        env.rpc_node().head().last_block_hash,
-    );
+    let tx =
+        env.rpc_node().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];

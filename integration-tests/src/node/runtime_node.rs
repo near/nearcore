@@ -47,7 +47,7 @@ impl RuntimeNode {
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         let config = RuntimeConfig::clone(store.get_config(genesis.config.protocol_version));
         Self::new_from_genesis_and_config(account_id, genesis, config)
     }
@@ -62,7 +62,7 @@ impl RuntimeNode {
         add_test_contract(&mut genesis, &bob_account());
         add_test_contract(&mut genesis, &carol_account());
 
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         let mut runtime_config =
             RuntimeConfig::clone(store.get_config(genesis.config.protocol_version));
         modify_config(&mut runtime_config);

@@ -1,5 +1,6 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
+use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -15,10 +16,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::spice::chunk_endorsement::{
     SpiceChunkEndorsement, SpiceStoredVerifiedEndorsement, SpiceVerifiedEndorsement,
 };
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, EpochId, ShardId,
-    SpiceChunkId,
+    AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, ShardId, SpiceChunkId,
 };
 use near_primitives::utils::{
     get_endorsements_key, get_execution_results_key, get_uncertified_execution_results_key,
@@ -53,7 +52,7 @@ pub struct SpiceCoreWriterActor {
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
-    pending_endorsements: SyncLruCache<SpiceChunkId, HashMap<AccountId, SpiceVerifiedEndorsement>>,
+    pending_endorsements: SyncLruCache<SpiceChunkId, HashMap<AccountId, SpiceChunkEndorsement>>,
     spice_gate: SpiceMessageGate,
 }
 
@@ -71,6 +70,7 @@ impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ChunkEndorsement,
             msg.0.block_hash(),
         ) {
@@ -337,11 +337,10 @@ impl SpiceCoreWriterActor {
         block: &Block,
     ) -> Result<SpiceVerifiedEndorsement, InvalidSpiceEndorsementError> {
         assert_eq!(block.hash(), endorsement.block_hash());
-        let account_id = endorsement.account_id();
-        let validator = self
+        let public_keys = self
             .epoch_manager
-            .get_validator_by_account_id(block.header().epoch_id(), account_id)?;
-        let Some(endorsement) = endorsement.into_verified(validator.public_key()) else {
+            .get_validator_signing_keys_for_block(block.hash(), endorsement.account_id())?;
+        let Some(endorsement) = endorsement.into_verified(&public_keys) else {
             return Err(InvalidSpiceEndorsementError::InvalidSignature);
         };
         self.validate_verified_endorsement_with_block(&endorsement, block)?;
@@ -350,8 +349,8 @@ impl SpiceCoreWriterActor {
 
     fn validate_endorsement_without_block(
         &self,
-        endorsement: SpiceChunkEndorsement,
-    ) -> Result<SpiceVerifiedEndorsement, InvalidSpiceEndorsementError> {
+        endorsement: &SpiceChunkEndorsement,
+    ) -> Result<(), InvalidSpiceEndorsementError> {
         use InvalidSpiceEndorsementError::*;
 
         let account_id = endorsement.account_id();
@@ -359,16 +358,21 @@ impl SpiceCoreWriterActor {
         // next epoch.
         let final_head = self.chain_store.final_head().map_err(NearChainError)?;
         let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
-        let validator =
-            self.get_validator_from_possible_epoch_id(&possible_epoch_ids, account_id)?;
-        let Some(endorsement) = endorsement.into_verified(validator.public_key()) else {
+        let public_keys = self
+            .epoch_manager
+            .get_validator_keys_in_epochs(&possible_epoch_ids, account_id)
+            .map_err(EpochError)?;
+        if public_keys.is_empty() {
+            return Err(AccountIsNotValidator);
+        }
+        if !endorsement.verify_signature(&public_keys) {
             return Err(InvalidSignature);
-        };
+        }
 
         let mut feasible_shard_id = false;
         for epoch_id in &possible_epoch_ids {
             let shard_layout = self.epoch_manager.get_shard_layout(epoch_id).map_err(EpochError)?;
-            if shard_layout.shard_ids().contains(&endorsement.chunk_id().shard_id) {
+            if shard_layout.shard_ids().contains(&endorsement.shard_id()) {
                 feasible_shard_id = true;
             }
         }
@@ -377,22 +381,7 @@ impl SpiceCoreWriterActor {
         }
 
         // We cannot check that account is validator for relevant chunk before we know block height.
-        Ok(endorsement)
-    }
-
-    fn get_validator_from_possible_epoch_id(
-        &self,
-        possible_epoch_ids: &[EpochId],
-        account_id: &AccountId,
-    ) -> Result<ValidatorStake, InvalidSpiceEndorsementError> {
-        for epoch_id in possible_epoch_ids {
-            if let Ok(validator) =
-                self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
-            {
-                return Ok(validator);
-            }
-        }
-        Err(InvalidSpiceEndorsementError::AccountIsNotValidator)
+        Ok(())
     }
 
     fn pop_pending_endorsement_for_block(
@@ -409,20 +398,26 @@ impl SpiceCoreWriterActor {
             else {
                 continue;
             };
-            endorsements.extend(endorsements_map.into_values().filter(|endorsement| {
-                match self.validate_verified_endorsement_with_block(endorsement, block) {
-                    Ok(()) => true,
-                    Err(err) => {
-                        tracing::info!(
-                            target: "spice_core_writer",
-                            chunk_id = ?endorsement.chunk_id(),
-                            ?err,
-                            "encountered invalid pending endorsement"
-                        );
-                        false
+            // The signature was checked against keys of the possible epochs, which may differ from
+            // those accepted for this block, so it's verified again.
+            endorsements.extend(endorsements_map.into_iter().filter_map(
+                |(account_id, endorsement)| {
+                    match self.validate_endorsement_with_block(endorsement, block) {
+                        Ok(endorsement) => Some(endorsement),
+                        Err(err) => {
+                            tracing::info!(
+                                target: "spice_core_writer",
+                                block_hash = ?block.hash(),
+                                ?shard_id,
+                                ?account_id,
+                                ?err,
+                                "encountered invalid pending endorsement"
+                            );
+                            None
+                        }
                     }
-                }
-            }));
+                },
+            ));
         }
         Ok(endorsements)
     }
@@ -431,7 +426,7 @@ impl SpiceCoreWriterActor {
         &self,
         endorsement: SpiceChunkEndorsement,
     ) -> Result<(), InvalidSpiceEndorsementError> {
-        let endorsement = self.validate_endorsement_without_block(endorsement)?;
+        self.validate_endorsement_without_block(&endorsement)?;
         self.pending_endorsements
             .lock()
             .get_or_insert_mut(endorsement.chunk_id().clone(), HashMap::new)
@@ -577,9 +572,13 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
-        // A pre-spice block carries no core statements and needs no certification,
-        // so there is nothing to record for it.
+        // A pre-spice block carries no core statements. The last pre-spice block's chunks
+        // still certify under spice, so endorsements that arrived for it before the block
+        // did are recorded now.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &block_hash)? {
+                self.record_pending_endorsements_for_last_pre_spice_block(&block_hash)?;
+            }
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();
@@ -588,6 +587,21 @@ impl SpiceCoreWriterActor {
         store_update.commit();
         self.send_execution_result_endorsements(&block);
         Ok(())
+    }
+
+    fn record_pending_endorsements_for_last_pre_spice_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let block = self.chain_store.get_block(block_hash)?;
+        let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
+        if pending_endorsements.is_empty() {
+            return Ok(());
+        }
+        let store_update =
+            self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
+        store_update.commit();
+        self.try_sending_execution_result_endorsed(block_hash)
     }
 }
 

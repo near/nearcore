@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = store.get_config(PROTOCOL_VERSION);
     let mut wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
     wasm_config.vm_kind = VMKind::Wasmtime;
