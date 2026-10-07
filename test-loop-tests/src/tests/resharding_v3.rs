@@ -27,7 +27,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_crypto::{PublicKey, Signer};
+use near_crypto::PublicKey;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -37,8 +37,6 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeightDelta, Gas, Nonce, ShardId, ShardIndex,
 };
@@ -746,7 +744,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &new_boundary_account,
             &params.temporary_account_id,
             Balance::from_near(10),
-            2,
         );
         test_setup_transactions.push(create_account_tx);
     }
@@ -1952,21 +1949,8 @@ fn create_account(
     originator: &AccountId,
     new_account_id: &AccountId,
     amount: Balance,
-    nonce: u64,
 ) -> CryptoHash {
     let node = env.node_for_account(rpc_id);
-    let signer = create_user_test_signer(originator);
-    let new_signer: Signer = create_user_test_signer(new_account_id);
-
-    let tx = SignedTransaction::create_account(
-        nonce,
-        originator.clone(),
-        new_account_id.clone(),
-        amount,
-        new_signer.public_key(),
-        &signer,
-        node.head().last_block_hash,
-    );
-
+    let tx = node.tx_create_account(originator, new_account_id, amount);
     node.submit_tx(tx)
 }
