@@ -70,7 +70,6 @@ use near_primitives::types::BlockHeight;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
@@ -721,16 +720,20 @@ impl SpiceDataDistributorActor {
         };
         let me = signer.validator_id();
 
-        let possible_epoch_ids = self.possible_epoch_ids(data.block_hash())?;
-        let validator =
-            self.get_sender_validator_from_possible_epoch_ids(&possible_epoch_ids, data.sender())?;
+        let final_head = self.chain_store.final_head()?;
+        let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
+        let public_keys =
+            self.epoch_manager.get_validator_keys_in_epochs(&possible_epoch_ids, data.sender())?;
+        if public_keys.is_empty() {
+            return Err(Error::SenderIsNotValidator);
+        }
 
-        let data =
-            data.into_verified(validator.public_key()).ok_or(Error::InvalidPartialDataSignature)?;
+        if !data.verify_signature(&public_keys) {
+            return Err(Error::InvalidPartialDataSignature);
+        }
 
-        let id = &data.id;
-        let sender = &data.sender;
-        if !self.possible_producers(id, &possible_epoch_ids)?.contains(sender) {
+        let id = data.id();
+        if !self.possible_producers(id, &possible_epoch_ids)?.contains(data.sender()) {
             return Err(Error::SenderIsNotProducer);
         }
         if !self.is_pending_data_needed(me, id, &possible_epoch_ids)? {
@@ -745,12 +748,11 @@ impl SpiceDataDistributorActor {
         partial_data: SpicePartialData,
         block: &Block,
     ) -> Result<(), Error> {
-        let sender_validator = self
+        let public_keys = self
             .epoch_manager
-            .get_validator_by_account_id(block.header().epoch_id(), partial_data.sender())?;
-        let partial_data = partial_data
-            .into_verified(sender_validator.public_key())
-            .ok_or(Error::InvalidPartialDataSignature)?;
+            .get_validator_signing_keys_for_block(block.hash(), partial_data.sender())?;
+        let partial_data =
+            partial_data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
 
         self.receive_verified_data_with_block(partial_data, block)
     }
@@ -932,34 +934,6 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn get_sender_validator_from_possible_epoch_ids(
-        &self,
-        possible_epoch_ids: &[EpochId],
-        sender: &AccountId,
-    ) -> Result<ValidatorStake, Error> {
-        for epoch_id in possible_epoch_ids {
-            if let Ok(validator) = self.epoch_manager.get_validator_by_account_id(&epoch_id, sender)
-            {
-                return Ok(validator);
-            }
-        }
-        Err(Error::SenderIsNotValidator)
-    }
-
-    fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
-        let possible_epoch_ids = if self.chain_store.block_exists(block_hash) {
-            let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-            vec![epoch_id]
-        } else {
-            let final_head = self.chain_store.final_head()?;
-            // Since block doesn't exist it has to be after the final head.
-            // Here we assume we aren't catching up.
-            // TODO(spice): consider if this needs to be adjusted when implementing various syncs.
-            vec![final_head.epoch_id, final_head.next_epoch_id]
-        };
-        Ok(possible_epoch_ids)
-    }
-
     fn possible_producers(
         &self,
         id: &SpiceDataIdentifier,
@@ -1025,14 +999,22 @@ impl SpiceDataDistributorActor {
         }
         let block = self.chain_store.get_block(&block_hash)?;
         for data in ready_data {
-            let data_id = data.id.clone();
-            let commitment = data.commitment.clone();
-            if let Err(err) = self.receive_verified_data_with_block(data, &block) {
-                if let Error::DataIsIrrelevant(_) = err {
-                    self.waiting_on_data.remove(&data_id);
-                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "processing irrelevant data");
-                } else {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to process partial data");
+            let data_id = data.id().clone();
+            let sender = data.sender().clone();
+            if let Err(err) = self.receive_data_with_block(data, &block) {
+                match err {
+                    Error::DataIsIrrelevant(_) => {
+                        self.waiting_on_data.remove(&data_id);
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
+                    }
+                    // Pending data was checked against the epochs of the final head, which may
+                    // differ from the epoch of its block.
+                    Error::InvalidPartialDataSignature | Error::SenderIsNotValidator => {
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "pending partial data is invalid for its block");
+                    }
+                    _ => {
+                        tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");
+                    }
                 }
             }
         }
@@ -1691,8 +1673,10 @@ impl SpiceDataDistributorActor {
         let epoch_id = block_header.epoch_id();
 
         // Verify request signature before any other checks to prevent cache pollution.
-        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
-        if !request.verify_signature(validator.public_key()) {
+        let public_keys = self
+            .epoch_manager
+            .get_validator_signing_keys_for_block(&chunk_id.block_hash, &requester)?;
+        if !public_keys.iter().any(|public_key| request.verify_signature(public_key)) {
             tracing::warn!(
                 target: "spice_data_distribution",
                 ?chunk_id,

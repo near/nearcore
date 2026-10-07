@@ -4902,24 +4902,6 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
-name = "near-state-parts"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "near-jsonrpc",
- "near-network",
- "near-o11y",
- "near-ping",
- "near-primitives",
- "near-time",
- "sha2 0.10.6",
- "time",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -5215,7 +5197,6 @@ dependencies = [
  "near-primitives",
  "near-replay-archive-tool",
  "near-replay-tool",
- "near-state-parts",
  "near-store",
  "near-undo-block",
  "near-vm-runner",
