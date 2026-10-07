@@ -116,7 +116,7 @@ Note that `start_cluster` spins up all the nodes right away. Some tests (e.g.
 tests that test syncing) might want to configure the nodes but delay their
 start. In such a case you will initialize the cluster by calling
 `init_cluster` and will run the nodes manually, for example, see
-[`state_sync.py`](https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync.py)
+[`state_sync_routed.py`](https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync_routed.py)
 
 ## Connecting to a mocknet
 
