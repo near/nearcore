@@ -864,4 +864,30 @@ mod tests {
         .unwrap();
         assert_eq!(chunk_extra, main_chunk_extra.next_for_old_chunk(post_state_root));
     }
+
+    /// A producer whose source receipt proofs do not reproduce the receipts its recorded
+    /// transition applied must fail rather than build a witness validators would reject.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_producer_boundary_witness_rejects_inconsistent_receipts_hash() {
+        let mut boundary_chain = setup_boundary_chain();
+        boundary_chain.record_pre_spice_chunk_and_receipts();
+        let post_state_root = boundary_chain.replay_post_state_root();
+        boundary_chain.record_pre_spice_state_transitions(post_state_root);
+
+        let anchor_hash = *boundary_chain.last_new_chunk_block.hash();
+        let target_shard_id = boundary_chain.target_shard_id;
+        let mut store_update = boundary_chain.chain.chain_store.store_update();
+        store_update.save_state_transition_data(
+            anchor_hash,
+            target_shard_id,
+            Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) }),
+            CryptoHash::hash_bytes(b"forged receipts hash"),
+            ContractUpdates::default(),
+        );
+        store_update.commit().unwrap();
+
+        let err = boundary_chain.producer_witness().unwrap_err();
+        assert!(err.to_string().contains("source receipt proofs hash to"), "{err}");
+    }
 }

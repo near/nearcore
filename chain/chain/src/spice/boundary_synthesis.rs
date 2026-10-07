@@ -3,6 +3,7 @@
 
 use crate::Chain;
 use crate::spice::boundary::applies_chunk_itself;
+use crate::stateless_validation::chunk_validation::validate_source_receipt_proofs;
 use crate::store::utils::get_chunk_clone_from_header;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -10,7 +11,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::state_witness::SpiceBoundaryChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
@@ -295,6 +296,27 @@ pub fn boundary_state_witness(
                 .ok_or(Error::InvalidShardId(from_shard_id))?;
             source_receipt_proofs.insert(source_chunk_header.chunk_hash().clone(), proof.clone());
         }
+    }
+
+    // Run the validator's check here: the proofs must reproduce the receipts the
+    // recorded transition applied. A mismatch is a local inconsistency, and a witness
+    // built from it would only be rejected.
+    let anchor_shard_layout =
+        epoch_manager.get_shard_layout(last_new_chunk_block.header().epoch_id())?;
+    let receipts_to_apply = validate_source_receipt_proofs(
+        epoch_manager,
+        &source_receipt_proofs,
+        &source_blocks,
+        anchor_shard_layout,
+        shard_id,
+    )?;
+    let proofs_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
+    if proofs_receipts_hash != receipts_hash {
+        return Err(Error::Other(format!(
+            "boundary witness of shard {shard_id} at block {}: source receipt proofs hash to \
+             {proofs_receipts_hash:?}, but the recorded state transition applied {receipts_hash:?}",
+            block.hash()
+        )));
     }
 
     Ok(Some(SpiceBoundaryChunkStateWitness {
