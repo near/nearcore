@@ -74,7 +74,6 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
 
-    let apply_config = Arc::new(RuntimeConfig::test());
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
@@ -87,8 +86,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
-        config: Arc::clone(&apply_config),
-        refund_config: apply_config,
+        config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,

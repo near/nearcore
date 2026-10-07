@@ -489,12 +489,6 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
-    /// Cap the gas refunded for a receipt's prepaid fees at the cheaper of the
-    /// previous epoch's and the current epoch's fee schedule. Without it a
-    /// receipt funded under one fee schedule and executed under a more
-    /// expensive one is refunded against the new schedule, so its unexecuted
-    /// actions are refunded more than was paid for them.
-    CapRefundAtPrevEpochFees,
 }
 
 impl ProtocolFeature {
@@ -633,7 +627,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
-            ProtocolFeature::CapRefundAtPrevEpochFees => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
