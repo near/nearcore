@@ -40,7 +40,7 @@ fn env_at(version: ProtocolVersion, signer: &AccountId) -> TestLoopEnv {
 fn test_transfer_to_universal_account_rejected_while_banned() {
     init_test_logger();
 
-    let ban_version = ProtocolFeature::BanUniversalAccountTransfers.protocol_version();
+    let ban_version = ProtocolFeature::RejectUniversalAccountTransfers.protocol_version();
     // The ban has no effect when universal accounts start in the same version.
     if ProtocolFeature::UniversalAccounts.enabled(ban_version) {
         return;

@@ -491,7 +491,7 @@ pub enum ProtocolFeature {
     UniversalAccounts,
     /// Reject new transfers to `0u` ids until `UniversalAccounts` is enabled, so no receipt
     /// funded without the account creation fee executes once the fee applies.
-    BanUniversalAccountTransfers,
+    RejectUniversalAccountTransfers,
     /// A universal state init on an already initialized account refunds the whole deposit.
     /// Before it, the deposit also tops up storage staking.
     RefundRepeatedUniversalStateInitDeposit,
@@ -633,7 +633,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
-            ProtocolFeature::BanUniversalAccountTransfers => 87,
+            ProtocolFeature::RejectUniversalAccountTransfers => 87,
             ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
 
             // Nightly features:

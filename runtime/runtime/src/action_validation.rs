@@ -237,7 +237,7 @@ fn validate_transfer_action(
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
-    let transfers_banned = ProtocolFeature::BanUniversalAccountTransfers
+    let transfers_banned = ProtocolFeature::RejectUniversalAccountTransfers
         .enabled(current_protocol_version)
         && !ProtocolFeature::UniversalAccounts.enabled(current_protocol_version);
     if mode == ValidateReceiptMode::NewReceipt
