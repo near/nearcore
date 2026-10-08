@@ -663,6 +663,7 @@ impl Client {
                 *block.hash(),
                 transactions,
                 &config,
+                protocol_version,
                 gas_price,
             );
         }
@@ -715,6 +716,7 @@ impl Client {
                     *block_hash,
                     transactions,
                     &config,
+                    protocol_version,
                     gas_price,
                 );
             }

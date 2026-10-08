@@ -62,6 +62,11 @@ pub struct RuntimeFeesConfigView {
     /// Describes the extra cost of verifying an ML-DSA-65 signature above the
     /// cost of verifying the standard signature types.
     pub ml_dsa_65_verification_cost: Gas,
+
+    /// Minimum gas, per byte of a transaction, paid at the gas price when the transaction is
+    /// converted to a receipt. It does not add to `gas_burnt`.
+    #[serde(default)]
+    pub transaction_inclusion_gas_per_byte: Gas,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -207,6 +212,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 ml_dsa_65_verification_cost: config.fees.signature_verification_costs
                     [SignatureKind::MlDsa65]
                     .gas,
+                transaction_inclusion_gas_per_byte: config.fees.transaction_inclusion_gas_per_byte,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {

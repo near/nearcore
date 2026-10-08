@@ -38,6 +38,7 @@ pub fn random_config() -> RuntimeConfig {
                     rng.next_u64() % 1_000_000_000,
                 )
             },
+            transaction_inclusion_gas_per_byte: Gas::from_gas(rng.next_u64() % 1_000_000),
         }),
         // `min_gas_purchase_price` only takes effect once `AccountCostIncrease` is enabled; keep
         // it zero otherwise so the config matches the real stable config.
