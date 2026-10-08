@@ -925,7 +925,7 @@ mod tests {
     use crate::{ActionResult, ApplyState};
     use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
     use near_primitives::account::{
-        AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+        AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission, InclusionKeyInfo,
     };
     use near_primitives::action::{
         FundInclusionKeyAction, TransferToGasKeyAction, UniversalStateInitAction,
@@ -3390,5 +3390,77 @@ mod tests {
                 InvalidTxError::InvalidNonce { tx_nonce: u64::MAX, ak_nonce: u64::MAX }
             );
         }
+    }
+
+    #[test]
+    fn test_apply_regular_update_sets_inclusion_key_last_transaction_nonce() {
+        let account_amount = Balance::from_near(1);
+        let mut account = Account::new(account_amount, Balance::ZERO, AccountContract::None, 100);
+        let key_balance = Balance::from_millinear(10);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: 3 };
+        let mut access_key = AccessKey {
+            nonce: 5,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let tx_nonce = 6;
+        let result = VerificationResult {
+            gas_burnt: Gas::ZERO,
+            compute_burnt: 0,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: account_amount,
+            access_key_update: AccessKeyUpdate::Regular { nonce: tx_nonce, new_allowance: None },
+        };
+
+        result.apply(&mut account, Some(&mut access_key)).unwrap();
+
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: tx_nonce };
+        let expected_key = AccessKey {
+            nonce: tx_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(expected_inclusion_key_info),
+        };
+        assert_eq!(access_key, expected_key);
+    }
+
+    #[test]
+    fn test_apply_inclusion_key_charge_updates_inclusion_key_info_and_access_key_nonce() {
+        let account_amount = Balance::from_near(1);
+        let mut account = Account::new(account_amount, Balance::ZERO, AccountContract::None, 100);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 3 };
+        let mut access_key = AccessKey {
+            nonce: 5,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let new_balance = Balance::from_millinear(4);
+        let nonce = 5;
+        let last_transaction_nonce = 4;
+        let result = VerificationResult {
+            gas_burnt: Gas::ZERO,
+            compute_burnt: 0,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: account_amount,
+            access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                new_balance,
+                nonce,
+                last_transaction_nonce,
+            },
+        };
+
+        result.apply(&mut account, Some(&mut access_key)).unwrap();
+
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: new_balance, last_transaction_nonce };
+        let expected_key = AccessKey {
+            nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(expected_inclusion_key_info),
+        };
+        assert_eq!(access_key, expected_key);
+        assert_eq!(account.amount(), account_amount);
     }
 }

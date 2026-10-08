@@ -323,6 +323,8 @@ pub enum AccessKeyUpdate {
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
+    /// Inclusion key tx that failed after the nonce check: the key balance pays the charge.
+    InclusionKeyCharge { new_balance: Balance, nonce: Nonce, last_transaction_nonce: Nonce },
 }
 
 impl VerificationResult {
@@ -350,6 +352,9 @@ impl VerificationResult {
             AccessKeyUpdate::Regular { nonce, new_allowance } => {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 access_key.nonce = *nonce;
+                if let Some(inclusion_key_info) = access_key.inclusion_key_info_mut() {
+                    inclusion_key_info.last_transaction_nonce = *nonce;
+                }
                 if let Some(a) = new_allowance {
                     let permission = access_key
                         .permission
@@ -363,6 +368,15 @@ impl VerificationResult {
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
                 gas_key_info.balance = *new_balance;
+            }
+            AccessKeyUpdate::InclusionKeyCharge { new_balance, nonce, last_transaction_nonce } => {
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
+                access_key.nonce = *nonce;
+                let inclusion_key_info = access_key
+                    .inclusion_key_info_mut()
+                    .ok_or_else(|| inconsistent("no inclusion key"))?;
+                inclusion_key_info.balance = *new_balance;
+                inclusion_key_info.last_transaction_nonce = *last_transaction_nonce;
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
                 // Consumed on the account, so the same signed bytes cannot be
@@ -379,7 +393,9 @@ impl VerificationResult {
     pub fn gas_key_nonce_update(&self) -> Option<(NonceIndex, Nonce)> {
         match &self.access_key_update {
             AccessKeyUpdate::GasKey { nonce_index, nonce, .. } => Some((*nonce_index, *nonce)),
-            AccessKeyUpdate::Regular { .. } | AccessKeyUpdate::Bootstrap { .. } => None,
+            AccessKeyUpdate::Regular { .. }
+            | AccessKeyUpdate::Bootstrap { .. }
+            | AccessKeyUpdate::InclusionKeyCharge { .. } => None,
         }
     }
 }
