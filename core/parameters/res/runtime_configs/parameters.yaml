@@ -176,6 +176,16 @@ action_gas_key_nonce_write_base: {
   send_not_sir: 0,
   execution: 64_196_736_000,
 }
+action_inclusion_key_transfer: {
+  send_sir: 0,
+  send_not_sir: 0,
+  execution: 0,
+}
+action_inclusion_key_byte: {
+  send_sir: 0,
+  send_not_sir: 0,
+  execution: 0,
+}
 
 # Smart contract dynamic gas costs
 wasm_regular_op_cost: 822_756

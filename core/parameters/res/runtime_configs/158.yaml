@@ -1,2 +1,26 @@
 transaction_inclusion_gas_per_byte: { old: 0, new: 47_500_000 }
 max_inclusion_key_balance: { old: 0, new: 0.05 N }
+action_inclusion_key_transfer: {
+  old: {
+    send_sir: 0,
+    send_not_sir: 0,
+    execution: 0
+  },
+  new: {
+    send_sir: 115_123_062_500,
+    send_not_sir: 115_123_062_500,
+    execution: 235_676_644_250
+  }
+}
+action_inclusion_key_byte: {
+  old: {
+    send_sir: 0,
+    send_not_sir: 0,
+    execution: 0
+  },
+  new: {
+    send_sir: 59_357_464,
+    send_not_sir: 59_357_464,
+    execution: 101_435_400
+  }
+}

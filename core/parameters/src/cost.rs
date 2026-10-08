@@ -424,6 +424,8 @@ pub enum ActionCosts {
     universal_state_init_base = 26,
     universal_state_init_byte = 27,
     universal_state_init_entry = 28,
+    inclusion_key_transfer_base = 29,
+    inclusion_key_byte = 30,
 }
 
 impl ExtCosts {
@@ -694,6 +696,8 @@ impl RuntimeFeesConfig {
                 ActionCosts::universal_state_init_base => Fee::new(500_000_000_000, 500_000_000_000, 7_430_000_000_000),
                 ActionCosts::universal_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
                 ActionCosts::universal_state_init_entry => Fee::new(0, 0, 200_000_000_000),
+                ActionCosts::inclusion_key_transfer_base => Fee::new(115_123_062_500, 115_123_062_500, 235_676_644_250),
+                ActionCosts::inclusion_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
@@ -889,6 +893,54 @@ pub fn gas_key_transfer_exec_fee(
         .checked_mul((trie_key_len + estimated_value_len) as u64)
         .unwrap();
     GasKeyTransferFee { base, per_byte }
+}
+
+/// Gas fee split into base and per-byte components, so callers can attribute
+/// them to separate `ActionCosts` in the gas profile.
+pub struct InclusionKeyTransferFee {
+    pub base: ParameterCost,
+    pub per_byte: ParameterCost,
+}
+
+impl InclusionKeyTransferFee {
+    pub fn total(&self) -> ParameterCost {
+        self.base.checked_add(self.per_byte).unwrap()
+    }
+}
+
+/// Send fee for FundInclusionKey / WithdrawFromInclusionKey actions.
+/// Based on the public key length (what the sender sees).
+pub fn inclusion_key_transfer_send_fee(
+    cfg: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    public_key_len: usize,
+) -> InclusionKeyTransferFee {
+    let base = cfg.fee(ActionCosts::inclusion_key_transfer_base).send_fee(sender_is_receiver);
+    let per_byte = cfg
+        .fee(ActionCosts::inclusion_key_byte)
+        .send_fee(sender_is_receiver)
+        .checked_mul(public_key_len as u64)
+        .unwrap();
+    InclusionKeyTransferFee { base, per_byte }
+}
+
+/// Exec fee for FundInclusionKey / WithdrawFromInclusionKey actions.
+/// Based on the access key trie key length + estimated value length (what the
+/// receiver needs to read/write in the trie).
+pub fn inclusion_key_transfer_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    account_id_len: usize,
+    public_key_len: usize,
+) -> InclusionKeyTransferFee {
+    let base = cfg.fee(ActionCosts::inclusion_key_transfer_base).exec_fee();
+    let trie_key_len = access_key_key_len(account_id_len, public_key_len);
+    let estimated_value_len = AccessKey::min_inclusion_key_borsh_len();
+    let per_byte = cfg
+        .fee(ActionCosts::inclusion_key_byte)
+        .exec_fee()
+        .checked_mul((trie_key_len + estimated_value_len) as u64)
+        .unwrap();
+    InclusionKeyTransferFee { base, per_byte }
 }
 
 /// Additional costs for adding an access key with GasKeyFunctionCall or

@@ -91,6 +91,8 @@ pub enum Parameter {
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
+    ActionInclusionKeyTransfer,
+    ActionInclusionKeyByte,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -378,6 +380,8 @@ pub enum FeeParameter {
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
+    ActionInclusionKeyTransfer,
+    ActionInclusionKeyByte,
 }
 
 impl Parameter {
@@ -469,6 +473,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,
+            ActionCosts::inclusion_key_transfer_base => Self::ActionInclusionKeyTransfer,
+            ActionCosts::inclusion_key_byte => Self::ActionInclusionKeyByte,
         }
     }
 }

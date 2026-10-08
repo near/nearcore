@@ -96,6 +96,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
             ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
             ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
+            // No estimator for inclusion key costs; use values from the config store.
+            ActionCosts::inclusion_key_transfer_base => actual_fees_config.fee(ActionCosts::inclusion_key_transfer_base).clone(),
+            ActionCosts::inclusion_key_byte => actual_fees_config.fee(ActionCosts::inclusion_key_byte).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

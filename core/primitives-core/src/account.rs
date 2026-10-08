@@ -820,6 +820,18 @@ impl AccessKey {
         borsh::object_length(&Self::gas_key_full_access(0)).unwrap()
     }
 
+    /// Borsh-serialized size of an AccessKey with an InclusionKeyFullAccess permission
+    /// (the smallest inclusion key variant).
+    pub fn min_inclusion_key_borsh_len() -> usize {
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::ZERO, last_transaction_nonce: 0 };
+        let access_key = Self {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        borsh::object_length(&access_key).unwrap()
+    }
+
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
