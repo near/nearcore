@@ -850,6 +850,7 @@ fn safe_add_gas_to_u128(a: u128, b: Gas) -> Result<u128, IntegerOverflowError> {
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
+    use near_parameters::RuntimeConfig;
     use near_primitives::action::{Action, FunctionCallAction};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
