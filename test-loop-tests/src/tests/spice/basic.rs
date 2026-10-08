@@ -214,12 +214,11 @@ fn test_spice_epoch_gated_by_certification() {
 
     let num_producers = 2;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let epoch_length = 5;
     let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .delay_warmup()
         .build();
     let execution_delay = 2 * epoch_length;
@@ -371,13 +370,12 @@ fn test_restart_rpc_node() {
 
     let num_producers = 1;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
     let mut env = TestLoopBuilder::new()
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .add_user_account(&sender, Balance::from_near(10))
         .add_user_account(&receiver, Balance::from_near(0))
         .enable_rpc()
@@ -413,7 +411,6 @@ fn test_restart_producer_node() {
 
     let num_producers = 4;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
@@ -426,7 +423,7 @@ fn test_restart_producer_node() {
     );
 
     let mut env = TestLoopBuilder::new()
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .shard_layout(shard_layout.clone())
         .add_user_account(&sender, Balance::from_near(10))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -519,13 +516,12 @@ fn test_restart_validator_node() {
 
     let num_producers = 1;
     let num_validators = 1;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
     let mut env = TestLoopBuilder::new()
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .add_user_account(&sender, Balance::from_near(10))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
@@ -620,13 +616,11 @@ fn test_spice_chain_with_missing_chunks() {
     let boundary_account = accounts[accounts.len() / 2].clone();
     let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
 
     let mut env = TestLoopBuilder::new()
         .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .add_user_accounts(&accounts, INITIAL_BALANCE)
         .enable_rpc()
         .build();

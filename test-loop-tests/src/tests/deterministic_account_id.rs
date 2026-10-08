@@ -24,7 +24,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{create_account_ids, create_validators_spec};
+use crate::utils::account::create_account_ids;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
@@ -963,11 +963,10 @@ impl TestEnv {
 
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-        let validators_spec = create_validators_spec(2, 2);
 
         let runtime_config_store = RuntimeConfigStore::new();
         let env = TestLoopBuilder::new()
-            .validators_spec(validators_spec)
+            .validators(2, 2)
             .shard_layout(shard_layout)
             .add_user_accounts(
                 &[

@@ -29,11 +29,10 @@ fn test_spice_garbage_collection() {
 
     let num_producers = 2;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let epoch_length = 5;
     let mut env = TestLoopBuilder::new()
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .epoch_length(epoch_length)
         .enable_rpc()
         .gc_num_epochs_to_keep(1)

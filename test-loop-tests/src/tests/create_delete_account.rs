@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_ids, create_validators_spec};
+use crate::utils::account::create_account_ids;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_client::QueryError;
@@ -22,9 +22,8 @@ fn test_instant_delete_account() {
 
     let user_accounts = create_account_ids(["account0", "account1"]);
     let initial_balance = Balance::from_near(1_000_000);
-    let validators_spec = create_validators_spec(2, 0);
     let mut env = TestLoopBuilder::new()
-        .validators_spec(validators_spec)
+        .validators(2, 0)
         .add_user_accounts(&user_accounts, initial_balance)
         .enable_rpc()
         .build();

@@ -1,6 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::{create_account_ids, create_validators_spec};
+use crate::utils::account::create_account_ids;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -333,13 +333,9 @@ fn slow_test_long_gap_between_blocks() {
 fn test_rpc_forwards_retried_transaction() {
     init_test_logger();
 
-    let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0"]);
     let initial_balance = Balance::from_near(1_000_000);
-    let validators_spec = create_validators_spec(1, 0);
     let mut env = TestLoopBuilder::new()
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
         .add_user_accounts(&user_accounts, initial_balance)
         .enable_rpc()
         .build();

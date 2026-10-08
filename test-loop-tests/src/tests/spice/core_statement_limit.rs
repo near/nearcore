@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_validators_spec;
 use near_async::time::Duration;
 use near_chain::spice::core::{MAX_REFERENCED_CHUNKS_PER_BLOCK, get_last_certified_block_header};
 use near_o11y::testonly::init_test_logger;
@@ -16,13 +15,12 @@ fn slow_test_spice_core_statement_limit_binds_and_chain_catches_up() {
     init_test_logger();
 
     let num_shards = 8;
-    let validators_spec = create_validators_spec(2, 0);
     let epoch_length = 200;
 
     let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .num_shards(num_shards)
-        .validators_spec(validators_spec)
+        .validators(2, 0)
         // Stretch the block interval: the endorsements released by the flood are processed by the
         // core writer at a bounded rate, and the producer can only reference chunks it has already
         // learned about by the time it builds the next block.

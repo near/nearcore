@@ -1,6 +1,6 @@
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec};
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -177,13 +177,11 @@ fn test_processed_receipt_ids_gc() {
 fn test_receipt_to_tx_saved_and_gced() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
     let user_account = create_account_id("account0");
 
     let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
         .add_user_accounts(std::slice::from_ref(&user_account), Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
@@ -291,13 +289,11 @@ fn test_receipt_to_tx_saved_and_gced() {
 fn test_receipt_to_tx_gc_with_outcomes_disabled() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
     let user_account = create_account_id("account0");
 
     let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
         .add_user_accounts(std::slice::from_ref(&user_account), Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .config_modifier(|config, _| {
