@@ -206,6 +206,14 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                     num_nonces: gas_key_info.num_nonces,
                 }
             }
+            AccessKeyPermission::InclusionKeyFunctionCall(_, func_call) => {
+                AccessKeyPermissionView::FunctionCall {
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::InclusionKeyFullAccess(_) => AccessKeyPermissionView::FullAccess,
         }
     }
 }

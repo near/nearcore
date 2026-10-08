@@ -444,6 +444,8 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                     // TODO(gas-keys): do we need to support GasKey permissions here?
                     AccessKeyPermission::GasKeyFullAccess(_) => unimplemented!(),
                     AccessKeyPermission::GasKeyFunctionCall(_, _) => unimplemented!(),
+                    AccessKeyPermission::InclusionKeyFullAccess(_) => unimplemented!(),
+                    AccessKeyPermission::InclusionKeyFunctionCall(_, _) => unimplemented!(),
                 };
             // cspell:ignore ethabi
             let tokens = &[

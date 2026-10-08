@@ -851,7 +851,10 @@ impl AccessKey {
         match &self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::InclusionKeyFunctionCall(..)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
         }
     }
 
@@ -859,7 +862,23 @@ impl AccessKey {
         match &mut self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::InclusionKeyFunctionCall(..)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
+        }
+    }
+
+    pub fn inclusion_key_info(&self) -> Option<&InclusionKeyInfo> {
+        match &self.permission {
+            AccessKeyPermission::InclusionKeyFunctionCall(inclusion_key_info, _)
+            | AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info) => {
+                Some(inclusion_key_info)
+            }
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => None,
         }
     }
 }
@@ -937,6 +956,10 @@ pub enum AccessKeyPermission {
     /// Gas key with full access to the account.
     /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
     GasKeyFullAccess(GasKeyInfo),
+    /// Function call key with a balance that pays for its transactions that fail at execution.
+    InclusionKeyFunctionCall(InclusionKeyInfo, FunctionCallPermission),
+    /// Full access key with a balance that pays for its transactions that fail at execution.
+    InclusionKeyFullAccess(InclusionKeyInfo),
 }
 
 impl AccessKeyPermission {
@@ -945,16 +968,22 @@ impl AccessKeyPermission {
     pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
         match self {
             AccessKeyPermission::FunctionCall(permission)
-            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission)
+            | AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => Some(permission),
+            AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFullAccess(_)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
         }
     }
 
     pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
         match self {
             AccessKeyPermission::FunctionCall(permission)
-            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission)
+            | AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => Some(permission),
+            AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFullAccess(_)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
         }
     }
 }

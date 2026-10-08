@@ -377,6 +377,9 @@ fn validate_add_key_action(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
+    if action.access_key.inclusion_key_info().is_some() {
+        return Err(ActionsValidationError::AddInclusionKeyNotAllowed);
+    }
 
     // If this is a gas key, apply additional gas key validation
     if let Some(gas_key_info) = action.access_key.gas_key_info() {
@@ -619,7 +622,7 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::{AccessKey, FunctionCallPermission, InclusionKeyInfo};
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedSignedDelegateAction,
@@ -1839,6 +1842,41 @@ mod tests {
         check("hello", 10, "hello");
         // cspell:ignore привет
         check("привет", 3, "п");
+    }
+
+    #[test]
+    fn test_validate_add_key_with_inclusion_key_permission_rejected() {
+        let limit_config = test_limit_config();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(1), last_transaction_nonce: 0 };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: "bob.near".parse().unwrap(),
+            method_names: vec![],
+        };
+        let permissions = [
+            AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info.clone()),
+            AccessKeyPermission::InclusionKeyFunctionCall(
+                inclusion_key_info,
+                function_call_permission,
+            ),
+        ];
+        for permission in permissions {
+            let add_key = Action::AddKey(Box::new(AddKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: AccessKey { nonce: 0, permission },
+            }));
+            assert_eq!(
+                validate_action(
+                    &limit_config,
+                    &add_key,
+                    &"alice.near".parse().unwrap(),
+                    PROTOCOL_VERSION
+                )
+                .unwrap_err(),
+                ActionsValidationError::AddInclusionKeyNotAllowed
+            );
+        }
     }
 
     #[test]

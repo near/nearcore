@@ -264,7 +264,8 @@ fn permission_send_fees(
 ) -> ParameterCost {
     let key_fee = match permission {
         AccessKeyPermission::FunctionCall(perm)
-        | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
+        | AccessKeyPermission::GasKeyFunctionCall(_, perm)
+        | AccessKeyPermission::InclusionKeyFunctionCall(_, perm) => {
             let num_bytes = perm
                 .method_names
                 .iter()
@@ -278,7 +279,9 @@ fn permission_send_fees(
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
-        AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => {
+        AccessKeyPermission::FullAccess
+        | AccessKeyPermission::GasKeyFullAccess(_)
+        | AccessKeyPermission::InclusionKeyFullAccess(_) => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
     };
@@ -431,7 +434,8 @@ fn permission_exec_fees(
     let fees = &config.fees;
     let key_fee = match permission {
         AccessKeyPermission::FunctionCall(perm)
-        | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
+        | AccessKeyPermission::GasKeyFunctionCall(_, perm)
+        | AccessKeyPermission::InclusionKeyFunctionCall(_, perm) => {
             let num_bytes = perm
                 .method_names
                 .iter()
@@ -443,7 +447,9 @@ fn permission_exec_fees(
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
-        AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => {
+        AccessKeyPermission::FullAccess
+        | AccessKeyPermission::GasKeyFullAccess(_)
+        | AccessKeyPermission::InclusionKeyFullAccess(_) => {
             fees.fee(ActionCosts::add_full_access_key).exec_fee()
         }
     };
