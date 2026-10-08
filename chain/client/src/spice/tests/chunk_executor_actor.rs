@@ -9,7 +9,9 @@ use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use crate::spice::data_manager::DataId;
-use crate::spice::tests::{build_to_last_pre_spice_block, save_and_record_block};
+use crate::spice::tests::{
+    build_to_last_pre_spice_block, empty_outgoing_receipt_proofs, save_and_record_block,
+};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -1733,16 +1735,31 @@ impl BoundaryActor {
     }
 
     /// Records the state transition of each shard's chunk of the last pre-spice block,
-    /// as a node producing witnesses does while applying it. Every chunk of the
-    /// fabricated chain is new, so the block is its own anchor with no implicit replays.
+    /// as a node producing witnesses does while applying it.
     fn record_pre_spice_state_transitions(&mut self) {
+        let block_hash = *self.last_pre_spice.hash();
+        let prev_hash = *self.last_pre_spice.header().prev_hash();
+        let source_proofs: Vec<ReceiptProof> = self
+            .shard_layout
+            .shard_ids()
+            .flat_map(|from_shard_id| {
+                empty_outgoing_receipt_proofs(&self.test_actor.chain, &prev_hash, from_shard_id).1
+            })
+            .collect();
+        let applied_receipts_hash = CryptoHash::hash_borsh(Vec::<Receipt>::new());
         let mut store_update = self.test_actor.chain.chain_store.store_update();
         for shard_id in self.shard_layout.shard_ids() {
+            let incoming_proofs = source_proofs
+                .iter()
+                .filter(|proof| proof.1.to_shard_id == shard_id)
+                .cloned()
+                .collect();
+            store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(incoming_proofs));
             store_update.save_state_transition_data(
-                *self.last_pre_spice.hash(),
+                block_hash,
                 shard_id,
                 Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) }),
-                CryptoHash::default(),
+                applied_receipts_hash,
                 ContractUpdates::default(),
             );
         }
