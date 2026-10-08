@@ -2247,8 +2247,8 @@ impl Runtime {
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
-                        cost.gas_burnt,
-                        cost.burnt_amount,
+                        result.gas_burnt,
+                        result.burnt_amount,
                     );
                     (outcome, result)
                 }
