@@ -50,6 +50,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
+mod boundary;
+
 /// Data required for validators to initiate the chunk application
 struct ChunkExecutionData {
     pub witness: SpiceChunkStateWitness,
@@ -177,12 +179,6 @@ impl PerShardChunkExecutor {
             tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
         }
         self.parked_blocks.insert((block.header().height(), *block.hash()));
-        self.try_apply_pending();
-    }
-
-    /// Local-path fanout entry: a sibling shard's apply produced receipts for
-    /// this shard (already on disk), so re-check the parked queue.
-    pub(crate) fn handle_local_chunk_applied(&mut self) {
         self.try_apply_pending();
     }
 
