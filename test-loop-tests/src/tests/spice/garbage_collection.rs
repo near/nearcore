@@ -30,15 +30,14 @@ fn test_spice_garbage_collection() {
     let num_producers = 2;
     let num_validators = 0;
     let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
 
     let epoch_length = 5;
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .epoch_length(epoch_length)
+        .enable_rpc()
+        .gc_num_epochs_to_keep(1)
         .build();
-    let mut env =
-        TestLoopBuilder::new().genesis(genesis).gc_num_epochs_to_keep(1).clients(clients).build();
 
     // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
     env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));

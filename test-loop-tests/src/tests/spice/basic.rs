@@ -1,10 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
-};
+use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
@@ -181,14 +178,13 @@ fn test_spice_chain_with_delayed_execution() {
     let validators_spec = create_validators_spec(num_producers, num_validators);
     let clients = validators_spec_clients(&validators_spec);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
+    let mut env = TestLoopBuilder::new()
+        .validators_spec(validators_spec)
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
+        .build();
 
     let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
@@ -275,10 +271,8 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let validators_spec = create_validators_spec(num_producers, num_validators);
     let clients = validators_spec_clients(&validators_spec);
 
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -378,18 +372,16 @@ fn test_restart_rpc_node() {
     let num_producers = 1;
     let num_validators = 0;
     let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
+        .enable_rpc()
         .build();
-
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let rpc_id = crate::utils::account::rpc_account_id();
     let node_account = env.node_datas[0].account_id.clone();
@@ -422,7 +414,6 @@ fn test_restart_producer_node() {
     let num_producers = 4;
     let num_validators = 0;
     let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
@@ -434,14 +425,13 @@ fn test_restart_producer_node() {
         shard_layout.account_id_to_shard_id(&receiver)
     );
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .shard_layout(shard_layout.clone())
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
-
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests for
@@ -495,9 +485,7 @@ fn test_spice_delay_endorsements_propagation_instruments_added_node() {
 
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env =
-        TestLoopBuilder::new().genesis(genesis).clients(clients.clone()).delay_warmup().build();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     env.delay_endorsements_propagation(2);
     let mut env = env.warmup();
@@ -532,18 +520,16 @@ fn test_restart_validator_node() {
     let num_producers = 1;
     let num_validators = 1;
     let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
-
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests of
@@ -623,8 +609,6 @@ fn test_restart_validator_node() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_missing_chunks() {
-    use crate::utils::account::validators_spec_clients_with_rpc;
-
     init_test_logger();
     let accounts: Vec<AccountId> =
         (0..100).map(|i| create_account_id(&format!("account{}", i))).collect_vec();
@@ -637,16 +621,15 @@ fn test_spice_chain_with_missing_chunks() {
     let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
     let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
 
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+
+    let mut env = TestLoopBuilder::new()
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
+        .add_user_accounts(&accounts, INITIAL_BALANCE)
+        .enable_rpc()
         .build();
-
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let epoch_manager = env.rpc_node().client().epoch_manager.clone();
     let head_epoch_id = *env.rpc_node().head_block().header().epoch_id();

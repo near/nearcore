@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
@@ -122,7 +123,16 @@ fn test_setup_manual_genesis() {
     let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build();
 
-    env.validator_runner().run_for_number_of_blocks(1);
+    let node = env.validator();
+    let epoch_config = node.client().epoch_manager.get_epoch_config(&node.head().epoch_id).unwrap();
+    assert!(epoch_config.shuffle_shard_assignment_for_chunk_producers);
 }

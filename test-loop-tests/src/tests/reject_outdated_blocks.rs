@@ -1,7 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use itertools::Itertools;
 use near_chain::{Block, Error, Provenance};
-use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_crypto::InMemorySigner;
 use near_crypto::KeyType;
@@ -38,28 +36,23 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
 fn slow_test_reject_blocks_with_outdated_protocol_version() {
     init_test_logger();
 
-    let test_loop_builder = TestLoopBuilder::new();
     let epoch_length = 10;
 
     let initial_balance = Balance::from_near(1_000_000);
     let accounts =
         (0..5).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect_vec();
     let validators = vec![AccountInfo {
         account_id: accounts[0].clone(),
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: Balance::from_near(62_500),
     }];
 
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&test_loop_builder.clock())
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 3, 3, 3))
         .max_inflation_rate(Rational32::new(0, 1))
-        .add_user_accounts_simple(&accounts, initial_balance)
+        .add_user_accounts(&accounts, initial_balance)
         .build();
-
-    let mut env = test_loop_builder.genesis(genesis).clients(clients).build();
 
     let client = env.node(0).client();
     let rpc_handler = &env.test_loop.data.get(&env.node_datas[0].rpc_handler_sender.actor_handle());
