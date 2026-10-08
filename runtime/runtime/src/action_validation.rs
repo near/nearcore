@@ -226,6 +226,13 @@ fn validate_action_with_mode(
         Action::WithdrawFromGasKey(_) => {
             validate_withdraw_from_gas_key_action(current_protocol_version)
         }
+        Action::FundInclusionKey(_) | Action::WithdrawFromInclusionKey(_) => {
+            require_protocol_feature(
+                ProtocolFeature::InclusionKeys,
+                "InclusionKeys",
+                current_protocol_version,
+            )
+        }
     }
 }
 

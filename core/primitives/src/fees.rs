@@ -17,8 +17,9 @@ use near_crypto::{KeyType, PublicKey};
 use near_parameters::{
     ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
     SignatureKind, gas_key_add_key_exec_fee, gas_key_add_key_send_fee, gas_key_transfer_exec_fee,
-    gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
-    universal_state_init_content_terms, universal_state_init_size_terms,
+    gas_key_transfer_send_fee, inclusion_key_transfer_exec_fee, inclusion_key_transfer_send_fee,
+    transfer_exec_fee, transfer_send_fee, universal_state_init_content_terms,
+    universal_state_init_size_terms,
 };
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -216,6 +217,14 @@ pub fn total_send_fees(
                 gas_key_send_pk_len(config, &action.public_key),
             )
             .total(),
+            FundInclusionKey(action) => {
+                inclusion_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
+                    .total()
+            }
+            WithdrawFromInclusionKey(action) => {
+                inclusion_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
+                    .total()
+            }
             UniversalStateInit(action) => {
                 universal_state_init_fee(fees, &action.state_init, |fee| {
                     fee.send_fee(sender_is_receiver)
@@ -421,6 +430,18 @@ pub fn exec_fee(
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
         }
+        FundInclusionKey(action) => inclusion_key_transfer_exec_fee(
+            fees,
+            receiver_id.len(),
+            action.public_key.trie_id_len(),
+        )
+        .total(),
+        WithdrawFromInclusionKey(action) => inclusion_key_transfer_exec_fee(
+            fees,
+            receiver_id.len(),
+            action.public_key.trie_id_len(),
+        )
+        .total(),
     };
     Ok(cost)
 }

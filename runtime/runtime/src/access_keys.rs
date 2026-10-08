@@ -3,8 +3,12 @@ use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, Account, GasKeyInfo};
-use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
+use near_primitives::action::{
+    FundInclusionKeyAction, TransferToGasKeyAction, WithdrawFromGasKeyAction,
+    WithdrawFromInclusionKeyAction,
+};
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::trie_key::gas_key_nonce_key_len;
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StorageUsage};
@@ -331,6 +335,28 @@ pub(crate) fn action_withdraw_from_gas_key(
         ))
     })?;
     account.set_amount(new_account_balance);
+    Ok(())
+}
+
+pub(crate) fn action_fund_inclusion_key(
+    _state_update: &mut TrieUpdate,
+    _result: &mut ActionResult,
+    _account_id: &AccountId,
+    _receipt: &Receipt,
+    _action: &FundInclusionKeyAction,
+) -> Result<(), RuntimeError> {
+    // TODO(inclusion-keys): stub, filled when FundInclusionKey execution lands.
+    Ok(())
+}
+
+pub(crate) fn action_withdraw_from_inclusion_key(
+    _state_update: &mut TrieUpdate,
+    _account: &mut Account,
+    _result: &mut ActionResult,
+    _account_id: &AccountId,
+    _action: &WithdrawFromInclusionKeyAction,
+) -> Result<(), RuntimeError> {
+    // TODO(inclusion-keys): stub, filled when WithdrawFromInclusionKey execution lands.
     Ok(())
 }
 
