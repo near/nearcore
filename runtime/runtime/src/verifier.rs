@@ -476,14 +476,25 @@ fn verify_and_charge_inclusion_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
     access_key: &AccessKey,
-    _inclusion_key_info: &InclusionKeyInfo,
+    inclusion_key_info: &InclusionKeyInfo,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     pending: &PendingConstraints,
 ) -> TxVerdict {
     // TODO(inclusion-keys): stub, filled when inclusion key charging lands.
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
+    }
     let tx_nonce = tx.nonce().nonce();
+    if tx_nonce <= inclusion_key_info.last_transaction_nonce {
+        return TxVerdict::Failed(InvalidTxError::InvalidNonce {
+            tx_nonce,
+            ak_nonce: access_key.nonce,
+        });
+    }
     let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
@@ -3502,5 +3513,101 @@ mod tests {
         };
         assert_eq!(access_key, expected_key);
         assert_eq!(account.amount(), account_amount);
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_permission_failure_not_charged() {
+        let config = RuntimeConfig::test();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 0 };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        };
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::InclusionKeyFunctionCall(
+                    inclusion_key_info,
+                    function_call_permission,
+                ),
+            }),
+        );
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            eve_dot_alice_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: vec![],
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
+                tx_receiver: eve_dot_alice_account(),
+                ak_receiver: bob_account().into()
+            }),
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_nonce_at_last_transaction_nonce_not_charged() {
+        let config = RuntimeConfig::test();
+        let last_transaction_nonce = 5;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce };
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: last_transaction_nonce,
+                permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+            }),
+        );
+        let signed_tx = SignedTransaction::send_money(
+            last_transaction_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce {
+                tx_nonce: last_transaction_nonce,
+                ak_nonce: last_transaction_nonce
+            }
+        );
     }
 }
