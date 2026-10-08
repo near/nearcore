@@ -136,6 +136,31 @@ impl RocksDB {
         Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
     }
 
+    /// Disables TTL and periodic compactions on all column families.
+    ///
+    /// RocksDB defaults `ttl` to 30 days for leveled compaction, which marks
+    /// every file older than that in a non-bottom level for compaction into
+    /// the next level. The cold store is append-only and nothing in it
+    /// expires, so these compactions do no useful work, and on hash-keyed
+    /// columns each small old file overlaps the whole level below it,
+    /// rewriting gigabytes to relocate megabytes (observed read-write
+    /// amplification >500x). Set via `SetOptions` because the rocksdb crate
+    /// does not expose `ttl` on `Options`; both are mutable CF options.
+    ///
+    /// Every `SetOptions` call persists a new OPTIONS file, which costs tens
+    /// of milliseconds per column family, so this is only called by the
+    /// opener on the final, long-lived cold store instance and not on the
+    /// short-lived instances used for metadata checks and migrations.
+    pub(crate) fn disable_age_based_compactions(&self) {
+        for (col, cf) in self.cf_handles() {
+            if let Err(err) =
+                self.db.set_options_cf(cf, &[("ttl", "0"), ("periodic_compaction_seconds", "0")])
+            {
+                tracing::warn!(target: "db", %col, %err, "failed to disable ttl compaction");
+            }
+        }
+    }
+
     /// Opens the database with given column families configured.
     fn open_db(
         path: &Path,
@@ -144,7 +169,7 @@ impl RocksDB {
         temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
-        let options = rocksdb_options(store_config, mode);
+        let options = rocksdb_options(store_config, mode, temp);
         let cfs = cf_descriptors(columns, store_config, temp);
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cfs, false)
@@ -158,6 +183,18 @@ impl RocksDB {
             // often rolled back to an older binary whose successful open rewrites
             // them and heals whatever tripped us up.
             log_rocksdb_open_failure(path, mode, &error);
+            // Message from RocksDB's direct I/O probe in `DB::Open`
+            // (db/db_impl/db_impl_open.cc). Re-check it when upgrading the
+            // rocksdb crate; see the note next to the dependency in Cargo.toml.
+            if error.as_ref().contains("Direct I/O is not supported") {
+                let section = if temp == Temperature::Cold { "cold_store" } else { "store" };
+                return io::Error::other(format!(
+                    "{error}; the filesystem under {} does not support O_DIRECT, set \
+                     {section}.rocksdb.use_direct_io_for_flush_and_compaction to false \
+                     in config.json",
+                    path.display()
+                ));
+            }
             io::Error::other(error)
         })?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -625,6 +662,10 @@ fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
         max_bytes_for_level_base,
         max_total_wal_size,
         parallelism,
+        use_direct_io_for_flush_and_compaction: _,
+        compaction_readahead_size: _,
+        soft_pending_compaction_bytes_limit: _,
+        hard_pending_compaction_bytes_limit: _,
         cf_high_load_overrides: _,
         cf_medium_load_overrides: _,
         cf_low_load_overrides: _,
@@ -658,7 +699,7 @@ fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
     opts
 }
 
-fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) -> Options {
     let mut opts = common_rocksdb_options(&store_config.rocksdb);
     opts.create_missing_column_families(mode.read_write());
     opts.create_if_missing(mode.can_create());
@@ -673,6 +714,30 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         // Prometheus.
         opts.set_stats_persist_period_sec(0);
         opts.set_stats_dump_period_sec(0);
+    }
+
+    // Write SST files produced by flush and compaction with O_DIRECT, keeping
+    // them out of the page cache. On by default for the cold store, which is
+    // append-only and typically lives on high-latency disks where the page
+    // cache is of little use; off for the hot store, where freshly written
+    // data is read back soon. Requires filesystem support (ext4, xfs).
+    let direct_io = store_config
+        .rocksdb
+        .use_direct_io_for_flush_and_compaction
+        .unwrap_or(temp == Temperature::Cold);
+    opts.set_use_direct_io_for_flush_and_compaction(direct_io);
+
+    // `compaction_readahead_size` is a DB-level option in RocksDB (it is
+    // ignored on column family options). We don't set `use_direct_reads`, so
+    // compaction input reads are buffered: RocksDB issues this as a readahead(2)
+    // hint, and on Linux caps it at the device's `max_sectors_kb`. The cold
+    // store defaults to 32 MiB; the hot store keeps RocksDB's default.
+    let readahead = store_config
+        .rocksdb
+        .compaction_readahead_size
+        .or_else(|| (temp == Temperature::Cold).then(|| bytesize::ByteSize::mib(32)));
+    if let Some(readahead) = readahead {
+        opts.set_compaction_readahead_size(readahead.as_u64() as usize);
     }
 
     opts
@@ -731,7 +796,6 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         max_subcompactions,
         target_file_size_base,
         max_write_buffer_number,
-        compaction_readahead_size,
     } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
     // Note that this function changes a lot of RocksDB parameters including:
@@ -753,7 +817,29 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_max_subcompactions(max_subcompactions);
     opts.set_target_file_size_base(target_file_size_base.as_u64());
     opts.set_max_write_buffer_number(max_write_buffer_number);
-    opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
+
+    // Compaction-debt write stalls. RocksDB's defaults (soft 64 GiB, hard
+    // 256 GiB) are sized for OLTP-style databases and are easily exceeded on
+    // the multi-TB, append-only cold store whenever the engine reshapes the
+    // LSM (e.g. after a RocksDB upgrade), which freezes the cold store loop
+    // for no benefit. The cold store defaults to 512 GiB / 2 TiB: a transient
+    // compaction wave never stops the loop, a genuinely runaway backlog still
+    // does. The hot store keeps RocksDB's defaults.
+    let cold = temp == Temperature::Cold;
+    let soft = store_config
+        .rocksdb
+        .soft_pending_compaction_bytes_limit
+        .or_else(|| cold.then(|| bytesize::ByteSize::gib(512)));
+    let hard = store_config
+        .rocksdb
+        .hard_pending_compaction_bytes_limit
+        .or_else(|| cold.then(|| bytesize::ByteSize::tib(2)));
+    if let Some(soft) = soft {
+        opts.set_soft_pending_compaction_bytes_limit(soft.as_u64() as usize);
+    }
+    if let Some(hard) = hard {
+        opts.set_hard_pending_compaction_bytes_limit(hard.as_u64() as usize);
+    }
 
     opts
 }

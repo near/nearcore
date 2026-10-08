@@ -1,6 +1,6 @@
 use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
-use near_crypto::Signature;
+use near_crypto::{PublicKey, Signature};
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -660,6 +660,63 @@ pub trait EpochManagerAdapter: Send + Sync {
             .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
+    /// Returns the public keys `account_id` may use to sign data about block
+    /// `block_hash`: its key in the block's epoch and, if it is also a validator in the next
+    /// epoch with a different key, that key too.
+    /// Fails if `account_id` isn't a validator in the block's epoch.
+    fn get_validator_signing_keys_for_block(
+        &self,
+        block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
+        self.get_validator_signing_keys(&epoch_id, &next_epoch_id, account_id)
+    }
+
+    /// Returns the public keys `account_id` may use to sign data about a block from
+    /// epoch `epoch_id`.
+    /// Fails if `account_id` isn't a validator in `epoch_id`.
+    fn get_validator_signing_keys(
+        &self,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let mut keys =
+            vec![self.get_validator_by_account_id(epoch_id, account_id)?.take_public_key()];
+        match self.get_validator_by_account_id(next_epoch_id, account_id) {
+            Ok(validator) => {
+                if !keys.contains(validator.public_key()) {
+                    keys.push(validator.take_public_key());
+                }
+            }
+            Err(EpochError::NotAValidator(..)) => {}
+            Err(err) => return Err(err),
+        }
+        Ok(keys)
+    }
+
+    /// Returns the distinct keys of `account_id` in those of `epoch_ids` it is a validator in.
+    fn get_validator_keys_in_epochs(
+        &self,
+        epoch_ids: &[EpochId],
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let mut keys = Vec::new();
+        for epoch_id in epoch_ids {
+            let validator = match self.get_validator_by_account_id(epoch_id, account_id) {
+                Ok(validator) => validator,
+                Err(EpochError::NotAValidator(..)) => continue,
+                Err(err) => return Err(err),
+            };
+            if !keys.contains(validator.public_key()) {
+                keys.push(validator.take_public_key());
+            }
+        }
+        Ok(keys)
+    }
+
     /// WARNING: this call may be expensive.
     ///
     /// This function is intended for diagnostic use in logging & rpc, don't use
@@ -1161,7 +1218,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         };
         Ok(epoch_manager
             .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
-            .blacklist)
+            .blacklist
+            .clone())
     }
 
     fn get_chunk_validator_assignments(

@@ -3,8 +3,6 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-#[cfg(feature = "calimero_zero_storage")]
-use near_primitives_core::types::Balance;
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
@@ -31,9 +29,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (155, include_config!("155.yaml")),
 ];
 
-/// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
-pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
-
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
@@ -43,42 +38,18 @@ pub struct RuntimeConfigStore {
 
 impl RuntimeConfigStore {
     /// Constructs a new store.
-    ///
-    /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
-    /// this config. This is done to preserve compatibility with previous implementation, where
-    /// we updated runtime config by sequential modifications to the genesis runtime config.
-    /// calimero_zero_storage flag sets all storages fees to zero by setting
-    /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
-    /// protocol upgrades this is done for all protocol versions
-    /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
-    pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
+    pub fn new() -> Self {
         let mut params: ParameterTable =
             BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
 
         let mut store = BTreeMap::new();
-        #[cfg(not(feature = "calimero_zero_storage"))]
-        {
-            let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                panic!(
-                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
-                     Error: {err:?}"
-                )
-            });
-            store.insert(0, Arc::new(initial_config));
-        }
-        #[cfg(feature = "calimero_zero_storage")]
-        {
-            let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                panic!(
-                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
-                     Error: {err:?}"
-                )
-            });
-            initial_config.account_creation_charge = Balance::ZERO;
-            let fees = Arc::make_mut(&mut initial_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
-            store.insert(0, Arc::new(initial_config));
-        }
+        let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
+            panic!(
+                "Failed generating `RuntimeConfig` from parameters for base parameter file. \
+                 Error: {err:?}"
+            )
+        });
+        store.insert(0, Arc::new(initial_config));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
             let diff: ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| {
@@ -93,7 +64,6 @@ impl RuntimeConfigStore {
                      Error: {err}"
                 )
             });
-            #[cfg(not(feature = "calimero_zero_storage"))]
             store.insert(
                 *protocol_version,
                 Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| {
@@ -103,23 +73,6 @@ impl RuntimeConfigStore {
                     )
                 })),
             );
-            #[cfg(feature = "calimero_zero_storage")]
-            {
-                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                    panic!(
-                        "Failed generating `RuntimeConfig` from parameters for \
-                         version {protocol_version}. Error: {err:?}"
-                    )
-                });
-                runtime_config.account_creation_charge = Balance::ZERO;
-                let fees = Arc::make_mut(&mut runtime_config.fees);
-                fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
-                store.insert(*protocol_version, Arc::new(runtime_config));
-            }
-        }
-
-        if let Some(runtime_config) = genesis_runtime_config {
-            store.insert(0, Arc::new(runtime_config.clone()));
         }
 
         Self { store }
@@ -127,20 +80,12 @@ impl RuntimeConfigStore {
 
     /// Create store of runtime configs for the given chain id.
     ///
-    /// For mainnet and other chains except testnet we don't need to override runtime config for
-    /// first protocol versions.
-    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
-    /// need to override it specifically to preserve compatibility.
     /// In benchmarknet, we are measuring the peak throughput that the NEAR network can handle while still being stable.
     /// This requires increasing the limits below that are set too conservatively.
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
-            near_primitives_core::chains::TESTNET => {
-                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-                Self::new(Some(&genesis_runtime_config))
-            }
             near_primitives_core::chains::BENCHMARKNET => {
-                let mut config_store = Self::new(None);
+                let mut config_store = Self::new();
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
                 config.congestion_control_config = CongestionControlConfig::test_disabled();
                 config.bandwidth_scheduler_config = BandwidthSchedulerConfig::test_disabled();
@@ -155,7 +100,7 @@ impl RuntimeConfigStore {
                 config_store
             }
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
-                let mut config_store = Self::new(None);
+                let mut config_store = Self::new();
 
                 // The nayduck tests are tuned to the original congestion control config.
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
@@ -164,7 +109,7 @@ impl RuntimeConfigStore {
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }
-            _ => Self::new(None),
+            _ => Self::new(),
         }
     }
 
@@ -227,8 +172,6 @@ mod tests {
     use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
     use std::collections::HashSet;
 
-    const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
-
     #[test]
     fn all_configs_are_specified() {
         let file_versions =
@@ -255,22 +198,6 @@ mod tests {
             let Ok(version_num) = name.parse::<u32>() else { continue };
             panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
         }
-    }
-
-    #[test]
-    fn test_override_account_length() {
-        // Check that default value is 65.
-        let base_store = RuntimeConfigStore::new(None);
-        let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 65);
-
-        let mut cfg = base_cfg.as_ref().clone();
-        cfg.account_creation_config.min_allowed_top_level_account_length = 0;
-
-        // Check that length was changed.
-        let new_store = RuntimeConfigStore::new(Some(&cfg));
-        let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
     #[test]
@@ -343,12 +270,11 @@ mod tests {
     /// Alternatively, add --accept to the first command so that it automatically does step 2.
     #[test]
     #[cfg(not(feature = "nightly"))]
-    #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         let mut any_failure = false;
 
         for version in store.store.keys() {
@@ -379,33 +305,8 @@ mod tests {
                 }).is_err();
             });
         }
-
-        // Testnet initial config for old version was different, thus needs separate testing
-        let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
-        let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
-        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
-
-        for version in testnet_store.store.keys() {
-            let snapshot_name = format!("testnet_{version}.json");
-            let config_view =
-                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
-            any_failure |= std::panic::catch_unwind(|| {
-                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
-            })
-            .is_err();
-        }
         if any_failure {
             panic!("some snapshot assertions failed");
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "calimero_zero_storage")]
-    fn test_calimero_storage_costs_zero() {
-        let store = RuntimeConfigStore::new(None);
-        for (_, config) in &store.store {
-            assert!(config.storage_amount_per_byte().is_zero());
-            assert!(config.account_creation_charge.is_zero());
         }
     }
 
@@ -414,6 +315,19 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
+    }
+
+    #[test]
+    fn testnet_config_matches_mainnet_config_for_supported_versions() {
+        let testnet_store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::TESTNET);
+        let mainnet_store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
+            assert_eq!(
+                testnet_store.get_config(version),
+                mainnet_store.get_config(version),
+                "protocol version {version}"
+            );
+        }
     }
 
     /// Make sure that protocol feature flag and runtime config are in sync for universal accounts.

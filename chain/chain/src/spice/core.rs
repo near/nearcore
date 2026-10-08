@@ -3,6 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
+use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -97,16 +98,15 @@ impl SpiceCoreReader {
         self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key)
     }
 
-    /// Whether the union of `endorsers` and the validators whose stored endorsement attests
-    /// `result_hash` certifies the chunk under `assignment`. `endorsers` seeds the set with the
-    /// endorsers already in hand (e.g. from the block); the rest are read from the store.
-    pub(crate) fn reaches_endorsement_threshold(
+    /// Adds to `endorsers` each validator of `assignment` whose stored endorsement attests
+    /// `result_hash`.
+    pub(crate) fn extend_with_stored_endorsers(
         &self,
         chunk_id: &SpiceChunkId,
         result_hash: &ChunkExecutionResultHash,
         assignment: &ChunkValidatorAssignments,
         mut endorsers: HashSet<AccountId>,
-    ) -> bool {
+    ) -> HashSet<AccountId> {
         for (account_id, _) in assignment.assignments() {
             if endorsers.contains(account_id) {
                 continue;
@@ -121,7 +121,7 @@ impl SpiceCoreReader {
             }
             endorsers.insert(account_id.clone());
         }
-        assignment.is_endorsed(&endorsers)
+        endorsers
     }
 
     fn get_execution_result(
@@ -147,7 +147,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than the last
+    /// pre-spice block, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -390,7 +391,7 @@ impl SpiceCoreReader {
     }
 
     /// The not-yet-on-chain non-designated (fallback-set) endorsements. Included over successive
-    /// blocks, so they accumulate toward the 2/3-total-stake threshold rather than one fat
+    /// blocks, so they accumulate toward the all-stake threshold rather than one fat
     /// certifying block.
     fn fallback_endorsements(
         &self,
@@ -618,18 +619,21 @@ impl SpiceCoreReader {
         Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }
 
-    /// Verifies `endorsement`'s signature against its signer's key in `epoch_id`, returning the
-    /// signed data and signature. The error is a reason string for `InvalidCoreStatement`.
+    /// Verifies `endorsement`'s signature against its signer's keys for the endorsed chunk's
+    /// block, returning the signed data and signature. The error is a reason string for
+    /// `InvalidCoreStatement`.
     fn verify_endorsement_signature<'e>(
         &self,
-        epoch_id: &EpochId,
         endorsement: &'e SpiceEndorsementCoreStatement,
     ) -> Result<(&'e SpiceEndorsementSignedData, &'e Signature), &'static str> {
-        let validator_info = self
+        let public_keys = self
             .epoch_manager
-            .get_validator_by_account_id(epoch_id, endorsement.account_id())
+            .get_validator_signing_keys_for_block(
+                &endorsement.chunk_id().block_hash,
+                endorsement.account_id(),
+            )
             .map_err(|_| "endorsement from non-validator")?;
-        endorsement.verified_signed_data(validator_info.public_key()).ok_or("invalid signature")
+        endorsement.verified_signed_data(&public_keys).ok_or("invalid signature")
     }
 
     pub fn validate_core_statements_in_block(
@@ -720,12 +724,9 @@ impl SpiceCoreReader {
                         });
                     }
 
-                    let (signed_data, signature) = self
-                        .verify_endorsement_signature(
-                            endorsement_block.header().epoch_id(),
-                            endorsement,
-                        )
-                        .map_err(|reason| InvalidCoreStatement { index, reason })?;
+                    let (signed_data, signature) =
+                        self.verify_endorsement_signature(endorsement)
+                            .map_err(|reason| InvalidCoreStatement { index, reason })?;
 
                     // Reject more than one endorsement per (chunk, account) regardless of result
                     // hash, so an equivocating validator cannot count toward two results.
@@ -957,8 +958,10 @@ fn get_uncertified_chunks(
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block = chain_store.get_block(block_hash)?;
 
-    if block.header().is_genesis() || !block.is_spice_block() {
+    if block.header().is_genesis() {
         Ok(vec![])
+    } else if !block.is_spice_block() {
+        Ok(get_uncertified_chunks_of_pre_spice_block(chain_store, block_hash))
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
@@ -998,6 +1001,15 @@ pub fn record_uncertified_chunks_for_block(
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
         get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    // A pre-spice parent is a last pre-spice block, whose own postprocessing seeded its
+    // row with one entry per shard. An empty row means the parent was committed without
+    // the seeding; recording on top of it would leave its chunks uncertified for good.
+    let prev_header = chain_store_update.chain_store().get_block_header(prev_hash)?;
+    if !prev_header.is_genesis() && !prev_header.is_spice() && uncertified_chunks.is_empty() {
+        return Err(Error::Other(format!(
+            "missing seeded uncertified chunks of last pre-spice block {prev_hash}"
+        )));
+    }
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {
@@ -1345,7 +1357,7 @@ pub fn get_last_certified_block_header(
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
         // No uncertified-chunks tracking means the block has nothing to
-        // certify: genesis, or a pre-spice block at the activation
+        // certify: genesis, or a pre-spice block below the activation
         // boundary. Both are fully certified by definition.
         let header = chain_store.get_block_header(block_hash)?;
         debug_assert!(

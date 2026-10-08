@@ -204,14 +204,10 @@ fn test_spice_chain_with_delayed_execution() {
 
     env = env.warmup();
 
-    let block_hash = env.node_for_account(&producer_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
+    let tx = env.node_for_account(&producer_account).tx_send_money(
+        &sender,
+        &receiver,
         Balance::from_near(1),
-        block_hash,
     );
     env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(10));
 
@@ -423,15 +419,7 @@ fn test_restart_rpc_node() {
     let rpc_identifier = env.get_node_data_by_account_id(&rpc_id).identifier.clone();
     let killed_rpc_state = env.kill_node(&rpc_identifier);
 
-    let block_hash = env.node(0).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
-        Balance::from_near(1),
-        block_hash,
-    );
+    let tx = env.node(0).tx_send_money(&sender, &receiver, Balance::from_near(1));
     env.node_runner(0).run_tx(tx, Duration::seconds(20));
 
     let new_rpc_identifier = format!("{}-restart", rpc_identifier);
@@ -447,10 +435,7 @@ fn test_restart_rpc_node() {
 }
 
 #[test]
-// A restarted producer catches up only by re-requesting the receipt-proof pushes it
-// missed while down, and receipt proofs currently have no pull path.
-// TODO(spice-data-distribution): re-enable once receipt proofs have a pull path (#16275).
-#[ignore = "needs receipt-proof pull recovery"]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_restart_producer_node() {
     init_test_logger();
 
@@ -502,14 +487,10 @@ fn test_restart_producer_node() {
     let restart_identifier = env.get_node_data_by_account_id(&restart_account).identifier.clone();
     let killed_node_state = env.kill_node(&restart_identifier);
 
-    let block_hash = env.node_for_account(&stable_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
+    let tx = env.node_for_account(&stable_account).tx_send_money(
+        &sender,
+        &receiver,
         Balance::from_near(1),
-        block_hash,
     );
     env.runner_for_account(&stable_account).run_tx(tx, Duration::seconds(20));
 

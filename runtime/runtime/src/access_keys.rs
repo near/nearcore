@@ -860,7 +860,7 @@ mod tests {
     }
 
     fn viewer_with_limit(limit: u32) -> TrieViewer {
-        TrieViewer::new(RuntimeConfigStore::new(None), None, limit, None)
+        TrieViewer::new(RuntimeConfigStore::new(), None, limit, None)
     }
 
     /// Commits `state_update`'s overlay writes to its backing store and returns a

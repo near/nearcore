@@ -205,6 +205,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         let spice_core_writer_actor = SpiceCoreWriterActor::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
             signer.clone(),
             spice_core_reader.clone(),
             chunk_executor_adapter.as_sender(),
@@ -214,6 +215,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         spice_core_writer_adapter.bind(spice_core_writer_addr);
 
         let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+            Clock::real(),
             epoch_manager.clone(),
             runtime.store().chain_store(),
             signer.clone(),

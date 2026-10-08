@@ -453,6 +453,7 @@ pub fn setup_client(
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
+        shard_tracker.clone(),
         validator_signer.clone(),
         spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
@@ -460,6 +461,7 @@ pub fn setup_client(
     );
 
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        test_loop.clock(),
         epoch_manager.clone(),
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),

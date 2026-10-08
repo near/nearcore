@@ -2,7 +2,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
-use crate::utils::run_for_number_of_blocks;
 use crate::utils::transactions::make_accounts;
 use assert_matches::assert_matches;
 use core::panic;
@@ -87,7 +86,7 @@ fn slow_test_one_shard_congested() {
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
 
     // Run for `max_missed_chunks * 2` blocks to make sure shard 2 is congested
-    run_for_number_of_blocks(&mut env, &rpc_id, max_missed_chunks as usize * 2);
+    env.runner_for_account(&rpc_id).run_for_number_of_blocks(max_missed_chunks as usize * 2);
 
     // Check if shard 2 is congested
     let client_handle = env.node_datas[0].client_sender.actor_handle();

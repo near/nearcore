@@ -173,10 +173,7 @@ impl DaemonProcess {
     }
 
     fn wait_for_startup(&mut self, config: WorkerConfig) -> std::io::Result<DaemonStatus> {
-        let generation = self
-            .watchdog
-            .arm(DAEMON_STARTUP_TIMEOUT)
-            .map_err(|err| IoError::new(ErrorKind::BrokenPipe, err))?;
+        self.watchdog.arm(DAEMON_STARTUP_TIMEOUT);
         let result = read_frame(&mut self.stdout)
             .map_err(|err| format!("failed to read startup response: {err}"))
             .and_then(|bytes| {
@@ -187,9 +184,7 @@ impl DaemonProcess {
                     DaemonStartup::Err(err) => Err(err),
                 }
             });
-        self.watchdog
-            .finish(generation, DAEMON_STARTUP_TIMEOUT, "startup", result)
-            .map_err(IoError::other)
+        self.watchdog.finish(DAEMON_STARTUP_TIMEOUT, "startup", result).map_err(IoError::other)
     }
 
     /// Send a compilation request and read the response. Returns:
@@ -204,15 +199,17 @@ impl DaemonProcess {
         // right now, since we decided a hanging node is preferable to crashing
         // or committing a potentially nondeterministic error.
         let timeout = compilation_request_timeout(request);
-        let generation = timeout.map(|timeout| self.watchdog.arm(timeout)).transpose()?;
+        if let Some(timeout) = timeout {
+            self.watchdog.arm(timeout);
+        }
         let result = write_frame(&mut self.stdin, &request_bytes)
             .map_err(|e| format!("failed to send to compiler daemon: {e}"))
             .and_then(|()| {
                 read_compile_response(&mut self.stdout)
                     .map_err(|e| format!("failed to read from compiler daemon: {e}"))
             });
-        if let (Some(generation), Some(timeout)) = (generation, timeout) {
-            self.watchdog.finish(generation, timeout, "compilation request", result)
+        if let Some(timeout) = timeout {
+            self.watchdog.finish(timeout, "compilation request", result)
         } else {
             result
         }

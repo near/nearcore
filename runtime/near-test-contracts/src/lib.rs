@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+pub mod wallet_contract;
+
 use arbitrary::Arbitrary;
 use rand::{Fill, SeedableRng};
 use std::borrow::Cow;

@@ -30,7 +30,7 @@ fn slow_test_cache_warming_across_vm_config_change() {
 
     // Inject a RuntimeConfigStore where the new protocol has a different
     // wasm_config so that cache_keys_differ() returns true and triggers warming.
-    let base_store = RuntimeConfigStore::new(None);
+    let base_store = RuntimeConfigStore::new();
     let old_runtime_config = base_store.get_config(old_protocol).clone();
     let mut new_wasm = old_runtime_config.wasm_config.as_ref().clone();
     new_wasm.regular_op_cost += 1;

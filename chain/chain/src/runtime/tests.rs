@@ -63,6 +63,7 @@ use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use tempfile::TempDir;
 
 const TEST_SEED: RngSeed = [3; 32];
 const NUM_TEST_SIGNERS: usize = 4;
@@ -88,6 +89,8 @@ struct TestEnv {
     pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
     pub last_proposals: Vec<ValidatorStake>,
     time: u64,
+    // Keep the store and compiled contract cache directories alive for the test.
+    _dir: TempDir,
 }
 
 impl TestEnv {
@@ -234,6 +237,7 @@ impl TestEnv {
             last_proposals: vec![],
             last_shard_proposals: HashMap::default(),
             time: 0,
+            _dir: dir,
         }
     }
 
@@ -1542,7 +1546,7 @@ fn test_genesis_hash() {
         .handle(),
         &genesis.config,
         epoch_manager.clone(),
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
     );
 
     let state_roots =
@@ -2911,7 +2915,7 @@ fn test_precompile_contracts_updates_cache() {
         contract_cache.handle(),
         &genesis.config,
         epoch_manager,
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
     );
 
     let contracts = vec![

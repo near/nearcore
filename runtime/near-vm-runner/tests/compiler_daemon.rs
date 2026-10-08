@@ -58,7 +58,7 @@ fn test_startup_probe() {
 }
 
 fn test_config() -> near_parameters::vm::Config {
-    let config_store = near_parameters::RuntimeConfigStore::new(None);
+    let config_store = near_parameters::RuntimeConfigStore::new();
     let runtime_config = config_store.get_config(near_primitives_core::version::PROTOCOL_VERSION);
     (*runtime_config.wasm_config).clone()
 }

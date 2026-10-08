@@ -20,8 +20,9 @@ use near_chain::{
 };
 use near_chain_configs::INITIAL_GAS_LIMIT;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
@@ -398,6 +399,11 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
     let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            validator_signer.clone(),
+        ),
         validator_signer.clone(),
         core_reader.clone(),
         noop().into_sender(),
@@ -913,7 +919,7 @@ fn test_malicious_accesses_first_then_correct() {
 /// number of unique contracts that can be called in a single chunk.
 #[test]
 fn max_contracts_per_request_covers_chunk_gas_limit() {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = store.get_config(PROTOCOL_VERSION);
     let function_call_base = config.fees.fee(ActionCosts::function_call_base).exec_fee();
     let max_calls_per_chunk = INITIAL_GAS_LIMIT.as_gas() / function_call_base.gas.as_gas();
