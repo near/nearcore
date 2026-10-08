@@ -881,6 +881,19 @@ impl AccessKey {
             | AccessKeyPermission::GasKeyFullAccess(_) => None,
         }
     }
+
+    pub fn inclusion_key_info_mut(&mut self) -> Option<&mut InclusionKeyInfo> {
+        match &mut self.permission {
+            AccessKeyPermission::InclusionKeyFunctionCall(inclusion_key_info, _)
+            | AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info) => {
+                Some(inclusion_key_info)
+            }
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => None,
+        }
+    }
 }
 
 #[derive(
@@ -984,6 +997,20 @@ impl AccessKeyPermission {
             AccessKeyPermission::FullAccess
             | AccessKeyPermission::GasKeyFullAccess(_)
             | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
+        }
+    }
+
+    /// The plain permission of an inclusion key; other permissions unchanged.
+    pub fn without_inclusion_key_info(&self) -> AccessKeyPermission {
+        match self {
+            AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => {
+                AccessKeyPermission::FunctionCall(permission.clone())
+            }
+            AccessKeyPermission::InclusionKeyFullAccess(_) => AccessKeyPermission::FullAccess,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => self.clone(),
         }
     }
 }
