@@ -142,13 +142,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 
     let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
-            new_node_height >= current_height + 30
-        },
-        Duration::seconds(30),
-    );
+    let new_node_idx = env.node_datas.len() - 1;
+    env.node_runner(new_node_idx).run_until_head_height(current_height + 30);
     let expected: Vec<String> =
         ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
             .into_iter()

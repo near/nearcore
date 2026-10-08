@@ -52,14 +52,8 @@ fn test_load_memtrie_after_empty_chunks() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height
-                > 10000 + epoch_length * 10
-        },
-        Duration::seconds(10),
-    );
+    env.node_runner(0)
+        .run_until(|node| node.head().height > 10000 + epoch_length * 10, Duration::seconds(10));
 
     // Find client currently tracking shard with index 0.
     let shard_uid = shard_layout.shard_uids().next().unwrap();

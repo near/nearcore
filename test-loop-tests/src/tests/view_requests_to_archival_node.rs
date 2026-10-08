@@ -80,7 +80,6 @@ fn slow_test_view_requests_to_archival_node() {
         .build();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    let client_handle = env.node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
     let client = env.node(ARCHIVAL_CLIENT).client();
     let transaction_delay = if client.config.enable_early_prepare_transactions {
         Duration::milliseconds(100)
@@ -97,13 +96,7 @@ fn slow_test_view_requests_to_archival_node() {
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 6;
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let chain = &test_loop_data.get(&client_handle).client.chain;
-            chain.head().unwrap().height >= target_height
-        },
-        Duration::seconds(target_height as i64),
-    );
+    env.node_runner(ARCHIVAL_CLIENT).run_until_head_height(target_height);
 
     let mut view_client_tester = ViewClientTester::new(&mut env.test_loop, &env.node_datas);
     view_client_tester.run_tests(&shard_layout);

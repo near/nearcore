@@ -137,10 +137,9 @@ fn test_near_horizon_restart_during_block_sync() {
     let new_node_idx = env.node_datas.len() - 1;
 
     // Wait until new node is in the MIDDLE of BlockSync (current_height > start_height).
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::BlockSync { start_height, current_height, .. }
                 if *current_height > *start_height)
         },

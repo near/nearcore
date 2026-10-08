@@ -238,8 +238,7 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
 
     // Run normally up to just before the epoch boundary, then drop designated endorsements: the
     // all-stake fallback alone must carry certification across into the next epoch.
-    env.node_runner(0)
-        .run_until(|node| node.head().height >= epoch_length - 5, Duration::seconds(60));
+    env.node_runner(0).run_until_head_height(epoch_length - 5);
     let initial_epoch = env.node(0).head().epoch_id;
     let mut env = env.drop(DropCondition::DesignatedSpiceEndorsements);
 

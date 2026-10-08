@@ -370,10 +370,9 @@ fn test_far_horizon_restart_during_header_sync() {
     throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 10);
 
     // Run until new node is in the MIDDLE of HeaderSync (current_height > start_height).
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::HeaderSync { start_height, current_height, .. }
                 if *current_height > *start_height)
         },
@@ -438,10 +437,9 @@ fn test_far_horizon_restart_during_state_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node enters StateSync.
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::StateSync(_))
         },
         Duration::seconds(20),
@@ -509,10 +507,9 @@ fn test_far_horizon_restart_during_block_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node is in the MIDDLE of BlockSync (current_height > start_height).
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::BlockSync { start_height, current_height, .. }
                 if *current_height > *start_height)
         },
@@ -578,10 +575,9 @@ fn test_far_horizon_restart_after_long_downtime() {
     let new_node_idx = env.node_datas.len() - 1;
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::StateSync(_))
         },
         Duration::seconds(20),
@@ -851,10 +847,9 @@ fn test_far_horizon_stale_sync_hash_detection() {
 
     // Run until new node enters StateSync and record its sync hash.
     let mut node_sync_hash = None;
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             if let SyncStatus::StateSync(s) = status {
                 node_sync_hash = Some(s.sync_hash);
                 true

@@ -816,15 +816,13 @@ fn test_state_sync_fork_before_sync() {
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
-    env.test_loop.run_until(
-        |data| {
-            let handle = env.node_datas[0].client_sender.actor_handle();
-            let client = &data.get(&handle).client;
-            let tip = client.chain.head().unwrap();
+    env.node_runner(0).run_until(
+        |node| {
+            let tip = node.head();
             if tip.epoch_id == Default::default() {
                 return false;
             }
-            client.chain.get_sync_hash(&tip.last_block_hash).unwrap().is_some()
+            node.client().chain.get_sync_hash(&tip.last_block_hash).unwrap().is_some()
         },
         Duration::seconds(20),
     );
