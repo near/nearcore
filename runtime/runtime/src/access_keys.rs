@@ -24,7 +24,7 @@ fn access_key_storage_usage(
     // length: ML-DSA-65 access keys live in the trie as a SHA3-256 hash
     // (33 bytes incl. type tag), not as a 1953-byte full pubkey.
     public_key.trie_id_len() as u64
-        + borsh::object_length(access_key).unwrap() as u64
+        + access_key.storage_usage_borsh_len()
         + storage_usage_config.num_extra_bytes_record
 }
 

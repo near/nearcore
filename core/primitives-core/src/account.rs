@@ -882,6 +882,15 @@ impl AccessKey {
         }
     }
 
+    /// Borsh length counted for storage staking: an inclusion key counts as its plain permission.
+    pub fn storage_usage_borsh_len(&self) -> u64 {
+        let plain_access_key = AccessKey {
+            nonce: self.nonce,
+            permission: self.permission.without_inclusion_key_info(),
+        };
+        borsh::object_length(&plain_access_key).unwrap() as u64
+    }
+
     pub fn inclusion_key_info_mut(&mut self) -> Option<&mut InclusionKeyInfo> {
         match &mut self.permission {
             AccessKeyPermission::InclusionKeyFunctionCall(inclusion_key_info, _)
@@ -1470,5 +1479,39 @@ mod tests {
         global_by_account.global_contract_account_id =
             Some(AccountId::try_from("test.near".to_string()).unwrap());
         assert!(deserialize_account(&global_by_account).is_err());
+    }
+
+    #[test]
+    fn inclusion_key_storage_usage_borsh_len_equals_plain_key() {
+        let nonce = 7;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(1), last_transaction_nonce: nonce };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: "bob.near".to_string(),
+            method_names: vec!["method".to_string()],
+        };
+        let plain_and_inclusion_permissions = [
+            (
+                AccessKeyPermission::FullAccess,
+                AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info.clone()),
+            ),
+            (
+                AccessKeyPermission::FunctionCall(function_call_permission.clone()),
+                AccessKeyPermission::InclusionKeyFunctionCall(
+                    inclusion_key_info,
+                    function_call_permission,
+                ),
+            ),
+        ];
+        for (plain_permission, inclusion_permission) in plain_and_inclusion_permissions {
+            let plain_key = AccessKey { nonce, permission: plain_permission };
+            let inclusion_key = AccessKey { nonce, permission: inclusion_permission };
+            let plain_key_borsh_len = borsh::object_length(&plain_key).unwrap() as u64;
+            let inclusion_key_borsh_len = borsh::object_length(&inclusion_key).unwrap() as u64;
+            assert_ne!(inclusion_key_borsh_len, plain_key_borsh_len);
+            assert_eq!(plain_key.storage_usage_borsh_len(), plain_key_borsh_len);
+            assert_eq!(inclusion_key.storage_usage_borsh_len(), plain_key_borsh_len);
+        }
     }
 }
