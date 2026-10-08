@@ -41,16 +41,14 @@ fn test_producer_with_expired_transactions() {
     let chunk_producer = accounts[0].as_str();
     let validators: Vec<_> = accounts[1..].iter().map(|a| a.as_str()).collect();
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &validators);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut test_loop_env = TestLoopBuilder::new()
         .epoch_length(10)
         .shard_layout(ShardLayout::multi_shard_custom(vec![], 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(10)
         .build();
-    let mut test_loop_env =
-        TestLoopBuilder::new().genesis(genesis).clients(accounts.clone()).build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some

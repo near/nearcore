@@ -18,7 +18,6 @@ use near_primitives::types::{AccountId, Balance};
 #[test]
 fn test_load_memtrie_after_empty_chunks() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
     let num_accounts = 3;
     let num_clients = 2;
@@ -35,14 +34,13 @@ fn test_load_memtrie_after_empty_chunks() {
         &[],
     );
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    let mut env = builder.genesis(genesis).clients(client_accounts).build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 

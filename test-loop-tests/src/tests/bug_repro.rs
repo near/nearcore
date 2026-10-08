@@ -288,16 +288,10 @@ fn slow_test_long_gap_between_blocks() {
     let target_height = 600;
     let block_prod_time = Duration::milliseconds(100);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .build();
-
-    let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(clients)
         .config_modifier(move |config, _| {
             config.min_block_production_delay.update(block_prod_time);
             config.max_block_production_delay.update(3 * block_prod_time);

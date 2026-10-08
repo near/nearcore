@@ -13,7 +13,6 @@ fn slow_test_fix_cp_stake_threshold() {
     let epoch_length = 10;
     let accounts =
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect::<Vec<_>>();
     let num_shards = 6;
     let shard_layout = ShardLayout::multi_shard(num_shards, 1);
     let validators = vec![
@@ -42,13 +41,12 @@ fn slow_test_fix_cp_stake_threshold() {
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .build();
-    let env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let client = env.node(0).client();
     let validators = get_epoch_all_validators(client);
