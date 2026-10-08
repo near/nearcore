@@ -193,7 +193,6 @@ fn test_receipt_to_tx_saved_and_gced() {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
@@ -317,7 +316,6 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .config_modifier(|config, _| {

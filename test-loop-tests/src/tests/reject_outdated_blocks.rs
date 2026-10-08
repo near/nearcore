@@ -59,11 +59,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let mut env = test_loop_builder
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env = test_loop_builder.genesis(genesis).clients(clients).build();
 
     let client = env.node(0).client();
     let rpc_handler = &env.test_loop.data.get(&env.node_datas[0].rpc_handler_sender.actor_handle());

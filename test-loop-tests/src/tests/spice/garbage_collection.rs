@@ -37,12 +37,8 @@ fn test_spice_garbage_collection() {
         .validators_spec(validators_spec)
         .epoch_length(epoch_length)
         .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .gc_num_epochs_to_keep(1)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env =
+        TestLoopBuilder::new().genesis(genesis).gc_num_epochs_to_keep(1).clients(clients).build();
 
     // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
     env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
@@ -69,7 +65,6 @@ fn test_spice_garbage_collection_witnesses() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .gc_num_epochs_to_keep(1)
-        .epoch_config_store_from_genesis()
         .clients(clients)
         .delay_warmup()
         .build();

@@ -986,7 +986,6 @@ impl TestEnv {
         let runtime_config_store = RuntimeConfigStore::new();
         let env = TestLoopBuilder::new()
             .genesis(genesis)
-            .epoch_config_store_from_genesis()
             .clients(clients)
             .runtime_config_store(runtime_config_store.clone())
             .build();

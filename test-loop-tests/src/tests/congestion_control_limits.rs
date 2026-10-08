@@ -10,7 +10,7 @@ use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -59,8 +59,6 @@ fn setup_congestion_env() -> TestLoopEnv {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&[parent.clone(), test0], Balance::from_near(1_000_000_000))
         .build();
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
 
     let mut config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
     set_wasm_cost(&mut config);
@@ -69,7 +67,6 @@ fn setup_congestion_env() -> TestLoopEnv {
 
     TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .runtime_config_store(runtime_config_store)
         .clients(vec![parent])
         .track_all_shards()

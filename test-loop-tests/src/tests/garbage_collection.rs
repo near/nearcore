@@ -34,12 +34,10 @@ fn test_state_transition_data_gc_simple() {
         .shard_layout(shard_layout.clone())
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let client: AccountId = chunk_producer.parse().unwrap();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(vec![client.clone()])
-        .epoch_config_store(epoch_config_store)
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })

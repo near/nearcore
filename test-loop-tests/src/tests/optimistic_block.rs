@@ -4,7 +4,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -41,8 +41,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients)
+    builder.genesis(genesis).clients(clients)
 }
 
 #[test]

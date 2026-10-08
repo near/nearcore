@@ -342,11 +342,6 @@ impl TestLoopBuilder {
         self
     }
 
-    pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
-        // noop, this is a default behavior now, to be removed
-        self
-    }
-
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
         self.runtime_config_store = Some(runtime_config_store);
         self

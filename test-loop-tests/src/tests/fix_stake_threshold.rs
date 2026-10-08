@@ -46,11 +46,7 @@ fn slow_test_fix_validator_stake_threshold() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let env = test_loop_builder
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let env = test_loop_builder.genesis(genesis).clients(clients).build();
 
     let client = env.node(0).client();
 

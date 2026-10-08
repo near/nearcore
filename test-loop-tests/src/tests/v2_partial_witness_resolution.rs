@@ -5,7 +5,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance};
@@ -25,13 +25,7 @@ fn make_env() -> TestLoopEnv {
         .add_user_accounts_simple(&clients, Balance::from_near(1_000_000))
         .genesis_height(10_000)
         .build();
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
-    TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
+    TestLoopBuilder::new().genesis(genesis).clients(clients).build()
 }
 
 #[test]

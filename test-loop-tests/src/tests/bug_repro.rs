@@ -176,12 +176,10 @@ fn slow_test_sync_from_archival_node() {
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .cold_storage_archival_clients(vec![clients[0].clone()])
         .config_modifier(move |config, idx| {
@@ -297,12 +295,10 @@ fn slow_test_long_gap_between_blocks() {
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .clients(clients)
         .config_modifier(move |config, _| {
             config.min_block_production_delay.update(block_prod_time);
@@ -355,11 +351,7 @@ fn test_rpc_forwards_retried_transaction() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&user_accounts, initial_balance)
         .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
     let rpc_data_idx = env.rpc_data_idx();
 
     // First test the case where `validator_signer` is set.

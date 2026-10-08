@@ -532,13 +532,7 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
         .validators_spec(validators_spec)
         .build();
     // `from_genesis` leaves all kickout thresholds at 0 (no standard kickout).
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let source_em = env.node(0).client().epoch_manager.clone();
 

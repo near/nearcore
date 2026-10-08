@@ -30,11 +30,7 @@ fn test_instant_delete_account() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&user_accounts, initial_balance)
         .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let [contract_account, beneficiary] = &user_accounts;
 

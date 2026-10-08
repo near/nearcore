@@ -3,7 +3,7 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance};
@@ -42,12 +42,7 @@ fn test_load_memtrie_after_empty_chunks() {
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(client_accounts)
-        .build();
+    let mut env = builder.genesis(genesis).clients(client_accounts).build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 

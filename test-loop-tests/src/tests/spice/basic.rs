@@ -15,7 +15,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::{Error, Provenance};
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
 use near_network::types::NetworkRequests;
@@ -91,9 +91,7 @@ fn test_spice_chain() {
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let mut env = builder.genesis(genesis).clients(clients).build();
 
     let client_handles =
         env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
@@ -190,12 +188,7 @@ fn test_spice_chain_with_delayed_execution() {
         .build();
 
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
@@ -285,12 +278,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
 
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -401,11 +389,7 @@ fn test_restart_rpc_node() {
         .add_user_account_simple(receiver.clone(), Balance::from_near(0))
         .build();
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let rpc_id = crate::utils::account::rpc_account_id();
     let node_account = env.node_datas[0].account_id.clone();
@@ -457,12 +441,7 @@ fn test_restart_producer_node() {
         .add_user_account_simple(receiver.clone(), Balance::from_near(0))
         .build();
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests for
@@ -517,12 +496,8 @@ fn test_spice_delay_endorsements_propagation_instruments_added_node() {
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients.clone())
-        .delay_warmup()
-        .build();
+    let mut env =
+        TestLoopBuilder::new().genesis(genesis).clients(clients.clone()).delay_warmup().build();
 
     env.delay_endorsements_propagation(2);
     let mut env = env.warmup();
@@ -568,12 +543,7 @@ fn test_restart_validator_node() {
         .add_user_account_simple(receiver.clone(), Balance::from_near(0))
         .build();
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).delay_warmup().build();
 
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests of
@@ -676,11 +646,7 @@ fn test_spice_chain_with_missing_chunks() {
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .build();
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let epoch_manager = env.rpc_node().client().epoch_manager.clone();
     let head_epoch_id = *env.rpc_node().head_block().header().epoch_id();

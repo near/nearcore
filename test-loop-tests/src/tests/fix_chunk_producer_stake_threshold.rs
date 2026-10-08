@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::validators::get_epoch_all_validators;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -49,12 +48,7 @@ fn slow_test_fix_cp_stake_threshold() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
+    let env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let client = env.node(0).client();
     let validators = get_epoch_all_validators(client);
