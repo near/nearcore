@@ -30,11 +30,11 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
+use near_chain::spice::boundary::{applies_chunk_itself, shards_applied_itself};
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -1120,14 +1120,14 @@ impl SpiceDataDistributorActor {
                 }
                 continue;
             }
-            let tracks_shard = self.shard_tracker.should_apply_chunk(
-                ApplyChunksMode::IsCaughtUp,
-                chunk_block.header().prev_hash(),
-                chunk_id.shard_id,
-            );
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
             // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
-            if !tracks_shard {
+            if !applies_chunk_itself(
+                &self.shard_tracker,
+                self.epoch_manager.as_ref(),
+                chunk_block.header(),
+                chunk_id.shard_id,
+            )? {
                 self.start_waiting_on_fallback_witness(
                     chunk_id,
                     &chunk_block,
@@ -1331,11 +1331,12 @@ impl SpiceDataDistributorActor {
         if assignments.contains(me) {
             return Ok(());
         }
-        if self.shard_tracker.should_apply_chunk(
-            ApplyChunksMode::IsCaughtUp,
-            chunk_block.header().prev_hash(),
+        if applies_chunk_itself(
+            &self.shard_tracker,
+            self.epoch_manager.as_ref(),
+            chunk_block.header(),
             *shard_id,
-        ) {
+        )? {
             return Ok(());
         }
         let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
@@ -1367,17 +1368,11 @@ impl SpiceDataDistributorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
 
-        let shards_we_apply: HashSet<ShardId> = shard_layout
-            .shard_ids()
-            .filter(|shard_id| {
-                let prev_hash = block.header().prev_hash();
-                self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
-                    *shard_id,
-                )
-            })
-            .collect();
+        let shards_we_apply = shards_applied_itself(
+            &self.shard_tracker,
+            self.epoch_manager.as_ref(),
+            block.header(),
+        )?;
 
         for shard_id in shard_layout.shard_ids() {
             // If we will apply chunk we will also produce endorsement so no need to request

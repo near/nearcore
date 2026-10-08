@@ -21,8 +21,9 @@ use itertools::Itertools as _;
 use near_async::messaging::{IntoSender as _, Sender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_crypto::Signature;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
@@ -637,12 +638,74 @@ fn test_pending_endorsement_signed_with_key_of_its_block_is_recorded() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_block() {
+    check_records_pending_endorsements_for_last_pre_spice_block(TrackedShardsConfig::NoShards);
+}
+
+/// A tracked shard whose pre-spice artifacts are missing cannot be checked against local
+/// synthesis; its certified result is still recorded rather than failing the block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_records_last_pre_spice_results_of_tracked_shards_without_local_artifacts() {
+    check_records_pending_endorsements_for_last_pre_spice_block(TrackedShardsConfig::AllShards);
+}
+
+/// A certified result of a pre-spice chunk that contradicts this node's own pre-spice
+/// apply means the node's state diverged from the network's, so the node halts.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+#[should_panic(expected = "does not match local synthesis")]
+fn test_certified_last_pre_spice_result_mismatching_local_apply_panics() {
     init_test_logger();
     let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+    let validator_signer = MutableConfigValue::new(None, "validator_signer");
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
+        ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            chain.epoch_manager.clone(),
+            validator_signer.clone(),
+        ),
+        validator_signer,
+        core_reader(&chain),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
+    let (last_pre_spice, _) = grow_to_last_pre_spice_block(&mut chain);
+    let shard_layout =
+        chain.epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_outgoing_receipt(last_pre_spice.hash(), shard_uid.shard_id(), vec![]);
+    store_update.save_chunk_extra(
+        last_pre_spice.hash(),
+        &shard_uid,
+        ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"local")).into(),
+    );
+    store_update.commit().unwrap();
+
+    let chunks = last_pre_spice.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_uid.shard_id()).unwrap();
+    let endorsement = test_chunk_endorsement("test1", &last_pre_spice, chunk_header);
+    let _ = core_writer_actor.process_chunk_endorsement(endorsement);
+}
+
+fn check_records_pending_endorsements_for_last_pre_spice_block(
+    tracked_shards_config: TrackedShardsConfig,
+) {
+    init_test_logger();
+    let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+    let validator_signer = MutableConfigValue::new(None, "validator_signer");
+    let core_writer_actor = SpiceCoreWriterActor::new(
+        chain.chain_store().chain_store(),
+        chain.epoch_manager.clone(),
+        ShardTracker::new(
+            tracked_shards_config,
+            chain.epoch_manager.clone(),
+            validator_signer.clone(),
+        ),
+        validator_signer,
         core_reader(&chain),
         noop().into_sender(),
         noop().into_sender(),
@@ -897,6 +960,7 @@ fn setup_with_senders(
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         chunk_executor_sender,
@@ -915,6 +979,7 @@ fn new_core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
     SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(chain),
         noop().into_sender(),

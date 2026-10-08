@@ -2,6 +2,54 @@ use super::*;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
+    let signer = Arc::new(create_test_signer("test0"));
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .epoch_length(5)
+        .protocol_version(pre_spice_protocol_version())
+        .shard_layout(ShardLayout::multi_shard(3, 0))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
+        .build();
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+    let earlier = chain.chain_store.get_block(last_pre_spice.header().prev_hash()).unwrap();
+    assert_eq!(earlier.header().epoch_id(), last_pre_spice.header().epoch_id());
+
+    // Shard 0 in the boundary epoch, shard 1 only in the next one: a three-entry
+    // schedule keeps shard 1 out of the previous epoch too.
+    let epoch_height = chain
+        .epoch_manager
+        .get_epoch_info(last_pre_spice.header().epoch_id())
+        .unwrap()
+        .epoch_height();
+    let mut schedule = vec![vec![ShardId::new(0)]; 3];
+    schedule[((epoch_height + 1) % 3) as usize] = vec![ShardId::new(1)];
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::Schedule(schedule),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+    let policies = Policies::new(
+        chain.chain_store.store().chain_store(),
+        chain.epoch_manager.clone(),
+        shard_tracker,
+    );
+
+    let ids = |block: &Block, pairs: &[(u64, u64)]| -> HashSet<DataId> {
+        pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
+    };
+    // Destinations are the shards applied in the next block: 0 and 1 in both cases.
+    assert_eq!(needed_receipt_ids(&policies, &earlier), ids(&earlier, &[(2, 0), (2, 1)]),);
+    assert_eq!(
+        needed_receipt_ids(&policies, &last_pre_spice),
+        ids(&last_pre_spice, &[(1, 0), (1, 1), (2, 0), (2, 1)]),
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn track_block_tracks_exactly_the_needed_items_once() {
     let (chain, blocks) = chain_with_blocks(5);
     let block = &blocks[4];
@@ -128,7 +176,9 @@ fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_
     let fork_id = receipt_id(&fork_at_4, 0, 1);
     let certified = SpiceChunkId { block_hash: *canonical_at_4.hash(), shard_id: ShardId::new(0) };
 
-    manager.track_block(&certifying_block(&canonical_at_4, &[certified]));
+    let certifier = certifying_block(&canonical_at_4, &[certified]);
+    save_and_record_block(&mut chain, &certifier);
+    manager.track_block(&certifier);
 
     assert!(manager.manager.is_pullable(&canonical_id));
     assert!(!manager.manager.is_pullable(&fork_id));
