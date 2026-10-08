@@ -155,15 +155,7 @@ fn slow_test_repro_1183() {
         }));
     }
 
-    let client_actor_handle = &env.node_datas[1].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(client_actor_handle).client;
-            let head = client.chain.head().unwrap();
-            head.height >= 25
-        },
-        Duration::seconds(60),
-    );
+    env.node_runner(1).run_until_head_height_with_timeout(25, Duration::seconds(60));
 }
 
 #[test]
@@ -340,15 +332,8 @@ fn slow_test_long_gap_between_blocks() {
         }));
     }
 
-    let client_actor_handle = &env.node_datas[1].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(client_actor_handle).client;
-            let head = client.chain.final_head().unwrap();
-            head.height > target_height
-        },
-        Duration::seconds(3 * 70),
-    );
+    env.node_runner(1)
+        .run_until(|node| node.final_head().height > target_height, Duration::seconds(3 * 70));
 }
 
 /// 1 RPC node, 1 validator node, 1 shard

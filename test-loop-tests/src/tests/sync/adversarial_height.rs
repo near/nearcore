@@ -379,14 +379,8 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
         }),
     );
 
-    let victim_handle = env.node_datas[victim_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            matches!(
-                data.get(&victim_handle).client.sync_handler.sync_status,
-                SyncStatus::StateSync(_)
-            )
-        },
+    env.node_runner(victim_idx).run_until(
+        |node| matches!(node.client().sync_handler.sync_status, SyncStatus::StateSync(_)),
         Duration::seconds(20),
     );
     let SyncStatus::StateSync(state_sync_status) =

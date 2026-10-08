@@ -80,14 +80,8 @@ fn slow_test_cache_warming_across_vm_config_change() {
     }
 
     // Wait until the chain crosses into the new protocol version.
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    env.test_loop.run_until(
-        move |data| {
-            let client = &data.get(&client_handle).client;
-            let head = client.chain.head().unwrap();
-            client.epoch_manager.get_epoch_info(&head.epoch_id).unwrap().protocol_version()
-                == new_protocol
-        },
+    env.node_runner(0).run_until(
+        |node| node.protocol_version_at_head() == new_protocol,
         Duration::seconds((6 * epoch_length) as i64),
     );
 

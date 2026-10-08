@@ -202,19 +202,13 @@ fn test_optimistic_block_after_missing_block() {
     tracing::info!(target: "test", ?height_to_skip, ?producer, "skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
-    let client_handle =
-        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
-
     let (hit_count_before_skip, height_before_skip) =
         get_hit_count_and_height(&env, &next_producer);
 
     // Wait for a few blocks after the missed block for optimistic blocks to be used again.
     let wait_blocks_after_skip = 5;
-    env.test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height
-                > (height_to_skip + wait_blocks_after_skip)
-        },
+    env.runner_for_account(next_producer.account_id()).run_until(
+        |node| node.head().height > height_to_skip + wait_blocks_after_skip,
         Duration::seconds(10),
     );
 
@@ -290,9 +284,6 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
 
-    let affected_client_handle =
-        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
-
     let client = env.node_for_account(producer.account_id()).client();
     let signer = client.validator_signer.get().unwrap();
     alter_optimistic_block_at_height(&mut env, height_to_skip, signer);
@@ -304,11 +295,8 @@ fn test_optimistic_block_with_invalidated_outcome() {
         get_hit_count_and_height(&env, &next_producer);
 
     let wait_blocks_after_skip = 5;
-    env.test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&affected_client_handle).client.chain.head().unwrap().height
-                > (height_to_skip + wait_blocks_after_skip)
-        },
+    env.runner_for_account(next_producer.account_id()).run_until(
+        |node| node.head().height > height_to_skip + wait_blocks_after_skip,
         Duration::seconds(20),
     );
 

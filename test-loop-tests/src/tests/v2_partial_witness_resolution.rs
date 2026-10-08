@@ -5,7 +5,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
-use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -43,27 +42,14 @@ fn test_v2_witness_immediate_resolution() {
     init_test_logger();
     let mut env = make_env();
 
-    let producer_client_handle = env
-        .node_datas
-        .iter()
-        .find(|n| n.account_id.as_str() == PRODUCER)
-        .expect("producer node datas")
-        .client_sender
-        .actor_handle();
+    let producer: AccountId = PRODUCER.parse().unwrap();
 
     let genesis_height = 10_000;
     let target_height = genesis_height + 20;
-    env.test_loop.run_until(
-        |data| {
-            let chain = &data.get(&producer_client_handle).client.chain;
-            chain.head().unwrap().height >= target_height
-        },
-        Duration::seconds(30),
-    );
+    env.runner_for_account(&producer).run_until_head_height(target_height);
 
     // A false mask bit means the receiver failed to endorse: part dropped or
     // producer resolution failed.
-    let producer: AccountId = PRODUCER.parse().unwrap();
     let chain = &env.node_for_account(&producer).client().chain;
     let mut hash = chain.head().unwrap().last_block_hash;
     loop {

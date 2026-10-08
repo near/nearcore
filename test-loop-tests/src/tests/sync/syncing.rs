@@ -52,24 +52,16 @@ fn slow_test_sync_from_genesis() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
-        },
-        Duration::seconds(50),
-    );
+    env.node_runner(0).run_until(|node| node.head().height > 10050, Duration::seconds(50));
 
     // Add new node
     let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.
-    let new_node = env.node_datas.last().unwrap().client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| test_loop_data.get(&new_node).client.chain.head().unwrap().height > 10050,
-        Duration::seconds(20),
-    );
+    let new_node_idx = env.node_datas.len() - 1;
+    env.node_runner(new_node_idx)
+        .run_until(|node| node.head().height > 10050, Duration::seconds(20));
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
