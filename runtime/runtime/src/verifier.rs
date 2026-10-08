@@ -4,7 +4,7 @@ use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, FunctionCallPermission};
+use near_primitives::account::{AccessKey, FunctionCallPermission, InclusionKeyInfo};
 use near_primitives::errors::{
     DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -443,6 +443,46 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
             num_nonces: gas_key_info.num_nonces,
         });
     }
+    if let Some(inclusion_key_info) = access_key.inclusion_key_info() {
+        return verify_and_charge_inclusion_key_tx_ephemeral(
+            config,
+            account,
+            access_key,
+            inclusion_key_info,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        );
+    }
+    let tx_nonce = tx.nonce().nonce();
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
+        return TxVerdict::Failed(e);
+    }
+    verify_and_charge_access_key_tx_after_nonce_check(
+        config,
+        account,
+        access_key,
+        tx,
+        transaction_cost,
+        pending,
+    )
+}
+
+/// Inclusion key order: permission, then nonce, then balance; failures after the nonce check are
+/// charged to the key balance.
+fn verify_and_charge_inclusion_key_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &Account,
+    access_key: &AccessKey,
+    _inclusion_key_info: &InclusionKeyInfo,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+) -> TxVerdict {
+    // TODO(inclusion-keys): stub, filled when inclusion key charging lands.
     let tx_nonce = tx.nonce().nonce();
     let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
