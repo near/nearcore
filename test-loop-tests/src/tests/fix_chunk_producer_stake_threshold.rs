@@ -56,7 +56,7 @@ fn slow_test_fix_cp_stake_threshold() {
         .clients(clients)
         .build();
 
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
     let validators = get_epoch_all_validators(client);
     assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
 }

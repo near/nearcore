@@ -81,10 +81,9 @@ fn slow_test_cache_warming_across_vm_config_change() {
 
     // Wait until the chain crosses into the new protocol version.
     let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client_handle_for_closure = client_handle.clone();
     env.test_loop.run_until(
         move |data| {
-            let client = &data.get(&client_handle_for_closure).client;
+            let client = &data.get(&client_handle).client;
             let head = client.chain.head().unwrap();
             client.epoch_manager.get_epoch_info(&head.epoch_id).unwrap().protocol_version()
                 == new_protocol
@@ -96,7 +95,7 @@ fn slow_test_cache_warming_across_vm_config_change() {
     // No contract activity has run under new_protocol yet, so this can only
     // have been populated by pre-upgrade warming.
     let code_hash = CryptoHash::hash_bytes(near_test_contracts::backwards_compatible_rs_contract());
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let next_runtime_config = client.runtime_adapter.get_runtime_config(new_protocol);
     let cache = client.runtime_adapter.compiled_contract_cache();
     let warmed = near_vm_runner::contract_cached(

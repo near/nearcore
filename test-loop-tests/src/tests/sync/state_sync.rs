@@ -322,8 +322,7 @@ fn test_state_sync_chunk_extra_divergence_stops_the_node() {
         .clients(clients)
         .build();
 
-    let handle = env.node_datas[4].client_sender.actor_handle();
-    env.test_loop.data.get_mut(&handle).client.chain.adv_corrupt_state_sync_chunk_extra = true;
+    env.node_mut(4).client_actor().client.chain.adv_corrupt_state_sync_chunk_extra = true;
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -829,8 +828,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
         },
         Duration::seconds(20),
     );
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let tip = client.chain.head().unwrap();
     client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
 }
@@ -916,9 +914,7 @@ fn test_state_sync_protocol_upgrade() {
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
-    let client = env.node(0).client();
-    let tip = client.chain.head().unwrap();
-    let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
+    let version = env.node(0).protocol_version_at_head();
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
 }

@@ -456,9 +456,7 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     // Query action receipt itself, hint at *its* execution shard. Tx
     // outcome that produced this receipt lives on the *other* shard,
     // so hint scan walks wrong shard's outcomes + misses.
-    let handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(GetReceiptToTx {
+    let result = env.node_mut(0).view_client_actor().handle(GetReceiptToTx {
         receipt_id: action_receipt_id,
         block_height: Some(action_height),
         shard_id: Some(action_shard),

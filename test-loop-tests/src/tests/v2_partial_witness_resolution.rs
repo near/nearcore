@@ -63,7 +63,8 @@ fn test_v2_witness_immediate_resolution() {
 
     // A false mask bit means the receiver failed to endorse: part dropped or
     // producer resolution failed.
-    let chain = &env.test_loop.data.get(&producer_client_handle).client.chain;
+    let producer: AccountId = PRODUCER.parse().unwrap();
+    let chain = &env.node_for_account(&producer).client().chain;
     let mut hash = chain.head().unwrap().last_block_hash;
     loop {
         let block = chain.get_block(&hash).unwrap();

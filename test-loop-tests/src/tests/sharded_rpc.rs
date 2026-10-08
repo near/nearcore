@@ -544,9 +544,8 @@ fn test_rpc_receipt_forwarding() {
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
     // Get receipt ID from the transaction outcome.
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let outcome = h.env.node_for_account(&validator).execution_outcome(tx_hash);
+    let receipt_id = outcome.outcome.receipt_ids[0];
 
     let run_receipt_query = |h: &mut TwoShardHarness,
                              node_id: &AccountId,
@@ -837,9 +836,7 @@ fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
 
     // Get a chunk hash from the head block.
     let validator = h.validator.clone();
-    let head = h.env.node_for_account(&validator).head();
-    let head_block =
-        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = h.env.node_for_account(&validator).head_block();
     let chunk_hash = head_block.chunks()[0].chunk_hash().0;
 
     let mut run_congestion_level =
@@ -937,9 +934,7 @@ fn test_rpc_chunk_hash_forwarding() {
 
     // Get chunk hashes from both shards in the head block.
     let validator = h.validator.clone();
-    let head = h.env.node_for_account(&validator).head();
-    let head_block =
-        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = h.env.node_for_account(&validator).head_block();
     let chunk_hash_shard0 = head_block.chunks()[0].chunk_hash().0;
     let chunk_hash_shard1 = head_block.chunks()[1].chunk_hash().0;
 
@@ -1319,8 +1314,7 @@ fn test_rpc_light_client_proof_forwarding() {
 
     // Pick the final head from an RPC node so the block is guaranteed to be
     // canonical on the node that actually answers the request.
-    let light_client_head =
-        h.env.node_for_account(&alice_node).client().chain.final_head().unwrap().last_block_hash;
+    let light_client_head = h.env.node_for_account(&alice_node).final_head().last_block_hash;
 
     let run_proof_query = |h: &mut TwoShardHarness,
                            node_id: &AccountId,
@@ -1395,8 +1389,7 @@ fn test_rpc_light_client_proof_unknown_outcome() {
     h.env.runner_for_account(&alice_node).run_until_executed_height(target_height);
     h.env.runner_for_account(&zoe_node).run_until_executed_height(target_height);
 
-    let light_client_head =
-        h.env.node_for_account(&alice_node).client().chain.final_head().unwrap().last_block_hash;
+    let light_client_head = h.env.node_for_account(&alice_node).final_head().last_block_hash;
 
     let run_proof_query = |h: &mut TwoShardHarness,
                            node_id: &AccountId,
@@ -1455,8 +1448,7 @@ fn test_rpc_changes_in_block_scatter_gather() {
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
     // Find the block where the transaction was executed (has alice's state changes).
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let run_block_effects = |h: &mut TwoShardHarness,
@@ -1673,8 +1665,7 @@ fn test_rpc_changes_single_access_key_scatter_gather() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();

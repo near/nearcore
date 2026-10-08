@@ -86,8 +86,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
         &"account4".parse().unwrap(),
         Balance::from_near(1),
     );
-    let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
-    let block_time = client_actor.client.config.max_block_production_delay.get();
+    let block_time = env.node(0).client().config.max_block_production_delay.get();
     let tx_outcome = env.runner_for_account(rpc_id).execute_tx(tx, block_time * 5).unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 }

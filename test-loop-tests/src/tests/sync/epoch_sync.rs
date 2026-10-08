@@ -6,7 +6,6 @@ use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain::Error;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -74,8 +73,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
     }
 
     // Make sure the chain progressed for several epochs.
-    let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
-    assert!(client_actor.client.chain.head().unwrap().height > 10050);
+    assert!(env.node(0).head().height > 10050);
 
     env
 }
@@ -142,7 +140,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         Duration::seconds(20),
     );
 
-    let current_height = env.test_loop.data.get(&node0).client.chain.head().unwrap().height;
+    let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
     env.test_loop.run_until(
         |test_loop_data| {
@@ -206,8 +204,7 @@ fn slow_test_epoch_sync_with_expired_transactions() {
 
 impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
         let last_block_hash =
             find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
@@ -216,21 +213,17 @@ impl TestLoopEnv {
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let chain = &self.test_loop.data.get(&client_handle).client.chain;
-        chain.chain_store.final_head().unwrap().height
+        self.node(node_index).final_head().height
     }
 
     fn assert_epoch_sync_proof_existence_on_disk(&self, node_index: usize, exists: bool) {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let proof = store.epoch_store().get_epoch_sync_proof().unwrap();
         assert_eq!(proof.is_some(), exists);
     }
 
     fn assert_header_existence(&self, node_index: usize, height: u64, exists: bool) {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let header = store.chain_store().get_block_hash_by_height(height);
         assert_eq!(header.is_ok(), exists);
     }
@@ -350,8 +343,7 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 
@@ -380,8 +372,7 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 
@@ -410,8 +401,7 @@ fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 

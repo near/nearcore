@@ -134,9 +134,9 @@ fn test_archival_single_shard_tracking_when_resharding() {
         })
         .build();
 
-    let client_handle = env.node_datas[archival_client_index].client_sender.actor_handle();
-    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
-    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+    let client = env.node(archival_client_index).client();
+    let chain_store = client.chain.chain_store.clone();
+    let epoch_manager = client.epoch_manager.clone();
 
     // Wait for GC to kick in for the first time. This should clean up genesis data from the hot store.
     let num_blocks_to_wait = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP;

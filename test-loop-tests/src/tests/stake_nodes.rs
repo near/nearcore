@@ -612,7 +612,7 @@ fn test_validator_reward_in_get_validator_info() {
         .build();
 
     env.node_runner(0).run_until_new_epoch();
-    let boundary_block = env.node(0).client().chain.get_head_block().unwrap();
+    let boundary_block = env.node(0).head_block();
     env.node_runner(0).run_until_new_epoch();
 
     let mut all_ids = accounts;

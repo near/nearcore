@@ -61,7 +61,7 @@ fn setup_with_shards(num_shards: usize, num_producers: usize) -> Setup {
 /// The shards of the current epoch, and the producers of each.
 fn shard_producers(env: &TestLoopEnv, observer: &AccountId) -> Vec<(ShardId, Vec<AccountId>)> {
     let node = env.node_for_account(observer);
-    let epoch_id = node.client().chain.head().unwrap().epoch_id;
+    let epoch_id = node.head().epoch_id;
     let epoch_manager = node.client().epoch_manager.as_ref();
     epoch_manager
         .shard_ids(&epoch_id)

@@ -101,7 +101,7 @@ fn test_spice_chain() {
     // TODO(spice): Should be able to use execute_money_transfers here eventually. It shouldn't reach into
     // runtime directly though, or do it correctly with separated execution and chunks.
 
-    let client = &env.test_loop.data.get(&client_handles[0]).client;
+    let client = env.node(0).client();
     let epoch_manager = client.epoch_manager.clone();
 
     let node_datas = &env.node_datas;
@@ -111,7 +111,7 @@ fn test_spice_chain() {
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
         let node_data = get_node_data(node_datas, cp);
         let node = TestLoopNode { data: test_loop_data, node_data };
-        node.view_account_query(account).unwrap().amount
+        node.query_balance(account)
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -157,8 +157,7 @@ fn test_spice_chain() {
 
     assert_eq!(*sent_txs.lock(), observed_txs);
 
-    let client = &env.test_loop.data.get(&client_handles[0]).client;
-    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
@@ -241,7 +240,7 @@ fn test_spice_epoch_gated_by_certification() {
     // With the delay active, verify the consensus chain can still produce many
     // blocks and the epoch advances but only one epoch ahead of the last
     // certified block's epoch.
-    let starting_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let starting_epoch_id = env.node(0).head().epoch_id;
     env.node_runner(0).run_until(
         |node| {
             let head = node.head();
@@ -266,9 +265,9 @@ fn test_spice_epoch_gated_by_certification() {
     // Lift the delay and wrap up the current epoch. The chain should go back to transitioning epochs normally.
     env.delay_endorsements_propagation(0);
     env.node_runner(0).run_until_new_epoch();
-    let current_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let current_epoch_id = env.node(0).head().epoch_id;
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
-    let new_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let new_epoch_id = env.node(0).head().epoch_id;
     assert_ne!(
         current_epoch_id, new_epoch_id,
         "epoch should have advanced after delay is lifted with normal amount of blocks"
@@ -317,13 +316,10 @@ fn test_spice_rpc_get_block_by_finality() {
     let (mut env, producer_account) = setup_spice_env_with_execution_delay();
 
     let execution_head = env.node_for_account(&producer_account).last_executed();
-    let final_head = {
-        let node = env.node_for_account(&producer_account);
-        node.client().chain.final_head().unwrap()
-    };
+    let final_head = env.node_for_account(&producer_account).final_head();
 
-    let node_data = env.get_node_data_by_account_id(&producer_account);
-    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
+    let mut node = env.node_for_account_mut(&producer_account);
+    let view_client = node.view_client_actor();
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
     assert_eq!(block_none.header.height, execution_head.height);
@@ -346,8 +342,8 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
     let consensus_head = env.node_for_account(&producer_account).head();
     assert!(consensus_head.height > execution_head.height + 1);
 
-    let node_data = env.get_node_data_by_account_id(&producer_account);
-    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
+    let mut node = env.node_for_account_mut(&producer_account);
+    let view_client = node.view_client_actor();
 
     // Query by height within execution head: should succeed
     let result = view_client
@@ -475,7 +471,7 @@ fn test_restart_producer_node() {
 
     let mut env = env.warmup();
 
-    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
     let shard_id = shard_layout.account_id_to_shard_id(&receiver);
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producers = epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap();
@@ -586,7 +582,7 @@ fn test_restart_validator_node() {
 
     let mut env = env.warmup();
 
-    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producer = epoch_manager
         .get_epoch_chunk_producers(&epoch_id)
@@ -687,8 +683,7 @@ fn test_spice_chain_with_missing_chunks() {
         .build();
 
     let epoch_manager = env.rpc_node().client().epoch_manager.clone();
-    let head_epoch_id =
-        *env.rpc_node().client().chain.get_head_block().unwrap().header().epoch_id();
+    let head_epoch_id = *env.rpc_node().head_block().header().epoch_id();
     let node_with_missing_chunks_account = epoch_manager
         .get_epoch_chunk_producers(&head_epoch_id)
         .unwrap()
@@ -701,7 +696,7 @@ fn test_spice_chain_with_missing_chunks() {
     );
 
     for account in &accounts {
-        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
+        let got_balance = env.rpc_node().query_balance(account);
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -775,7 +770,7 @@ fn test_spice_chain_with_missing_chunks() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
+        let got_balance = env.rpc_node().query_balance(account);
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
@@ -958,8 +953,8 @@ fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
     let producer = validators_spec_clients(&validators_spec)[0].clone();
     let mut env = TestLoopBuilder::new().validators_spec(validators_spec).build();
 
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &mut env.test_loop.data.get_mut(&handle).client;
+    let mut node = env.node_mut(0);
+    let client = &mut node.client_actor().client;
 
     // Use an already-produced block: it carries valid doomslug approvals, so
     // processing the tampered copy reaches the chunk_execution_root check instead

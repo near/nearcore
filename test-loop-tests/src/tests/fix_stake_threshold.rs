@@ -52,7 +52,7 @@ fn slow_test_fix_validator_stake_threshold() {
         .clients(clients)
         .build();
 
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
 
     let head = client.chain.head().unwrap();
     let epoch_id =

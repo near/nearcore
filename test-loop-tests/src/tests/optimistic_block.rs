@@ -54,8 +54,7 @@ fn test_optimistic_block() {
     env.test_loop.run_for(Duration::seconds(10));
 
     {
-        let chain =
-            &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
+        let chain = &env.node(0).client().chain;
         // Under normal block processing, there can be only one optimistic
         // block waiting to be processed.
         assert!(chain.optimistic_block_chunks.num_blocks() <= 1);
@@ -75,7 +74,7 @@ fn test_optimistic_block() {
 #[cfg(feature = "test_features")]
 /// Create an invalid optimistic block based on the adversarial type.
 fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> OptimisticBlock {
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
 
     let epoch_manager = &client.epoch_manager;
     let head = client.chain.head().unwrap();
@@ -85,9 +84,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
     let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
 
     // Get producer client
-    let client_data =
-        &env.node_datas.iter().find(|data| data.account_id == block_producer).unwrap();
-    let client = &env.test_loop.data.get(&client_data.client_sender.actor_handle()).client;
+    let client = env.node_for_account(&block_producer).client();
     let chain = &client.chain;
 
     let prev_header = chain.get_block_header(parent_hash).unwrap();
@@ -110,8 +107,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
 fn test_invalid_optimistic_block() {
     let mut env = get_builder(3).build();
     env.test_loop.run_for(Duration::seconds(10));
-    let chain =
-        &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
+    let chain = &env.node(0).client().chain;
     assert!(
         &chain
             .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::InvalidVrfValue))
@@ -167,7 +163,7 @@ fn test_invalid_optimistic_block() {
 fn get_height_to_skip_and_producers(
     env: &TestLoopEnv,
 ) -> (BlockHeight, ValidatorStake, ValidatorStake) {
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
     let chain = &client.chain;
     let head = chain.head().unwrap();
     let epoch_manager = &client.epoch_manager;
@@ -272,9 +268,7 @@ fn alter_optimistic_block_at_height(
 }
 
 fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (usize, BlockHeight) {
-    let client_handler =
-        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
-    let chain = &env.test_loop.data.get(&client_handler).client.chain;
+    let chain = &env.node_for_account(producer.account_id()).client().chain;
     (chain.apply_chunk_results_cache.hits(), chain.head().unwrap().height)
 }
 
@@ -296,12 +290,10 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
 
-    let producer_client_handle =
-        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
     let affected_client_handle =
         &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
 
-    let client = &env.test_loop.data.get(&producer_client_handle).client;
+    let client = env.node_for_account(producer.account_id()).client();
     let signer = client.validator_signer.get().unwrap();
     alter_optimistic_block_at_height(&mut env, height_to_skip, signer);
 
@@ -382,12 +374,9 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // memtrie roots are GC'd. A head-based condition would exit too soon.
     env.test_loop.run_for(Duration::seconds(60));
 
-    let slow_node_handle = env.get_node_data_by_account_id(&slow_node).client_sender.actor_handle();
     let failed_applies = env
-        .test_loop
-        .data
-        .get(&slow_node_handle)
-        .client
+        .node_for_account(&slow_node)
+        .client()
         .chain
         .failed_optimistic_block_applies
         .load(Ordering::Relaxed);

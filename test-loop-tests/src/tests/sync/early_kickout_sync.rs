@@ -305,9 +305,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
 
     let node = env.node(new_node_idx);
-    let head = node.head();
-    let version_at_head =
-        node.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap();
+    let version_at_head = node.protocol_version_at_head();
     assert!(
         ProtocolFeature::EarlyKickout.enabled(version_at_head),
         "head epoch is still at version {version_at_head}; the network never upgraded"

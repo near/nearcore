@@ -751,21 +751,19 @@ fn test_far_horizon_tx_during_sync() {
     let step_time = Duration::milliseconds(300);
     let num_steps = total_time.whole_milliseconds() / step_time.whole_milliseconds();
 
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    let node0_handle = env.node_datas[0].client_sender.actor_handle();
     let tx_accounts: Vec<AccountId> = accounts[50..60].to_vec();
     let mut tx_counter: u64 = 0;
 
     for _ in 0..num_steps {
         env.test_loop.run_for(step_time);
 
-        let new_h = env.test_loop.data.get(&new_node_handle).client.chain.head().unwrap().height;
-        let node0_h = env.test_loop.data.get(&node0_handle).client.chain.head().unwrap().height;
+        let new_h = env.node(new_node_idx).head().height;
+        let node0_h = env.node(0).head().height;
         // Only stop once we've injected at least some txs during active sync.
         if new_h == node0_h && tx_counter > 0 {
             break;
         }
-        if !env.test_loop.data.get(&new_node_handle).client.sync_handler.sync_status.is_syncing() {
+        if !env.node(new_node_idx).client().sync_handler.sync_status.is_syncing() {
             continue;
         }
 
@@ -781,8 +779,8 @@ fn test_far_horizon_tx_during_sync() {
         }
     }
 
-    let new_h = env.test_loop.data.get(&new_node_handle).client.chain.head().unwrap().height;
-    let node0_h = env.test_loop.data.get(&node0_handle).client.chain.head().unwrap().height;
+    let new_h = env.node(new_node_idx).head().height;
+    let node0_h = env.node(0).head().height;
     assert_eq!(new_h, node0_h, "new node failed to catch up within timeout");
 
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
@@ -940,8 +938,7 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
 
     // The chain is already well past `far_horizon_height` by now, so take the window from
     // where it actually is: the node syncs and catches up within the next couple of epochs.
-    let source_handle = env.node_datas[0].client_sender.actor_handle();
-    let tip = env.test_loop.data.get(&source_handle).client.chain.head().unwrap().height;
+    let tip = env.node(0).head().height;
     env.shared_state
         .network_shared_state
         .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);

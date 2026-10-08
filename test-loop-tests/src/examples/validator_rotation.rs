@@ -39,10 +39,8 @@ fn test_validator_rotation() {
         .epoch_config_store(epoch_config_store)
         .build();
 
-    let client_actor_handle = env.node_datas[0].client_sender.actor_handle();
-
     let assert_current_validators = |env: &TestLoopEnv, validators: &[AccountId]| {
-        let client = &env.test_loop.data.get(&client_actor_handle).client;
+        let client = env.node(0).client();
         let epoch_id = client.chain.head().unwrap().epoch_id;
         let current_validators: Vec<_> = client
             .epoch_manager
