@@ -3264,9 +3264,17 @@ pub fn set_state_init_data_entry(
 /// `promise_batch_action_universal_state_init` and know the promise it
 /// creates will pass the receiver check.
 ///
-/// Nothing here inspects the contents: any byte string maps to some ID. A
-/// string that is not a well-formed state init maps to an account that can
-/// never be initialized, which the receipt's own validation catches.
+/// Only the canonical borsh encoding is accepted, as in the action itself. Bytes
+/// that do not decode, or decode but differ from the canonical re-encoding, have
+/// no ID, and the register is left untouched.
+///
+/// # Returns
+///
+/// An exit status:
+///
+/// * `0` if `state_init` is canonical and the ID was written to `register_id`;
+/// * `1` if `state_init` does not decode into a `UniversalStateInit`;
+/// * `2` if it decodes but is not the canonical encoding of the result.
 ///
 /// # Errors
 ///
@@ -3278,14 +3286,14 @@ pub fn set_state_init_data_entry(
 /// `universal_state_init_to_account_id_base
 ///  + universal_state_init_to_account_id_byte * num_bytes
 ///  + cost of reading the state init from memory
-///  + cost of writing the account ID to the register`
+///  + cost of writing the account ID to the register (only on success)`
 pub fn universal_state_init_to_account_id(
     ctx: &mut HostCtx,
     memory: &mut [u8],
     state_init_len: u64,
     state_init_ptr: u64,
     register_id: u64,
-) -> Result<()> {
+) -> Result<u64> {
     use sha3::Digest;
 
     ctx.result_state.gas_counter.pay_base(universal_state_init_to_account_id_base)?;
@@ -3300,13 +3308,19 @@ pub fn universal_state_init_to_account_id(
         .gas_counter
         .pay_per(universal_state_init_to_account_id_byte, state_init.len() as u64)?;
 
+    // The per-byte fee above pays for this check, so it is charged before it runs.
+    if let Err(error) = ctx.ext.check_state_init(&RawStateInit(state_init.to_vec())) {
+        return Ok(error.exit_status());
+    }
+
     let account_id = encode_universal_account_id(&sha3::Sha3_256::digest(state_init).into());
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
         account_id.as_bytes(),
-    )
+    )?;
+    Ok(0)
 }
 
 /// Appends a `UniversalStateInit` action to the batch of actions for the given

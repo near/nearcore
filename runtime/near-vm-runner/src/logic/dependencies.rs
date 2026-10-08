@@ -5,7 +5,9 @@ use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
-use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
+use near_primitives_core::universal_state_init::{
+    RawStateInit, StateInitError, UniversalStateInitCounts,
+};
 
 /// Representation of the address slice of guest memory.
 #[derive(Clone, Copy)]
@@ -394,6 +396,12 @@ pub trait External {
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> Result<(), VMLogicError>;
+
+    /// Checks that `state_init` is the canonical borsh of a `UniversalStateInit`,
+    /// i.e. exactly what the action validation accepts.
+    ///
+    /// Decoding is a host-side concern, see [`Self::state_init_counts`].
+    fn check_state_init(&self, state_init: &RawStateInit) -> Result<(), StateInitError>;
 
     /// The counts a `UniversalStateInit` action carrying `state_init` is priced on.
     ///

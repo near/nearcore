@@ -466,8 +466,9 @@ impl Action {
             | Action::UseGlobalContract(_)
             | Action::DeterministicStateInit(_) => false,
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
-            // A state init that does not decode carries no keys as far as this is
-            // concerned; it is rejected by action validation before it can run.
+            // A state init that is not accepted (malformed or not canonical) carries no
+            // keys as far as this is concerned; it is rejected by action validation
+            // before it can run.
             Action::UniversalStateInit(a) => {
                 UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
                     state_init
@@ -518,7 +519,7 @@ impl Action {
     /// collapse the arms into a wildcard.
     pub fn state_init_counts(&self) -> StateInitCounts {
         match self {
-            // Carries a state init directly. A payload that does not decode
+            // Carries a state init directly. A payload that is not accepted
             // describes nothing as far as this is concerned; it is rejected by
             // action validation before it can run.
             Action::DeterministicStateInit(a) => {

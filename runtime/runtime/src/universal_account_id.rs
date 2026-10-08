@@ -73,7 +73,7 @@ pub(crate) fn action_universal_state_init(
 
     // The action carries the bytes the producer serialized; installing the
     // state needs them decoded. Every receipt is validated before its actions
-    // run and validation rejects a state init that does not decode, so this
+    // run and validation rejects a state init that is not canonical, so this
     // only fires if that invariant has been broken. Failing the action rather
     // than the chunk keeps a hypothetical gap in that coverage from becoming a
     // halt, since the payload comes from outside.

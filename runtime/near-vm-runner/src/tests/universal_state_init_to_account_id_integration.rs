@@ -33,14 +33,14 @@ fn derive_wat(state_init: &[u8]) -> String {
     let len = state_init.len();
     format!(
         r#"(module
-  (import "env" "universal_state_init_to_account_id" (func $derive (param i64 i64 i64)))
+  (import "env" "universal_state_init_to_account_id" (func $derive (param i64 i64 i64) (result i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (memory (export "memory") 1)
 
   (data (i32.const 0) "{data}")
 
   (func (export "main")
-    (call $derive (i64.const {len}) (i64.const 0) (i64.const 0))
+    (drop (call $derive (i64.const {len}) (i64.const 0) (i64.const 0)))
     ;; return register 0 (value_len == u64::MAX selects register mode)
     (call $value_return (i64.const -1) (i64.const 0))
   )

@@ -248,6 +248,17 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
         Cost::ActionDeterministicStateInitPerByteSendNotSir,
         action_costs::deterministic_state_init_byte_send,
     ),
+    (Cost::ActionUniversalStateInitPerByte, action_costs::universal_state_init_byte_total),
+    (Cost::ActionUniversalStateInitPerByteExec, action_costs::universal_state_init_byte_exec),
+    (Cost::ActionUniversalStateInitPerByteSendSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerByteSendNotSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerEntry, action_costs::universal_state_init_entry_total),
+    (Cost::ActionUniversalStateInitPerEntryExec, action_costs::universal_state_init_entry_exec),
+    (Cost::ActionUniversalStateInitPerEntrySendSir, action_costs::universal_state_init_entry_send),
+    (
+        Cost::ActionUniversalStateInitPerEntrySendNotSir,
+        action_costs::universal_state_init_entry_send,
+    ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::OpFloat, adversarial_float_nan_canonicalization),
@@ -1209,8 +1220,8 @@ fn universal_state_init_to_account_id_byte(ctx: &mut EstimatorContext) -> GasCos
     let base = universal_state_init_to_account_id_base(ctx);
     // inside the WASM function, there are 10k calls to the host function.
     let base_call_num = 10_000;
-    // each call derives an id from a 10kiB state init
-    let iteration_bytes = 10 * 1024;
+    // each call derives an id from a state init of this many bytes, see the contract
+    let iteration_bytes = 2 + 4 + 852 * 12 + 4;
     let total_bytes = base_call_num * iteration_bytes;
     let byte = fn_cost(
         ctx,

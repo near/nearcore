@@ -9,7 +9,9 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::{CryptoHash, YieldId, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
-use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
+use near_primitives_core::universal_state_init::{
+    RawStateInit, StateInitError, UniversalStateInitCounts,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -136,6 +138,12 @@ pub struct MockedExternal {
     /// to exercise the per-entry and per-key fees.
     pub universal_state_init_entries: u64,
     pub universal_state_init_keys: u64,
+    /// What `check_state_init` reports. Real decoding needs the typed
+    /// `UniversalStateInit`, out of this crate's reach, so tests just pick the answer.
+    pub state_init_error: Option<StateInitError>,
+    /// How many times `check_state_init` was asked, so a test can assert the
+    /// per-byte fee is charged before the host does that work.
+    pub check_state_init_calls: std::cell::Cell<u64>,
     /// How many times `state_init_counts` was asked for a decode, so a test can
     /// assert the per-byte fee is charged before the host does that work.
     pub state_init_counts_calls: std::cell::Cell<u64>,
@@ -398,6 +406,11 @@ impl External for MockedExternal {
             }
             _ => Err(HostError::InvalidActionIndex { receipt_index, action_index }.into()),
         }
+    }
+
+    fn check_state_init(&self, _state_init: &RawStateInit) -> Result<(), StateInitError> {
+        self.check_state_init_calls.set(self.check_state_init_calls.get() + 1);
+        self.state_init_error.map_or(Ok(()), Err)
     }
 
     /// The byte count comes from the payload; the entry and key counts are

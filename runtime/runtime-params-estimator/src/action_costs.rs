@@ -12,7 +12,9 @@ use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
+use near_primitives::action::{
+    DeterministicStateInitAction, GlobalContractIdentifier, UniversalStateInitAction,
+};
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -20,8 +22,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::utils::derive_near_deterministic_account_id;
-use std::collections::BTreeMap;
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 
 /// Protocol `max_transaction_size` limit (1.5 MiB).
@@ -774,6 +777,108 @@ pub(crate) fn deterministic_state_init_byte_exec(ctx: &mut EstimatorContext) -> 
         .max_outer_iters(1)
         .apply_cost(&mut ctx.testbed())
         / bytes as u64
+}
+
+/// A universal state init holding only data entries, so that only the per-entry
+/// and per-byte fees are exercised. `seed` makes the account id unique.
+fn universal_state_init_action(
+    seed: u64,
+    num_entries: usize,
+    key_size: usize,
+    value_size: usize,
+) -> (AccountId, Action) {
+    let mut data: BTreeMap<_, _> = (0..num_entries)
+        .map(|n| (format!("{:0len$}", n, len = key_size).into_bytes(), vec![2u8; value_size]))
+        .collect();
+
+    // Insert one special value that changes between actions to change the account id.
+    data.insert(Vec::new(), seed.to_le_bytes().to_vec());
+
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data,
+        access_keys: BTreeSet::new(),
+    });
+    let raw = state_init.to_raw();
+    let receiver = derive_universal_account_id(&raw);
+    let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+        state_init: raw,
+        deposit: Balance::from_near(100),
+    }));
+    (receiver, action)
+}
+
+fn universal_state_init_send(
+    num_entries: usize,
+    key_size: usize,
+    value_size: usize,
+) -> impl Fn(&mut EstimatorContext) -> GasCost {
+    move |ctx| {
+        let (receiver, action) = universal_state_init_action(0, num_entries, key_size, value_size);
+        ActionEstimation::new(ctx)
+            .add_action(action)
+            .receiver(AccountRequirement::SpecificAccount(receiver))
+            // repeating the actions has no effect
+            .inner_iters(1)
+            .max_outer_iters(1)
+            .verify_cost(&mut ctx.testbed())
+    }
+}
+
+fn universal_state_init_exec(
+    num_entries: usize,
+    key_size: usize,
+    value_size: usize,
+) -> impl Fn(&mut EstimatorContext) -> GasCost {
+    move |ctx| {
+        let (receiver, action) = universal_state_init_action(0, num_entries, key_size, value_size);
+        ActionEstimation::new(ctx)
+            .add_action(action)
+            .receiver(AccountRequirement::SpecificAccount(receiver))
+            // repeating the actions has no effect
+            .inner_iters(1)
+            .max_outer_iters(1)
+            .apply_cost(&mut ctx.testbed())
+    }
+}
+
+/// The shape the per-byte fee is measured on: one large entry, as for
+/// `deterministic_state_init_byte_*`. Many small entries are the per-entry fee's job.
+const UNIVERSAL_BYTE_ENTRIES: usize = 1;
+const UNIVERSAL_BYTE_KEY_SIZE: usize = 1;
+const UNIVERSAL_BYTE_VALUE_SIZE: usize = 1_000_000;
+const UNIVERSAL_ENTRY_ENTRIES: usize = 100_000;
+const UNIVERSAL_ENTRY_KEY_SIZE: usize = 7;
+
+pub(crate) fn universal_state_init_byte_send(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_send(
+        UNIVERSAL_BYTE_ENTRIES,
+        UNIVERSAL_BYTE_KEY_SIZE,
+        UNIVERSAL_BYTE_VALUE_SIZE,
+    )(ctx)
+        / UNIVERSAL_BYTE_VALUE_SIZE as u64
+}
+pub(crate) fn universal_state_init_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_exec(
+        UNIVERSAL_BYTE_ENTRIES,
+        UNIVERSAL_BYTE_KEY_SIZE,
+        UNIVERSAL_BYTE_VALUE_SIZE,
+    )(ctx)
+        / UNIVERSAL_BYTE_VALUE_SIZE as u64
+}
+pub(crate) fn universal_state_init_byte_total(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_byte_send(ctx) + universal_state_init_byte_exec(ctx)
+}
+pub(crate) fn universal_state_init_entry_send(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_send(UNIVERSAL_ENTRY_ENTRIES, UNIVERSAL_ENTRY_KEY_SIZE, 0)(ctx)
+        / UNIVERSAL_ENTRY_ENTRIES as u64
+}
+pub(crate) fn universal_state_init_entry_exec(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_exec(UNIVERSAL_ENTRY_ENTRIES, UNIVERSAL_ENTRY_KEY_SIZE, 0)(ctx)
+        / UNIVERSAL_ENTRY_ENTRIES as u64
+}
+pub(crate) fn universal_state_init_entry_total(ctx: &mut EstimatorContext) -> GasCost {
+    universal_state_init_entry_send(ctx) + universal_state_init_entry_exec(ctx)
 }
 
 fn create_account_action() -> Action {

@@ -496,9 +496,10 @@ pub fn derive_near_deterministic_account_id(
 /// (FIPS-202) over exactly those bytes, encoded with the UAID address codec.
 ///
 /// **Note:** This function deliberately does not take `UniversalStateInit`, but
-/// `RawStateInit`, because account ID is committed to the exact user-supplied bytes.
-/// Re-serializing could yield a different ID, if `state_init` contained non-canonical
-/// borsh representation.
+/// `RawStateInit`, because the account ID is committed to the exact bytes. It does
+/// not check them: only the canonical encoding is accepted by
+/// `UniversalStateInit::from_raw`, which every consumer of the ID goes through, so
+/// a non-canonical encoding can derive an ID but can never create the account.
 pub fn derive_universal_account_id(state_init: &RawStateInit) -> AccountId {
     use sha3::Digest;
     let hash = sha3::Sha3_256::digest(&state_init.0).into();
@@ -587,12 +588,13 @@ mod tests {
         }
     }
 
-    /// Two encodings of the same logical state init are two different accounts:
-    /// the id commits to the bytes, and nothing re-serializes a decoded value to
-    /// derive one.
+    /// The derivation commits to the bytes it is given, and nothing re-serializes a
+    /// decoded value to derive one. Non-canonical bytes are rejected before they
+    /// get here (see `UniversalStateInit::from_raw`), but the hash itself is blind.
     #[test]
     fn test_derive_universal_account_id_is_over_raw_bytes() {
         use crate::universal_state_init::{RawStateInit, UniversalStateInit};
+        use borsh::BorshDeserialize;
 
         // V1, code: None, data {"b": "", "a": ""} written out of order, no keys.
         // Borsh accepts it and re-sorts on decode, so the typed form's own encoding
@@ -607,7 +609,7 @@ mod tests {
         bytes.extend_from_slice(&0u32.to_le_bytes());
         let raw = RawStateInit(bytes);
 
-        let decoded = UniversalStateInit::from_raw(&raw).unwrap();
+        let decoded = UniversalStateInit::try_from_slice(&raw.0).unwrap();
         assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
         assert_ne!(
             derive_universal_account_id(&raw),

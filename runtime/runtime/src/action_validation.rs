@@ -1674,6 +1674,27 @@ mod tests {
             validate_action(&limit, &action, &receiver, feature_version),
             Err(ActionsValidationError::MalformedUniversalStateInit)
         );
+
+        // Bytes that decode but are not the canonical encoding (data keys out of
+        // order here) hash to a valid receiver and are rejected the same way.
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        let unsorted = RawStateInit(bytes);
+        let receiver = derive_universal_account_id(&unsorted);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: unsorted,
+            deposit: Balance::ZERO,
+        }));
+        assert_eq!(
+            validate_action(&limit, &action, &receiver, feature_version),
+            Err(ActionsValidationError::MalformedUniversalStateInit)
+        );
     }
 
     /// `copies` byte-identical state-init actions, all addressed to the receiver
