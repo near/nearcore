@@ -152,6 +152,8 @@ pub enum ProtocolFeature {
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
     UpdatedEthWalletContract,
+    /// Access keys with a balance that pays for their transactions that fail at execution.
+    InclusionKeys,
 }
 
 impl ProtocolFeature {
@@ -196,6 +198,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::InclusionKeys => 158,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
