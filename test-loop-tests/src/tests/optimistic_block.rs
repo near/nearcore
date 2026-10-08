@@ -4,13 +4,12 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
@@ -22,27 +21,21 @@ use std::sync::atomic::Ordering;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
     let epoch_length = 100;
     // Keep it above 3 to prevent missing blocks from stalling the network.
     let accounts =
         (0..4).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect_vec();
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts.iter().map(|account_id| account_id.as_str()).collect_vec(),
         &[],
     );
 
-    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    TestLoopBuilder::new()
         .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
+        .num_shards(num_shards)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
 }
 
 #[test]

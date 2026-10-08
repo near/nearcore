@@ -6,7 +6,6 @@ use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActor;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
@@ -63,11 +62,9 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         .shard_layout(ShardLayout::multi_shard(8, 3))
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(accounts)
-        .epoch_config_store(epoch_config_store)
         // With short epoch length sync hash may not be available for catchup so we track all
         // shards.
         .track_all_shards()

@@ -399,12 +399,7 @@ fn slow_test_all_chunks_accepted() {
         .shard_layout(ShardLayout::multi_shard(num_shards, 3))
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(accounts)
-        .epoch_config_store(epoch_config_store)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {

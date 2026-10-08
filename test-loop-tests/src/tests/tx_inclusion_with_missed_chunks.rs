@@ -62,11 +62,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let max_missed = RuntimeConfig::test().congestion_control_config.max_congestion_missed_chunks;
     assert!(num_missed_chunks < max_missed as usize);
 
-    let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     // account4 lives in the second shard (boundary "account3" separates 0–2 from 4+).
     let shard_layout = &env.shared_state.genesis.config.shard_layout;
