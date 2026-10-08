@@ -29,6 +29,8 @@ pub enum Parameter {
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
     AccountCreationCharge,
+    /// Largest balance an inclusion key can hold.
+    MaxInclusionKeyBalance,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.

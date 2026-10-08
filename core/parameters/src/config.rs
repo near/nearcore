@@ -40,6 +40,9 @@ pub struct RuntimeConfig {
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
     pub account_creation_charge: Balance,
+
+    /// Largest balance an inclusion key can hold.
+    pub max_inclusion_key_balance: Balance,
 }
 
 impl RuntimeConfig {
@@ -68,6 +71,7 @@ impl RuntimeConfig {
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             min_gas_purchase_price: runtime_config.min_gas_purchase_price,
             account_creation_charge: runtime_config.account_creation_charge,
+            max_inclusion_key_balance: runtime_config.max_inclusion_key_balance,
         }
     }
 
@@ -90,6 +94,7 @@ impl RuntimeConfig {
             // zero as well so the invariant min_gas_purchase_price * create_account_gas_cost >=
             // account_creation_charge holds trivially (0 >= 0).
             account_creation_charge: Balance::ZERO,
+            max_inclusion_key_balance: runtime_config.max_inclusion_key_balance,
         }
     }
 

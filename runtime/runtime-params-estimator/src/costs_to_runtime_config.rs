@@ -44,6 +44,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
         account_creation_charge: latest_runtime_config.account_creation_charge,
+        max_inclusion_key_balance: latest_runtime_config.max_inclusion_key_balance,
     };
     Ok(res)
 }

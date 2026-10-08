@@ -32,6 +32,9 @@ pub struct RuntimeConfigView {
     /// account creation.
     #[serde(default)]
     pub account_creation_charge: Balance,
+    /// Largest balance an inclusion key can hold.
+    #[serde(default)]
+    pub max_inclusion_key_balance: Balance,
 }
 
 /// Describes different fees for the runtime
@@ -227,6 +230,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
             witness_config: WitnessConfigView::from(config.witness_config),
             min_gas_purchase_price: config.min_gas_purchase_price,
             account_creation_charge: config.account_creation_charge,
+            max_inclusion_key_balance: config.max_inclusion_key_balance,
         }
     }
 }
