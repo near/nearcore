@@ -892,6 +892,26 @@ impl GasKeyInfo {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct InclusionKeyInfo {
+    pub balance: Balance,
+    /// Nonce of the last transaction signed with this key that executed or was charged.
+    /// Delegate actions do not write it. Always `<= AccessKey::nonce`.
+    pub last_transaction_nonce: Nonce,
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,
