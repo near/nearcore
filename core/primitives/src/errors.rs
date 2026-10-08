@@ -509,6 +509,8 @@ pub enum ActionsValidationError {
         number_of_entries: u64,
         limit: u64,
     } = 29,
+    /// An AddKey action cannot add an inclusion key; FundInclusionKey converts an existing key.
+    AddInclusionKeyNotAllowed = 30,
 }
 
 /// Describes the error for validating a receipt.
@@ -766,6 +768,9 @@ impl Display for ActionsValidationError {
                     f,
                     "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
                 )
+            }
+            ActionsValidationError::AddInclusionKeyNotAllowed => {
+                write!(f, "an AddKey action cannot add an inclusion key")
             }
         }
     }
