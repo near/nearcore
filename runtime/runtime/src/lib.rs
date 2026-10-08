@@ -281,16 +281,15 @@ impl Default for PendingConstraints {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
-/// - `DepositFailed`: apply gas-only state changes via `VerificationResult::apply`
+/// - `FailedAndCharged`: apply gas-only state changes via `VerificationResult::apply`
 ///   (only returned by gas key path).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
-    /// Gas key valid with sufficient gas balance, but account can't cover deposit.
-    /// Gas key balance is deducted, account balance unchanged.
-    DepositFailed { result: VerificationResult, error: InvalidTxError },
+    /// Invalid, but the key balance pays for it: the nonce is used, the account balance is unchanged.
+    FailedAndCharged { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
 }
@@ -2237,7 +2236,7 @@ impl Runtime {
 
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
-                TxVerdict::DepositFailed { result, error } => {
+                TxVerdict::FailedAndCharged { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,

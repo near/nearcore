@@ -416,7 +416,7 @@ fn check_and_compute_new_allowance(
 
 /// Verify a regular (non-gas-key) transaction and compute the charge outcome.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedAndCharged`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
 /// This function performs no mutation; all state changes are returned in the
@@ -531,7 +531,7 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
 /// otherwise have provided, a nonce plus the balance and storage checks. The
 /// nonce lives on the account until the state init installs the keys.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedAndCharged`).
 /// Performs no mutation; changes are returned in the `VerificationResult`.
 pub fn verify_and_charge_bootstrap_tx_ephemeral(
     config: &RuntimeConfig,
@@ -631,7 +631,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
 /// This function performs validation only and does NOT mutate `account` or `access_key`.
 /// Callers are responsible for applying state changes based on the returned variant:
 /// - `Success(result)`: apply all state changes via `result.apply()`.
-/// - `DepositFailed { result, .. }`: apply gas-only changes via `result.apply()`.
+/// - `FailedAndCharged { result, .. }`: apply gas-only changes via `result.apply()`.
 /// - `Failed(_)`: no state changes.
 pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
@@ -755,7 +755,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     // best-effort.
     let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
     if available_balance < deposit_cost {
-        return TxVerdict::DepositFailed {
+        return TxVerdict::FailedAndCharged {
             result: make_deposit_failed_result(account.amount()),
             error: InvalidTxError::NotEnoughBalanceForDeposit {
                 signer_id: account_id.clone(),
@@ -771,7 +771,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return TxVerdict::DepositFailed {
+            return TxVerdict::FailedAndCharged {
                 result: make_deposit_failed_result(account.amount()),
                 error: InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
@@ -1217,7 +1217,7 @@ mod tests {
         )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
-            TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
+            TxVerdict::Failed(e) | TxVerdict::FailedAndCharged { error: e, .. } => return Err(e),
         };
         let mut access_key = authorization.into_access_key();
         result.apply(&mut signer, access_key.as_mut())?;
@@ -3036,7 +3036,7 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+        let TxVerdict::FailedAndCharged { result, error } = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
@@ -3046,7 +3046,7 @@ mod tests {
             None,
             &PendingConstraints::default(),
         ) else {
-            panic!("expected DepositFailed");
+            panic!("expected FailedAndCharged");
         };
         match error {
             InvalidTxError::NotEnoughBalanceForDeposit { signer_id, reason, .. } => {
@@ -3103,7 +3103,7 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+        let TxVerdict::FailedAndCharged { result, error } = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
@@ -3113,7 +3113,7 @@ mod tests {
             None,
             &PendingConstraints::default(),
         ) else {
-            panic!("expected DepositFailed");
+            panic!("expected FailedAndCharged");
         };
         let new_account_amount = initial_balance.checked_sub(cost.deposit_cost).unwrap();
         match error {
