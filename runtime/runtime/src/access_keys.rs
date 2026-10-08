@@ -1,8 +1,10 @@
-use crate::config::{safe_add_compute, storage_removes_compute};
+use crate::config::{safe_add_balance, safe_add_compute, storage_removes_compute};
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, Account, GasKeyInfo};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, Account, GasKeyInfo, InclusionKeyInfo,
+};
 use near_primitives::action::{
     FundInclusionKeyAction, TransferToGasKeyAction, WithdrawFromGasKeyAction,
     WithdrawFromInclusionKeyAction,
@@ -11,7 +13,7 @@ use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeErro
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::trie_key::gas_key_nonce_key_len;
-use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StorageUsage};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, NonceIndex, StorageUsage};
 use near_store::{
     StorageError, TrieUpdate, get_access_key, remove_access_key, remove_gas_key_nonce,
     set_access_key, set_gas_key_nonce,
@@ -339,14 +341,65 @@ pub(crate) fn action_withdraw_from_gas_key(
 }
 
 pub(crate) fn action_fund_inclusion_key(
-    _state_update: &mut TrieUpdate,
-    _result: &mut ActionResult,
-    _account_id: &AccountId,
-    _receipt: &Receipt,
-    _action: &FundInclusionKeyAction,
+    config: &RuntimeConfig,
+    state_update: &mut TrieUpdate,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    receipt: &Receipt,
+    action: &FundInclusionKeyAction,
 ) -> Result<(), RuntimeError> {
-    // TODO(inclusion-keys): stub, filled when FundInclusionKey execution lands.
+    let Some(mut access_key) = get_access_key(state_update, account_id, &action.public_key)? else {
+        result.result = Err(ActionErrorKind::FundInclusionKeyAccessKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
+        }
+        .into());
+        return Ok(());
+    };
+    let Some(inclusion_key_info) = convert_to_inclusion_key_if_needed(&mut access_key) else {
+        result.result = Err(ActionErrorKind::FundInclusionKeyIsGasKey {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
+        }
+        .into());
+        return Ok(());
+    };
+    let target_balance = action.target_balance.min(config.max_inclusion_key_balance);
+    let added_balance = target_balance.saturating_sub(inclusion_key_info.balance);
+    inclusion_key_info.balance = safe_add_balance(inclusion_key_info.balance, added_balance)?;
+    set_access_key(state_update, account_id.clone(), action.public_key.clone(), &access_key);
+
+    let deposit_refund = action.target_balance.saturating_sub(added_balance);
+    if deposit_refund > Balance::ZERO {
+        result
+            .new_receipts
+            .push(Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit_refund));
+    }
     Ok(())
+}
+
+/// Converts a plain key to an inclusion key with `last_transaction_nonce = nonce`; an inclusion
+/// key is unchanged. Returns the inclusion key info, or `None` for a gas key.
+fn convert_to_inclusion_key_if_needed(access_key: &mut AccessKey) -> Option<&mut InclusionKeyInfo> {
+    let inclusion_key_info =
+        InclusionKeyInfo { balance: Balance::ZERO, last_transaction_nonce: access_key.nonce };
+    match &access_key.permission {
+        AccessKeyPermission::FullAccess => {
+            access_key.permission = AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info);
+        }
+        AccessKeyPermission::FunctionCall(function_call_permission) => {
+            access_key.permission = AccessKeyPermission::InclusionKeyFunctionCall(
+                inclusion_key_info,
+                function_call_permission.clone(),
+            );
+        }
+        AccessKeyPermission::InclusionKeyFunctionCall(..)
+        | AccessKeyPermission::InclusionKeyFullAccess(_) => {}
+        AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
+            return None;
+        }
+    }
+    access_key.inclusion_key_info_mut()
 }
 
 pub(crate) fn action_withdraw_from_inclusion_key(
@@ -372,7 +425,8 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle};
     use near_parameters::{RuntimeConfig, RuntimeConfigStore};
     use near_primitives::account::{
-        AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+        AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
+        GasKeyInfo,
     };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -1436,5 +1490,243 @@ mod tests {
                 .public_key();
         assert_eq!(pq_pk.trie_id_len(), 1 + 32);
         assert_eq!(pq_pk.len(), 1 + 1952); // borsh form still reports full
+    }
+
+    fn fund_inclusion_key(
+        config: &RuntimeConfig,
+        state_update: &mut TrieUpdate,
+        account_id: &AccountId,
+        relayer_id: &AccountId,
+        public_key: &PublicKey,
+        target_balance: Balance,
+    ) -> ActionResult {
+        let receipt = Receipt::from_tx(
+            CryptoHash::default(),
+            relayer_id.clone(),
+            account_id.clone(),
+            public_key.clone(),
+            Balance::ZERO,
+            vec![],
+        );
+        let action = FundInclusionKeyAction { public_key: public_key.clone(), target_balance };
+        let mut result = ActionResult::default();
+        action_fund_inclusion_key(config, state_update, &mut result, account_id, &receipt, &action)
+            .unwrap();
+        result
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_converts_full_access_key() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let nonce = 7;
+        let plain_key = AccessKey { nonce, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut config = RuntimeConfig::test();
+        config.max_inclusion_key_balance = Balance::from_millinear(50);
+        let target_balance = Balance::from_millinear(10);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &public_key,
+            target_balance,
+        );
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        assert_eq!(result.new_receipts, vec![]);
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: target_balance, last_transaction_nonce: nonce };
+        let expected_key = AccessKey {
+            nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(expected_inclusion_key_info),
+        };
+        let inclusion_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
+        assert_eq!(inclusion_key, Some(expected_key));
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_converts_function_call_key() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let nonce = 7;
+        let function_call_permission = FunctionCallPermission {
+            allowance: Some(Balance::from_millinear(1)),
+            receiver_id: "bob.near".to_string(),
+            method_names: vec!["method".to_string()],
+        };
+        let plain_key = AccessKey {
+            nonce,
+            permission: AccessKeyPermission::FunctionCall(function_call_permission.clone()),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut config = RuntimeConfig::test();
+        config.max_inclusion_key_balance = Balance::from_millinear(50);
+        let target_balance = Balance::from_millinear(10);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &public_key,
+            target_balance,
+        );
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: target_balance, last_transaction_nonce: nonce };
+        let expected_key = AccessKey {
+            nonce,
+            permission: AccessKeyPermission::InclusionKeyFunctionCall(
+                expected_inclusion_key_info,
+                function_call_permission,
+            ),
+        };
+        let inclusion_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
+        assert_eq!(inclusion_key, Some(expected_key));
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_clamps_to_max_balance_and_refunds_rest() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let max_inclusion_key_balance = Balance::from_millinear(50);
+        let mut config = RuntimeConfig::test();
+        config.max_inclusion_key_balance = max_inclusion_key_balance;
+        let target_balance = Balance::from_millinear(80);
+        let expected_refund = Balance::from_millinear(30);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &public_key,
+            target_balance,
+        );
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(&relayer_id, expected_refund)]
+        );
+        let inclusion_key =
+            get_access_key(&state_update, &account_id, &public_key).unwrap().unwrap();
+        assert_eq!(inclusion_key.inclusion_key_info().unwrap().balance, max_inclusion_key_balance);
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_never_lowers_balance_and_refunds_all() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let current_balance = Balance::from_millinear(40);
+        let last_transaction_nonce = 3;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: current_balance, last_transaction_nonce };
+        let inclusion_key = AccessKey {
+            nonce: 7,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key);
+        let mut config = RuntimeConfig::test();
+        config.max_inclusion_key_balance = Balance::from_millinear(50);
+        let target_balance = Balance::from_millinear(20);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &public_key,
+            target_balance,
+        );
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(&relayer_id, target_balance)]
+        );
+        let inclusion_key =
+            get_access_key(&state_update, &account_id, &public_key).unwrap().unwrap();
+        let inclusion_key_info = inclusion_key.inclusion_key_info().unwrap();
+        assert_eq!(inclusion_key_info.balance, current_balance);
+        assert_eq!(inclusion_key_info.last_transaction_nonce, last_transaction_nonce);
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_missing_key_fails() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let missing_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "missing").public_key();
+        let config = RuntimeConfig::test();
+        let target_balance = Balance::from_millinear(10);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &missing_public_key,
+            target_balance,
+        );
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::FundInclusionKeyAccessKeyDoesNotExist {
+                account_id,
+                public_key: Box::new(missing_public_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_fund_inclusion_key_gas_key_fails() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let relayer_id: AccountId = "relayer.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let gas_key = AccessKey::gas_key_full_access(TEST_NUM_NONCES);
+        let mut state_update = setup_account(&account_id, &public_key, &gas_key);
+        let config = RuntimeConfig::test();
+        let target_balance = Balance::from_millinear(10);
+
+        let result = fund_inclusion_key(
+            &config,
+            &mut state_update,
+            &account_id,
+            &relayer_id,
+            &public_key,
+            target_balance,
+        );
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::FundInclusionKeyIsGasKey {
+                account_id: account_id.clone(),
+                public_key: Box::new(public_key.clone()),
+            }
+            .into())
+        );
+        let unchanged_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
+        assert_eq!(unchanged_key, Some(gas_key));
     }
 }

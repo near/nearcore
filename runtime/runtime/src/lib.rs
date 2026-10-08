@@ -819,6 +819,7 @@ impl Runtime {
             }
             Action::FundInclusionKey(fund_inclusion_key) => {
                 action_fund_inclusion_key(
+                    &apply_state.config,
                     state_update,
                     &mut result,
                     account_id,
