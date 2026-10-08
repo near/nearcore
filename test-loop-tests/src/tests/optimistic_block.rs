@@ -10,7 +10,6 @@ use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
@@ -32,10 +31,9 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
         &[],
     );
 
-    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
     TestLoopBuilder::new()
         .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
+        .num_shards(num_shards)
         .validators_spec(validators_spec)
         .add_user_accounts(&accounts, Balance::from_near(1_000_000))
 }
