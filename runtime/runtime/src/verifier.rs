@@ -443,6 +443,29 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
             num_nonces: gas_key_info.num_nonces,
         });
     }
+    let tx_nonce = tx.nonce().nonce();
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
+        return TxVerdict::Failed(e);
+    }
+    verify_and_charge_access_key_tx_after_nonce_check(
+        config,
+        account,
+        access_key,
+        tx,
+        transaction_cost,
+        pending,
+    )
+}
+
+fn verify_and_charge_access_key_tx_after_nonce_check(
+    config: &RuntimeConfig,
+    account: &Account,
+    access_key: &AccessKey,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    pending: &PendingConstraints,
+) -> TxVerdict {
     let TransactionCost {
         gas_burnt,
         compute_burnt,
@@ -454,10 +477,6 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
-    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
-        return TxVerdict::Failed(e);
-    }
 
     // saturating_sub is fine here: on the consensus path pending constraints
     // are always default (zero), so the subtraction is exact. On the RPC /
