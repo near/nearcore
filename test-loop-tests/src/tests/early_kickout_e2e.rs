@@ -24,9 +24,7 @@
 //!   persisted rows across the split resolve with no `ChunkProducerNotInDB`.
 //!
 //! All of these require `test_features` (adversarial messages, plus the threshold override
-//! below). `slow_test_early_kickout_across_resharding` additionally requires `nightly`,
-//! because its genesis epoch runs one protocol version back and EarlyKickout has to be
-//! active there.
+//! below).
 //!
 //! Production accumulates misses from epoch start but keeps the blacklist suppressed
 //! through a 1000-block start-of-epoch grace, so the earliest exclusion is ~1000 blocks
