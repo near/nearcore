@@ -207,14 +207,9 @@ fn test_rpc_parallel_take_first_partial_failure() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = *outcome
-        .outcome_with_id
-        .outcome
-        .receipt_ids
-        .first()
-        .expect("transfer should produce at least one receipt");
+    let outcome = h.env.node_for_account(&validator).execution_outcome(tx_hash);
+    let receipt_id =
+        *outcome.outcome.receipt_ids.first().expect("transfer should produce at least one receipt");
 
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();
@@ -255,8 +250,7 @@ fn test_rpc_block_effects_coordinator_bypass() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();
@@ -334,8 +328,7 @@ fn test_rpc_changes_coordinator_bypass() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();
@@ -457,8 +450,7 @@ fn test_rpc_block_effects_scatter_gather_retry() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     // Baseline: validator tracks all shards so one call returns the full picture.
@@ -550,8 +542,7 @@ fn test_rpc_block_effects_scatter_gather_all_nodes_fail() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     *h.rpc0_fault.write() = Some(RpcFault::Fail("rpc0 down".to_string()));

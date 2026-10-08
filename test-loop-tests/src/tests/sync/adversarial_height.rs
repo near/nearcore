@@ -63,17 +63,10 @@ fn test_synced_node_ignores_unverified_far_ahead_height() {
     // A real header with its height bumped past the epoch sync horizon, attributed
     // to an adversarial peer. `last_block_headers` keeps the max, so the claim
     // persists in every SetNetworkInfo push.
-    let victim_handle = env.node_datas[victim_idx].client_sender.actor_handle();
-    let head = env.test_loop.data.get(&victim_handle).client.chain.head().unwrap();
+    let head = env.node(victim_idx).head();
     let head_before = head.height;
-    let head_header = env
-        .test_loop
-        .data
-        .get(&victim_handle)
-        .client
-        .chain
-        .get_block_header(&head.last_block_hash)
-        .unwrap();
+    let head_header =
+        env.node(victim_idx).client().chain.get_block_header(&head.last_block_hash).unwrap();
     let mut fake_header = head_header.as_ref().clone();
     fake_header.set_height(head.height + (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length);
     let adversary = PeerInfo {
@@ -87,7 +80,7 @@ fn test_synced_node_ignores_unverified_far_ahead_height() {
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, victim_idx);
     env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
 
-    let victim_client = &env.test_loop.data.get(&victim_handle).client;
+    let victim_client = env.node(victim_idx).client();
     let victim_head = victim_client.chain.head().unwrap().height;
     let status = victim_client.sync_handler.sync_status.as_variant_name();
     assert_eq!(status, "NoSync", "victim should stay NoSync, was {status}");
@@ -229,17 +222,10 @@ fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
     env.restart_node(&restart_id, killed_state);
     let restarted_idx = env.node_datas.len() - 1;
 
-    let restarted_handle = env.node_datas[restarted_idx].client_sender.actor_handle();
-    let head = env.test_loop.data.get(&restarted_handle).client.chain.head().unwrap();
+    let head = env.node(restarted_idx).head();
     let head_before = head.height;
-    let head_header = env
-        .test_loop
-        .data
-        .get(&restarted_handle)
-        .client
-        .chain
-        .get_block_header(&head.last_block_hash)
-        .unwrap();
+    let head_header =
+        env.node(restarted_idx).client().chain.get_block_header(&head.last_block_hash).unwrap();
     let mut fake_header = head_header.as_ref().clone();
     fake_header.set_height(head.height + (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length);
     let adversary = PeerInfo {
@@ -253,8 +239,7 @@ fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
 
     env.node_runner(1).run_for_number_of_blocks(3 * epoch_length as usize);
 
-    let restarted_head =
-        env.test_loop.data.get(&restarted_handle).client.chain.head().unwrap().height;
+    let restarted_head = env.node(restarted_idx).head().height;
     assert!(
         !env.test_loop.is_denylisted(&restart_id),
         "a claim alone must not delete the store of a node inside the horizon"
@@ -282,7 +267,7 @@ fn test_max_prev_height_does_not_abort_node() {
     // height, so it passes the producer signature check that guards the
     // ancestry-free approval verification.
     let head = env.node(0).head();
-    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = env.node(0).block(head.last_block_hash);
     let forged_height = head.height + far_horizon_height(epoch_length);
     let block_producer = env
         .node(0)
@@ -405,7 +390,7 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
         Duration::seconds(20),
     );
     let SyncStatus::StateSync(state_sync_status) =
-        &env.test_loop.data.get(&victim_handle).client.sync_handler.sync_status
+        &env.node(victim_idx).client().sync_handler.sync_status
     else {
         unreachable!("run_until returned only once in state sync")
     };
@@ -413,8 +398,7 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
     let sync_hash_height =
         env.node(0).client().chain.get_block_header(&victim_sync_hash).unwrap().height();
 
-    let head = env.node(0).head();
-    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = env.node(0).head_block();
     let fake_block = block_with_raised_height(&head_block, sync_hash_height + 10 * epoch_length);
     let attacker = PeerInfo {
         id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, "attacker").public_key()),
@@ -435,7 +419,7 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
         "honest height {validator_height} must stay at or below {stale_threshold}",
     );
     let SyncStatus::StateSync(state_sync_status) =
-        &env.test_loop.data.get(&victim_handle).client.sync_handler.sync_status
+        &env.node(victim_idx).client().sync_handler.sync_status
     else {
         panic!("the claim pushed the victim out of state sync")
     };
@@ -486,7 +470,7 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
     let syncer_idx = env.node_datas.len() - 1;
 
     let head = env.node(0).head();
-    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = env.node(0).block(head.last_block_hash);
     let fake_block = block_with_raised_height(&head_block, head.height + 10 * epoch_length);
     let attacker = PeerInfo {
         id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, "attacker").public_key()),

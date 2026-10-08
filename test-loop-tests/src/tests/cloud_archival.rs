@@ -559,7 +559,7 @@ impl CloudArchiveHarness {
     }
 
     fn store_for(&self, account_id: &AccountId) -> Store {
-        self.env.node_for_account(account_id).client().chain.chain_store().store()
+        self.env.node_for_account(account_id).store()
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {

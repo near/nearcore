@@ -325,8 +325,7 @@ struct NetworkHandlingData {
 
 impl NetworkHandlingData {
     fn new(env: &TestLoopEnv, validators: Vec<Vec<AccountId>>) -> Self {
-        let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-        let client = &env.test_loop.data.get(client_actor_handle).client;
+        let client = env.node(0).client();
 
         let head = client.chain.head().unwrap();
         let client_senders: HashMap<AccountId, _> = env

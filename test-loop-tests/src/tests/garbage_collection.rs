@@ -94,9 +94,9 @@ fn test_state_transition_data_gc_when_resharding() {
         })
         .build();
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
-    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+    let client = env.node(0).client();
+    let chain_store = client.chain.chain_store.clone();
+    let epoch_manager = client.epoch_manager.clone();
 
     assert_state_transition_data_is_cleared(&chain_store, &base_shard_layout.shard_ids().collect());
 

@@ -28,8 +28,8 @@ fn test_save_receipt_to_tx_false() {
     env.validator_runner().run_until_executed_height(target_height);
 
     // Receipt ID from tx outcome.
-    let outcome = env.validator().client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let outcome = env.validator().execution_outcome(tx_hash);
+    let receipt_id = outcome.outcome.receipt_ids[0];
 
     // ReceiptToTx entry must NOT exist.
     let store = env.validator().store();
@@ -522,9 +522,10 @@ fn test_receipt_to_tx_unsupported_partial_tracking() {
 
     // Validator has TrackedShardsConfig::NoShards (single-shard), not
     // AllShards. Send GetReceiptToTx direct to its ViewClientActor.
-    let handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(receipt_to_tx_req(CryptoHash::hash_bytes(b"any")));
+    let result = env
+        .node_mut(0)
+        .view_client_actor()
+        .handle(receipt_to_tx_req(CryptoHash::hash_bytes(b"any")));
 
     match result {
         Err(GetReceiptToTxError::Unsupported(msg)) => {
@@ -633,9 +634,7 @@ fn test_receipt_to_tx_unknown_parent_mid_walk() {
     store_update.commit();
 
     // Query child receipt — handler walks to missing_parent, fails.
-    let handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(receipt_to_tx_req(child_receipt_id));
+    let result = env.node_mut(0).view_client_actor().handle(receipt_to_tx_req(child_receipt_id));
 
     match result {
         Err(GetReceiptToTxError::UnknownReceipt(id)) => {

@@ -81,7 +81,7 @@ fn slow_test_view_requests_to_archival_node() {
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
     let client_handle = env.node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(ARCHIVAL_CLIENT).client();
     let transaction_delay = if client.config.enable_early_prepare_transactions {
         Duration::milliseconds(100)
     } else {

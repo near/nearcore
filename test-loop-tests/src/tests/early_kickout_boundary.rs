@@ -78,7 +78,7 @@ fn test_early_kickout_version_upgrade() {
     // chunk header, so the header version does not change across the boundary and there is
     // nothing header-side to assert here; the observable signal of a verification gap is a
     // missing chunk (a valid V3 chunk dropped at arrival on the non-producing nodes).
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let head_height = client.chain.head().unwrap().height;
     let mut saw_old = false;
     let mut saw_new = false;

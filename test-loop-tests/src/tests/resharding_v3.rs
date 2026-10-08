@@ -765,8 +765,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
     }
 
-    let clients =
-        client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
+    let clients = (0..env.node_datas.len()).map(|idx| env.node(idx).client()).collect_vec();
     let mut trie_sanity_check =
         TrieSanityCheck::new(&clients, params.load_memtries_for_tracked_shards);
 
@@ -955,7 +954,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // need for epoch_height to exceed num_epochs_to_wait.
         Duration::seconds(((num_epochs_to_wait + 3) * params.epoch_length) as i64),
     );
-    let client = &env.test_loop.data.get(&client_handles[client_index]).client;
+    let client = env.node(client_index).client();
     trie_sanity_check.check_epochs(client);
 }
 

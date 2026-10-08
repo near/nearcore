@@ -219,7 +219,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // the consensus head otherwise, so this is correct in both modes.
     env.validator_runner().run_until_executed_height(last_height.unwrap());
 
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 

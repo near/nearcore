@@ -108,7 +108,7 @@ pub(crate) fn assert_writer_agrees_with_rpc_node(
     start: BlockHeight,
     end: BlockHeight,
 ) {
-    let writer_store = get_hot_store(env, writer_id);
+    let writer_store = env.node_for_account(writer_id).store();
     let block_hash = writer_store.chain_store().get_block_hash_by_height(end).unwrap();
     let epoch_id = *writer_store.epoch_store().get_block_info(&block_hash).unwrap().epoch_id();
     let tracked_shards = |account_id: &AccountId| -> HashSet<ShardUId> {
@@ -127,7 +127,7 @@ pub(crate) fn assert_writer_agrees_with_rpc_node(
         writer_shards, rpc_shards,
         "the writer tracks {writer_shards:?} and the node {rpc_shards:?}; the walk needs them equal"
     );
-    let rpc_store = get_hot_store(env, rpc_id);
+    let rpc_store = env.node_for_account(rpc_id).store();
     assert_store_parity(&rpc_store, &writer_store, start, end);
     assert_store_parity(&writer_store, &rpc_store, start, end);
 }
@@ -301,7 +301,7 @@ pub fn run_until_one_epoch_after_resharding(
     run_node_until(env, writer_id, new_epoch_first_height + epoch_length);
 
     let node = env.node_for_account(writer_id);
-    let chain_store = node.client().chain.chain_store().store().chain_store();
+    let chain_store = node.store().chain_store();
     let sync_hash = chain_store
         .get_current_epoch_sync_hash(&resharding_epoch_id)
         .expect("resharding epoch sync_hash recorded one epoch past the split");
@@ -406,12 +406,6 @@ pub(crate) fn get_writer_handle<'a>(
     env.test_loop.data.get(writer_handle).as_ref().unwrap()
 }
 
-fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
-    let node_data = env.get_node_data_by_account_id(account_id);
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    client.chain.chain_store().store()
-}
-
 pub(crate) fn get_cloud_storage(env: &TestLoopEnv, account_id: &AccountId) -> Arc<CloudStorage> {
     let node_data = env.get_node_data_by_account_id(account_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
@@ -440,7 +434,7 @@ pub(crate) fn get_state_header_for_epoch(
 }
 
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
-    let hot_store = get_hot_store(env, writer_id);
+    let hot_store = env.node_for_account(writer_id).store();
     hot_store.cloud_archival_store().writer_min_head().expect("the writer min head should exist")
 }
 
@@ -564,7 +558,7 @@ pub fn snapshots_sanity_check(
     final_epoch_height: EpochHeight,
     snapshot_every_n_epochs: u64,
 ) {
-    let store = get_hot_store(env, writer_id);
+    let store = env.node_for_account(writer_id).store();
     let cloud_storage = get_cloud_storage(env, writer_id);
     let node = env.node_for_account(writer_id);
     let client = node.client();
@@ -630,7 +624,7 @@ pub fn assert_writer_inverse_deltas(
     info: &ReshardingInfo,
 ) {
     let cloud_storage = get_cloud_storage(env, writer_id);
-    let store = get_hot_store(env, writer_id);
+    let store = env.node_for_account(writer_id).store();
     let tries = build_shard_tries(&store);
 
     // Child shards carry inverse changes up to the sync hash.
@@ -714,7 +708,7 @@ pub fn assert_resharding_epoch_snapshot_forced(
     snapshot_every_n_epochs: u64,
 ) {
     let cloud_storage = get_cloud_storage(env, writer_id);
-    let store = get_hot_store(env, writer_id);
+    let store = env.node_for_account(writer_id).store();
     let node = env.node_for_account(writer_id);
     let epoch_manager = &node.client().epoch_manager;
 
@@ -751,7 +745,7 @@ pub(crate) fn add_reader_node(env: &mut TestLoopEnv, reader_id: &AccountId) -> S
         })
         .build();
     env.add_node(reader_id.as_ref(), node_state);
-    env.node_for_account(reader_id).client().chain.chain_store().store()
+    env.node_for_account(reader_id).store()
 }
 
 /// Bootstraps a reader node from cloud storage and checks it reconstructed every
@@ -797,8 +791,7 @@ pub fn bootstrap_historical_reader(
     let target_epoch_id = *target_block_data.block().header().epoch_id();
     let target_epoch_data = exec(cloud_storage.get_epoch_data(target_epoch_id)).unwrap();
 
-    let chain = &env.node_for_account(reader_id).client().chain;
-    let store = chain.chain_store.store();
+    let store = env.node_for_account(reader_id).store();
     let tries = build_shard_tries(&store);
 
     // TODO(cloud_archival): support resharding; the shard layout can change

@@ -65,7 +65,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .clients(clients)
         .build();
 
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
     let rpc_handler = &env.test_loop.data.get(&env.node_datas[0].rpc_handler_sender.actor_handle());
 
     let height = client.chain.head().unwrap().height;
@@ -74,8 +74,8 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     let _ = rpc_handler.process_tx(tx, false, false);
 
     // check if block is rejected due to the outdated version
-    let client =
-        &mut env.test_loop.data.get_mut(&env.node_datas[0].client_sender.actor_handle()).client;
+    let mut node = env.node_mut(0);
+    let client = &mut node.client_actor().client;
     let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
     std::sync::Arc::make_mut(&mut old_version_block)
         .mut_header()

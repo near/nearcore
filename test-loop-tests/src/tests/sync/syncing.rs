@@ -152,9 +152,8 @@ fn slow_test_validator_restart_under_cross_shard_load() {
         // Send cross-shard transfers after each restart to generate traffic
         // across all shards.
         let live_nodes = &env.node_datas[env.node_datas.len() - NUM_CLIENTS..];
-        let clients: Vec<_> = live_nodes
-            .iter()
-            .map(|nd| &env.test_loop.data.get(&nd.client_sender.actor_handle()).client)
+        let clients: Vec<_> = (env.node_datas.len() - NUM_CLIENTS..env.node_datas.len())
+            .map(|idx| env.node(idx).client())
             .collect();
         let anchor_hash = get_anchor_hash(&clients);
         for (j, sender) in accounts.iter().enumerate() {

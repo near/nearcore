@@ -59,15 +59,13 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
 
     // Capture the initial validator info in the first epoch.
     let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let chain = &env.test_loop.data.get(&client_handle).client.chain;
-    let initial_epoch_id = chain.head().unwrap().epoch_id;
+    let initial_epoch_id = env.node(0).head().epoch_id;
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &non_validator_accounts).unwrap();
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
-    let prev_epoch_id =
-        env.test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;
+    let prev_epoch_id = env.node(0).head().epoch_id;
     assert_ne!(prev_epoch_id, initial_epoch_id);
 
     // Run the chain until it transitions to a different epoch then prev_epoch_id.
@@ -80,9 +78,8 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     );
 
     // Check the validator information for the epoch with the prev_epoch_id.
-    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
     assert_validator_info(
-        env.test_loop.data.get_mut(&view_client_handle),
+        env.node_mut(0).view_client_actor(),
         prev_epoch_id,
         initial_epoch_id,
         accounts.clone(),

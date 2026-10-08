@@ -59,9 +59,7 @@ pub(super) fn handle(
     env: &mut crate::setup::env::TestLoopEnv,
     msg: GetReceiptToTx,
 ) -> Result<near_client_primitives::types::GetReceiptToTxResponse, GetReceiptToTxError> {
-    let handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    view_client.handle(msg)
+    env.node_mut(0).view_client_actor().handle(msg)
 }
 
 pub(super) fn shard_containing_outcome(
