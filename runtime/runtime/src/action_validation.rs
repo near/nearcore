@@ -263,6 +263,9 @@ fn validate_delegate_action(
     {
         return Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate);
     }
+    if actions.iter().any(|action| matches!(action, Action::WithdrawFromInclusionKey(_))) {
+        return Err(ActionsValidationError::WithdrawFromInclusionKeyNotAllowedInDelegate);
+    }
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
@@ -636,6 +639,7 @@ mod tests {
     };
     use near_primitives::action::{
         GlobalContractDeployMode, UniversalStateInitAction, WithdrawFromGasKeyAction,
+        WithdrawFromInclusionKeyAction,
     };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -1240,6 +1244,34 @@ mod tests {
                 ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.protocol_version(),
             ),
             Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate)
+        );
+    }
+
+    #[test]
+    fn test_validate_action_delegated_withdraw_from_inclusion_key_rejected() {
+        let withdraw = Action::WithdrawFromInclusionKey(Box::new(WithdrawFromInclusionKeyAction {
+            public_key: PublicKey::empty(KeyType::ED25519),
+            target_balance: Balance::ZERO,
+        }));
+        let delegate = Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: alice_account(),
+                receiver_id: alice_account(),
+                actions: vec![withdraw.try_into().unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &delegate,
+                &alice_account(),
+                ProtocolFeature::InclusionKeys.protocol_version(),
+            ),
+            Err(ActionsValidationError::WithdrawFromInclusionKeyNotAllowedInDelegate)
         );
     }
 
