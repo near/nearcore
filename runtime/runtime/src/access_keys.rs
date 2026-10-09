@@ -77,6 +77,12 @@ pub(crate) fn action_delete_key(
                 gas_key_info,
             )?;
         } else {
+            if let Some(inclusion_key_info) = access_key.inclusion_key_info() {
+                result.tokens_burnt = result
+                    .tokens_burnt
+                    .checked_add(inclusion_key_info.balance)
+                    .ok_or(IntegerOverflowError)?;
+            }
             delete_regular_key(
                 &config.fees,
                 state_update,
@@ -1887,5 +1893,44 @@ mod tests {
             }
             .into())
         );
+    }
+
+    #[test]
+    fn test_delete_inclusion_key_burns_balance() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let storage_usage_with_plain_key = account.storage_usage();
+        let key_balance = Balance::from_millinear(10);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: 0 };
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), &inclusion_key);
+        let config = RuntimeConfig::test();
+        let action = DeleteKeyAction { public_key: public_key.clone() };
+        let mut result = ActionResult::default();
+
+        action_delete_key(
+            &config,
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        assert_eq!(result.tokens_burnt, key_balance);
+        assert_eq!(get_access_key(&state_update, &account_id, &public_key).unwrap(), None);
+        let plain_key_storage_usage =
+            access_key_storage_usage(&config.fees, &public_key, &plain_key);
+        assert_eq!(account.storage_usage(), storage_usage_with_plain_key - plain_key_storage_usage);
     }
 }
