@@ -97,9 +97,7 @@ impl ShardLayoutConfig {
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
-#[derive(
-    Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize, derive_builder::Builder,
-)]
+#[derive(Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -126,9 +124,8 @@ pub struct EpochConfig {
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Shard layout configuration - either static layout or dynamic resharding config.
-    /// Flattened (de)serialization and custom setter for backwards compatibility.
+    /// Flattened (de)serialization for backwards compatibility.
     #[serde(flatten)]
-    #[builder(setter(custom))]
     pub shard_layout_config: ShardLayoutConfig,
     /// Additional configuration parameters for the new validator selection
     /// algorithm. See <https://github.com/near/NEPs/pull/167> for details.
@@ -184,29 +181,6 @@ impl EpochConfig {
     }
 }
 
-impl EpochConfigBuilder {
-    /// Use the given static shard layout.
-    pub fn shard_layout(&mut self, shard_layout: ShardLayout) -> &mut Self {
-        self.shard_layout_config = Some(ShardLayoutConfig::Static { shard_layout });
-        self
-    }
-
-    /// Use dynamic resharding with the given configuration.
-    pub fn dynamic_resharding_config(
-        &mut self,
-        dynamic_resharding_config: DynamicReshardingConfig,
-    ) -> &mut Self {
-        self.shard_layout_config = Some(ShardLayoutConfig::Dynamic { dynamic_resharding_config });
-        self
-    }
-
-    /// Explicitly set `ShardLayoutConfig`.
-    pub fn shard_layout_config(&mut self, config: ShardLayoutConfig) -> &mut Self {
-        self.shard_layout_config = Some(config);
-        self
-    }
-}
-
 impl EpochConfig {
     // Create test-only epoch config.
     // Not depends on genesis!
@@ -245,56 +219,31 @@ impl EpochConfig {
     }
 
     /// Minimal config for testing.
-    pub fn minimal() -> EpochConfigBuilder {
-        let mut builder = EpochConfigBuilder::default();
-        builder
-            .epoch_length(0)
-            .num_block_producer_seats(0)
-            .block_producer_kickout_threshold(0)
-            .chunk_producer_kickout_threshold(0)
-            .chunk_validator_only_kickout_threshold(0)
-            .target_validator_mandates_per_shard(0)
-            .validator_max_kickout_stake_perc(0)
-            .online_min_threshold(0.into())
-            .online_max_threshold(0.into())
-            .fishermen_threshold(Balance::ZERO)
-            .minimum_stake_divisor(0)
-            .protocol_upgrade_stake_threshold(0.into())
-            .shard_layout(ShardLayout::single_shard())
-            .num_chunk_producer_seats(100)
-            .num_chunk_validator_seats(300)
-            .minimum_validators_per_shard(1)
-            .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
-            .chunk_producer_assignment_changes_limit(5)
-            .shuffle_shard_assignment_for_chunk_producers(false)
-            .max_inflation_rate(Rational32::new(1, 40));
-        builder
-    }
-
-    pub fn mock(epoch_length: BlockHeightDelta, shard_layout: ShardLayout) -> EpochConfigBuilder {
-        let mut builder = EpochConfigBuilder::default();
-        builder
-            .epoch_length(epoch_length)
-            .num_block_producer_seats(2)
-            .block_producer_kickout_threshold(0)
-            .chunk_producer_kickout_threshold(0)
-            .chunk_validator_only_kickout_threshold(0)
-            .target_validator_mandates_per_shard(1)
-            .validator_max_kickout_stake_perc(0)
-            .online_min_threshold(Rational32::new(1i32, 4i32))
-            .online_max_threshold(Rational32::new(3i32, 4i32))
-            .fishermen_threshold(Balance::from_yoctonear(1))
-            .minimum_stake_divisor(1)
-            .protocol_upgrade_stake_threshold(Rational32::new(3i32, 4i32))
-            .shard_layout(shard_layout)
-            .num_chunk_producer_seats(100)
-            .num_chunk_validator_seats(300)
-            .minimum_validators_per_shard(1)
-            .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
-            .chunk_producer_assignment_changes_limit(5)
-            .shuffle_shard_assignment_for_chunk_producers(false)
-            .max_inflation_rate(Rational32::new(1, 40));
-        builder
+    pub fn minimal() -> Self {
+        Self {
+            epoch_length: 0,
+            num_block_producer_seats: 0,
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: 0.into(),
+            online_max_threshold: 0.into(),
+            fishermen_threshold: Balance::ZERO,
+            minimum_stake_divisor: 0,
+            protocol_upgrade_stake_threshold: 0.into(),
+            shard_layout_config: ShardLayoutConfig::Static {
+                shard_layout: ShardLayout::single_shard(),
+            },
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
+        }
     }
 }
 

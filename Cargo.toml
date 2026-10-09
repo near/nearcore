@@ -319,7 +319,7 @@ serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
-serde_with = { version = "3.0", features = ["base64"] }
+serde_with = { version = "3.22", features = ["base64"] }
 serde_yaml = "0.9"
 schemars = { version = "1.2.1", features = ["chrono04"]}
 sha2 = "0.10"
