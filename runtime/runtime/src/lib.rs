@@ -327,6 +327,16 @@ pub enum AccessKeyUpdate {
     InclusionKeyCharge { new_balance: Balance, nonce: Nonce, last_transaction_nonce: Nonce },
 }
 
+/// Gas keys keep compute = gas for a charged transaction: changing it is a consensus change.
+fn charged_compute_usage(result: &VerificationResult) -> Compute {
+    match result.access_key_update {
+        AccessKeyUpdate::InclusionKeyCharge { .. } => result.compute_burnt,
+        AccessKeyUpdate::GasKey { .. }
+        | AccessKeyUpdate::Regular { .. }
+        | AccessKeyUpdate::Bootstrap { .. } => result.gas_burnt.as_gas(),
+    }
+}
+
 impl VerificationResult {
     /// Apply the state changes described by this result.
     ///
@@ -2257,13 +2267,14 @@ impl Runtime {
                     tracing::debug!(
                         %tx_hash,
                         error = &error as &dyn std::error::Error,
-                        "gas key transaction failed deposit check, charging gas"
+                        "transaction failed after the nonce check, charging the key"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
-                    let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
+                    let outcome = ExecutionOutcomeWithId::failed_with_gas_and_compute_burnt(
                         tx,
                         error,
                         result.gas_burnt,
+                        charged_compute_usage(&result),
                         result.burnt_amount,
                     );
                     (outcome, result)

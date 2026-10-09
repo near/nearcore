@@ -3946,4 +3946,46 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_charged_compute_usage_inclusion_key_uses_compute_burnt() {
+        let gas_burnt = Gas::from_gas(1_000);
+        let compute_burnt = 3_000;
+        let result = VerificationResult {
+            gas_burnt,
+            compute_burnt,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: Balance::ZERO,
+            access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: Balance::ZERO,
+                nonce: 1,
+                last_transaction_nonce: 1,
+            },
+        };
+
+        assert_eq!(crate::charged_compute_usage(&result), compute_burnt);
+    }
+
+    #[test]
+    fn test_charged_compute_usage_gas_key_uses_gas_burnt() {
+        let gas_burnt = Gas::from_gas(1_000);
+        let compute_burnt = 3_000;
+        let result = VerificationResult {
+            gas_burnt,
+            compute_burnt,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: Balance::ZERO,
+            access_key_update: AccessKeyUpdate::GasKey {
+                new_balance: Balance::ZERO,
+                nonce_index: 0,
+                nonce: 1,
+            },
+        };
+
+        assert_eq!(crate::charged_compute_usage(&result), gas_burnt.as_gas());
+    }
 }
