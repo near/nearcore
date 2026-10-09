@@ -281,8 +281,8 @@ impl Default for PendingConstraints {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
-/// - `FailedAndCharged`: apply gas-only state changes via `VerificationResult::apply`
-///   (only returned by gas key path).
+/// - `FailedAndCharged`: apply the charge to the key via `VerificationResult::apply`
+///   (only returned by the gas key and inclusion key paths).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {

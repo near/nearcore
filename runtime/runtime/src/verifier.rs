@@ -14,7 +14,7 @@ use near_primitives::receipt::{
 use near_primitives::transaction::{
     Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
@@ -494,6 +494,29 @@ fn verify_and_charge_inclusion_key_tx_ephemeral(
             tx_nonce,
             ak_nonce: access_key.nonce,
         });
+    }
+    let charge = |error: InvalidTxError, nonce: Nonce| {
+        let charged_amount = transaction_cost.burnt_amount.min(inclusion_key_info.balance);
+        TxVerdict::FailedAndCharged {
+            result: VerificationResult {
+                gas_burnt: transaction_cost.gas_burnt,
+                compute_burnt: transaction_cost.compute_burnt,
+                gas_remaining: Gas::ZERO,
+                receipt_gas_price: transaction_cost.receipt_gas_price,
+                burnt_amount: charged_amount,
+                new_account_amount: account.amount(),
+                access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                    new_balance: inclusion_key_info.balance.saturating_sub(charged_amount),
+                    nonce,
+                    last_transaction_nonce: tx_nonce,
+                },
+            },
+            error,
+        }
+    };
+    if tx_nonce <= access_key.nonce {
+        let error = InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: access_key.nonce };
+        return charge(error, access_key.nonce);
     }
     let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
@@ -3607,6 +3630,122 @@ mod tests {
             InvalidTxError::InvalidNonce {
                 tx_nonce: last_transaction_nonce,
                 ak_nonce: last_transaction_nonce
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_nonce_used_by_delegate_action_charged() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_millinear(10);
+        let last_transaction_nonce = 3;
+        let delegate_action_nonce = 5;
+        let inclusion_key_info = InclusionKeyInfo { balance: key_balance, last_transaction_nonce };
+        let access_key = AccessKey {
+            nonce: delegate_action_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = 4;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        let expected_charge = cost.burnt_amount;
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_action_nonce }
+        );
+        assert_eq!(result.burnt_amount, expected_charge);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(expected_charge).unwrap(),
+                nonce: delegate_action_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_charge_clamped_to_key_balance() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_yoctonear(1);
+        let last_transaction_nonce = 3;
+        let delegate_action_nonce = 5;
+        let inclusion_key_info = InclusionKeyInfo { balance: key_balance, last_transaction_nonce };
+        let access_key = AccessKey {
+            nonce: delegate_action_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = 4;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        let expected_charge = key_balance;
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_action_nonce }
+        );
+        assert_eq!(result.burnt_amount, expected_charge);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(expected_charge).unwrap(),
+                nonce: delegate_action_nonce,
+                last_transaction_nonce: tx_nonce,
             }
         );
     }
