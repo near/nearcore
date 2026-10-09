@@ -435,7 +435,7 @@ pub fn get_access_key(
 }
 
 /// Variant of [`get_access_key`] used by the trie-iteration paths
-/// (`compute_gas_key_balance_sum`, `remove_account`, view RPC) that
+/// (`compute_key_balance_sums`, `remove_account`, view RPC) that
 /// already hold a `PublicKeyHandle` produced by the parse function.
 pub fn get_access_key_by_handle(
     trie: &dyn TrieAccess,
@@ -455,11 +455,20 @@ pub fn get_gas_key_nonce(
 }
 
 /// Computes the total balance across all gas keys for a given account.
-pub fn compute_gas_key_balance_sum(
+/// Sums of the gas key and inclusion key balances of an account.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct KeyBalanceSums {
+    pub gas_keys: Balance,
+    pub inclusion_keys: Balance,
+}
+
+pub fn compute_key_balance_sums(
     state_update: &TrieUpdate,
     account_id: &AccountId,
-) -> Result<Balance, StorageError> {
-    let mut total = Balance::ZERO;
+) -> Result<KeyBalanceSums, StorageError> {
+    let mut key_balance_sums = KeyBalanceSums::default();
+    let balance_overflow =
+        || StorageError::StorageInconsistentState("key balance overflow".to_string());
     let lock = state_update.trie().lock_for_iter();
     for raw_key in state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
@@ -483,17 +492,24 @@ pub fn compute_gas_key_balance_sum(
         if nonce_index.is_some() {
             continue;
         }
-        if let Some(balance) = get_access_key_by_handle(state_update, account_id, &key_handle)?
-            .as_ref()
-            .and_then(|access_key| access_key.gas_key_info())
-            .map(|gas_key_info| gas_key_info.balance)
-        {
-            total = total.checked_add(balance).ok_or_else(|| {
-                StorageError::StorageInconsistentState("gas key balance overflow".to_string())
-            })?;
+        let Some(access_key) = get_access_key_by_handle(state_update, account_id, &key_handle)?
+        else {
+            continue;
+        };
+        if let Some(gas_key_info) = access_key.gas_key_info() {
+            key_balance_sums.gas_keys = key_balance_sums
+                .gas_keys
+                .checked_add(gas_key_info.balance)
+                .ok_or_else(balance_overflow)?;
+        }
+        if let Some(inclusion_key_info) = access_key.inclusion_key_info() {
+            key_balance_sums.inclusion_keys = key_balance_sums
+                .inclusion_keys
+                .checked_add(inclusion_key_info.balance)
+                .ok_or_else(balance_overflow)?;
         }
     }
-    Ok(total)
+    Ok(key_balance_sums)
 }
 
 pub struct RemoveAccountResult {

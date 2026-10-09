@@ -295,15 +295,33 @@ pub fn is_bootstrap(account: &Account, tx: &Transaction) -> bool {
     !account.is_initialized() && tx.is_state_init_bootstrap()
 }
 
+/// A function-call key may fund its own inclusion key balance: one FundInclusionKey action
+/// that targets the signing key, sent to the signer's own account.
+pub(crate) fn is_fund_own_inclusion_key(
+    signer_id: &AccountId,
+    receiver_id: &AccountId,
+    public_key: &PublicKey,
+    actions: &[Action],
+) -> bool {
+    let [Action::FundInclusionKey(fund_inclusion_key)] = actions else {
+        return false;
+    };
+    signer_id == receiver_id && &fund_inclusion_key.public_key == public_key
+}
+
 /// Validates FunctionCall permission constraints:
 /// - Transaction must have exactly one action
 /// - Action must be FunctionCall with zero deposit
 /// - Receiver must match permission's receiver
 /// - Method name must be in allowed list (if list is non-empty)
+/// Exception: `is_fund_own_inclusion_key` passes without these checks.
 fn verify_function_call_permission(
     function_call_permission: &FunctionCallPermission,
     tx: &Transaction,
 ) -> Result<(), InvalidTxError> {
+    if is_fund_own_inclusion_key(tx.signer_id(), tx.receiver_id(), tx.public_key(), tx.actions()) {
+        return Ok(());
+    }
     if tx.actions().len() != 1 {
         return Err(InvalidTxError::InvalidAccessKeyError(
             InvalidAccessKeyError::RequiresFullAccess,
@@ -890,7 +908,9 @@ mod tests {
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
-    use near_primitives::action::{TransferToGasKeyAction, UniversalStateInitAction};
+    use near_primitives::action::{
+        FundInclusionKeyAction, TransferToGasKeyAction, UniversalStateInitAction,
+    };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -1895,6 +1915,135 @@ mod tests {
                 tx_receiver: eve_dot_alice_account(),
                 ak_receiver: bob_account().into()
             }),
+        );
+    }
+
+    #[test]
+    fn test_function_call_key_funds_own_inclusion_key_allowed() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+        let target_public_key = signer.public_key();
+        let fund_inclusion_key = Action::FundInclusionKey(Box::new(FundInclusionKeyAction {
+            public_key: target_public_key,
+            target_balance: Balance::from_millinear(10),
+        }));
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            alice_account(),
+            &*signer,
+            vec![fund_inclusion_key],
+            CryptoHash::default(),
+        );
+
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_function_call_key_funds_other_key_rejected() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+        let target_public_key =
+            InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "other").public_key();
+        let fund_inclusion_key = Action::FundInclusionKey(Box::new(FundInclusionKeyAction {
+            public_key: target_public_key,
+            target_balance: Balance::from_millinear(10),
+        }));
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            alice_account(),
+            &*signer,
+            vec![fund_inclusion_key],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
+        );
+    }
+
+    #[test]
+    fn test_function_call_key_funds_own_key_on_other_account_rejected() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+        let target_public_key = signer.public_key();
+        let fund_inclusion_key = Action::FundInclusionKey(Box::new(FundInclusionKeyAction {
+            public_key: target_public_key,
+            target_balance: Balance::from_millinear(10),
+        }));
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            eve_dot_alice_account(),
+            &*signer,
+            vec![fund_inclusion_key],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
         );
     }
 

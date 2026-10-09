@@ -77,6 +77,12 @@ pub(crate) fn action_delete_key(
                 gas_key_info,
             )?;
         } else {
+            if let Some(inclusion_key_info) = access_key.inclusion_key_info() {
+                result.tokens_burnt = result
+                    .tokens_burnt
+                    .checked_add(inclusion_key_info.balance)
+                    .ok_or(IntegerOverflowError)?;
+            }
             delete_regular_key(
                 &config.fees,
                 state_update,
@@ -403,13 +409,31 @@ fn convert_to_inclusion_key_if_needed(access_key: &mut AccessKey) -> Option<&mut
 }
 
 pub(crate) fn action_withdraw_from_inclusion_key(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _result: &mut ActionResult,
-    _account_id: &AccountId,
-    _action: &WithdrawFromInclusionKeyAction,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    action: &WithdrawFromInclusionKeyAction,
 ) -> Result<(), RuntimeError> {
-    // TODO(inclusion-keys): stub, filled when WithdrawFromInclusionKey execution lands.
+    let inclusion_key_does_not_exist = || ActionErrorKind::InclusionKeyDoesNotExist {
+        account_id: account_id.clone(),
+        public_key: Box::new(action.public_key.clone()),
+    };
+    let Some(mut access_key) = get_access_key(state_update, account_id, &action.public_key)? else {
+        result.result = Err(inclusion_key_does_not_exist().into());
+        return Ok(());
+    };
+    let Some(inclusion_key_info) = access_key.inclusion_key_info_mut() else {
+        result.result = Err(inclusion_key_does_not_exist().into());
+        return Ok(());
+    };
+    let Some(withdrawn_balance) = inclusion_key_info.balance.checked_sub(action.target_balance)
+    else {
+        return Ok(());
+    };
+    inclusion_key_info.balance = action.target_balance;
+    set_access_key(state_update, account_id.clone(), action.public_key.clone(), &access_key);
+    account.set_amount(safe_add_balance(account.amount(), withdrawn_balance)?);
     Ok(())
 }
 
@@ -1728,5 +1752,250 @@ mod tests {
         );
         let unchanged_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
         assert_eq!(unchanged_key, Some(gas_key));
+    }
+
+    #[test]
+    fn test_withdraw_from_inclusion_key_lowers_balance_and_credits_account() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(40), last_transaction_nonce: 0 };
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let account_balance_before = account.amount();
+        let target_balance = Balance::from_millinear(15);
+        let withdrawn_balance = Balance::from_millinear(25);
+        let action =
+            WithdrawFromInclusionKeyAction { public_key: public_key.clone(), target_balance };
+        let mut result = ActionResult::default();
+
+        action_withdraw_from_inclusion_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        let inclusion_key =
+            get_access_key(&state_update, &account_id, &public_key).unwrap().unwrap();
+        assert_eq!(inclusion_key.inclusion_key_info().unwrap().balance, target_balance);
+        assert_eq!(
+            account.amount(),
+            account_balance_before.checked_add(withdrawn_balance).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_withdraw_from_inclusion_key_target_above_balance_changes_nothing() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 0 };
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let account_balance_before = account.amount();
+        let target_balance = Balance::from_millinear(20);
+        let action =
+            WithdrawFromInclusionKeyAction { public_key: public_key.clone(), target_balance };
+        let mut result = ActionResult::default();
+
+        action_withdraw_from_inclusion_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        let unchanged_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
+        assert_eq!(unchanged_key, Some(inclusion_key));
+        assert_eq!(account.amount(), account_balance_before);
+    }
+
+    #[test]
+    fn test_withdraw_from_inclusion_key_plain_key_fails() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let action = WithdrawFromInclusionKeyAction {
+            public_key: public_key.clone(),
+            target_balance: Balance::ZERO,
+        };
+        let mut result = ActionResult::default();
+
+        action_withdraw_from_inclusion_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::InclusionKeyDoesNotExist {
+                account_id,
+                public_key: Box::new(public_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_withdraw_from_inclusion_key_missing_key_fails() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let missing_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "missing").public_key();
+        let action = WithdrawFromInclusionKeyAction {
+            public_key: missing_public_key.clone(),
+            target_balance: Balance::ZERO,
+        };
+        let mut result = ActionResult::default();
+
+        action_withdraw_from_inclusion_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::InclusionKeyDoesNotExist {
+                account_id,
+                public_key: Box::new(missing_public_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delete_inclusion_key_burns_balance() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let plain_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+        let mut state_update = setup_account(&account_id, &public_key, &plain_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let storage_usage_with_plain_key = account.storage_usage();
+        let key_balance = Balance::from_millinear(10);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: 0 };
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), &inclusion_key);
+        let config = RuntimeConfig::test();
+        let action = DeleteKeyAction { public_key: public_key.clone() };
+        let mut result = ActionResult::default();
+
+        action_delete_key(
+            &config,
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        assert_eq!(result.tokens_burnt, key_balance);
+        assert_eq!(get_access_key(&state_update, &account_id, &public_key).unwrap(), None);
+        let plain_key_storage_usage =
+            access_key_storage_usage(&config.fees, &public_key, &plain_key);
+        assert_eq!(account.storage_usage(), storage_usage_with_plain_key - plain_key_storage_usage);
+    }
+
+    #[test]
+    fn test_delete_account_burns_inclusion_key_balances() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let first_public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key_0");
+        let second_public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key_1");
+        let first_key_balance = Balance::from_millinear(10);
+        let second_key_balance = Balance::from_millinear(20);
+        let inclusion_key = |balance| AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(InclusionKeyInfo {
+                balance,
+                last_transaction_nonce: 0,
+            }),
+        };
+        let mut state_update =
+            setup_account(&account_id, &first_public_key, &inclusion_key(first_key_balance));
+        set_access_key(
+            &mut state_update,
+            account_id.clone(),
+            second_public_key,
+            &inclusion_key(second_key_balance),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::None,
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
+
+        assert!(action_result.result.is_ok(), "result error: {:?}", action_result.result);
+        let expected_tokens_burnt = first_key_balance.checked_add(second_key_balance).unwrap();
+        assert_eq!(action_result.tokens_burnt, expected_tokens_burnt);
+    }
+
+    #[test]
+    fn test_delete_account_inclusion_key_balance_above_gas_key_limit_not_blocked() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key");
+        let key_balance =
+            GasKeyInfo::MAX_BALANCE_TO_BURN.checked_add(Balance::from_near(1)).unwrap();
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(InclusionKeyInfo {
+                balance: key_balance,
+                last_transaction_nonce: 0,
+            }),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key);
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::None,
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
+
+        assert!(action_result.result.is_ok(), "result error: {:?}", action_result.result);
+        assert_eq!(action_result.tokens_burnt, key_balance);
     }
 }
