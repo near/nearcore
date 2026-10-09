@@ -137,7 +137,7 @@ fn install_universal_account(
     // Every key is the same full-access value, so size it once.
     let mut access_key = AccessKey::full_access();
     access_key.nonce = access_key_nonce;
-    let access_key_bytes = borsh::object_length(&access_key).expect("borsh must not fail") as u64;
+    let access_key_bytes = access_key.storage_usage_borsh_len();
     for handle in state_init.access_keys() {
         // Mirror `access_key_storage_usage`: on-trie handle length + the access
         // key's borsh length + the per-record overhead.

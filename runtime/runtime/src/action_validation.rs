@@ -226,6 +226,13 @@ fn validate_action_with_mode(
         Action::WithdrawFromGasKey(_) => {
             validate_withdraw_from_gas_key_action(current_protocol_version)
         }
+        Action::FundInclusionKey(_) | Action::WithdrawFromInclusionKey(_) => {
+            require_protocol_feature(
+                ProtocolFeature::InclusionKeys,
+                "InclusionKeys",
+                current_protocol_version,
+            )
+        }
     }
 }
 
@@ -255,6 +262,9 @@ fn validate_delegate_action(
         && actions.iter().any(|action| matches!(action, Action::WithdrawFromGasKey(_)))
     {
         return Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate);
+    }
+    if actions.iter().any(|action| matches!(action, Action::WithdrawFromInclusionKey(_))) {
+        return Err(ActionsValidationError::WithdrawFromInclusionKeyNotAllowedInDelegate);
     }
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
@@ -377,6 +387,9 @@ fn validate_add_key_action(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
+    if action.access_key.inclusion_key_info().is_some() {
+        return Err(ActionsValidationError::AddInclusionKeyNotAllowed);
+    }
 
     // If this is a gas key, apply additional gas key validation
     if let Some(gas_key_info) = action.access_key.gas_key_info() {
@@ -619,13 +632,14 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::{AccessKey, FunctionCallPermission, InclusionKeyInfo};
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedSignedDelegateAction,
     };
     use near_primitives::action::{
         GlobalContractDeployMode, UniversalStateInitAction, WithdrawFromGasKeyAction,
+        WithdrawFromInclusionKeyAction,
     };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -1230,6 +1244,34 @@ mod tests {
                 ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.protocol_version(),
             ),
             Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate)
+        );
+    }
+
+    #[test]
+    fn test_validate_action_delegated_withdraw_from_inclusion_key_rejected() {
+        let withdraw = Action::WithdrawFromInclusionKey(Box::new(WithdrawFromInclusionKeyAction {
+            public_key: PublicKey::empty(KeyType::ED25519),
+            target_balance: Balance::ZERO,
+        }));
+        let delegate = Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: alice_account(),
+                receiver_id: alice_account(),
+                actions: vec![withdraw.try_into().unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &delegate,
+                &alice_account(),
+                ProtocolFeature::InclusionKeys.protocol_version(),
+            ),
+            Err(ActionsValidationError::WithdrawFromInclusionKeyNotAllowedInDelegate)
         );
     }
 
@@ -1839,6 +1881,41 @@ mod tests {
         check("hello", 10, "hello");
         // cspell:ignore привет
         check("привет", 3, "п");
+    }
+
+    #[test]
+    fn test_validate_add_key_with_inclusion_key_permission_rejected() {
+        let limit_config = test_limit_config();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(1), last_transaction_nonce: 0 };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: "bob.near".parse().unwrap(),
+            method_names: vec![],
+        };
+        let permissions = [
+            AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info.clone()),
+            AccessKeyPermission::InclusionKeyFunctionCall(
+                inclusion_key_info,
+                function_call_permission,
+            ),
+        ];
+        for permission in permissions {
+            let add_key = Action::AddKey(Box::new(AddKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: AccessKey { nonce: 0, permission },
+            }));
+            assert_eq!(
+                validate_action(
+                    &limit_config,
+                    &add_key,
+                    &"alice.near".parse().unwrap(),
+                    PROTOCOL_VERSION
+                )
+                .unwrap_err(),
+                ActionsValidationError::AddInclusionKeyNotAllowed
+            );
+        }
     }
 
     #[test]

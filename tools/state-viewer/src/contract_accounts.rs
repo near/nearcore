@@ -141,6 +141,8 @@ pub(crate) enum ActionType {
     UniversalStateInit,
     TransferToGasKey,
     WithdrawFromGasKey,
+    FundInclusionKey,
+    WithdrawFromInclusionKey,
 }
 
 impl ContractAccount {
@@ -371,6 +373,8 @@ fn map_action(action: &Action) -> ActionType {
         Action::UniversalStateInit(_) => ActionType::UniversalStateInit,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
         Action::WithdrawFromGasKey(_) => ActionType::WithdrawFromGasKey,
+        Action::FundInclusionKey(_) => ActionType::FundInclusionKey,
+        Action::WithdrawFromInclusionKey(_) => ActionType::WithdrawFromInclusionKey,
     }
 }
 

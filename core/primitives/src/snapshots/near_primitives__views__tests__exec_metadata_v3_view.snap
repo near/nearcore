@@ -103,6 +103,16 @@ snapshot_kind: text
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "INCLUSION_KEY_BYTE",
+      "gas_used": "1030"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "INCLUSION_KEY_TRANSFER_BASE",
+      "gas_used": "1029"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "NEW_ACTION_RECEIPT",
       "gas_used": "1012"
     },

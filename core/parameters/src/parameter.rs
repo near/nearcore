@@ -29,6 +29,8 @@ pub enum Parameter {
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
     AccountCreationCharge,
+    /// Largest balance an inclusion key can hold.
+    MaxInclusionKeyBalance,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.
@@ -89,6 +91,8 @@ pub enum Parameter {
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
+    ActionInclusionKeyTransfer,
+    ActionInclusionKeyByte,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -376,6 +380,8 @@ pub enum FeeParameter {
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
+    ActionInclusionKeyTransfer,
+    ActionInclusionKeyByte,
 }
 
 impl Parameter {
@@ -467,6 +473,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,
+            ActionCosts::inclusion_key_transfer_base => Self::ActionInclusionKeyTransfer,
+            ActionCosts::inclusion_key_byte => Self::ActionInclusionKeyByte,
         }
     }
 }

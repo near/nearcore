@@ -555,6 +555,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 | near_primitives::transaction::Action::UniversalStateInit(_) => {
                     // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
                 }
+                near_primitives::transaction::Action::FundInclusionKey(_)
+                | near_primitives::transaction::Action::WithdrawFromInclusionKey(_) => {
+                    // TODO(inclusion-keys): rosetta balance operations.
+                }
                 near_primitives::transaction::Action::TransferToGasKey(action) => {
                     let initiate_op_id = crate::models::OperationIdentifier::new(&operations);
                     operations.push(

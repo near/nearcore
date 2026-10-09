@@ -820,6 +820,18 @@ impl AccessKey {
         borsh::object_length(&Self::gas_key_full_access(0)).unwrap()
     }
 
+    /// Borsh-serialized size of an AccessKey with an InclusionKeyFullAccess permission
+    /// (the smallest inclusion key variant).
+    pub fn min_inclusion_key_borsh_len() -> usize {
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::ZERO, last_transaction_nonce: 0 };
+        let access_key = Self {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        borsh::object_length(&access_key).unwrap()
+    }
+
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
@@ -851,7 +863,10 @@ impl AccessKey {
         match &self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::InclusionKeyFunctionCall(..)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
         }
     }
 
@@ -859,7 +874,45 @@ impl AccessKey {
         match &mut self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::InclusionKeyFunctionCall(..)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
+        }
+    }
+
+    pub fn inclusion_key_info(&self) -> Option<&InclusionKeyInfo> {
+        match &self.permission {
+            AccessKeyPermission::InclusionKeyFunctionCall(inclusion_key_info, _)
+            | AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info) => {
+                Some(inclusion_key_info)
+            }
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => None,
+        }
+    }
+
+    /// Borsh length counted for storage staking: an inclusion key counts as its plain permission.
+    pub fn storage_usage_borsh_len(&self) -> u64 {
+        let plain_access_key = AccessKey {
+            nonce: self.nonce,
+            permission: self.permission.without_inclusion_key_info(),
+        };
+        borsh::object_length(&plain_access_key).unwrap() as u64
+    }
+
+    pub fn inclusion_key_info_mut(&mut self) -> Option<&mut InclusionKeyInfo> {
+        match &mut self.permission {
+            AccessKeyPermission::InclusionKeyFunctionCall(inclusion_key_info, _)
+            | AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info) => {
+                Some(inclusion_key_info)
+            }
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => None,
         }
     }
 }
@@ -892,6 +945,26 @@ impl GasKeyInfo {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct InclusionKeyInfo {
+    pub balance: Balance,
+    /// Nonce of the last transaction signed with this key that executed or was charged.
+    /// Delegate actions do not write it. Always `<= AccessKey::nonce`.
+    pub last_transaction_nonce: Nonce,
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,
@@ -917,6 +990,10 @@ pub enum AccessKeyPermission {
     /// Gas key with full access to the account.
     /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
     GasKeyFullAccess(GasKeyInfo),
+    /// Function call key with a balance that pays for its transactions that fail at execution.
+    InclusionKeyFunctionCall(InclusionKeyInfo, FunctionCallPermission),
+    /// Full access key with a balance that pays for its transactions that fail at execution.
+    InclusionKeyFullAccess(InclusionKeyInfo),
 }
 
 impl AccessKeyPermission {
@@ -925,16 +1002,36 @@ impl AccessKeyPermission {
     pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
         match self {
             AccessKeyPermission::FunctionCall(permission)
-            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission)
+            | AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => Some(permission),
+            AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFullAccess(_)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
         }
     }
 
     pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
         match self {
             AccessKeyPermission::FunctionCall(permission)
-            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission)
+            | AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => Some(permission),
+            AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFullAccess(_)
+            | AccessKeyPermission::InclusionKeyFullAccess(_) => None,
+        }
+    }
+
+    /// The plain permission of an inclusion key; other permissions unchanged.
+    pub fn without_inclusion_key_info(&self) -> AccessKeyPermission {
+        match self {
+            AccessKeyPermission::InclusionKeyFunctionCall(_, permission) => {
+                AccessKeyPermission::FunctionCall(permission.clone())
+            }
+            AccessKeyPermission::InclusionKeyFullAccess(_) => AccessKeyPermission::FullAccess,
+            AccessKeyPermission::FunctionCall(_)
+            | AccessKeyPermission::FullAccess
+            | AccessKeyPermission::GasKeyFunctionCall(..)
+            | AccessKeyPermission::GasKeyFullAccess(_) => self.clone(),
         }
     }
 }
@@ -1394,5 +1491,39 @@ mod tests {
         global_by_account.global_contract_account_id =
             Some(AccountId::try_from("test.near".to_string()).unwrap());
         assert!(deserialize_account(&global_by_account).is_err());
+    }
+
+    #[test]
+    fn inclusion_key_storage_usage_borsh_len_equals_plain_key() {
+        let nonce = 7;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(1), last_transaction_nonce: nonce };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: "bob.near".to_string(),
+            method_names: vec!["method".to_string()],
+        };
+        let plain_and_inclusion_permissions = [
+            (
+                AccessKeyPermission::FullAccess,
+                AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info.clone()),
+            ),
+            (
+                AccessKeyPermission::FunctionCall(function_call_permission.clone()),
+                AccessKeyPermission::InclusionKeyFunctionCall(
+                    inclusion_key_info,
+                    function_call_permission,
+                ),
+            ),
+        ];
+        for (plain_permission, inclusion_permission) in plain_and_inclusion_permissions {
+            let plain_key = AccessKey { nonce, permission: plain_permission };
+            let inclusion_key = AccessKey { nonce, permission: inclusion_permission };
+            let plain_key_borsh_len = borsh::object_length(&plain_key).unwrap() as u64;
+            let inclusion_key_borsh_len = borsh::object_length(&inclusion_key).unwrap() as u64;
+            assert_ne!(inclusion_key_borsh_len, plain_key_borsh_len);
+            assert_eq!(plain_key.storage_usage_borsh_len(), plain_key_borsh_len);
+            assert_eq!(inclusion_key.storage_usage_borsh_len(), plain_key_borsh_len);
+        }
     }
 }

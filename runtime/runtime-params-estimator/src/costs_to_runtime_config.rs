@@ -44,6 +44,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
         account_creation_charge: latest_runtime_config.account_creation_charge,
+        max_inclusion_key_balance: latest_runtime_config.max_inclusion_key_balance,
     };
     Ok(res)
 }
@@ -95,6 +96,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
             ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
             ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
+            // No estimator for inclusion key costs; use values from the config store.
+            ActionCosts::inclusion_key_transfer_base => actual_fees_config.fee(ActionCosts::inclusion_key_transfer_base).clone(),
+            ActionCosts::inclusion_key_byte => actual_fees_config.fee(ActionCosts::inclusion_key_byte).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
