@@ -88,6 +88,10 @@ neard-sandbox-release:
 test-features-release:
 	cargo build -p neard --release --features test_features
 
+#? adversarial-release: build release version of neard with only the fault-injection hooks
+adversarial-release:
+	cargo build -p neard --release --features adversarial
+
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
 .PHONY: nightly-release nightly-debug assertions-release sandbox

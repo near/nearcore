@@ -81,7 +81,12 @@ protocol_feature_spice = [
     "near-epoch-manager/protocol_feature_spice",
     "near-store/protocol_feature_spice",
 ]
+# Fault-injection hooks only (`adv_*` messages and modes). Unlike `test_features`, it does not
+# change limits, thresholds or host functions, so the binary behaves like release until a fault
+# is turned on.
+adversarial = ["near-chain/adversarial", "near-chunks/adversarial"]
 test_features = [
+    "adversarial",
     "near-network/test_features",
     "near-chain/test_features",
     "near-chunks/test_features",

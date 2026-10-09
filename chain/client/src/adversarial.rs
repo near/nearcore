@@ -1,4 +1,4 @@
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 mod adv {
     use std::sync::atomic::Ordering;
 
@@ -39,7 +39,7 @@ mod adv {
     }
 }
 
-#[cfg(not(feature = "test_features"))]
+#[cfg(not(feature = "adversarial"))]
 mod adv {
     #[derive(Default, Clone)]
     pub struct Controls;

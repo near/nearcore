@@ -460,8 +460,8 @@ pub struct ClientSenderForRpc(
     AsyncSender<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>,
     AsyncSender<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>,
     AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
-    #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
-    #[cfg(feature = "test_features")]
+    #[cfg(feature = "adversarial")] Sender<near_client::NetworkAdversarialMessage>,
+    #[cfg(feature = "adversarial")]
     AsyncSender<near_client::NetworkAdversarialMessage, Option<u64>>,
     #[cfg(feature = "sandbox")]
     AsyncSender<
@@ -517,10 +517,10 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>,
     AsyncSender<ClientQuery, Result<QueryResponse, QueryError>>,
     AsyncSender<TxStatus, Result<TxStatusOutcome, TxStatusError>>,
-    #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
+    #[cfg(feature = "adversarial")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialMessage, ()>);
 
@@ -534,7 +534,7 @@ struct JsonRpcHandler {
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
-    #[cfg(feature = "test_features")]
+    #[cfg(feature = "adversarial")]
     gc_sender: GCSenderForRpc,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
@@ -874,12 +874,12 @@ impl JsonRpcHandler {
 
     /// Handles adversarial requests if they are enabled.
     ///
-    /// Adversarial requests are only enabled when `test_features` Cargo feature
+    /// Adversarial requests are only enabled when `adversarial` Cargo feature
     /// is turned on.  If the request has not been recognized as an adversarial
     /// request, returns `Err(request)` so that caller can continue handling the
     /// request.  Otherwise returns `Ok(response)` where `response` is the
     /// result of handling the request.
-    #[cfg(not(feature = "test_features"))]
+    #[cfg(not(feature = "adversarial"))]
     #[allow(clippy::unused_async)]
     async fn process_adversarial_request_internal(
         &self,
@@ -888,7 +888,7 @@ impl JsonRpcHandler {
         Err(request)
     }
 
-    #[cfg(feature = "test_features")]
+    #[cfg(feature = "adversarial")]
     async fn process_adversarial_request_internal(
         &self,
         request: Request,
@@ -2814,7 +2814,7 @@ impl JsonRpcHandler {
     }
 }
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 impl JsonRpcHandler {
     fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
@@ -3193,7 +3193,7 @@ pub fn create_jsonrpc_app(
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
-    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    #[cfg(feature = "adversarial")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
@@ -3222,7 +3222,7 @@ pub fn create_jsonrpc_app(
         enable_indexer_rpc,
         debug_pages_src_path: debug_pages_src_path.map(Into::into),
         entity_debug_handler,
-        #[cfg(feature = "test_features")]
+        #[cfg(feature = "adversarial")]
         gc_sender,
         block_notification_watcher,
         pool,
@@ -3277,7 +3277,7 @@ pub async fn start_http(
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
-    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    #[cfg(feature = "adversarial")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     pool: Arc<RwLock<ShardedRpcPool>>,
     future_spawner: &dyn FutureSpawner,
@@ -3297,7 +3297,7 @@ pub async fn start_http(
         process_tx_sender,
         peer_manager_sender,
         block_notification_watcher,
-        #[cfg(feature = "test_features")]
+        #[cfg(feature = "adversarial")]
         gc_sender,
         entity_debug_handler,
         pool,

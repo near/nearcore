@@ -4,7 +4,7 @@
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
@@ -94,7 +94,7 @@ pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 #[derive(PartialEq, Eq)]
 pub enum AdvProduceBlocksMode {
     All,
@@ -115,7 +115,7 @@ pub struct CatchupState {
 pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
-    #[cfg(feature = "test_features")]
+    #[cfg(feature = "adversarial")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
@@ -469,7 +469,7 @@ impl Client {
         }
 
         let client = Self {
-            #[cfg(feature = "test_features")]
+            #[cfg(feature = "adversarial")]
             adv_produce_blocks: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
@@ -734,7 +734,7 @@ impl Client {
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
-        #[cfg(feature = "test_features")]
+        #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks == Some(AdvProduceBlocksMode::All) {
                 return Ok(true);
@@ -747,7 +747,7 @@ impl Client {
             return Ok(false);
         }
 
-        #[cfg(feature = "test_features")]
+        #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
                 return Ok(true);
@@ -806,9 +806,9 @@ impl Client {
                 ?validator_pk,
                 "local validator key does not match expected validator key, skipping optimistic block production");
             let err = Error::BlockProducer("Local validator key mismatch".to_string());
-            #[cfg(not(feature = "test_features"))]
+            #[cfg(not(feature = "adversarial"))]
             return Err(err);
-            #[cfg(feature = "test_features")]
+            #[cfg(feature = "adversarial")]
             match self.adv_produce_blocks {
                 None | Some(AdvProduceBlocksMode::OnlyValid) => return Err(err),
                 Some(AdvProduceBlocksMode::All) => {}
@@ -2120,11 +2120,11 @@ impl Client {
                 let transaction_validity_check =
                     self.chain.transaction_validity_check(block.header().clone().into());
 
-                #[cfg(not(feature = "test_features"))]
+                #[cfg(not(feature = "adversarial"))]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool =
                     &transaction_validity_check;
 
-                #[cfg(feature = "test_features")]
+                #[cfg(feature = "adversarial")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
                     match self.chunk_producer.adversarial.produce_mode {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck)

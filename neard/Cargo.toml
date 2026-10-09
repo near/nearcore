@@ -71,7 +71,11 @@ protocol_feature_spice = [
 ]
 dump-test-contract = ["near-dump-test-contract"]
 
+# Release behavior plus the fault-injection hooks. Unlike `test_features`, it does not change
+# limits, thresholds or host functions. Build with `make adversarial-release`.
+adversarial = ["nearcore/adversarial", "near-cloud-archive-tool/adversarial"]
 test_features = [
+  "adversarial",
   "nearcore/test_features",
   "near-cloud-archive-tool/test_features",
   "near-dump-test-contract/test_features",
