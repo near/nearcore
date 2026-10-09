@@ -25,7 +25,9 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, Nonce, ProtocolVersion, ShardId,
+};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -150,6 +152,34 @@ impl<'a> TestLoopNode<'a> {
             ),
             query,
         ))
+    }
+
+    /// Like [`Self::runtime_query`], addressed at the state as of `block_hash`.
+    pub fn runtime_query_at(
+        &self,
+        block_hash: CryptoHash,
+        query: QueryRequest,
+    ) -> Result<QueryResponse, QueryError> {
+        let handle = self.node_data.view_client_sender.actor_handle();
+        let view_client: &ViewClientActor = self.data.get(&handle);
+        view_client
+            .handle_query(Query::new(BlockReference::BlockId(BlockId::Hash(block_hash)), query))
+    }
+
+    /// The account's balance in the state as of `block_hash`.
+    pub fn view_account_balance_at(
+        &self,
+        block_hash: CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Balance, QueryError> {
+        let response = self.runtime_query_at(
+            block_hash,
+            QueryRequest::ViewAccount { account_id: account_id.clone() },
+        )?;
+        let QueryResponseKind::ViewAccount(account_view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(account_view.amount)
     }
 
     pub fn view_account_query(&self, account_id: &AccountId) -> Result<AccountView, QueryError> {

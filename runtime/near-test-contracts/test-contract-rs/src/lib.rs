@@ -132,7 +132,11 @@ extern "C" {
         amount_ptr: u64,
     ) -> u64;
     #[cfg(feature = "latest_protocol")]
-    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
+    fn universal_state_init_to_account_id(
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64,
+    );
     #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_universal_state_init(
         promise_idx: u64,
