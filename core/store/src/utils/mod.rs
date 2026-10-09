@@ -508,6 +508,7 @@ pub fn remove_account(
 ) -> Result<RemoveAccountResult, StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    state_update.remove(TrieKey::ContractWarmth { account_id: account_id.clone() });
 
     let mut gas_key_nonce_count: usize = 0;
     let mut gas_key_nonce_total_key_bytes: usize = 0;
