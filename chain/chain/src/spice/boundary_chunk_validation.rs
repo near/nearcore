@@ -117,18 +117,8 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
             chunk_header.tx_root()
         )));
     }
-    let transaction_validity_check_results = state_witness
-        .transactions
-        .iter()
-        .map(|tx| {
-            store
-                .check_transaction_validity_period(
-                    anchor_prev_block.header(),
-                    tx.transaction.block_hash(),
-                )
-                .is_ok()
-        })
-        .collect::<Vec<_>>();
+    let transaction_validity_check_results =
+        store.compute_transaction_validity(anchor_prev_block.header(), &state_witness.transactions);
 
     let prev_chunk_extra =
         execution_result_from_pre_spice_child(epoch_manager, &last_new_chunk_block, shard_id)?

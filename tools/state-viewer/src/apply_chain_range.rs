@@ -21,7 +21,9 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
-use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::transaction::{
+    Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof, TransactionEnvelope,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
@@ -216,7 +218,7 @@ fn get_chunk_application_input(
         let transactions = chunk.to_transactions().to_vec();
         let valid_txs = chain_store_update
             .chain_store()
-            .compute_transaction_validity(prev_block.header(), &chunk);
+            .compute_transaction_validity(prev_block.header(), chunk.to_transactions());
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(
@@ -235,7 +237,7 @@ fn get_chunk_application_input(
 
         if only_contracts {
             let mut has_contracts = false;
-            for tx in chunk.to_transactions() {
+            for tx in chunk.to_transactions().iter().filter_map(TransactionEnvelope::as_signed) {
                 for action in tx.transaction.actions() {
                     has_contracts = has_contracts
                         || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));

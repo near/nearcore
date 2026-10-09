@@ -4013,6 +4013,26 @@
         "title": "DurationAsStdSchemaProvider",
         "type": "object"
       },
+      "EccTransactionView": {
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "payload": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload",
+          "hash"
+        ],
+        "title": "EccTransactionView",
+        "type": "object"
+      },
       "EpochId": {
         "allOf": [
           {
@@ -8787,7 +8807,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/SignedTransactionView"
+              "$ref": "#/components/schemas/TransactionEnvelopeView"
             },
             "type": "array"
           }
@@ -13277,6 +13297,18 @@
           }
         ],
         "title": "TrackedShardsConfig"
+      },
+      "TransactionEnvelopeView": {
+        "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SignedTransactionView"
+          },
+          {
+            "$ref": "#/components/schemas/EccTransactionView"
+          }
+        ],
+        "title": "TransactionEnvelopeView"
       },
       "TransactionNonce": {
         "oneOf": [

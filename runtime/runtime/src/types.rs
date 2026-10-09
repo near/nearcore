@@ -1,4 +1,4 @@
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 
 #[derive(Clone)]
 pub struct SignedValidPeriodTransactions {
@@ -6,7 +6,7 @@ pub struct SignedValidPeriodTransactions {
     ///
     /// Not all of them may be valid. See the other fields. Access the transactions via
     /// [`Self::iter_nonexpired_transactions`] or similar accessors, as appropriate.
-    transactions: Vec<SignedTransaction>,
+    transactions: Vec<TransactionEnvelope>,
     /// List of the transactions that are valid and should be processed by `apply`.
     ///
     /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
@@ -20,25 +20,31 @@ pub struct SignedValidPeriodTransactions {
 }
 
 impl SignedValidPeriodTransactions {
-    pub fn new(transactions: Vec<SignedTransaction>, validity_check_results: Vec<bool>) -> Self {
+    pub fn new<T: Into<TransactionEnvelope>>(
+        transactions: Vec<T>,
+        validity_check_results: Vec<bool>,
+    ) -> Self {
         assert_eq!(transactions.len(), validity_check_results.len());
-        Self { transactions, transaction_validity_check_passed: validity_check_results }
+        Self {
+            transactions: transactions.into_iter().map(Into::into).collect(),
+            transaction_validity_check_passed: validity_check_results,
+        }
     }
 
     pub fn empty() -> Self {
-        Self::new(vec![], vec![])
+        Self::new(Vec::<TransactionEnvelope>::new(), vec![])
     }
 
     pub fn iter_nonexpired_transactions<'a>(
         &'a self,
-    ) -> impl Iterator<Item = &'a SignedTransaction> {
+    ) -> impl Iterator<Item = &'a TransactionEnvelope> {
         self.transactions
             .iter()
             .zip(&self.transaction_validity_check_passed)
             .filter_map(|(t, v)| v.then_some(t))
     }
 
-    pub fn into_nonexpired_transactions(mut self) -> Vec<SignedTransaction> {
+    pub fn into_nonexpired_transactions(mut self) -> Vec<TransactionEnvelope> {
         let mut index = 0;
         self.transactions.retain(|_| {
             let retain = self.transaction_validity_check_passed[index];
@@ -55,7 +61,7 @@ impl SignedValidPeriodTransactions {
     /// get references to underlying fields
     pub fn get_potentially_expired_transactions_and_expiration_flags(
         &self,
-    ) -> (&[SignedTransaction], &[bool]) {
+    ) -> (&[TransactionEnvelope], &[bool]) {
         (&self.transactions, &self.transaction_validity_check_passed)
     }
 }

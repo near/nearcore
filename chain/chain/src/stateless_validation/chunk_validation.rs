@@ -15,7 +15,6 @@ use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
 use crate::{Chain, ChainStore, ChainStoreAccess};
-use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::futures::RayonAsyncComputationSpawner;
@@ -33,7 +32,6 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -324,9 +322,7 @@ pub fn pre_validate_chunk_state_witness(
 
     let runtime_config = runtime_adapter.get_runtime_config(protocol_version);
     for tx in state_witness.new_transactions() {
-        if let Err(err) =
-            ValidatedTransaction::check_valid_for_config(runtime_config, tx, protocol_version)
-        {
+        if let Err(err) = tx.check_valid_for_config(runtime_config, protocol_version) {
             tracing::debug!(
                 target: "chain",
                 tx_hash = ?tx.get_hash(),
@@ -388,18 +384,7 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            state_witness
-                .transactions()
-                .iter()
-                .map(|t| {
-                    store
-                        .check_transaction_validity_period(
-                            &prev_block_header,
-                            t.transaction.block_hash(),
-                        )
-                        .is_ok()
-                })
-                .collect_vec()
+            store.compute_transaction_validity(&prev_block_header, state_witness.transactions())
         }
     };
 

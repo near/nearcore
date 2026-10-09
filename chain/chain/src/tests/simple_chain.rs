@@ -3,12 +3,38 @@ use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
 use crate::{BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::transaction::{EccTransaction, SignedTransaction};
 use near_primitives::types::EpochId;
 use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance};
 use std::sync::Arc;
+
+/// An ECC has no block hash, so it is exempt from the validity period, while a signed
+/// transaction anchored at an unknown block is not.
+#[test]
+fn test_ecc_is_exempt_from_validity_period() {
+    let (chain, _, _, _) = setup(FakeClock::default().clock());
+    let genesis = chain.genesis_block();
+
+    let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
+    let signed_tx = SignedTransaction::send_money(
+        1,
+        "test".parse().unwrap(),
+        "test".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        CryptoHash::hash_bytes(b"unknown block"),
+    );
+    let ecc = EccTransaction::new("test".parse().unwrap(), vec![]);
+    let transactions = [ecc.into(), signed_tx.into()];
+
+    let validity =
+        chain.chain_store().compute_transaction_validity(genesis.header(), &transactions);
+    assert_eq!(validity, vec![true, false]);
+}
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.

@@ -137,7 +137,10 @@ impl TransactionPool {
     ///
     /// In practice, used to evict transactions that have already been included into the block or
     /// became invalid.
-    pub fn remove_transactions(&mut self, signed_txs: &[SignedTransaction]) {
+    pub fn remove_transactions<'a>(
+        &mut self,
+        signed_txs: impl IntoIterator<Item = &'a SignedTransaction>,
+    ) {
         let mut grouped_transactions = HashMap::new();
         for signed_tx in signed_txs {
             // If transaction is not present in the pool, skip it.

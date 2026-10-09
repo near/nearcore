@@ -200,10 +200,10 @@ impl PendingTransactionQueue {
     }
 
     /// Add transactions from a newly accepted block's chunk.
-    pub fn add_chunk_transactions(
+    pub fn add_chunk_transactions<'a>(
         &mut self,
         block_hash: CryptoHash,
-        transactions: &[SignedTransaction],
+        transactions: impl IntoIterator<Item = &'a SignedTransaction>,
         config: &RuntimeConfig,
         gas_price: Balance,
     ) {

@@ -8,7 +8,7 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource}
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
@@ -373,7 +373,7 @@ pub(crate) fn chunk_tx_exists(
     for tx in shard_chunk.to_transactions() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
-            sv.store.get_ser::<SignedTransaction>(DBCol::Transactions, tx_hash.as_ref()),
+            sv.store.get_ser::<TransactionEnvelope>(DBCol::Transactions, tx_hash.as_ref()),
             "Can't get Tx from storage for Tx Hash {:?}",
             tx_hash
         );

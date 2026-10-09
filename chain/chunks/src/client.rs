@@ -70,7 +70,11 @@ impl ShardedTransactionPool {
         self.pool_for_shard(shard_uid).insert_transaction(validated_tx)
     }
 
-    pub fn remove_transactions(&mut self, shard_uid: ShardUId, signed_txs: &[SignedTransaction]) {
+    pub fn remove_transactions<'a>(
+        &mut self,
+        shard_uid: ShardUId,
+        signed_txs: impl IntoIterator<Item = &'a SignedTransaction>,
+    ) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_uid) {
             pool.remove_transactions(signed_txs)
         }

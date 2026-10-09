@@ -582,6 +582,275 @@ impl schemars::JsonSchema for SignedTransaction {
     }
 }
 
+/// Version tag of [`EccTransaction`] in the first byte of its borsh encoding.
+const ECC_TRANSACTION_TAG: u8 = 2;
+
+/// An external contract call (ECC): a call that carries no signer, public key, nonce or
+/// signature. A clean return from the target's standardized method serves as
+/// authorization, so no contract code runs to check if this transaction is well-formed.
+#[derive(Eq, Debug, Clone, ProtocolSchema)]
+pub struct EccTransaction {
+    /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
+    /// also the receiver.
+    ///
+    /// It must stay the first field: the borsh encoding relies on it for telling this
+    /// transaction apart from the signed ones (see [`TransactionEnvelope`]).
+    contract_id: AccountId,
+    payload: Vec<u8>,
+    hash: CryptoHash,
+    size: u64,
+}
+
+impl EccTransaction {
+    pub fn new(contract_id: AccountId, payload: Vec<u8>) -> Self {
+        let mut tx = Self { contract_id, payload, hash: CryptoHash::default(), size: 0 };
+        tx.init();
+        tx
+    }
+
+    fn init(&mut self) {
+        let bytes = borsh::to_vec(self).expect("failed to serialize an ECC transaction");
+        self.hash = hash(&bytes);
+        self.size = bytes.len() as u64;
+    }
+
+    pub fn contract_id(&self) -> &AccountId {
+        &self.contract_id
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    pub fn into_parts(self) -> (AccountId, Vec<u8>) {
+        (self.contract_id, self.payload)
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
+    }
+
+    /// Full borsh-serialized size. There is no signature, so this is also the wire size.
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
+}
+
+impl PartialEq for EccTransaction {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl BorshSerialize for EccTransaction {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        BorshSerialize::serialize(&ECC_TRANSACTION_TAG, writer)?;
+        self.contract_id.serialize(writer)?;
+        self.payload.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for EccTransaction {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let tag = u8::deserialize_reader(reader)?;
+        if tag != ECC_TRANSACTION_TAG {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("invalid transaction version tag: {tag}"),
+            ));
+        }
+        let contract_id = AccountId::deserialize_reader(reader)?;
+        let payload = Vec::<u8>::deserialize_reader(reader)?;
+        Ok(Self::new(contract_id, payload))
+    }
+}
+
+/// A transaction as it appears in a chunk: either signed by an access key, or an unsigned
+/// [`EccTransaction`].
+///
+/// The borsh encoding of the signed variant is the one of [`SignedTransaction`], so existing
+/// chunks stay valid. The unsigned variant starts with the tag `2` and then the [`AccountId`]
+/// of its contract, whose nonzero length byte tells it apart from a V0 transaction (see
+/// [`Transaction`]). This is why a derived encoding, which would write a discriminant of
+/// `0` or `1` first, cannot be used.
+#[derive(Eq, PartialEq, Debug, Clone, ProtocolSchema)]
+#[allow(clippy::large_enum_variant)]
+pub enum TransactionEnvelope {
+    Signed(SignedTransaction),
+    Unsigned(EccTransaction),
+}
+
+impl TransactionEnvelope {
+    pub fn get_hash(&self) -> CryptoHash {
+        *self.hash()
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash(),
+            Self::Unsigned(tx) => tx.hash(),
+        }
+    }
+
+    pub fn get_size(&self) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.get_size(),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// See [`SignedTransaction::wire_size`].
+    pub fn wire_size(&self) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.wire_size(),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// See [`SignedTransaction::size_for_limits`].
+    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.size_for_limits(protocol_version),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// The block the transaction was created at, which anchors its validity period.
+    ///
+    /// An ECC has none and is exempt from the validity period: nothing signs it, so anyone
+    /// resubmitting it could refresh any such field, and expiry is up to the contract.
+    pub fn block_hash(&self) -> Option<&CryptoHash> {
+        self.as_signed().map(|tx| tx.transaction.block_hash())
+    }
+
+    pub fn as_signed(&self) -> Option<&SignedTransaction> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    pub fn into_signed(self) -> Option<SignedTransaction> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    /// Performs the validity checks that depend on the protocol version and the runtime
+    /// config, without checking the signature. See
+    /// [`ValidatedTransaction::check_valid_for_config`].
+    pub fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        if let Self::Signed(tx) = self {
+            return ValidatedTransaction::check_valid_for_config(config, tx, protocol_version);
+        }
+        if !ProtocolFeature::ExternalContractCalls.enabled(protocol_version) {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        let size = self.size_for_limits(protocol_version);
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
+        }
+        Ok(())
+    }
+}
+
+impl From<SignedTransaction> for TransactionEnvelope {
+    fn from(tx: SignedTransaction) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl From<EccTransaction> for TransactionEnvelope {
+    fn from(tx: EccTransaction) -> Self {
+        Self::Unsigned(tx)
+    }
+}
+
+impl Hash for TransactionEnvelope {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash().hash(state)
+    }
+}
+
+impl Borrow<CryptoHash> for TransactionEnvelope {
+    fn borrow(&self) -> &CryptoHash {
+        self.hash()
+    }
+}
+
+impl BorshSerialize for TransactionEnvelope {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::Signed(tx) => tx.serialize(writer),
+            Self::Unsigned(tx) => tx.serialize(writer),
+        }
+    }
+}
+
+impl BorshDeserialize for TransactionEnvelope {
+    /// Peeks at the first two bytes: `2` followed by a nonzero byte is an [`EccTransaction`],
+    /// anything else is handed to [`SignedTransaction`], which tells V0 from V1.
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let prefix = [u8::deserialize_reader(reader)?, u8::deserialize_reader(reader)?];
+        let mut reader = prefix.chain(reader);
+        if prefix[0] == ECC_TRANSACTION_TAG && prefix[1] != 0 {
+            return Ok(Self::Unsigned(EccTransaction::deserialize_reader(&mut reader)?));
+        }
+        Ok(Self::Signed(SignedTransaction::deserialize_reader(&mut reader)?))
+    }
+}
+
+impl serde::Serialize for TransactionEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let borsh = borsh::to_vec(self).map_err(|err| {
+            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
+        })?;
+        serializer.serialize_str(&to_base64(&borsh))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for TransactionEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let borsh = from_base64(&base64).map_err(|err| {
+            D::Error::custom(&format!("the value could not decoded from base64 due to: {}", err))
+        })?;
+        borsh::from_slice::<Self>(&borsh).map_err(|err| {
+            D::Error::custom(&format!("the value could not decoded from borsh due to: {}", err))
+        })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for TransactionEnvelope {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "TransactionEnvelope".to_string().into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "type": "string",
+            "format": "byte"
+        })
+    }
+}
+
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
@@ -770,6 +1039,21 @@ impl ExecutionOutcomeWithId {
         Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
     }
 
+    /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
+    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+        Self {
+            id: transaction.get_hash(),
+            outcome: ExecutionOutcome {
+                executor_id: transaction.contract_id().clone(),
+                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                gas_burnt: Gas::ZERO,
+                compute_usage: Some(0),
+                tokens_burnt: Balance::ZERO,
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn failed_with_gas_burnt(
         transaction: &SignedTransaction,
         error: InvalidTxError,
@@ -835,6 +1119,7 @@ mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use crate::universal_state_init::UniversalStateInitV1;
+    use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
     use near_crypto::SecretKey;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
@@ -1015,6 +1300,111 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidData);
         assert!(err.to_string().contains("invalid transaction version tag: 2"));
+    }
+
+    fn test_ecc() -> EccTransaction {
+        EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3])
+    }
+
+    fn test_signed_txs() -> Vec<SignedTransaction> {
+        let signer: Signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let (from, to) = ("alice.near".parse().unwrap(), "bob.near".parse().unwrap());
+        let deposit = Balance::from_yoctonear(1);
+        vec![
+            SignedTransaction::send_money(1, from, to, &signer, deposit, CryptoHash::default()),
+            SignedTransaction::send_money_v1(
+                TransactionNonce::from_nonce(2),
+                "alice.near".parse().unwrap(),
+                "bob.near".parse().unwrap(),
+                &signer,
+                deposit,
+                CryptoHash::default(),
+            ),
+        ]
+    }
+
+    /// A signed transaction has the same encoding in an envelope as on its own, so existing
+    /// chunks stay valid.
+    #[test]
+    fn test_envelope_signed_borsh_compat() {
+        for signed_tx in test_signed_txs() {
+            let bytes = borsh::to_vec(&signed_tx).unwrap();
+            let envelope = TransactionEnvelope::from(signed_tx.clone());
+            assert_eq!(borsh::to_vec(&envelope).unwrap(), bytes);
+            let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
+            assert_eq!(decoded, envelope);
+            assert_eq!(decoded.as_signed(), Some(&signed_tx));
+            assert_eq!(decoded.get_hash(), signed_tx.get_hash());
+        }
+    }
+
+    #[test]
+    fn test_envelope_ecc_borsh_roundtrip() {
+        let ecc = test_ecc();
+        let envelope = TransactionEnvelope::from(ecc);
+        let bytes = borsh::to_vec(&envelope).unwrap();
+        // The tag, then the length byte of the contract id, which is never zero.
+        assert_eq!(&bytes[..2], &[2, "wallet.near".len() as u8]);
+
+        let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
+        assert_eq!(decoded, envelope);
+        assert!(matches!(decoded, TransactionEnvelope::Unsigned(_)));
+        assert_eq!(decoded.get_hash(), hash(&bytes));
+        assert_eq!(decoded.get_size(), bytes.len() as u64);
+        assert_eq!(decoded.wire_size(), bytes.len() as u64);
+        assert_eq!(decoded.block_hash(), None);
+        assert_eq!(decoded.into_signed(), None);
+    }
+
+    /// Different content, different hash.
+    #[test]
+    fn test_ecc_hash_covers_all_fields() {
+        let ecc = test_ecc();
+        let other_contract = EccTransaction::new("other.near".parse().unwrap(), vec![1, 2, 3]);
+        let other_payload = EccTransaction::new(ecc.contract_id().clone(), vec![]);
+        for other in [other_contract, other_payload] {
+            assert_ne!(other.get_hash(), ecc.get_hash());
+        }
+    }
+
+    #[test]
+    fn test_envelope_deserialize_invalid_tag() {
+        let err = TransactionEnvelope::try_from_slice(&[3, 5, 0, 0, 0, 0, 0, 0]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid transaction version tag: 3"));
+    }
+
+    #[test]
+    fn test_envelope_json_roundtrip() {
+        let mut envelopes = vec![TransactionEnvelope::from(test_ecc())];
+        envelopes.extend(test_signed_txs().into_iter().map(TransactionEnvelope::from));
+        for envelope in envelopes {
+            let json = serde_json::to_string(&envelope).unwrap();
+            assert_eq!(serde_json::from_str::<TransactionEnvelope>(&json).unwrap(), envelope);
+        }
+    }
+
+    #[test]
+    fn test_ecc_check_valid_for_config() {
+        let config = RuntimeConfig::test();
+        let envelope = TransactionEnvelope::from(test_ecc());
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+
+        assert_eq!(
+            envelope.check_valid_for_config(&config, feature_version - 1),
+            Err(InvalidTxError::InvalidTransactionVersion)
+        );
+        assert_eq!(envelope.check_valid_for_config(&config, feature_version), Ok(()));
+
+        let max_size = config.wasm_config.limit_config.max_transaction_size;
+        let oversized = TransactionEnvelope::from(EccTransaction::new(
+            "wallet.near".parse().unwrap(),
+            vec![0; max_size as usize],
+        ));
+        assert_matches!(
+            oversized.check_valid_for_config(&config, feature_version),
+            Err(InvalidTxError::TransactionSizeExceeded { .. })
+        );
     }
 
     #[test]
