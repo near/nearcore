@@ -40,7 +40,10 @@ near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }
 near-chain-primitives.workspace = true
 
 [features]
+# Exposes the `adv_*` RPC methods. See `near-client/adversarial`.
+adversarial = ["near-client/adversarial", "near-jsonrpc-primitives/adversarial"]
 test_features = [
+    "adversarial",
     "near-client/test_features",
     "near-network/test_features",
     "near-jsonrpc-primitives/test_features",

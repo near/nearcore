@@ -6,7 +6,7 @@ release_type="${1:?Release type is required as the first argument}"
 upload_action="${2:-}"
 
 case "${release_type}" in
-  release|nightly-release|assertions-release|test-features-release)
+  release|nightly-release|assertions-release|test-features-release|adversarial-release)
     ;;
   *)
     echo "Unsupported release type '${release_type}'"

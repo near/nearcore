@@ -1909,19 +1909,19 @@ impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigErro
     }
 }
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 use crate::NetworkAdversarialMessage;
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 impl Handler<NetworkAdversarialMessage> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         tracing::debug!(target: "client", ?msg);

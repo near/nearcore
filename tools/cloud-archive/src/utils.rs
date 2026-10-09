@@ -5,7 +5,7 @@ use near_async::time::{Clock, Utc};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, GenesisValidationMode};
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 use near_client::NetworkAdversarialMessage;
 use near_client::ViewClientActor;
 use near_client::adversarial::Controls;
@@ -227,12 +227,12 @@ impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ReaderNo
     }
 }
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 impl Handler<NetworkAdversarialMessage> for ReaderNodeActor {
     fn handle(&mut self, _msg: NetworkAdversarialMessage) {}
 }
 
-#[cfg(feature = "test_features")]
+#[cfg(feature = "adversarial")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ReaderNodeActor {
     fn handle(&mut self, _msg: NetworkAdversarialMessage) -> Option<u64> {
         None
@@ -329,7 +329,7 @@ pub(crate) fn serve_store_while(
             reader_node.into_multi_sender(),
             noop().into_multi_sender(),
             watch::channel(None).1,
-            #[cfg(feature = "test_features")]
+            #[cfg(feature = "adversarial")]
             noop().into_multi_sender(),
             Arc::new(DummyEntityDebugHandler {}),
             sharded_rpc_pool,
