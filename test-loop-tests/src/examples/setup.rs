@@ -86,6 +86,7 @@ fn test_setup_genesis_overrides() {
     let minimum_stake_ratio = Rational32::new(1, 100);
     let min_gas_price = Balance::from_yoctonear(100_000_000);
     let max_gas_price = Balance::from_yoctonear(10_000_000_000);
+    let gas_price_adjustment_rate = Rational32::new(1, 20);
 
     let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
@@ -96,6 +97,7 @@ fn test_setup_genesis_overrides() {
         .max_inflation_rate(max_inflation_rate)
         .minimum_stake_ratio(minimum_stake_ratio)
         .gas_prices(min_gas_price, max_gas_price)
+        .gas_price_adjustment_rate(gas_price_adjustment_rate)
         .build();
 
     let genesis_config = &env.shared_state.genesis.config;
@@ -108,6 +110,7 @@ fn test_setup_genesis_overrides() {
     assert_eq!(genesis_config.minimum_stake_ratio, minimum_stake_ratio);
     assert_eq!(genesis_config.min_gas_price, min_gas_price);
     assert_eq!(genesis_config.max_gas_price, max_gas_price);
+    assert_eq!(genesis_config.gas_price_adjustment_rate, gas_price_adjustment_rate);
 }
 
 /// Demonstrates manually providing genesis and clients via `.genesis()` and `.clients()`.
