@@ -77,10 +77,19 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
 }
 
 #[cfg(feature = "wasmtime_vm")]
-impl From<WasmFeatures> for wasmtime::Config {
+impl From<WasmFeatures> for wasmtime_45::Config {
     fn from(_: WasmFeatures) -> Self {
         // preparation code did all the filtering necessary already. Default configuration supports
         // all the necessary features (and, yes, enables more of them.)
-        wasmtime::Config::default()
+        wasmtime_45::Config::default()
+    }
+}
+
+#[cfg(feature = "wasmtime_vm")]
+impl From<WasmFeatures> for wasmtime_48::Config {
+    fn from(_: WasmFeatures) -> Self {
+        // preparation code did all the filtering necessary already. Default configuration supports
+        // all the necessary features (and, yes, enables more of them.)
+        wasmtime_48::Config::default()
     }
 }

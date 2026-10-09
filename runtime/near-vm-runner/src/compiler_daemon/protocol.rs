@@ -32,11 +32,17 @@ pub struct WorkerConfig {
     pub thread_stack_size_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum WasmtimeVersion {
+    V45,
+    V48,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct DaemonStatus {
-    /// Hash supplied by Wasmtime for deciding whether serialized artifacts can
-    /// be loaded by another engine.
-    pub compiler_compatibility_hash: u64,
+    /// Hashes supplied by Wasmtime 45 and 48, respectively, for deciding whether
+    /// serialized artifacts can be loaded by another engine.
+    pub compiler_compatibility_hashes: [u64; 2],
     pub isolation: IsolationStatus,
     /// Effective worker settings, echoed so the parent can verify that the
     /// child implementation honored its process configuration.
@@ -53,6 +59,7 @@ pub enum DaemonStartup {
 pub struct CompileRequest<'a> {
     pub prepared_code: Cow<'a, [u8]>,
     pub max_memory_pages: u32,
+    pub wasmtime_version: WasmtimeVersion,
     #[cfg(feature = "test_features")]
     pub test_action: Option<TestAction>,
 }

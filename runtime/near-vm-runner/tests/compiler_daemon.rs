@@ -8,8 +8,38 @@
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_vm_runner::CompilePriority;
-use near_vm_runner::compiler_daemon;
 use near_vm_runner::logic::errors::CompilationError;
+
+mod compiler_daemon {
+    pub use near_vm_runner::compiler_daemon::*;
+
+    use near_parameters::vm::LimitConfig;
+    use near_vm_runner::CompilePriority;
+    use near_vm_runner::compiler_daemon as implementation;
+    use near_vm_runner::logic::errors::{CompilationError, VMRunnerError};
+
+    pub fn compile_in_subprocess(
+        prepared_code: &[u8],
+        limit_config: &LimitConfig,
+        priority: CompilePriority,
+    ) -> Result<Result<Vec<u8>, CompilationError>, VMRunnerError> {
+        compile_in_subprocess_for_version(
+            prepared_code,
+            limit_config,
+            priority,
+            protocol::WasmtimeVersion::V48,
+        )
+    }
+
+    pub fn compile_in_subprocess_for_version(
+        prepared_code: &[u8],
+        limit_config: &LimitConfig,
+        priority: CompilePriority,
+        version: protocol::WasmtimeVersion,
+    ) -> Result<Result<Vec<u8>, CompilationError>, VMRunnerError> {
+        implementation::compile_in_subprocess(prepared_code, limit_config, priority, version)
+    }
+}
 #[cfg(feature = "test_features")]
 use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
@@ -47,7 +77,7 @@ fn main() {
 
 fn test_startup_probe() {
     let status = compiler_daemon::start_daemon().unwrap();
-    assert_ne!(status.compiler_compatibility_hash, 0);
+    assert!(status.compiler_compatibility_hashes.into_iter().all(|hash| hash != 0));
     #[cfg(target_os = "linux")]
     assert_matches!(
         status.isolation,
@@ -83,13 +113,19 @@ fn test_basic_compilation() {
     let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
     let prepared = prepare::prepare_contract(&wasm, &config, VMKind::Wasmtime).unwrap();
 
-    let result = compiler_daemon::compile_in_subprocess(
-        &prepared,
-        &config.limit_config,
-        CompilePriority::Critical,
-    );
-    let compiled = result.unwrap().unwrap();
-    assert!(!compiled.is_empty());
+    for version in [
+        compiler_daemon::protocol::WasmtimeVersion::V45,
+        compiler_daemon::protocol::WasmtimeVersion::V48,
+    ] {
+        let result = compiler_daemon::compile_in_subprocess_for_version(
+            &prepared,
+            &config.limit_config,
+            CompilePriority::Critical,
+            version,
+        );
+        let compiled = result.unwrap().unwrap();
+        assert!(!compiled.is_empty());
+    }
 }
 
 fn test_invalid_wasm() {

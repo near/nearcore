@@ -411,7 +411,7 @@ pub async fn start_with_config_and_synchronization_impl(
             .map_err(anyhow::Error::msg)
             .context("failed to start compiler daemon")?;
         tracing::info!(
-            compatibility_hash = status.compiler_compatibility_hash,
+            compatibility_hashes = ?status.compiler_compatibility_hashes,
             isolation = ?status.isolation,
             "compiler daemon worker is ready"
         );

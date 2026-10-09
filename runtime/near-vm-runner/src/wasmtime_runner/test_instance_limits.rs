@@ -14,6 +14,7 @@
 //! miss it, some contracts may unexpectedly no longer compile on testnet and
 //! mainnet. But it wouldn't be a security vulnerability.
 
+use super::wasmtime;
 use super::{Module, WasmtimeVM};
 use crate::prepare::prepare_contract;
 use near_parameters::RuntimeConfigStore;

@@ -266,6 +266,7 @@ max_operand_stack_bytes_per_function                   8_192
 max_globals_per_contract                              65_536
 fix_contract_loading_cost               false
 fix_contract_loading_error              true
+wasmtime48                              true
 vm_kind                                 Wasmtime
 universal_accounts                      true
 fix_ml_dsa_cost_charging                true

@@ -1,5 +1,6 @@
 use super::Ctx;
 use super::logic;
+use super::wasmtime;
 use crate::logic::errors::VMLogicError;
 use crate::logic::gas_counter::GasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
