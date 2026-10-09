@@ -12,6 +12,8 @@ use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::instrumentation::all_actor_instrumentations_view;
 use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
 use near_async::time::{Clock, Duration};
+#[cfg(feature = "test_features")]
+use near_chain_configs::AdversarialMode;
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
@@ -565,6 +567,8 @@ struct JsonRpcHandler {
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")]
     gc_sender: GCSenderForRpc,
+    #[cfg(feature = "test_features")]
+    adversarial_mode: AdversarialMode,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -912,10 +916,10 @@ impl JsonRpcHandler {
     /// Handles adversarial requests if they are enabled.
     ///
     /// Adversarial requests are only enabled when `test_features` Cargo feature
-    /// is turned on.  If the request has not been recognized as an adversarial
-    /// request, returns `Err(request)` so that caller can continue handling the
-    /// request.  Otherwise returns `Ok(response)` where `response` is the
-    /// result of handling the request.
+    /// is turned on and `adversarial_mode` is `Rpc`.  If the request has not
+    /// been recognized as an adversarial request, returns `Err(request)` so
+    /// that caller can continue handling the request.  Otherwise returns
+    /// `Ok(response)` where `response` is the result of handling the request.
     #[cfg(not(feature = "test_features"))]
     #[allow(clippy::unused_async)]
     #[allow(clippy::result_large_err)]
@@ -933,6 +937,9 @@ impl JsonRpcHandler {
         &self,
         request: Request,
     ) -> Result<Result<Value, RpcError>, Request> {
+        if self.adversarial_mode != AdversarialMode::Rpc {
+            return Err(request);
+        }
         Ok(match request.method.as_ref() {
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params),
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params),
@@ -3298,6 +3305,7 @@ pub fn create_jsonrpc_app(
     peer_manager_sender: PeerManagerSenderForRpc,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    #[cfg(feature = "test_features")] adversarial_mode: AdversarialMode,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
@@ -3328,6 +3336,8 @@ pub fn create_jsonrpc_app(
         entity_debug_handler,
         #[cfg(feature = "test_features")]
         gc_sender,
+        #[cfg(feature = "test_features")]
+        adversarial_mode,
         block_notification_watcher,
         pool,
     });
@@ -3382,6 +3392,7 @@ pub async fn start_http(
     peer_manager_sender: PeerManagerSenderForRpc,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    #[cfg(feature = "test_features")] adversarial_mode: AdversarialMode,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     pool: Arc<RwLock<ShardedRpcPool>>,
     future_spawner: &dyn FutureSpawner,
@@ -3403,6 +3414,8 @@ pub async fn start_http(
         block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_sender,
+        #[cfg(feature = "test_features")]
+        adversarial_mode,
         entity_debug_handler,
         pool,
     );

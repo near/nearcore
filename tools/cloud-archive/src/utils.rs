@@ -4,6 +4,8 @@ use near_async::messaging::{Actor, Handler, IntoMultiSender, noop};
 use near_async::time::{Clock, Utc};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
+#[cfg(feature = "test_features")]
+use near_chain_configs::AdversarialMode;
 use near_chain_configs::{ClientConfig, GenesisValidationMode};
 #[cfg(feature = "test_features")]
 use near_client::NetworkAdversarialMessage;
@@ -331,6 +333,8 @@ pub(crate) fn serve_store_while(
             watch::channel(None).1,
             #[cfg(feature = "test_features")]
             noop().into_multi_sender(),
+            #[cfg(feature = "test_features")]
+            AdversarialMode::None,
             Arc::new(DummyEntityDebugHandler {}),
             sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),
