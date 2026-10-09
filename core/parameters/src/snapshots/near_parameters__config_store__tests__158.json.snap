@@ -105,7 +105,7 @@ snapshot_kind: text
       1
     ],
     "ml_dsa_65_verification_cost": 100000000000,
-    "transaction_inclusion_gas_per_byte": 0
+    "transaction_inclusion_gas_per_byte": 47500000
   },
   "wasm_config": {
     "ext_costs": {
@@ -225,9 +225,9 @@ snapshot_kind: text
     "sha3_host_fns": true,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
-    "bls12381_not_in_group_fix": false,
+    "bls12381_not_in_group_fix": true,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "universal_accounts": true,
@@ -271,6 +271,7 @@ snapshot_kind: text
       "max_blocks_per_function": 5000,
       "max_blocks_per_contract": 50000,
       "max_types_per_contract": 1024,
+      "max_globals_per_contract": 65536,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
