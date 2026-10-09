@@ -35,7 +35,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
-    StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
+    StorageError, TrieUpdate, compute_key_balance_sums, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
@@ -369,12 +369,12 @@ pub(crate) fn action_delete_account(
                 .into());
         return Ok(());
     }
-    let gas_key_balance_to_burn = compute_gas_key_balance_sum(state_update, account_id)?;
-    if gas_key_balance_to_burn > GasKeyInfo::MAX_BALANCE_TO_BURN {
+    let key_balance_sums = compute_key_balance_sums(state_update, account_id)?;
+    if key_balance_sums.gas_keys > GasKeyInfo::MAX_BALANCE_TO_BURN {
         result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
             account_id: account_id.clone(),
             public_key: None,
-            balance: gas_key_balance_to_burn,
+            balance: key_balance_sums.gas_keys,
         }
         .into());
         return Ok(());
@@ -387,10 +387,13 @@ pub(crate) fn action_delete_account(
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
     let remove_result = remove_account(state_update, account_id)?;
-    result.tokens_burnt =
-        result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
-            StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
-        })?;
+    let tokens_burnt_overflow =
+        || StorageError::StorageInconsistentState("tokens_burnt overflow".to_string());
+    result.tokens_burnt = result
+        .tokens_burnt
+        .checked_add(key_balance_sums.gas_keys)
+        .and_then(|tokens_burnt| tokens_burnt.checked_add(key_balance_sums.inclusion_keys))
+        .ok_or_else(tokens_burnt_overflow)?;
     if remove_result.gas_key_nonce_count > 0 {
         let compute = storage_removes_compute(
             &config.wasm_config.ext_costs,

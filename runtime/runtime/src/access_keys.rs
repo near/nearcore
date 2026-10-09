@@ -1933,4 +1933,69 @@ mod tests {
             access_key_storage_usage(&config.fees, &public_key, &plain_key);
         assert_eq!(account.storage_usage(), storage_usage_with_plain_key - plain_key_storage_usage);
     }
+
+    #[test]
+    fn test_delete_account_burns_inclusion_key_balances() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let first_public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key_0");
+        let second_public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key_1");
+        let first_key_balance = Balance::from_millinear(10);
+        let second_key_balance = Balance::from_millinear(20);
+        let inclusion_key = |balance| AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(InclusionKeyInfo {
+                balance,
+                last_transaction_nonce: 0,
+            }),
+        };
+        let mut state_update =
+            setup_account(&account_id, &first_public_key, &inclusion_key(first_key_balance));
+        set_access_key(
+            &mut state_update,
+            account_id.clone(),
+            second_public_key,
+            &inclusion_key(second_key_balance),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::None,
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
+
+        assert!(action_result.result.is_ok(), "result error: {:?}", action_result.result);
+        let expected_tokens_burnt = first_key_balance.checked_add(second_key_balance).unwrap();
+        assert_eq!(action_result.tokens_burnt, expected_tokens_burnt);
+    }
+
+    #[test]
+    fn test_delete_account_inclusion_key_balance_above_gas_key_limit_not_blocked() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key = PublicKey::from_seed(KeyType::ED25519, "inclusion_key");
+        let key_balance =
+            GasKeyInfo::MAX_BALANCE_TO_BURN.checked_add(Balance::from_near(1)).unwrap();
+        let inclusion_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(InclusionKeyInfo {
+                balance: key_balance,
+                last_transaction_nonce: 0,
+            }),
+        };
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key);
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::None,
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
+
+        assert!(action_result.result.is_ok(), "result error: {:?}", action_result.result);
+        assert_eq!(action_result.tokens_burnt, key_balance);
+    }
 }
