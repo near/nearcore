@@ -400,6 +400,7 @@ mod tests {
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
+            vm_generations: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

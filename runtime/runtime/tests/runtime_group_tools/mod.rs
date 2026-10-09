@@ -116,6 +116,7 @@ impl StandaloneRuntime {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             next_wasm_config: None,
+            vm_generations: Default::default(),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,

@@ -1,9 +1,11 @@
 use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
-use near_primitives::receipt::{BufferedReceiptIndices, StateStoredReceipt, TrieQueueIndices};
+use near_primitives::receipt::{
+    BufferedReceiptIndices, Receipt, StateStoredReceipt, TrieQueueIndices,
+};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
+use near_primitives::types::{AccountId, ShardId};
 
 /// Read-only iterator over items stored in a TrieQueue.
 struct TrieQueueIterator<'a, Queue>
@@ -50,6 +52,19 @@ pub struct ShardsOutgoingReceiptBuffer {
 pub struct OutgoingReceiptBuffer<'parent> {
     shard_id: ShardId,
     parent: &'parent mut ShardsOutgoingReceiptBuffer,
+}
+
+/// FIFO of the accounts that have receipts in the pending-compile queue. An
+/// account appears at most once.
+pub struct PendingCompileAccountQueue {
+    indices: TrieQueueIndices,
+}
+
+/// The pending-compile receipts of one receiver, in arrival order. The indices
+/// are absent from the trie while the queue is empty.
+pub struct PendingCompileReceiptQueue {
+    receiver_id: AccountId,
+    indices: TrieQueueIndices,
 }
 
 /// Common code for persistent queues stored in the trie.
@@ -277,6 +292,79 @@ impl TrieQueue for DelayedReceiptQueue {
 
     fn trie_key(&self, index: u64) -> TrieKey {
         TrieKey::DelayedReceipt { index }
+    }
+}
+
+impl PendingCompileAccountQueue {
+    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+        let indices = get(trie, &TrieKey::PendingCompileAccountIndices)?.unwrap_or_default();
+        Ok(Self { indices })
+    }
+}
+
+impl TrieQueue for PendingCompileAccountQueue {
+    type Item<'a> = AccountId;
+
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        Ok(get(trie, &TrieKey::PendingCompileAccountIndices)?.unwrap_or_default())
+    }
+
+    fn indices(&self) -> TrieQueueIndices {
+        self.indices.clone()
+    }
+
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+        &mut self.indices
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        set(state_update, TrieKey::PendingCompileAccountIndices, &self.indices);
+    }
+
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::PendingCompileAccount { index }
+    }
+}
+
+impl PendingCompileReceiptQueue {
+    pub fn load(trie: &dyn TrieAccess, receiver_id: &AccountId) -> Result<Self, StorageError> {
+        let key = TrieKey::PendingCompileReceiptIndices { receiver_id: receiver_id.clone() };
+        let indices = get(trie, &key)?.unwrap_or_default();
+        Ok(Self { receiver_id: receiver_id.clone(), indices })
+    }
+}
+
+impl TrieQueue for PendingCompileReceiptQueue {
+    type Item<'a> = Receipt;
+
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        let key = TrieKey::PendingCompileReceiptIndices { receiver_id: self.receiver_id.clone() };
+        Ok(get(trie, &key)?.unwrap_or_default())
+    }
+
+    // An empty queue has default indices, matching the absent trie entry.
+    fn indices(&self) -> TrieQueueIndices {
+        if self.indices.len() == 0 { TrieQueueIndices::default() } else { self.indices.clone() }
+    }
+
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+        if self.indices.len() == 0 {
+            self.indices = TrieQueueIndices::default();
+        }
+        &mut self.indices
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        let key = TrieKey::PendingCompileReceiptIndices { receiver_id: self.receiver_id.clone() };
+        if self.indices.len() == 0 {
+            state_update.remove(key);
+        } else {
+            set(state_update, key, &self.indices);
+        }
+    }
+
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::PendingCompileReceipt { receiver_id: self.receiver_id.clone(), index }
     }
 }
 

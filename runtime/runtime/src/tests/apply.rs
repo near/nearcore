@@ -84,7 +84,7 @@ use testlib::runtime_utils::{alice_account, bob_account};
 
 const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
-fn setup_runtime(
+pub(super) fn setup_runtime(
     initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
@@ -200,6 +200,7 @@ fn setup_runtime_for_shard(
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,
+        vm_generations: Default::default(),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -1621,7 +1622,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // Change main_storage_proof_size_soft_limit to the storage size in order to let
     // the first receipt go through but not the second one.
     let mut runtime_config = RuntimeConfig::free();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 300;
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 400;
     apply_state.config = Arc::new(runtime_config);
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -4688,6 +4689,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         current_protocol_version: PROTOCOL_VERSION,
         config,
         next_wasm_config: None,
+        vm_generations: Default::default(),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -6251,6 +6253,7 @@ mod self_signed_state_init {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(config),
             next_wasm_config: None,
+            vm_generations: Default::default(),
             cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
             is_new_chunk: true,
             save_receipt_to_tx: false,

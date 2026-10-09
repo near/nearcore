@@ -88,6 +88,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,
+        vm_generations: Default::default(),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,
         save_receipt_to_tx: false,
