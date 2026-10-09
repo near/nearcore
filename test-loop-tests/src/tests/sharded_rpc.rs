@@ -229,9 +229,6 @@ fn test_rpc_query_unknown_account_error_format() {
 
 /// Standard `query` ViewCode should be forwarded to the right shard.
 #[test]
-// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
-// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_code_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -263,7 +260,6 @@ fn test_rpc_query_view_code_forwarding() {
 
 /// Standard `query` ViewState should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_state_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -352,7 +348,6 @@ fn test_rpc_query_view_access_key_list_forwarding() {
 
 /// Standard `query` CallFunction should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_call_function_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -431,7 +426,6 @@ fn test_rpc_query_view_gas_key_nonces_forwarding() {
 
 /// Standard `query` ViewGlobalContractCodeByAccountId should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -484,7 +478,6 @@ fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
 /// Cross-shard CallFunction that triggers a VM error should return the backward-compatible
 /// error format from `process_query_response`.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_call_function_error_format() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -551,9 +544,8 @@ fn test_rpc_receipt_forwarding() {
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
     // Get receipt ID from the transaction outcome.
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let outcome = h.env.node_for_account(&validator).execution_outcome(tx_hash);
+    let receipt_id = outcome.outcome.receipt_ids[0];
 
     let run_receipt_query = |h: &mut TwoShardHarness,
                              node_id: &AccountId,
@@ -594,7 +586,6 @@ fn test_rpc_receipt_forwarding() {
 
 /// EXPERIMENTAL_view_code queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_view_code_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -622,7 +613,6 @@ fn test_rpc_experimental_view_code_forwarding() {
 
 /// EXPERIMENTAL_view_state queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_view_state_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -773,7 +763,6 @@ fn test_rpc_experimental_view_gas_key_nonces_forwarding() {
 
 /// EXPERIMENTAL_call_function queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_call_function_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -847,9 +836,7 @@ fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
 
     // Get a chunk hash from the head block.
     let validator = h.validator.clone();
-    let head = h.env.node_for_account(&validator).head();
-    let head_block =
-        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = h.env.node_for_account(&validator).head_block();
     let chunk_hash = head_block.chunks()[0].chunk_hash().0;
 
     let mut run_congestion_level =
@@ -947,9 +934,7 @@ fn test_rpc_chunk_hash_forwarding() {
 
     // Get chunk hashes from both shards in the head block.
     let validator = h.validator.clone();
-    let head = h.env.node_for_account(&validator).head();
-    let head_block =
-        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let head_block = h.env.node_for_account(&validator).head_block();
     let chunk_hash_shard0 = head_block.chunks()[0].chunk_hash().0;
     let chunk_hash_shard1 = head_block.chunks()[1].chunk_hash().0;
 
@@ -997,7 +982,6 @@ fn test_rpc_experimental_view_code_error_format() {
 
 /// Cross-shard EXPERIMENTAL_call_function on a nonexistent method should return a proper error.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_call_function_error_format() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1088,7 +1072,6 @@ fn test_rpc_view_account_finality_final() {
 /// Queries with Finality::DoomSlug should route correctly and reference a
 /// near-final block.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_view_account_finality_doomslug() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1129,7 +1112,6 @@ fn test_rpc_view_account_finality_doomslug() {
 /// Note: this test verifies routing, not that the result comes from the final
 /// block's state specifically.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_call_function_finality_final() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1332,8 +1314,7 @@ fn test_rpc_light_client_proof_forwarding() {
 
     // Pick the final head from an RPC node so the block is guaranteed to be
     // canonical on the node that actually answers the request.
-    let light_client_head =
-        h.env.node_for_account(&alice_node).client().chain.final_head().unwrap().last_block_hash;
+    let light_client_head = h.env.node_for_account(&alice_node).final_head().last_block_hash;
 
     let run_proof_query = |h: &mut TwoShardHarness,
                            node_id: &AccountId,
@@ -1408,8 +1389,7 @@ fn test_rpc_light_client_proof_unknown_outcome() {
     h.env.runner_for_account(&alice_node).run_until_executed_height(target_height);
     h.env.runner_for_account(&zoe_node).run_until_executed_height(target_height);
 
-    let light_client_head =
-        h.env.node_for_account(&alice_node).client().chain.final_head().unwrap().last_block_hash;
+    let light_client_head = h.env.node_for_account(&alice_node).final_head().last_block_hash;
 
     let run_proof_query = |h: &mut TwoShardHarness,
                            node_id: &AccountId,
@@ -1452,7 +1432,6 @@ fn test_rpc_light_client_proof_unknown_outcome() {
 /// `block_effects` should scatter-gather across shards: an RPC node tracking
 /// only one shard should return changes for ALL shards by forwarding to peers.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_in_block_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1469,8 +1448,7 @@ fn test_rpc_changes_in_block_scatter_gather() {
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
     // Find the block where the transaction was executed (has alice's state changes).
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let run_block_effects = |h: &mut TwoShardHarness,
@@ -1510,7 +1488,6 @@ fn test_rpc_changes_in_block_scatter_gather() {
 /// accounts on different shards from a node that only tracks one shard should
 /// return results for all requested accounts.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1672,7 +1649,6 @@ fn test_rpc_changes_empty_account_ids_scatter_gather() {
 /// `changes` with SingleAccessKeyChanges variant should scatter-gather
 /// correctly, routing by the access key's account_id to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_single_access_key_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1689,8 +1665,7 @@ fn test_rpc_changes_single_access_key_scatter_gather() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();

@@ -93,14 +93,14 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
         }));
     }
 
-    let start_height = env.node(0).client().chain.head().unwrap().height;
+    let start_height = env.node(0).head().height;
     let window = 12;
     let end_height = start_height + window;
     env.node_runner(0).run_until_head_height(end_height);
 
     // chunk_mask is indexed by shard index, not shard id.
     let node = env.node(0);
-    let head = node.client().chain.head().unwrap();
+    let head = node.head();
     let shard_layout = node.client().epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
     let target_index = shard_layout.get_shard_index(target_shard).unwrap();
 

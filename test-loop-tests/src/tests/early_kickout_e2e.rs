@@ -532,13 +532,7 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
         .validators_spec(validators_spec)
         .build();
     // `from_genesis` leaves all kickout thresholds at 0 (no standard kickout).
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let source_em = env.node(0).client().epoch_manager.clone();
 
@@ -577,15 +571,10 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
     // Wait for the epoch-sync proof to apply: the follower's header head jumps from
     // genesis into the synced epoch (or past it — header sync applies whole batches
     // per event) in the same event that commits the proof's store update.
-    {
-        let synced_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-        env.test_loop.run_until(
-            |data| {
-                data.get(&synced_handle).client.chain.header_head().unwrap().height > epoch_length
-            },
-            Duration::seconds(200),
-        );
-    }
+    env.node_runner(new_node_idx).run_until(
+        |node| node.client().chain.header_head().unwrap().height > epoch_length,
+        Duration::seconds(200),
+    );
 
     // Assertion 0: the synced epoch's `EpochStart` row. It is the min-height row on
     // the follower: a fresh node has none before epoch sync (genesis writes none),
@@ -1339,13 +1328,8 @@ fn slow_test_early_kickout_across_resharding() {
     // Runway so chunks whose grandparent anchor blacklists the target exist to check.
     // Waits on the FINAL head, not the head: everything below reads `final_head`, and the
     // row walk's width bound is stated in terms of how far the final head advanced past
-    // the trigger. Copy the height out because the liveness window below still needs
-    // `post_trigger_head`.
-    let post_trigger_height = post_trigger_head.height;
-    env.node_runner(0).run_until(
-        move |node| node.final_head().height >= post_trigger_height + 20,
-        Duration::seconds(EPOCH_LENGTH as i64),
-    );
+    // the trigger.
+    env.node_runner(0).run_until_final_head_height(post_trigger_head.height + 20);
     assert_eq!(
         env.node(0).final_head().epoch_id,
         split_epoch_id,

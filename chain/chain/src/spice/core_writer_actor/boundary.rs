@@ -2,37 +2,53 @@
 
 use super::SpiceCoreWriterActor;
 use crate::spice::boundary::is_last_pre_spice_block;
-use crate::spice::boundary_synthesis::check_pre_spice_execution_result;
+use crate::spice::boundary_synthesis::{
+    PreSpiceExecutionResultCheck, check_pre_spice_execution_result,
+};
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
 
 impl SpiceCoreWriterActor {
-    /// Whether the boundary consistency check rejects saving the result: one bad pre-spice
-    /// chunk must not cost the block its other core statements.
-    pub(super) fn boundary_rejects_execution_result(
+    /// Checks a certified execution result of a pre-spice chunk against this node's local
+    /// synthesis. A certified result carries 2/3 of the stake, so a mismatch means this
+    /// node's own pre-spice state is wrong, and it panics rather than build on it.
+    pub(super) fn check_boundary_execution_result(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
-    ) -> bool {
-        let Err(err) = check_pre_spice_execution_result(
+    ) {
+        let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
+        match check_pre_spice_execution_result(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
-            &SpiceChunkId { block_hash: *block_hash, shard_id },
+            &chunk_id,
             execution_result,
-        ) else {
-            return false;
-        };
-        tracing::error!(
-            target: "spice_core_writer",
-            ?err,
-            %block_hash,
-            %shard_id,
-            "not saving execution result",
-        );
-        true
+        ) {
+            Ok(
+                PreSpiceExecutionResultCheck::Consistent
+                | PreSpiceExecutionResultCheck::NotCheckable,
+            ) => {}
+            Ok(PreSpiceExecutionResultCheck::Mismatch { synthesized }) => {
+                panic!(
+                    "certified execution result of pre-spice chunk {chunk_id:?} does not match local synthesis: \
+                     this node's state of shard {shard_id} diverged from the network and cannot be repaired in place; \
+                     restore the data directory from a snapshot, or wipe it and re-sync from the network; \
+                     certified result: {execution_result:?}, synthesized result: {synthesized:?}"
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    target: "spice_core_writer",
+                    ?err,
+                    %block_hash,
+                    %shard_id,
+                    "failed to check certified execution result of pre-spice chunk; saving it unchecked",
+                );
+            }
+        }
     }
 
     /// A last pre-spice block's chunks' endorsements can arrive before the block and

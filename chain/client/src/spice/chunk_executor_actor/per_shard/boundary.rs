@@ -6,41 +6,28 @@ use crate::spice::chunk_executor_actor::storage::save_witness_and_contract_acces
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::boundary_synthesis::{
-    PreSpiceChunkApplyBlocks, execution_result_and_receipt_proofs_from_pre_spice_apply,
-    get_last_new_chunk_block_and_old_chunk_blocks, get_undelivered_receipt_proofs,
+    boundary_state_witness, execution_result_and_receipt_proofs_from_pre_spice_apply,
 };
-use near_chain::{Block, Error, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_chain::{Block, Error};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
-use near_primitives::hash::CryptoHash;
+use near_primitives::errors::EpochError;
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::state_witness::{
-    SpiceBoundaryChunkStateWitness, SpiceChunkStateWitness,
-};
-use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-};
 use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
-use near_primitives::utils::get_block_shard_id;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::DBCol;
-use near_store::adapter::StoreAdapter;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 impl PerShardChunkExecutor {
-    /// A no-op unless `block` is a last pre-spice block.
+    /// Returns the receipt proofs it persisted, for local-path fanout. `block` must be a
+    /// last pre-spice block.
     pub(crate) fn endorse_and_send_receipts_and_witness_for_last_pre_spice_block(
         &self,
         block: &Block,
-    ) -> Result<(), Error> {
-        if !is_last_pre_spice_block(self.epoch_manager.as_ref(), block.hash())? {
-            return Ok(());
-        }
+    ) -> Result<Vec<ReceiptProof>, Error> {
         let shard_id = self.shard_uid.shard_id();
         let (execution_result, receipt_proofs) =
             execution_result_and_receipt_proofs_from_pre_spice_apply(
@@ -52,164 +39,59 @@ impl PerShardChunkExecutor {
         self.save_produced_receipts(block.hash(), &receipt_proofs);
 
         if let Some(my_signer) = self.validator_signer.get() {
-            self.endorse_boundary_execution_result(block, &my_signer, execution_result)?;
-
-            // Distribution keys the boundary data's producers on the block's own
-            // epoch, whose chunk producers applied it and hold its state transition.
-            let epoch_producers = self
-                .epoch_manager
-                .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), shard_id)?;
-            if epoch_producers.contains(my_signer.validator_id()) {
-                self.send_outgoing_receipts(block, receipt_proofs);
-                self.distribute_boundary_witness(block)?;
+            // Receipts go first: other shards' progress depends on them, not on this
+            // node's endorsement.
+            if let Err(err) =
+                self.send_boundary_data_as_producer(block, &my_signer, receipt_proofs.clone())
+            {
+                tracing::error!(target: "chunk_executor", ?err, block_hash = %block.hash(), %shard_id, "failed to send boundary receipts and witness");
+            }
+            if let Err(err) =
+                self.endorse_boundary_execution_result(block, &my_signer, execution_result)
+            {
+                tracing::error!(target: "chunk_executor", ?err, block_hash = %block.hash(), %shard_id, "failed to endorse boundary execution result");
             }
         }
-        Ok(())
+        Ok(receipt_proofs)
     }
 
-    /// Absent on nodes that could not produce a witness, and after GC.
-    fn read_recorded_transition(
+    /// Sends the outgoing receipts and the state witness of the last pre-spice block's
+    /// chunk when this node is one of its chunk producers.
+    fn send_boundary_data_as_producer(
         &self,
-        block_hash: &CryptoHash,
-    ) -> Option<StoredChunkStateTransitionDataV1> {
-        let stored: StoredChunkStateTransitionData = self.chain_store.store().get_ser(
-            DBCol::StateTransitionData,
-            &get_block_shard_id(block_hash, self.shard_uid.shard_id()),
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        receipt_proofs: Vec<ReceiptProof>,
+    ) -> Result<(), Error> {
+        // Distribution keys the boundary data's producers on the block's own
+        // epoch, whose chunk producers applied it and hold its state transition.
+        let epoch_producers = self.epoch_manager.get_epoch_chunk_producers_for_shard(
+            block.header().epoch_id(),
+            self.shard_uid.shard_id(),
         )?;
-        let StoredChunkStateTransitionData::V1(data) = stored;
-        Some(data)
+        if !epoch_producers.contains(my_signer.validator_id()) {
+            return Ok(());
+        }
+        self.send_outgoing_receipts(block, receipt_proofs);
+        self.distribute_boundary_witness(block)
     }
 
-    /// Packages and distributes the state witness of the last pre-spice block's chunk
-    /// for this shard.
+    /// Distributes the state witness of the last pre-spice block's chunk for this
+    /// shard, when this node recorded the transitions to build it from.
     fn distribute_boundary_witness(&self, block: &Block) -> Result<(), Error> {
         let shard_id = self.shard_uid.shard_id();
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_headers = block.chunks();
-        let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-
-        let PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks } =
-            get_last_new_chunk_block_and_old_chunk_blocks(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                block,
-                shard_id,
-            )?;
-
-        let Some(chunk) =
-            self.get_new_chunk_if_valid(chunk_header, last_new_chunk_block.header().height())?
-        else {
-            // The anchor's chunk is invalid (malicious pre-spice producer): there is
-            // no state transition of it to attest.
-            return Ok(());
-        };
-        let transactions = chunk.into_transactions();
-
-        let Some(StoredChunkStateTransitionDataV1 {
-            base_state,
-            receipts_hash,
-            contract_accesses,
-            contract_deploys: _,
-        }) = self.read_recorded_transition(last_new_chunk_block.hash())
-        else {
-            tracing::warn!(
-                target: "chunk_executor",
-                block_hash = %block.hash(),
-                anchor_block_hash = %last_new_chunk_block.hash(),
-                %shard_id,
-                "no recorded state transition to build the boundary witness from",
-            );
-            return Ok(());
-        };
-
-        let mut implicit_transitions = Vec::with_capacity(old_chunk_blocks.len());
-        for old_chunk_block in old_chunk_blocks {
-            let Some(replay_transition) = self.read_recorded_transition(old_chunk_block.hash())
-            else {
-                tracing::warn!(
-                    target: "chunk_executor",
-                    block_hash = %block.hash(),
-                    replay_block_hash = %old_chunk_block.hash(),
-                    %shard_id,
-                    "no recorded state transition for an implicit replay of the boundary witness",
-                );
-                return Ok(());
-            };
-            let chunk_extra = self
-                .chain_store
-                .chunk_store()
-                .get_chunk_extra(old_chunk_block.hash(), &self.shard_uid)?;
-            implicit_transitions.push(ChunkStateTransition {
-                block_hash: *old_chunk_block.hash(),
-                base_state: replay_transition.base_state,
-                post_state_root: *chunk_extra.state_root(),
-            });
-        }
-
-        // The anchor's application consumed the incoming receipts of every block
-        // since the shard's previous inclusion; the witness carries one proof per
-        // chunk included across that whole range.
-        let anchor_prev_block =
-            self.chain_store.get_block(last_new_chunk_block.header().prev_hash())?;
-        let previous_inclusion_height = {
-            let prev_shard_layout =
-                self.epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
-            let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
-            let anchor_prev_chunks = anchor_prev_block.chunks();
-            anchor_prev_chunks
-                .get(prev_shard_index)
-                .ok_or(Error::InvalidShardId(shard_id))?
-                .height_included()
-        };
-        let anchor_shard_layout =
-            self.epoch_manager.get_shard_layout(last_new_chunk_block.header().epoch_id())?;
-        let mut range_receipt_proofs = vec![ReceiptProofResponse(
-            *last_new_chunk_block.hash(),
-            self.chain_store.get_incoming_receipts(last_new_chunk_block.hash(), shard_id)?,
-        )];
-        range_receipt_proofs.extend(get_incoming_receipts_for_shard(
+        let Some(witness) = boundary_state_witness(
             &self.chain_store,
             self.epoch_manager.as_ref(),
+            block,
             shard_id,
-            &anchor_shard_layout,
-            *last_new_chunk_block.header().prev_hash(),
-            previous_inclusion_height,
-            ReceiptFilter::All,
-        )?);
-        let mut source_receipt_proofs = HashMap::new();
-        for ReceiptProofResponse(source_block_hash, proofs) in &range_receipt_proofs {
-            let source_block = self.chain_store.get_block(source_block_hash)?;
-            let source_shard_layout =
-                self.epoch_manager.get_shard_layout(source_block.header().epoch_id())?;
-            let source_chunks = source_block.chunks();
-            for proof in proofs.iter() {
-                let from_shard_id = proof.1.from_shard_id;
-                let shard_index = source_shard_layout.get_shard_index(from_shard_id)?;
-                let source_chunk_header =
-                    source_chunks.get(shard_index).ok_or(Error::InvalidShardId(from_shard_id))?;
-                source_receipt_proofs
-                    .insert(source_chunk_header.chunk_hash().clone(), proof.clone());
-            }
-        }
-
-        let state_witness = SpiceChunkStateWitness::Boundary(SpiceBoundaryChunkStateWitness {
-            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id },
-            pre_state: base_state,
-            source_receipt_proofs,
-            applied_receipts_hash: receipts_hash,
-            transactions,
-            contract_accesses: contract_accesses.iter().cloned().collect(),
-            implicit_transitions,
-            undelivered_receipt_proofs: get_undelivered_receipt_proofs(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                block,
-                shard_id,
-            )?,
-        });
-        let contract_accesses: HashSet<CodeHash> = contract_accesses.into_iter().collect();
+        )?
+        else {
+            return Ok(());
+        };
+        let contract_accesses: HashSet<CodeHash> =
+            witness.contract_accesses.iter().cloned().collect();
+        let state_witness = SpiceChunkStateWitness::Boundary(witness);
         save_witness_and_contract_accesses(
             &self.chain_store,
             block.hash(),
@@ -231,20 +113,20 @@ impl PerShardChunkExecutor {
         my_signer: &ValidatorSigner,
         execution_result: ChunkExecutionResult,
     ) -> Result<(), Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let epoch_id = block.header().epoch_id();
         let validators_at_height = self.epoch_manager.get_chunk_validator_assignments(
-            &epoch_id,
+            epoch_id,
             self.shard_uid.shard_id(),
             block.header().height(),
         )?;
         let is_designated = validators_at_height.contains(my_signer.validator_id());
-        if !is_designated
-            && self
-                .epoch_manager
-                .get_validator_by_account_id(&epoch_id, my_signer.validator_id())
-                .is_err()
-        {
-            return Ok(());
+        if !is_designated {
+            match self.epoch_manager.get_validator_by_account_id(epoch_id, my_signer.validator_id())
+            {
+                Ok(_) => {}
+                Err(EpochError::NotAValidator(..)) => return Ok(()),
+                Err(err) => return Err(err.into()),
+            }
         }
         let endorsement = SpiceChunkEndorsement::new(
             SpiceChunkId { block_hash: *block.hash(), shard_id: self.shard_uid.shard_id() },

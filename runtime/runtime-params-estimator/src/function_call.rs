@@ -77,7 +77,10 @@ fn compute_function_call_cost(
 
     // Warmup.
     for _ in 0..warmup_repeats {
-        let gas_counter = fake_context.make_gas_counter(&vm_config);
+        let gas_counter = fake_context
+            .make_gas_counter(&vm_config)
+            .prepare_for_contract(&vm_config, "hello0", fake_external.code_len())
+            .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
             .prepare(&fake_external, cache, gas_counter, "hello0")
@@ -88,7 +91,10 @@ fn compute_function_call_cost(
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let gas_counter = fake_context.make_gas_counter(&vm_config);
+        let gas_counter = fake_context
+            .make_gas_counter(&vm_config)
+            .prepare_for_contract(&vm_config, "hello0", fake_external.code_len())
+            .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
             .prepare(&fake_external, cache, gas_counter, "hello0")

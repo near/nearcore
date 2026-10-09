@@ -207,14 +207,9 @@ fn test_rpc_parallel_take_first_partial_failure() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = *outcome
-        .outcome_with_id
-        .outcome
-        .receipt_ids
-        .first()
-        .expect("transfer should produce at least one receipt");
+    let outcome = h.env.node_for_account(&validator).execution_outcome(tx_hash);
+    let receipt_id =
+        *outcome.outcome.receipt_ids.first().expect("transfer should produce at least one receipt");
 
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();
@@ -241,9 +236,6 @@ fn test_rpc_parallel_take_first_partial_failure() {
 /// its local changes — not changes from other shards. This prevents
 /// forwarding loops in the scatter-gather protocol.
 #[test]
-// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
-// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_block_effects_coordinator_bypass() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -258,8 +250,7 @@ fn test_rpc_block_effects_coordinator_bypass() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();
@@ -323,7 +314,6 @@ fn test_rpc_block_effects_coordinator_bypass() {
 /// must reject with SHARD_NOT_APPLIED rather than silently returning empty
 /// data — otherwise partial results look identical to genuinely empty ones.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_coordinator_bypass() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -338,8 +328,7 @@ fn test_rpc_changes_coordinator_bypass() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     let zoe_node = h.zoe_node.clone();
@@ -445,7 +434,6 @@ fn test_rpc_block_effects_bogus_block_hash() {
 /// (simulating a stale node) rather than timing out. The retry loop must still
 /// fall back to rpc2.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_block_effects_scatter_gather_retry() {
     init_test_logger();
     let mut h = ThreeNodeHarness::new();
@@ -462,8 +450,7 @@ fn test_rpc_block_effects_scatter_gather_retry() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     // Baseline: validator tracks all shards so one call returns the full picture.
@@ -539,7 +526,6 @@ fn test_rpc_block_effects_scatter_gather_retry() {
 /// given shard" once rpc0 and rpc2 are excluded. The log trace (rpc0 failure
 /// → retry → rpc2 failure → give-up) confirms both candidates were tried.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_block_effects_scatter_gather_all_nodes_fail() {
     init_test_logger();
     let mut h = ThreeNodeHarness::new();
@@ -556,8 +542,7 @@ fn test_rpc_block_effects_scatter_gather_all_nodes_fail() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let outcome = h.env.node_for_account(&validator).execution_outcome_with_proof(tx_hash);
     let block_hash = outcome.block_hash;
 
     *h.rpc0_fault.write() = Some(RpcFault::Fail("rpc0 down".to_string()));

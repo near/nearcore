@@ -24,9 +24,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
-};
+use crate::utils::account::create_account_ids;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
@@ -965,13 +963,12 @@ impl TestEnv {
 
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-        let validators_spec = create_validators_spec(2, 2);
-        let clients = validators_spec_clients_with_rpc(&validators_spec);
 
-        let genesis = TestLoopBuilder::new_genesis_builder()
-            .validators_spec(validators_spec)
+        let runtime_config_store = RuntimeConfigStore::new();
+        let env = TestLoopBuilder::new()
+            .validators(2, 2)
             .shard_layout(shard_layout)
-            .add_user_accounts_simple(
+            .add_user_accounts(
                 &[
                     user_account.clone(),
                     independent_account.clone(),
@@ -981,13 +978,7 @@ impl TestEnv {
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
             .protocol_version(protocol_version)
-            .build();
-
-        let runtime_config_store = RuntimeConfigStore::new();
-        let env = TestLoopBuilder::new()
-            .genesis(genesis)
-            .epoch_config_store_from_genesis()
-            .clients(clients)
+            .enable_rpc()
             .runtime_config_store(runtime_config_store.clone())
             .build();
 

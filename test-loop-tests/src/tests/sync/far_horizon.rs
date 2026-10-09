@@ -370,10 +370,9 @@ fn test_far_horizon_restart_during_header_sync() {
     throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 10);
 
     // Run until new node is in the MIDDLE of HeaderSync (current_height > start_height).
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::HeaderSync { start_height, current_height, .. }
                 if *current_height > *start_height)
         },
@@ -438,10 +437,9 @@ fn test_far_horizon_restart_during_state_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node enters StateSync.
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::StateSync(_))
         },
         Duration::seconds(20),
@@ -509,10 +507,9 @@ fn test_far_horizon_restart_during_block_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node is in the MIDDLE of BlockSync (current_height > start_height).
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::BlockSync { start_height, current_height, .. }
                 if *current_height > *start_height)
         },
@@ -578,10 +575,9 @@ fn test_far_horizon_restart_after_long_downtime() {
     let new_node_idx = env.node_datas.len() - 1;
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             matches!(status, SyncStatus::StateSync(_))
         },
         Duration::seconds(20),
@@ -751,21 +747,19 @@ fn test_far_horizon_tx_during_sync() {
     let step_time = Duration::milliseconds(300);
     let num_steps = total_time.whole_milliseconds() / step_time.whole_milliseconds();
 
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    let node0_handle = env.node_datas[0].client_sender.actor_handle();
     let tx_accounts: Vec<AccountId> = accounts[50..60].to_vec();
     let mut tx_counter: u64 = 0;
 
     for _ in 0..num_steps {
         env.test_loop.run_for(step_time);
 
-        let new_h = env.test_loop.data.get(&new_node_handle).client.chain.head().unwrap().height;
-        let node0_h = env.test_loop.data.get(&node0_handle).client.chain.head().unwrap().height;
+        let new_h = env.node(new_node_idx).head().height;
+        let node0_h = env.node(0).head().height;
         // Only stop once we've injected at least some txs during active sync.
         if new_h == node0_h && tx_counter > 0 {
             break;
         }
-        if !env.test_loop.data.get(&new_node_handle).client.sync_handler.sync_status.is_syncing() {
+        if !env.node(new_node_idx).client().sync_handler.sync_status.is_syncing() {
             continue;
         }
 
@@ -781,8 +775,8 @@ fn test_far_horizon_tx_during_sync() {
         }
     }
 
-    let new_h = env.test_loop.data.get(&new_node_handle).client.chain.head().unwrap().height;
-    let node0_h = env.test_loop.data.get(&node0_handle).client.chain.head().unwrap().height;
+    let new_h = env.node(new_node_idx).head().height;
+    let node0_h = env.node(0).head().height;
     assert_eq!(new_h, node0_h, "new node failed to catch up within timeout");
 
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
@@ -853,10 +847,9 @@ fn test_far_horizon_stale_sync_hash_detection() {
 
     // Run until new node enters StateSync and record its sync hash.
     let mut node_sync_hash = None;
-    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+    env.node_runner(new_node_idx).run_until(
+        |node| {
+            let status = &node.client().sync_handler.sync_status;
             if let SyncStatus::StateSync(s) = status {
                 node_sync_hash = Some(s.sync_hash);
                 true
@@ -940,8 +933,7 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
 
     // The chain is already well past `far_horizon_height` by now, so take the window from
     // where it actually is: the node syncs and catches up within the next couple of epochs.
-    let source_handle = env.node_datas[0].client_sender.actor_handle();
-    let tip = env.test_loop.data.get(&source_handle).client.chain.head().unwrap().height;
+    let tip = env.node(0).head().height;
     env.shared_state
         .network_shared_state
         .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);

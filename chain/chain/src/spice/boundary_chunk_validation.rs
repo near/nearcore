@@ -241,7 +241,9 @@ pub(super) fn replay_boundary_implicit_transitions(
 /// is missing.
 mod tests {
     use super::*;
-    use crate::spice::boundary_synthesis::get_undelivered_receipt_carriers;
+    use crate::spice::boundary_synthesis::{
+        boundary_state_witness, get_undelivered_receipt_carriers,
+    };
     use crate::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
     use crate::spice::chunk_validation::tests::assert_invalid_witness;
     use crate::spice::tests::pre_spice::{
@@ -254,15 +256,17 @@ mod tests {
     use near_primitives::gas::Gas;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::{
-        ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3,
+        ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
     };
     use near_primitives::spice::state_witness::SpiceChunkStateWitness;
     use near_primitives::state::PartialState;
+    use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
     use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
     use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
     use near_primitives::types::{
         AccountId, Balance, BlockExecutionResults, BlockHeight, ShardId, SpiceChunkId,
     };
+    use near_store::adapter::StoreAdapter;
     use std::collections::{BTreeSet, HashMap};
     use std::sync::Arc;
 
@@ -535,6 +539,145 @@ mod tests {
             .chunk_extra;
             assert_eq!(chunk_extra.state_root(), &CryptoHash::default());
             chunk_extra
+        }
+
+        fn record_pre_spice_chunk_and_receipts(&mut self) {
+            let shard_layout = self
+                .chain
+                .epoch_manager
+                .get_shard_layout(self.last_new_chunk_block.header().epoch_id())
+                .unwrap();
+            let shard_index = shard_layout.get_shard_index(self.target_shard_id).unwrap();
+            let anchor_chunks = self.last_new_chunk_block.chunks();
+            let anchor_chunk_header = anchor_chunks.get(shard_index).unwrap().clone();
+            let incoming_receipts: Vec<(CryptoHash, ReceiptProof)> = self
+                .sources()
+                .into_iter()
+                .map(|(block, shard_id)| {
+                    let (_, _, proof) = outgoing_receipts(
+                        &self.chain,
+                        shard_id,
+                        block.header().prev_hash(),
+                        block.header().height(),
+                    );
+                    (*block.hash(), proof)
+                })
+                .collect();
+            // The anchor's chunk carries what the target's previous chunk produced, stored
+            // at the block that included that chunk.
+            let anchor_prev_hash = *self.last_new_chunk_block.header().prev_hash();
+            let (carried_receipts, _, _) = outgoing_receipts(
+                &self.chain,
+                self.target_shard_id,
+                &anchor_prev_hash,
+                self.last_new_chunk_block.header().height(),
+            );
+            let anchor_prev_block = self.chain.get_block(&anchor_prev_hash).unwrap();
+            let anchor_prev_chunks = anchor_prev_block.chunks();
+            let prev_chunk_height = anchor_prev_chunks.get(shard_index).unwrap().height_included();
+            let mut prev_chunk_block_header =
+                self.chain.get_block_header(&anchor_prev_hash).unwrap();
+            while prev_chunk_block_header.height() > prev_chunk_height {
+                prev_chunk_block_header =
+                    self.chain.get_block_header(prev_chunk_block_header.prev_hash()).unwrap();
+            }
+            let target_shard_id = self.target_shard_id;
+            let mut store_update = self.chain.chain_store.store_update();
+            store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], vec![]));
+            store_update.save_outgoing_receipt(
+                prev_chunk_block_header.hash(),
+                target_shard_id,
+                carried_receipts,
+            );
+            for (block_hash, proof) in incoming_receipts {
+                store_update.save_incoming_receipt(
+                    &block_hash,
+                    target_shard_id,
+                    Arc::new(vec![proof]),
+                );
+            }
+            store_update.commit().unwrap();
+        }
+
+        fn record_pre_spice_state_transitions(&mut self, replay_post_state_root: CryptoHash) {
+            let empty_base_state =
+                || Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) });
+            let applied_receipts_hash = hash(&borsh::to_vec(&self.expected_receipts()).unwrap());
+            let replay_chunk_extra =
+                self.empty_state_chunk_extra().next_for_old_chunk(replay_post_state_root);
+            let shard_uid = shard_id_to_uid(
+                self.chain.epoch_manager.as_ref(),
+                self.target_shard_id,
+                self.boundary_block.header().epoch_id(),
+            )
+            .unwrap();
+            let anchor_hash = *self.last_new_chunk_block.hash();
+            let boundary_hash = *self.boundary_block.hash();
+            let target_shard_id = self.target_shard_id;
+            let mut store_update = self.chain.chain_store.store_update();
+            store_update.save_state_transition_data(
+                anchor_hash,
+                target_shard_id,
+                empty_base_state(),
+                applied_receipts_hash,
+                ContractUpdates::default(),
+            );
+            store_update.save_state_transition_data(
+                boundary_hash,
+                target_shard_id,
+                empty_base_state(),
+                CryptoHash::default(),
+                ContractUpdates::default(),
+            );
+            store_update.save_chunk_extra(&boundary_hash, &shard_uid, replay_chunk_extra.into());
+            store_update.commit().unwrap();
+        }
+
+        /// The witness a chunk producer of the target shard assembles from what it
+        /// recorded.
+        fn producer_witness(&self) -> Result<Option<SpiceBoundaryChunkStateWitness>, Error> {
+            boundary_state_witness(
+                &self.chain.chain_store.store_ref().chain_store(),
+                self.chain.epoch_manager.as_ref(),
+                &self.boundary_block,
+                self.target_shard_id,
+            )
+        }
+
+        /// The post state root of replaying the boundary block's old chunk on top of
+        /// the anchor's previous chunk extra: the runtime's own apply is the reference.
+        fn replay_post_state_root(&self) -> CryptoHash {
+            let witness = self.witness_with_implicit_transition(
+                *self.boundary_block.hash(),
+                CryptoHash::default(),
+            );
+            let output = self.run_pre_validation(&witness).unwrap();
+            let Ok(BoundaryReplay { block_context, shard_uid, .. }) =
+                output.boundary_replays.into_iter().exactly_one()
+            else {
+                panic!("the boundary block is the only old-chunk replay");
+            };
+            let old_chunk_data = OldChunkData {
+                prev_chunk_extra: self.empty_state_chunk_extra(),
+                block: block_context,
+                storage_context: StorageContext {
+                    storage_data_source: StorageDataSource::Recorded(PartialStorage {
+                        nodes: PartialState::TrieValues(vec![]),
+                    }),
+                    state_patch: Default::default(),
+                },
+            };
+            apply_old_chunk(
+                ApplyChunkReason::ValidateChunkStateWitness,
+                &Span::current(),
+                old_chunk_data,
+                ShardContext { shard_uid, should_apply_chunk: false },
+                self.chain.runtime_adapter.as_ref(),
+                MaybePinnedMemtrieRoot::no_memtries(),
+            )
+            .unwrap()
+            .apply_result
+            .new_root
         }
 
         fn run_pre_validation(
@@ -887,38 +1030,7 @@ mod tests {
         let boundary_chain = setup_boundary_chain();
         let boundary_block_hash = *boundary_chain.boundary_block.hash();
         let main_chunk_extra = boundary_chain.empty_state_chunk_extra();
-        let runtime_adapter = boundary_chain.chain.runtime_adapter.as_ref();
-
-        // The runtime's own old-chunk apply is the reference post state root.
-        let witness = boundary_chain
-            .witness_with_implicit_transition(boundary_block_hash, CryptoHash::default());
-        let output = boundary_chain.run_pre_validation(&witness).unwrap();
-        let Ok(BoundaryReplay { block_context, shard_uid, .. }) =
-            output.boundary_replays.into_iter().exactly_one()
-        else {
-            panic!("the boundary block is the only old-chunk replay");
-        };
-        let old_chunk_data = OldChunkData {
-            prev_chunk_extra: main_chunk_extra.clone(),
-            block: block_context,
-            storage_context: StorageContext {
-                storage_data_source: StorageDataSource::Recorded(PartialStorage {
-                    nodes: PartialState::TrieValues(vec![]),
-                }),
-                state_patch: Default::default(),
-            },
-        };
-        let expected_post_state_root = apply_old_chunk(
-            ApplyChunkReason::ValidateChunkStateWitness,
-            &Span::current(),
-            old_chunk_data,
-            ShardContext { shard_uid, should_apply_chunk: false },
-            runtime_adapter,
-            MaybePinnedMemtrieRoot::no_memtries(),
-        )
-        .unwrap()
-        .apply_result
-        .new_root;
+        let expected_post_state_root = boundary_chain.replay_post_state_root();
 
         let witness = boundary_chain
             .witness_with_implicit_transition(boundary_block_hash, expected_post_state_root);
@@ -927,9 +1039,70 @@ mod tests {
             &witness,
             output.boundary_replays,
             main_chunk_extra.clone(),
-            runtime_adapter,
+            boundary_chain.chain.runtime_adapter.as_ref(),
         )
         .unwrap();
         assert_eq!(chunk_extra, main_chunk_extra.next_for_old_chunk(expected_post_state_root));
+    }
+
+    /// The witness a chunk producer assembles from its own pre-spice apply must be
+    /// the one the validator accepts.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_producer_boundary_witness_round_trips_through_validation() {
+        let mut boundary_chain = setup_boundary_chain();
+
+        boundary_chain.record_pre_spice_chunk_and_receipts();
+        assert_eq!(boundary_chain.producer_witness().unwrap(), None);
+
+        let post_state_root = boundary_chain.replay_post_state_root();
+        boundary_chain.record_pre_spice_state_transitions(post_state_root);
+        let witness =
+            boundary_chain.producer_witness().unwrap().expect("every transition is recorded");
+        assert_eq!(
+            witness,
+            boundary_chain.witness_with_implicit_transition(
+                *boundary_chain.boundary_block.hash(),
+                post_state_root,
+            ),
+        );
+
+        let output = boundary_chain.run_pre_validation(&witness).unwrap();
+        assert_eq!(output.new_chunk_data.receipts, boundary_chain.expected_receipts());
+        let main_chunk_extra = boundary_chain.empty_state_chunk_extra();
+        let chunk_extra = replay_boundary_implicit_transitions(
+            &witness,
+            output.boundary_replays,
+            main_chunk_extra.clone(),
+            boundary_chain.chain.runtime_adapter.as_ref(),
+        )
+        .unwrap();
+        assert_eq!(chunk_extra, main_chunk_extra.next_for_old_chunk(post_state_root));
+    }
+
+    /// A producer whose source receipt proofs do not reproduce the receipts its recorded
+    /// transition applied must fail rather than build a witness validators would reject.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_producer_boundary_witness_rejects_inconsistent_receipts_hash() {
+        let mut boundary_chain = setup_boundary_chain();
+        boundary_chain.record_pre_spice_chunk_and_receipts();
+        let post_state_root = boundary_chain.replay_post_state_root();
+        boundary_chain.record_pre_spice_state_transitions(post_state_root);
+
+        let anchor_hash = *boundary_chain.last_new_chunk_block.hash();
+        let target_shard_id = boundary_chain.target_shard_id;
+        let mut store_update = boundary_chain.chain.chain_store.store_update();
+        store_update.save_state_transition_data(
+            anchor_hash,
+            target_shard_id,
+            Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) }),
+            CryptoHash::hash_bytes(b"forged receipts hash"),
+            ContractUpdates::default(),
+        );
+        store_update.commit().unwrap();
+
+        let err = boundary_chain.producer_witness().unwrap_err();
+        assert!(err.to_string().contains("source receipt proofs hash to"), "{err}");
     }
 }

@@ -144,11 +144,9 @@ impl Test {
         // below.
         runner.run_for_an_epoch(&mut env);
 
-        let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-        let client = &env.test_loop.data.get(client_actor_handle).client;
         let view_client_actor_handle = &env.node_datas[0].view_client_sender.actor_handle();
 
-        let start_height = client.chain.head().unwrap().height;
+        let start_height = env.node(0).head().height;
         let stop_height = start_height + epoch_length * 3;
 
         let heights = Arc::new(RwLock::new(HashMap::new()));

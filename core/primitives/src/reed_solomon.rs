@@ -228,6 +228,10 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         self.encoder.data_parts()
     }
 
+    pub fn total_parts(&self) -> usize {
+        self.parts.len()
+    }
+
     pub fn has_enough_parts(&self) -> bool {
         self.data_parts_present >= self.data_parts_required()
     }

@@ -111,10 +111,9 @@ fn slow_test_earliest_available_after_resharding() {
         })
         .build();
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let view_handle = env.node_datas[0].view_client_sender.actor_handle();
-    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
-    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+    let client = env.node(0).client();
+    let chain_store = client.chain.chain_store.clone();
+    let epoch_manager = client.epoch_manager.clone();
 
     // 1. Run until the resharding split has happened (the new shard layout is active at head).
     env.test_loop.run_until(
@@ -147,12 +146,11 @@ fn slow_test_earliest_available_after_resharding() {
 
     // 3. earliest_available must resolve to the first block the node still serves state for -
     //    `gc_stop_height`, in the child layout - NOT the wiped pre-split boundary block `H_r`.
-    let earliest_block = {
-        let view_client = env.test_loop.data.get_mut(&view_handle);
-        view_client
-            .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)))
-            .expect("earliest_available block should be retrievable")
-    };
+    let earliest_block = env
+        .node_mut(0)
+        .view_client_actor()
+        .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)))
+        .expect("earliest_available block should be retrievable");
     assert_eq!(
         earliest_block.header.height, gc_stop_height,
         "earliest_available should resolve to gc_stop_height, not the wiped boundary block"
@@ -165,38 +163,29 @@ fn slow_test_earliest_available_after_resharding() {
     );
 
     // 4. The account query at earliest_available now succeeds (before the fix: MissingTrieValue).
-    let earliest_result = {
-        let view_client = env.test_loop.data.get_mut(&view_handle);
-        view_client.handle(Query::new(
-            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
-            QueryRequest::ViewAccount { account_id: query_account.clone() },
-        ))
-    };
+    let earliest_result = env.node_mut(0).view_client_actor().handle(Query::new(
+        BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
+        QueryRequest::ViewAccount { account_id: query_account.clone() },
+    ));
     assert!(
         earliest_result.is_ok(),
         "query at earliest_available should succeed after the fix, got: {earliest_result:?}"
     );
 
     // 5. Sanity: the same query at finality:final (head / child layout) succeeds too.
-    let final_result = {
-        let view_client = env.test_loop.data.get_mut(&view_handle);
-        view_client.handle(Query::new(
-            BlockReference::Finality(Finality::Final),
-            QueryRequest::ViewAccount { account_id: query_account.clone() },
-        ))
-    };
+    let final_result = env.node_mut(0).view_client_actor().handle(Query::new(
+        BlockReference::Finality(Finality::Final),
+        QueryRequest::ViewAccount { account_id: query_account.clone() },
+    ));
     assert!(final_result.is_ok(), "query at finality:final should succeed, got: {final_result:?}");
 
     // 6. The boundary block `H_r` itself is genuinely garbage collected (its parent-shard state
     //    was wiped), so a query pinned to it returns a clean GarbageCollectedBlock. This confirms
     //    the fix skips unavailable state rather than relying on the boundary block staying readable.
-    let boundary_result = {
-        let view_client = env.test_loop.data.get_mut(&view_handle);
-        view_client.handle(Query::new(
-            BlockReference::BlockId(BlockId::Height(boundary_height)),
-            QueryRequest::ViewAccount { account_id: query_account },
-        ))
-    };
+    let boundary_result = env.node_mut(0).view_client_actor().handle(Query::new(
+        BlockReference::BlockId(BlockId::Height(boundary_height)),
+        QueryRequest::ViewAccount { account_id: query_account },
+    ));
     assert!(
         matches!(boundary_result, Err(QueryError::GarbageCollectedBlock { .. })),
         "query pinned to the wiped boundary block should be GarbageCollectedBlock, got: {boundary_result:?}"
@@ -242,7 +231,6 @@ fn slow_test_earliest_available_after_state_sync() {
         .build();
     env.add_node("new_node", node_state);
     let new_node_idx = env.node_datas.len() - 1;
-    let view_handle = env.node_datas[new_node_idx].view_client_sender.actor_handle();
 
     let _sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -265,18 +253,14 @@ fn slow_test_earliest_available_after_state_sync() {
         };
         observed_inverted_window |= gc_stop_height < tail;
 
-        let earliest_query = {
-            let view_client = env.test_loop.data.get_mut(&view_handle);
-            view_client.handle(Query::new(
-                BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
-                QueryRequest::ViewAccount { account_id: account.clone() },
-            ))
-        };
-        let earliest_block = {
-            let view_client = env.test_loop.data.get_mut(&view_handle);
-            view_client
-                .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)))
-        };
+        let earliest_query = env.node_mut(new_node_idx).view_client_actor().handle(Query::new(
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
+            QueryRequest::ViewAccount { account_id: account.clone() },
+        ));
+        let earliest_block = env
+            .node_mut(new_node_idx)
+            .view_client_actor()
+            .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)));
 
         let ctx = format!("head={head_height}, tail={tail}, gc_stop_height={gc_stop_height}");
         assert!(

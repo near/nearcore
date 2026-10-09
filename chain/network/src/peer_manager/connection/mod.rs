@@ -36,9 +36,7 @@ impl tcp::Tier {
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
             PeerMessage::Disconnect(..) => true,
-            PeerMessage::VersionedStateResponse(_) => {
-                self == tcp::Tier::T2 || self == tcp::Tier::T3
-            }
+            PeerMessage::VersionedStateResponse(_) => self == tcp::Tier::T3,
             PeerMessage::OptimisticBlock(..) => true,
             PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
@@ -53,8 +51,6 @@ impl tcp::Tier {
             | PeerMessage::Transaction(..)
             | PeerMessage::Challenge(..)
             | PeerMessage::SyncSnapshotHosts(..)
-            | PeerMessage::StateRequestHeader(..)
-            | PeerMessage::StateRequestPart(..)
             | PeerMessage::EpochSyncRequest
             | PeerMessage::EpochSyncResponse(..) => self == tcp::Tier::T2,
         }

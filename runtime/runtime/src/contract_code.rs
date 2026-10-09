@@ -1,3 +1,7 @@
+use crate::wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
+    is_legacy_eth_wallet,
+};
 use near_primitives::account::AccountContract;
 use near_primitives::account::id::AccountType;
 use near_primitives::action::GlobalContractIdentifier;
@@ -9,9 +13,6 @@ use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
-use near_wallet_contract::{
-    LegacyEthWallet, eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
-};
 
 /// Identifies a resolved contract for execution.
 ///
@@ -73,7 +74,7 @@ impl RuntimeContractIdentifier {
             // description of #11606) may have something else deployed to them. Only return
             // something here if the accounts have a wallet contract hash. Otherwise use the
             // regular path to grab the deployed contract.
-            if LegacyEthWallet::resolve(local_hash).is_some() {
+            if is_legacy_eth_wallet(local_hash) {
                 // ETH implicit wallet accounts use global contracts, including
                 // those created in old protocol versions.
                 let global_hash = eth_wallet_global_contract_hash(chain_id, protocol_version);
@@ -88,6 +89,48 @@ impl RuntimeContractIdentifier {
             code_hash: local_hash,
             account_id: account_id.clone(),
         })
+    }
+
+    /// Resolve exact source size without retrieving the source bytes.
+    ///
+    /// Called only after the FixContractLoadingCost loading base has been paid,
+    /// with the caller's witness policy. Missing code is legitimate only for this
+    /// chain's current global wallet contract hash: that wallet's code may never
+    /// have been deployed on this chain. This also applies to named accounts,
+    /// since `resolve` remaps old global wallet hashes regardless of account type.
+    pub(crate) fn resolve_code_len(
+        &self,
+        state_update: &TrieUpdate,
+        access: AccessOptions,
+        chain_id: &str,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Option<u64>, StorageError> {
+        let key = match self {
+            Self::None => return Ok(None),
+            Self::AccountLocal { account_id, .. } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            Self::Global { identifier, .. } => {
+                TrieKey::GlobalContractCode { identifier: identifier.clone().into() }
+            }
+        };
+        let length = state_update
+            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, access)?
+            .map(|value| value.len() as u64);
+        if let Some(length) = length {
+            return Ok(Some(length));
+        }
+        if matches!(
+            self,
+            Self::Global { code_hash, identifier: GlobalContractIdentifier::CodeHash(hash) }
+                if code_hash == hash
+                    && *hash == eth_wallet_global_contract_hash(chain_id, protocol_version)
+        ) {
+            return Ok(None);
+        }
+        Err(StorageError::StorageInconsistentState(
+            "contract metadata is missing for an account with deployed code".into(),
+        ))
     }
 
     /// Returns the code hash for this contract identifier.

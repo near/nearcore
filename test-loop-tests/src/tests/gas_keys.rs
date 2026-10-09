@@ -101,18 +101,14 @@ fn test_gas_key_transaction() {
 
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3; // Arbitrary number of nonces for testing
-    let add_key_tx = SignedTransaction::from_actions(
-        1, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     // Run for 1 more block for the access key to be reflected in chunks prev state root.
@@ -120,23 +116,19 @@ fn test_gas_key_transaction() {
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before the gas key transaction
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().query_balance(sender);
     let (_, gas_key_balance_before) =
         query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
@@ -163,7 +155,7 @@ fn test_gas_key_transaction() {
     assert_eq!(updated_gas_key_nonce, gas_key_nonce + 1);
 
     // Verify account balance pays for deposit, gas key balance pays for gas.
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().query_balance(sender);
     assert_eq!(sender_balance_after, sender_balance_before.checked_sub(transfer_amount).unwrap());
     let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
@@ -172,7 +164,7 @@ fn test_gas_key_transaction() {
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
-    let receiver_balance = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance = env.rpc_node().query_balance(receiver);
     assert_eq!(receiver_balance, initial_balance.checked_add(transfer_amount).unwrap());
 }
 
@@ -253,7 +245,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
 
     // The relayer submits it: the outer transaction's receiver is the delegate
     // sender, who forwards the inner actions.
-    let receiver_balance_before = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance_before = env.rpc_node().query_balance(receiver);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let meta_tx = SignedTransaction::from_actions(
         next_relayer_nonce(),
@@ -279,7 +271,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
     );
 
     // The inner transfer executed.
-    let receiver_balance_after = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance_after = env.rpc_node().query_balance(receiver);
     assert_eq!(
         receiver_balance_after,
         receiver_balance_before.checked_add(transfer_amount).unwrap(),
@@ -329,41 +321,33 @@ fn test_gas_key_refund() {
 
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before the gas key transaction
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().query_balance(sender);
     let (_, gas_key_balance_before) =
         query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
@@ -403,7 +387,7 @@ fn test_gas_key_refund() {
 
     // Verify sender account balance is unchanged: deposit was deducted when the tx was
     // converted to a receipt, then refunded when the function call failed.
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().query_balance(sender);
     assert_eq!(sender_balance_after, sender_balance_before);
 }
 
@@ -436,41 +420,33 @@ fn test_gas_key_deposit_failed() {
     // Add gas key
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().query_balance(sender);
     let (_, gas_key_balance_before) =
         query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     let nonce_index: NonceIndex = 0;
@@ -539,7 +515,7 @@ fn test_gas_key_deposit_failed() {
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify: account balance unchanged
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().query_balance(sender);
     assert_eq!(sender_balance_after, sender_balance_before);
 
     // Verify: gas key nonce incremented
@@ -672,7 +648,7 @@ fn test_gas_key_transfer_host_function() {
     // Record gas key balance and account balance before the host function call
     let (_, gas_key_balance_before) =
         query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
-    let account_balance_before = setup.env.rpc_node().view_account_query(&account).unwrap().amount;
+    let account_balance_before = setup.env.rpc_node().query_balance(&account);
 
     // Call the contract's call_promise function to exercise the transfer_to_gas_key host function.
     let host_fn_deposit = Balance::from_millinear(10);
@@ -723,7 +699,7 @@ fn test_gas_key_transfer_host_function() {
     // The runtime gives 30% of gas_burnt_for_function_call * gas_price back to the account.
     // gas_burnt_for_function_call = receipt gas_burnt - exec overhead (new_action_receipt +
     // function_call action fees). The overhead uses method_name + args byte count.
-    let account_balance_after = setup.env.rpc_node().view_account_query(&account).unwrap().amount;
+    let account_balance_after = setup.env.rpc_node().query_balance(&account);
     let tokens_burnt = total_tokens_burnt(&outcome);
     let runtime_config =
         setup.env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);

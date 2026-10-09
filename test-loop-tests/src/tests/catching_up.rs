@@ -168,11 +168,7 @@ fn test_catchup_random_single_part_sync_common(
         Duration::seconds(send_tx_height as i64),
     );
 
-    let clients = env
-        .node_datas
-        .iter()
-        .map(|test_data| &env.test_loop.data.get(&test_data.client_sender.actor_handle()).client)
-        .collect_vec();
+    let clients = (0..env.node_datas.len()).map(|idx| env.node(idx).client()).collect_vec();
 
     let mut tx_count = 0;
     let anchor_hash = get_anchor_hash(&clients);
@@ -214,9 +210,7 @@ fn test_catchup_random_single_part_sync_common(
     let view_client_handlers =
         env.node_datas.iter().map(|data| data.view_client_sender.actor_handle()).collect_vec();
 
-    let client = &env.test_loop.data.get(client_actor_handle).client;
-    let head = client.chain.head().unwrap();
-    let start_height = head.height;
+    let start_height = env.node(0).head().height;
     let target_height = epoch_length * 6 + 2;
     runner.run_until(
         &mut env,
@@ -405,12 +399,7 @@ fn slow_test_all_chunks_accepted() {
         .shard_layout(ShardLayout::multi_shard(num_shards, 3))
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(accounts)
-        .epoch_config_store(epoch_config_store)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {

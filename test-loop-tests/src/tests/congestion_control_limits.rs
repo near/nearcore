@@ -10,7 +10,7 @@ use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -59,8 +59,6 @@ fn setup_congestion_env() -> TestLoopEnv {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&[parent.clone(), test0], Balance::from_near(1_000_000_000))
         .build();
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
 
     let mut config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
     set_wasm_cost(&mut config);
@@ -69,7 +67,6 @@ fn setup_congestion_env() -> TestLoopEnv {
 
     TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .runtime_config_store(runtime_config_store)
         .clients(vec![parent])
         .track_all_shards()
@@ -207,19 +204,8 @@ fn submit_n_cheap_fns(
 // ---- account / contract setup ----
 
 fn setup_account(env: &mut TestLoopEnv, account_id: &AccountId, account_parent_id: &AccountId) {
-    let signer = InMemorySigner::test_signer(account_parent_id);
-    let block_hash = env.validator().head().last_block_hash;
-    let nonce = env.validator().get_next_nonce(account_parent_id);
-    let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
-    let tx = SignedTransaction::create_account(
-        nonce,
-        account_parent_id.clone(),
-        account_id.clone(),
-        Balance::from_near(100),
-        public_key,
-        &signer,
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_create_account(account_parent_id, account_id, Balance::from_near(100));
     assert_matches!(execute_setup_tx(env, tx), FinalExecutionStatus::SuccessValue(_));
 }
 

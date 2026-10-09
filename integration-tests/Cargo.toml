@@ -58,7 +58,6 @@ near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-rosetta-rpc.workspace = true
 near-vm-runner = { workspace = true, features = ["prepare"] }
-near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 testlib.workspace = true
@@ -115,7 +114,6 @@ nightly = [
   "near-telemetry/nightly",
   "near-undo-block/nightly",
   "near-vm-runner/nightly",
-  "near-wallet-contract/nightly",
   "nearcore/nightly",
   "node-runtime/nightly",
   "testlib/nightly",

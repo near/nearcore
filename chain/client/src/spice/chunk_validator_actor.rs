@@ -611,7 +611,10 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err.into()),
         };
-        let Some(sender) = self.find_contract_accesses_sender(&epoch_id, &accesses)? else {
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(&chunk_id.block_hash)?;
+        let Some(sender) =
+            self.find_contract_accesses_sender(&epoch_id, &next_epoch_id, &accesses)?
+        else {
             return Err(Error::Other("invalid spice contract accesses signature".to_owned()));
         };
 
@@ -683,12 +686,17 @@ impl SpiceChunkValidatorActor {
         let chunk_id = accesses.chunk_id().clone();
         let final_head = self.chain_store.final_head()?;
         let mut sender = None;
-        for epoch_id in [final_head.epoch_id, final_head.next_epoch_id] {
+        // The epoch after the next one is not known yet, so a block of the next epoch is
+        // checked against that epoch's keys only.
+        for (epoch_id, next_epoch_id) in [
+            (final_head.epoch_id, final_head.next_epoch_id),
+            (final_head.next_epoch_id, final_head.next_epoch_id),
+        ] {
             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
             if shard_layout.get_shard_index(chunk_id.shard_id).is_err() {
                 continue;
             }
-            sender = self.find_contract_accesses_sender(&epoch_id, &accesses)?;
+            sender = self.find_contract_accesses_sender(&epoch_id, &next_epoch_id, &accesses)?;
             if sender.is_some() {
                 break;
             }
@@ -705,10 +713,12 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
-    /// The chunk producer for the shard in `epoch_id` that signed `accesses`, if any.
+    /// The chunk producer for the shard in `epoch_id` that signed `accesses` with its key in
+    /// `epoch_id` or `next_epoch_id`, if any.
     fn find_contract_accesses_sender(
         &self,
         epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
         accesses: &SpiceChunkContractAccesses,
     ) -> Result<Option<AccountId>, Error> {
         let producers = self
@@ -717,12 +727,12 @@ impl SpiceChunkValidatorActor {
         // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
         // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
         Ok(producers.into_iter().find(|account_id| {
-            let Ok(validator) =
-                self.epoch_manager.get_validator_by_account_id(epoch_id, account_id)
+            let Ok(public_keys) =
+                self.epoch_manager.get_validator_signing_keys(epoch_id, next_epoch_id, account_id)
             else {
                 return false;
             };
-            accesses.verify_signature(validator.public_key())
+            public_keys.iter().any(|public_key| accesses.verify_signature(public_key))
         }))
     }
 

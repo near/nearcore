@@ -4,7 +4,7 @@ use crate::spice::core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
 };
 use crate::spice::tests::all_stake_fallback::{
-    grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
+    chain_with_minority_designated_stake, grow_chain_to_fallback_only_block, split_designated,
 };
 use crate::spice::tests::core::endorse_chunk;
 use crate::spice::tests::pre_spice::{
@@ -12,7 +12,8 @@ use crate::spice::tests::pre_spice::{
     setup_pre_spice_chain_with_epoch_length,
 };
 use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    SpiceKeyRotationSetup, get_chain_with_genesis, get_fake_next_block_chunk_headers,
+    process_block_sync, setup_spice_key_rotation,
 };
 use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
@@ -20,8 +21,9 @@ use itertools::Itertools as _;
 use near_async::messaging::{IntoSender as _, Sender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_crypto::Signature;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
@@ -577,19 +579,133 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
     ))
 }
 
+/// Sends the producer's endorsement of the first block of the epoch in which its key rotates,
+/// before that block is known, signed with its key from before the rotation or after it. Returns
+/// whether the endorsement is recorded once the block is processed.
+fn records_pending_endorsement_across_key_rotation(sign_with_new_key: bool) -> bool {
+    let SpiceKeyRotationSetup {
+        mut chain,
+        producer,
+        new_signer,
+        rotation_epoch_id,
+        first_rotated_block: block,
+        ..
+    } = setup_spice_key_rotation();
+    let core_writer_actor = new_core_writer_actor(&chain);
+    // While the block is unknown, endorsements are checked against the keys of the final head's
+    // epoch and the next one, which is where the block is.
+    assert_eq!(chain.chain_store().final_head().unwrap().next_epoch_id, rotation_epoch_id);
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let signer = if sign_with_new_key {
+        new_signer
+    } else {
+        Arc::new(create_test_signer(producer.as_str()))
+    };
+    let endorsement = SpiceChunkEndorsement::new(
+        chunk_id.clone(),
+        test_execution_result_for_chunk(chunk_header),
+        &signer,
+    );
+    // Ok means the endorsement passed the check without its block and is kept as pending.
+    core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
+
+    process_block(&mut chain, block.clone());
+    core_writer_actor.handle_processed_block(*block.hash()).unwrap();
+    core_writer_actor.core_reader.endorsement_exists(block.hash(), chunk_id.shard_id, &producer)
+}
+
+/// An endorsement of a chunk in epoch X may be signed with the endorser's key in X or X+1. One
+/// received before its block is known passes a first check against the keys of the final head's
+/// epoch and the next one, so it is checked again once the block shows its epoch.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_endorsement_signed_with_key_rotated_out_by_its_block_is_dropped() {
+    assert!(!records_pending_endorsement_across_key_rotation(false));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pending_endorsement_signed_with_key_of_its_block_is_recorded() {
+    assert!(records_pending_endorsement_across_key_rotation(true));
+}
+
 /// Endorsements of the last pre-spice block's chunks that arrive before the block wait
 /// as pending like any spice endorsement, and are recorded once the block is processed
 /// even though the block itself is pre-spice.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_block() {
+    check_records_pending_endorsements_for_last_pre_spice_block(TrackedShardsConfig::NoShards);
+}
+
+/// A tracked shard whose pre-spice artifacts are missing cannot be checked against local
+/// synthesis; its certified result is still recorded rather than failing the block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_records_last_pre_spice_results_of_tracked_shards_without_local_artifacts() {
+    check_records_pending_endorsements_for_last_pre_spice_block(TrackedShardsConfig::AllShards);
+}
+
+/// A certified result of a pre-spice chunk that contradicts this node's own pre-spice
+/// apply means the node's state diverged from the network's, so the node halts.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+#[should_panic(expected = "does not match local synthesis")]
+fn test_certified_last_pre_spice_result_mismatching_local_apply_panics() {
     init_test_logger();
     let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+    let validator_signer = MutableConfigValue::new(None, "validator_signer");
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
-        chain.shard_tracker.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
+        ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            chain.epoch_manager.clone(),
+            validator_signer.clone(),
+        ),
+        validator_signer,
+        core_reader(&chain),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
+    let (last_pre_spice, _) = grow_to_last_pre_spice_block(&mut chain);
+    let shard_layout =
+        chain.epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_outgoing_receipt(last_pre_spice.hash(), shard_uid.shard_id(), vec![]);
+    store_update.save_chunk_extra(
+        last_pre_spice.hash(),
+        &shard_uid,
+        ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"local")).into(),
+    );
+    store_update.commit().unwrap();
+
+    let chunks = last_pre_spice.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_uid.shard_id()).unwrap();
+    let endorsement = test_chunk_endorsement("test1", &last_pre_spice, chunk_header);
+    let _ = core_writer_actor.process_chunk_endorsement(endorsement);
+}
+
+fn check_records_pending_endorsements_for_last_pre_spice_block(
+    tracked_shards_config: TrackedShardsConfig,
+) {
+    init_test_logger();
+    let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+    let validator_signer = MutableConfigValue::new(None, "validator_signer");
+    let core_writer_actor = SpiceCoreWriterActor::new(
+        chain.chain_store().chain_store(),
+        chain.epoch_manager.clone(),
+        ShardTracker::new(
+            tracked_shards_config,
+            chain.epoch_manager.clone(),
+            validator_signer.clone(),
+        ),
+        validator_signer,
         core_reader(&chain),
         noop().into_sender(),
         noop().into_sender(),
@@ -855,16 +971,20 @@ fn setup_with_senders(
 
 fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let chain = get_chain_with_genesis(Clock::real(), genesis);
-    let core_writer_actor = SpiceCoreWriterActor::new(
+    let core_writer_actor = new_core_writer_actor(&chain);
+    (chain, core_writer_actor)
+}
+
+fn new_core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
+    SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
         chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
-        core_reader(&chain),
+        core_reader(chain),
         noop().into_sender(),
         noop().into_sender(),
-    );
-    (chain, core_writer_actor)
+    )
 }
 
 fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
@@ -891,7 +1011,7 @@ fn test_chunk_endorsement(
 
 fn endorsement_into_verified(endorsement: SpiceChunkEndorsement) -> SpiceVerifiedEndorsement {
     let signer = create_test_signer(endorsement.account_id().as_str());
-    endorsement.into_verified(&signer.public_key()).unwrap()
+    endorsement.into_verified(&[signer.public_key()]).unwrap()
 }
 
 fn endorsement_into_core_statement(endorsement: SpiceChunkEndorsement) -> SpiceCoreStatement {
@@ -929,17 +1049,8 @@ fn find_irrelevant_validator(
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_head_chain() {
-    // Enough validators that a chunk's designated assignment stays under 2/3 of total stake,
-    // asserted below.
-    let validators = validators_with_minority_designated_stake();
-    let validators_spec =
-        ValidatorsSpec::desired_roles(&validators.iter().map(|v| v.as_str()).collect_vec(), &[]);
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&Clock::real())
-        .shard_layout(ShardLayout::multi_shard(3, 0))
-        .validators_spec(validators_spec)
-        .build();
-    let (mut chain, mut core_writer_actor) = setup_with_genesis(genesis);
+    let (validators, mut chain) = chain_with_minority_designated_stake();
+    let mut core_writer_actor = new_core_writer_actor(&chain);
 
     let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
     let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
@@ -961,8 +1072,8 @@ fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_hea
         "the chunk should be absent from the head's uncertified set",
     );
 
-    // Every designated validator endorses. Only 2/3 of total stake may certify a fallback-only
-    // chunk, and the designated set alone is below that, so nothing should be stored.
+    // Every designated validator endorses. Only more than 1/3 of total stake may certify a
+    // fallback-only chunk, and the designated set alone is below that, so nothing should be stored.
     let chunks = fallback_only_block.chunks();
     let chunk_header =
         chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone();

@@ -106,20 +106,33 @@ impl SpicePartialData {
         }
     }
 
-    pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
+    pub fn has_parts(&self) -> bool {
+        match self {
+            Self::V1(v1) => !v1.inner.parts.is_empty(),
+        }
+    }
+
+    /// Returns whether the signature matches any of `public_keys`.
+    pub fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
         match self {
             Self::V1(v1) => {
                 let data = v1.inner.serialize_for_signing();
-                if !v1.signature.verify(&data, public_key) {
-                    return None;
-                }
-                Some(SpiceVerifiedPartialData {
-                    id: v1.inner.id,
-                    commitment: v1.inner.commitment,
-                    parts: v1.inner.parts,
-                    sender: v1.sender,
-                })
+                public_keys.iter().any(|public_key| v1.signature.verify(&data, public_key))
             }
+        }
+    }
+
+    pub fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedPartialData> {
+        if !self.verify_signature(public_keys) {
+            return None;
+        }
+        match self {
+            Self::V1(v1) => Some(SpiceVerifiedPartialData {
+                id: v1.inner.id,
+                commitment: v1.inner.commitment,
+                parts: v1.inner.parts,
+                sender: v1.sender,
+            }),
         }
     }
 }

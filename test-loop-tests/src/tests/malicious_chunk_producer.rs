@@ -9,7 +9,7 @@ use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
@@ -22,8 +22,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use parking_lot::Mutex;
@@ -42,19 +41,13 @@ fn test_producer_with_expired_transactions() {
     let chunk_producer = accounts[0].as_str();
     let validators: Vec<_> = accounts[1..].iter().map(|a| a.as_str()).collect();
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &validators);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut test_loop_env = TestLoopBuilder::new()
         .epoch_length(10)
         .shard_layout(ShardLayout::multi_shard_custom(vec![], 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(10)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut test_loop_env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts.clone())
         .build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
@@ -73,18 +66,8 @@ fn test_producer_with_expired_transactions() {
         let sender = account.clone();
         let receiver = accounts[0].clone();
         test_loop.send_adhoc_event("transaction".into(), move |data| {
-            let signer = create_user_test_signer(&sender);
             let node = TestLoopNode { data, node_data: &chunk_producer };
-            let access_key = node.view_access_key_query(&sender, &signer.public_key()).unwrap();
-            let anchor_hash = node.head().last_block_hash;
-            let tx = SignedTransaction::send_money(
-                access_key.nonce + 1,
-                sender,
-                receiver,
-                &signer,
-                Balance::from_near(1),
-                anchor_hash,
-            );
+            let tx = node.tx_send_money(&sender, &receiver, Balance::from_near(1));
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
             chunk_producer.rpc_handler_sender.send(process_tx_request);

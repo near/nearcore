@@ -22,7 +22,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -156,11 +156,9 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
         .delay_warmup()
         .build()
@@ -219,7 +217,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // the consensus head otherwise, so this is correct in both modes.
     env.validator_runner().run_until_executed_height(last_height.unwrap());
 
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 

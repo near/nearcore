@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::utils::run_for_number_of_blocks;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -63,11 +62,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let max_missed = RuntimeConfig::test().congestion_control_config.max_congestion_missed_chunks;
     assert!(num_missed_chunks < max_missed as usize);
 
-    let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
+    let env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     // account4 lives in the second shard (boundary "account3" separates 0–2 from 4+).
     let shard_layout = &env.shared_state.genesis.config.shard_layout;
@@ -78,7 +73,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let dropped = [(target_shard_id, drop_map)].into_iter().collect();
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped));
 
-    run_for_number_of_blocks(&mut env, rpc_id, num_missed_chunks + 2);
+    env.runner_for_account(rpc_id).run_for_number_of_blocks(num_missed_chunks + 2);
 
     // Send a tx targeting the stuck shard; it should be accepted because
     // 10 missed chunks is well below the 125 threshold.
@@ -87,8 +82,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
         &"account4".parse().unwrap(),
         Balance::from_near(1),
     );
-    let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
-    let block_time = client_actor.client.config.max_block_production_delay.get();
+    let block_time = env.node(0).client().config.max_block_production_delay.get();
     let tx_outcome = env.runner_for_account(rpc_id).execute_tx(tx, block_time * 5).unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 }

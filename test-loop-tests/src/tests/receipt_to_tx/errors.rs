@@ -206,8 +206,8 @@ fn test_receipt_to_tx_depth_exceeded() {
     store_update.commit();
 
     // Query receipt_0 — needs 1001 hops, exceeds MAX_DEPTH=1000.
-    let handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    let mut node = env.node_mut(0);
+    let view_client = node.view_client_actor();
     let result = view_client.handle(receipt_to_tx_req(receipt_ids[0]));
 
     match result {

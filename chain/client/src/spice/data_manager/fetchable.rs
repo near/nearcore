@@ -1,12 +1,12 @@
 use super::DataId;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use near_chain::Error;
-use near_chain::spice::boundary::applies_chunk_itself;
+use near_chain::spice::boundary::shards_applied_itself;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::sync::Arc;
@@ -22,6 +22,9 @@ pub(crate) trait DataPolicy {
 
     /// Whether the durable artifact this item exists to obtain is already in the store.
     fn is_done(&self, id: &DataId) -> bool;
+
+    /// The chunks that must all be certified before the item is pulled.
+    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId>;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
@@ -47,18 +50,14 @@ impl DataPolicy for ReceiptProofPolicy {
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
         // Applying the source shard ourselves produces the proof locally; this is
         // also why a producer never fetches its own proof.
-        let mut sources = Vec::new();
-        for shard_id in shard_layout.shard_ids() {
-            if !applies_chunk_itself(
-                &self.shard_tracker,
-                self.epoch_manager.as_ref(),
-                block,
-                shard_id,
-            )? {
-                sources.push(shard_id);
-            }
-        }
-        // The proof feeds applying the destination shard in the next block.
+        let applied_itself =
+            shards_applied_itself(&self.shard_tracker, self.epoch_manager.as_ref(), block)?;
+        let sources: Vec<ShardId> = shard_layout
+            .shard_ids()
+            .filter(|shard_id| !applied_itself.contains(shard_id))
+            .collect();
+        // The proof feeds applying the destination shard in the next block. `block` is a
+        // spice or last pre-spice block, so the next one is a spice block: no boundary case.
         let destinations: Vec<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
@@ -91,5 +90,11 @@ impl DataPolicy for ReceiptProofPolicy {
             *to_shard,
             source.shard_id,
         )
+    }
+
+    /// The source chunk.
+    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
+        let DataId::ReceiptProof { source, .. } = id;
+        vec![source.clone()]
     }
 }

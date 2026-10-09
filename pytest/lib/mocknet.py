@@ -13,6 +13,7 @@ from cluster import GCloudNode
 from configured_logger import logger
 from key import Key
 from metrics import Metrics
+from mocknet_ssh import share_ssh_connections
 
 # cspell:ignore loadtester
 NODE_SSH_KEY_PATH = None
@@ -46,16 +47,17 @@ def get_node(hostname, project=PROJECT):
         project=project,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
-    return n
+    return share_ssh_connections(n)
 
 
 def get_nodes(pattern=None, project=PROJECT):
-    return GCloudNode.get_nodes_by_mocknet_id(
+    nodes = GCloudNode.get_nodes_by_mocknet_id(
         mocknet_id=pattern,
         project=project,
         username=NODE_USERNAME,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
+    return [share_ssh_connections(n) for n in nodes]
 
 
 def get_validator_account(node):

@@ -44,7 +44,7 @@ fn check_migration_seeds_extendable_proof(blocks_past_boundary: usize) {
         if epoch > 0 {
             env.validator_runner().run_until_new_epoch();
         }
-        let store = env.validator().client().chain.chain_store.store();
+        let store = env.validator().store();
         for (key, value) in store.iter(DBCol::BlockHeader) {
             all_headers.insert(key.to_vec(), value.to_vec());
         }
@@ -52,13 +52,13 @@ fn check_migration_seeds_extendable_proof(blocks_past_boundary: usize) {
     // Move `blocks_past_boundary` into the current epoch to vary the restart point.
     if blocks_past_boundary > 0 {
         env.validator_runner().run_for_number_of_blocks(blocks_past_boundary);
-        let store = env.validator().client().chain.chain_store.store();
+        let store = env.validator().store();
         for (key, value) in store.iter(DBCol::BlockHeader) {
             all_headers.insert(key.to_vec(), value.to_vec());
         }
     }
 
-    let store = env.validator().client().chain.chain_store.store();
+    let store = env.validator().store();
     let genesis_height = store.chain_store().get_genesis_height();
     let tail = store.chain_store().tail();
     let head_height = store.chain_store().head().unwrap().height;
