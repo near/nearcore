@@ -12,16 +12,17 @@ use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, FunctionCallAction, GlobalContractIdentifier};
-use near_primitives::config::ViewConfig;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Gas, ProtocolVersion, ShardId};
+use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_vm_runner::logic::{ContractLoadingAbort, GasCounter, PreparedContractGasCounter};
+use near_vm_runner::logic::{
+    ContractLoadingAbort, ExecutionMode, GasCounter, GasLimits, PreparedContractGasCounter,
+};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -242,10 +243,10 @@ impl ReceiptPreparationPipeline {
                     let Ok(ContractPreparation::Ready { contract: code_ext, gas_counter }) = self
                         .prepare_contract_metadata(
                             &account_id,
-                            account.contract().into_owned(),
+                            account,
                             state_update,
                             function_call,
-                            None,
+                            &ExecutionMode::Internal,
                             AccessOptions::NO_SIDE_EFFECTS,
                             self.current_protocol_version,
                         )
@@ -336,14 +337,17 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn prepare_contract_metadata(
         &self,
         account_id: &AccountId,
-        account_contract: AccountContract,
+        account: &Account,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
-        view_config: Option<&ViewConfig>,
+        execution_mode: &ExecutionMode,
         access: AccessOptions,
         protocol_version: ProtocolVersion,
     ) -> Result<ContractPreparation, StorageError> {
-        let gas_counter = self.gas_counter(view_config, function_call.gas);
+        // The balance the contract has during the call, as in `VMContext`.
+        let balance = account.amount().saturating_add(function_call.deposit);
+        let gas_counter = self.gas_counter(execution_mode, function_call.gas, balance);
+        let account_contract = account.contract().into_owned();
         if !self.config.wasm_config.fix_contract_loading_cost {
             let identifier = RuntimeContractIdentifier::resolve(
                 account_id,
@@ -392,13 +396,16 @@ impl ReceiptPreparationPipeline {
     /// If the preparation hasn't been started yet (either because it hasn't been scheduled for any
     /// reason, or because the pipeline didn't make it in time), this function will prepare the
     /// contract in the calling thread.
+    ///
+    /// Speculative preparation is only used for internal calls, because it
+    /// charges the loading fee to a gas counter built for an internal call.
     pub(crate) fn get_contract(
         &self,
         receipt: &Receipt,
         code_ext: RuntimeContractExt,
         gas_counter: Box<PreparedContractGasCounter>,
         action_index: usize,
-        is_view: bool,
+        execution_mode: &ExecutionMode,
     ) -> Box<dyn PreparedContract> {
         let account_id = receipt.receiver_id();
         let action = match receipt.receipt() {
@@ -420,11 +427,13 @@ impl ReceiptPreparationPipeline {
             panic!("referenced receipt action is not a function call!");
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-        // Views never consume speculative preparation, which uses non-view gas accounting.
+        // Only internal calls consume speculative preparation, which uses the
+        // gas limits of an internal call. A view or external call has its own
+        // limits, which the gas counter passed in already uses.
         // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
         let Some(task) = self.map.get(&key).filter(|t| {
-            !is_view
+            matches!(execution_mode, ExecutionMode::Internal)
                 // Identical code hashes imply identical source bytes and length.
                 && t.expected_hash == code_ext.identifier.hash()
         }) else {
@@ -500,17 +509,20 @@ impl ReceiptPreparationPipeline {
         }
     }
 
-    fn gas_counter(&self, view_config: Option<&ViewConfig>, gas: Gas) -> GasCounter {
-        let max_gas_burnt = match view_config {
-            Some(ViewConfig { max_gas_burnt }) => *max_gas_burnt,
-            None => self.config.wasm_config.limit_config.max_gas_burnt,
-        };
+    fn gas_counter(
+        &self,
+        execution_mode: &ExecutionMode,
+        gas: Gas,
+        balance: Balance,
+    ) -> GasCounter {
+        let GasLimits { max_gas_burnt, prepaid_gas } =
+            execution_mode.gas_limits(&self.config.wasm_config.limit_config, gas, balance);
         GasCounter::new(
             self.config.wasm_config.ext_costs.clone(),
             max_gas_burnt,
             self.config.wasm_config.regular_op_cost,
-            gas,
-            view_config.is_some(),
+            prepaid_gas,
+            execution_mode.is_view(),
         )
     }
 }

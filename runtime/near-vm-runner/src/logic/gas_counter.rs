@@ -371,6 +371,21 @@ impl GasCounter {
         self.deduct_gas(Gas::ZERO, use_gas)
     }
 
+    /// Lower the prepaid gas to `prepaid_gas`, which must be at least the gas
+    /// used so far.
+    ///
+    /// In an external contract call the prepaid gas is what the contract can
+    /// pay for, which goes down when the contract spends its balance.
+    pub(crate) fn lower_prepaid_gas(&mut self, prepaid_gas: Gas) {
+        use std::cmp::min;
+        debug_assert!(self.used_gas() <= prepaid_gas);
+        self.prepaid_gas = min(self.prepaid_gas, prepaid_gas);
+        self.fast_counter.gas_limit = min(
+            self.max_gas_burnt.as_gas(),
+            self.prepaid_gas.saturating_sub(self.promises_gas).as_gas(),
+        );
+    }
+
     pub(crate) fn burnt_gas(&self) -> Gas {
         Gas::from_gas(self.fast_counter.burnt_gas)
     }

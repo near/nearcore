@@ -15,7 +15,7 @@ use crate::logic::types::{
 };
 use crate::logic::utils::{null_terminated_method_names_len, split_method_names};
 use crate::logic::vmstate::Registers;
-use crate::logic::{External, HostError, VMContext, VMLogicError};
+use crate::logic::{ExecutionMode, External, HostError, VMContext, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
@@ -683,6 +683,9 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 /// a node itself). This function returns the id of that account. Saves the bytes of the signer
 /// account id into the register.
 ///
+/// An external contract call has no signer, so in that case the current
+/// account id is saved instead: the contract signs for the call itself.
+///
 /// # Errors
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
@@ -694,16 +697,21 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(
-            HostError::ProhibitedInView { method_name: "signer_account_id".to_string() }.into()
-        );
-    }
+    let signer_account_id = match ctx.context.execution_mode {
+        ExecutionMode::Internal => &ctx.context.signer_account_id,
+        ExecutionMode::External { .. } => &ctx.context.current_account_id,
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView {
+                method_name: "signer_account_id".to_string(),
+            }
+            .into());
+        }
+    };
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.signer_account_id.as_bytes(),
+        signer_account_id.as_bytes(),
     )
 }
 
@@ -715,6 +723,7 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
@@ -722,10 +731,18 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 pub fn signer_account_pk(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(
-            HostError::ProhibitedInView { method_name: "signer_account_pk".to_string() }.into()
-        );
+    let method_name = "signer_account_pk";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => {}
+        ExecutionMode::External { .. } => {
+            return Err(HostError::ProhibitedInExternalCall {
+                method_name: method_name.to_string(),
+            }
+            .into());
+        }
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
@@ -743,6 +760,7 @@ pub fn signer_account_pk(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
@@ -754,11 +772,18 @@ pub fn predecessor_account_id(
 ) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView {
-            method_name: "predecessor_account_id".to_string(),
+    let method_name = "predecessor_account_id";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => {}
+        ExecutionMode::External { .. } => {
+            return Err(HostError::ProhibitedInExternalCall {
+                method_name: method_name.to_string(),
+            }
+            .into());
         }
-        .into());
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
@@ -772,11 +797,13 @@ pub fn predecessor_account_id(
 ///
 /// This is the ID of an account set for the current receipt by its
 /// predecessor via [`Self::promise_set_refund_to()`], or
-/// [`Self::predecessor_account_id()`] otherwise.
+/// [`Self::predecessor_account_id()`] otherwise. In an external contract
+/// call it is the current account id, because the contract pays for the call.
 ///
 /// # Errors
 ///
-/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+/// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
 ///
 /// # Cost
 ///
@@ -784,17 +811,21 @@ pub fn predecessor_account_id(
 pub fn refund_to_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView {
-            method_name: "refund_to_account_id".to_string(),
+    let refund_to_account_id = match ctx.context.execution_mode {
+        ExecutionMode::Internal => &ctx.context.refund_to_account_id,
+        ExecutionMode::External { .. } => &ctx.context.current_account_id,
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView {
+                method_name: "refund_to_account_id".to_string(),
+            }
+            .into());
         }
-        .into());
-    }
+    };
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.refund_to_account_id.as_bytes(),
+        refund_to_account_id.as_bytes(),
     )
 }
 
@@ -911,17 +942,16 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 /// The current balance of the given account. This includes the attached_deposit that was
 /// attached to the transaction.
 ///
+/// In an external contract call this excludes the cost of the gas used so far,
+/// which the contract pays for.
+///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(
-        &mut ctx.result_state.gas_counter,
-        memory,
-        balance_ptr,
-        ctx.result_state.current_account_balance.as_yoctonear(),
-    )
+    let balance = ctx.result_state.available_balance();
+    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, balance.as_yoctonear())
 }
 
 /// The current amount of tokens locked due to staking.
@@ -967,17 +997,24 @@ pub fn attached_deposit(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) 
 ///
 /// # Errors
 ///
-/// If called as view function returns `ProhibitedInView`.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
 /// `base`
 pub fn prepaid_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into());
+    let method_name = "prepaid_gas";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => Ok(ctx.context.prepaid_gas.as_gas()),
+        ExecutionMode::External { .. } => {
+            Err(HostError::ProhibitedInExternalCall { method_name: method_name.to_string() }.into())
+        }
+        ExecutionMode::View(_) => {
+            Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into())
+        }
     }
-    Ok(ctx.context.prepaid_gas.as_gas())
 }
 
 /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)

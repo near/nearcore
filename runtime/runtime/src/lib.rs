@@ -85,6 +85,7 @@ use near_vm_runner::CompilePriority;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use near_vm_runner::logic::ExecutionMode;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
@@ -684,13 +685,12 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let account_contract = account.contract().into_owned();
                 let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
-                    account_contract,
+                    account,
                     &state_update,
                     function_call,
-                    None,
+                    &ExecutionMode::Internal,
                     AccessOptions::DEFAULT,
                     apply_state.current_protocol_version,
                 )?;

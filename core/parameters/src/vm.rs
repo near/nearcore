@@ -66,6 +66,9 @@ fn default_account_id_validity_rules_version() -> u64 {
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
+    /// Max amount of gas that can be burnt by an external contract call,
+    /// excluding gas attached to promises.
+    pub max_gas_burnt_external: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -315,6 +318,7 @@ impl Config {
         self.linear_op_base_cost = 0;
         self.linear_op_unit_cost = 0;
         self.limit_config.max_gas_burnt = Gas::MAX;
+        self.limit_config.max_gas_burnt_external = Gas::MAX;
     }
 
     /// Enable all protocol features. Only used for gas cost estimations.

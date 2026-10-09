@@ -1,8 +1,8 @@
 use super::test_vm_config;
 use crate::ContractCode;
-use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{ExecutionMode, VMContext};
 use crate::runner::{VMKindExt, VMResult};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -58,7 +58,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: near_primitives_core::types::Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     }
 }

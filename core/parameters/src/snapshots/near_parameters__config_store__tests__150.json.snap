@@ -1,6 +1,6 @@
 ---
-source: core/parameters/src/view.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 snapshot_kind: text
 ---
 {
@@ -226,13 +226,13 @@ snapshot_kind: text
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "universal_accounts": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
-      "max_gas_burnt_external": 0,
+      "max_gas_burnt_external": 20000000000000,
       "max_stack_height": 262144,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
