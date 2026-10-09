@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.34"
+    "version": "1.3.35"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1373,6 +1373,42 @@
               "GasKeyFullAccess"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Function call key with a balance that pays for its transactions that fail at execution.",
+            "properties": {
+              "InclusionKeyFunctionCall": {
+                "items": [
+                  {
+                    "$ref": "#/components/schemas/InclusionKeyInfo"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FunctionCallPermission"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "InclusionKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Full access key with a balance that pays for its transactions that fail at execution.",
+            "properties": {
+              "InclusionKeyFullAccess": {
+                "$ref": "#/components/schemas/InclusionKeyInfo"
+              }
+            },
+            "required": [
+              "InclusionKeyFullAccess"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2606,6 +2642,81 @@
               "AccountNotInitialized"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The access key to fund does not exist",
+            "properties": {
+              "FundInclusionKeyAccessKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKeyAccessKeyDoesNotExist"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The access key to fund is a gas key",
+            "properties": {
+              "FundInclusionKeyIsGasKey": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKeyIsGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Inclusion key does not exist for the specified public key",
+            "properties": {
+              "InclusionKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InclusionKeyDoesNotExist"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -3008,6 +3119,54 @@
             },
             "required": [
               "UniversalStateInit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "FundInclusionKey": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "target_balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "target_balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromInclusionKey": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "target_balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "target_balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "WithdrawFromInclusionKey"
             ],
             "type": "object"
           }
@@ -3666,6 +3825,20 @@
               "TotalNumberOfStateInitEntriesExceeded"
             ],
             "type": "object"
+          },
+          {
+            "description": "An AddKey action cannot add an inclusion key; FundInclusionKey converts an existing key.",
+            "enum": [
+              "AddInclusionKeyNotAllowed"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A WithdrawFromInclusionKey action is not allowed inside a delegate action.",
+            "enum": [
+              "WithdrawFromInclusionKeyNotAllowedInDelegate"
+            ],
+            "type": "string"
           }
         ]
       },
@@ -8052,6 +8225,22 @@
         ],
         "type": "object"
       },
+      "FundInclusionKeyAction": {
+        "description": "Raise the inclusion key balance of an access key to `target_balance`; a plain key is converted.",
+        "properties": {
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "target_balance": {
+            "$ref": "#/components/schemas/NearToken"
+          }
+        },
+        "required": [
+          "public_key",
+          "target_balance"
+        ],
+        "type": "object"
+      },
       "GCConfig": {
         "description": "Configuration for garbage collection.",
         "properties": {
@@ -9156,6 +9345,24 @@
             "type": "object"
           }
         ]
+      },
+      "InclusionKeyInfo": {
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "last_transaction_nonce": {
+            "description": "Nonce of the last transaction signed with this key that executed or was charged.\nDelegate actions do not write it. Always `<= AccessKey::nonce`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "balance",
+          "last_transaction_nonce"
+        ],
+        "type": "object"
       },
       "IndexerChunkView": {
         "properties": {
@@ -13114,6 +13321,30 @@
             },
             "required": [
               "UniversalStateInit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "FundInclusionKey": {
+                "$ref": "#/components/schemas/FundInclusionKeyAction"
+              }
+            },
+            "required": [
+              "FundInclusionKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromInclusionKey": {
+                "$ref": "#/components/schemas/WithdrawFromInclusionKeyAction"
+              }
+            },
+            "required": [
+              "WithdrawFromInclusionKey"
             ],
             "type": "object"
           }
@@ -21265,6 +21496,15 @@
             ],
             "description": "The configuration for congestion control."
           },
+          "max_inclusion_key_balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "Largest balance an inclusion key can hold."
+          },
           "min_gas_purchase_price": {
             "allOf": [
               {
@@ -23796,6 +24036,22 @@
         "required": [
           "public_key",
           "amount"
+        ],
+        "type": "object"
+      },
+      "WithdrawFromInclusionKeyAction": {
+        "description": "Lower the balance of an inclusion key to `target_balance`; the difference goes to the account.",
+        "properties": {
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "target_balance": {
+            "$ref": "#/components/schemas/NearToken"
+          }
+        },
+        "required": [
+          "public_key",
+          "target_balance"
         ],
         "type": "object"
       },
