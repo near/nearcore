@@ -44,6 +44,7 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
@@ -88,8 +89,6 @@ const TRACKED_SHARD_SCHEDULE_NUM_EPOCHS_TO_WAIT: u64 = 13 + DYNAMIC_RESHARDING_E
 /// Account used in resharding tests as a split boundary.
 const NEW_BOUNDARY_ACCOUNT: &str = "account6";
 
-#[derive(derive_builder::Builder)]
-#[builder(pattern = "owned", build_fn(skip))]
 #[allow(unused)]
 struct TestReshardingParameters {
     /// Number of accounts.
@@ -104,26 +103,18 @@ struct TestReshardingParameters {
     num_rpcs: u64,
     /// Number of archival clients.
     num_archivals: u64,
-    #[builder(setter(skip))]
     accounts: Vec<AccountId>,
-    #[builder(setter(skip))]
     clients: Vec<AccountId>,
-    #[builder(setter(skip))]
     producers: Vec<AccountId>,
-    #[builder(setter(skip))]
     validators: Vec<AccountId>,
-    #[builder(setter(skip))]
     rpcs: Vec<AccountId>,
     // Index of the client used to serve requests (RPC node if available, otherwise first from `clients`)
-    #[builder(setter(skip))]
     client_index: usize,
-    #[builder(setter(skip))]
     archivals: Vec<AccountId>,
-    #[builder(setter(skip))]
     new_boundary_account: AccountId,
     initial_balance: Balance,
     epoch_length: BlockHeightDelta,
-    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     // Manually specify what shards will be tracked for a given client ID.
@@ -134,7 +125,6 @@ struct TestReshardingParameters {
     tracked_shard_schedule: Option<TrackedShardSchedule>,
     load_memtries_for_tracked_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
-    #[builder(setter(custom))]
     loop_actions: Vec<LoopAction>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
@@ -142,7 +132,6 @@ struct TestReshardingParameters {
     all_chunks_expected: bool,
     /// Optionally deploy the test contract
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
-    #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
     /// When true, `deploy_test_contract` deploys the latest-protocol build of the test contract
     /// (`near_test_contracts::rs_contract()`) instead of the backwards-compatible
@@ -150,13 +139,10 @@ struct TestReshardingParameters {
     /// in the latest stable protocol version.
     deploy_latest_protocol_test_contract: bool,
     /// Optionally deploy and use test global contracts
-    #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
-    #[builder(setter(custom))]
     use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
     /// Gas keys to plant directly in genesis. Each tuple is
     /// `(account, gas-key public key, initial nonce per slot)`.
-    #[builder(setter(custom))]
     gas_key_accounts: Vec<(AccountId, PublicKey, Vec<Nonce>)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
@@ -168,7 +154,6 @@ struct TestReshardingParameters {
     /// If not disabled, use testloop action that will delete an account after resharding
     /// and check that the account is accessible through archival node but not through a regular node.
     disable_temporary_account_test: bool,
-    #[builder(setter(skip))]
     temporary_account_id: AccountId,
     /// For how many epochs should the test be running.
     num_epochs_to_wait: u64,
@@ -176,14 +161,163 @@ struct TestReshardingParameters {
     second_resharding_boundary_account: Option<AccountId>,
 }
 
+/// Overrides of the `TestReshardingParameters` defaults.
+#[derive(Default)]
+struct TestReshardingParametersBuilder {
+    num_accounts: Option<u64>,
+    num_clients: Option<u64>,
+    num_producers: Option<u64>,
+    num_validators: Option<u64>,
+    num_rpcs: Option<u64>,
+    num_archivals: Option<u64>,
+    epoch_length: Option<BlockHeightDelta>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, Range<i64>>,
+    shuffle_shard_assignment_for_chunk_producers: bool,
+    track_all_shards: bool,
+    tracked_shard_schedule: Option<TrackedShardSchedule>,
+    load_memtries_for_tracked_shards: Option<bool>,
+    loop_actions: Vec<LoopAction>,
+    all_chunks_expected: bool,
+    deploy_test_contract: Vec<AccountId>,
+    deploy_latest_protocol_test_contract: bool,
+    deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
+    use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
+    gas_key_accounts: Vec<(AccountId, PublicKey, Vec<Nonce>)>,
+    limit_outgoing_gas: bool,
+    delay_flat_state_resharding: BlockHeightDelta,
+    short_yield_timeout: bool,
+    disable_temporary_account_test: bool,
+    num_epochs_to_wait: Option<u64>,
+    second_resharding_boundary_account: Option<AccountId>,
+}
+
 impl TestReshardingParametersBuilder {
+    fn num_accounts(mut self, num_accounts: u64) -> Self {
+        self.num_accounts = Some(num_accounts);
+        self
+    }
+
+    fn num_clients(mut self, num_clients: u64) -> Self {
+        self.num_clients = Some(num_clients);
+        self
+    }
+
+    fn num_producers(mut self, num_producers: u64) -> Self {
+        self.num_producers = Some(num_producers);
+        self
+    }
+
+    fn num_validators(mut self, num_validators: u64) -> Self {
+        self.num_validators = Some(num_validators);
+        self
+    }
+
+    fn num_rpcs(mut self, num_rpcs: u64) -> Self {
+        self.num_rpcs = Some(num_rpcs);
+        self
+    }
+
+    fn num_archivals(mut self, num_archivals: u64) -> Self {
+        self.num_archivals = Some(num_archivals);
+        self
+    }
+
+    fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
+        self.epoch_length = Some(epoch_length);
+        self
+    }
+
+    fn chunk_ranges_to_drop(
+        mut self,
+        chunk_ranges_to_drop: HashMap<ShardIndex, Range<i64>>,
+    ) -> Self {
+        self.chunk_ranges_to_drop = chunk_ranges_to_drop;
+        self
+    }
+
+    fn shuffle_shard_assignment_for_chunk_producers(
+        mut self,
+        shuffle_shard_assignment_for_chunk_producers: bool,
+    ) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers =
+            shuffle_shard_assignment_for_chunk_producers;
+        self
+    }
+
+    fn track_all_shards(mut self, track_all_shards: bool) -> Self {
+        self.track_all_shards = track_all_shards;
+        self
+    }
+
+    fn tracked_shard_schedule(
+        mut self,
+        tracked_shard_schedule: Option<TrackedShardSchedule>,
+    ) -> Self {
+        self.tracked_shard_schedule = tracked_shard_schedule;
+        self
+    }
+
+    fn load_memtries_for_tracked_shards(mut self, load_memtries_for_tracked_shards: bool) -> Self {
+        self.load_memtries_for_tracked_shards = Some(load_memtries_for_tracked_shards);
+        self
+    }
+
+    fn all_chunks_expected(mut self, all_chunks_expected: bool) -> Self {
+        self.all_chunks_expected = all_chunks_expected;
+        self
+    }
+
+    fn deploy_latest_protocol_test_contract(
+        mut self,
+        deploy_latest_protocol_test_contract: bool,
+    ) -> Self {
+        self.deploy_latest_protocol_test_contract = deploy_latest_protocol_test_contract;
+        self
+    }
+
+    fn limit_outgoing_gas(mut self, limit_outgoing_gas: bool) -> Self {
+        self.limit_outgoing_gas = limit_outgoing_gas;
+        self
+    }
+
+    fn delay_flat_state_resharding(
+        mut self,
+        delay_flat_state_resharding: BlockHeightDelta,
+    ) -> Self {
+        self.delay_flat_state_resharding = delay_flat_state_resharding;
+        self
+    }
+
+    fn short_yield_timeout(mut self, short_yield_timeout: bool) -> Self {
+        self.short_yield_timeout = short_yield_timeout;
+        self
+    }
+
+    fn disable_temporary_account_test(mut self, disable_temporary_account_test: bool) -> Self {
+        self.disable_temporary_account_test = disable_temporary_account_test;
+        self
+    }
+
+    fn num_epochs_to_wait(mut self, num_epochs_to_wait: u64) -> Self {
+        self.num_epochs_to_wait = Some(num_epochs_to_wait);
+        self
+    }
+
+    fn second_resharding_boundary_account(
+        mut self,
+        second_resharding_boundary_account: Option<AccountId>,
+    ) -> Self {
+        self.second_resharding_boundary_account = second_resharding_boundary_account;
+        self
+    }
+
     fn build(self) -> TestReshardingParameters {
         // Give enough time for GC to kick in after resharding.
         let num_epochs_to_wait =
             self.num_epochs_to_wait.unwrap_or(DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT);
         assert!(GC_NUM_EPOCHS_TO_KEEP + 3 < num_epochs_to_wait);
         let epoch_length = self.epoch_length.unwrap_or(DEFAULT_EPOCH_LENGTH);
-        let tracked_shard_schedule = self.tracked_shard_schedule.unwrap_or(None);
+        let tracked_shard_schedule = self.tracked_shard_schedule;
 
         let num_accounts = self.num_accounts.unwrap_or(8);
         let num_clients = self.num_clients.unwrap_or(7);
@@ -263,8 +397,8 @@ impl TestReshardingParametersBuilder {
         let new_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
         let temporary_account_id: AccountId =
             format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
-        let mut loop_actions = self.loop_actions.unwrap_or_default();
-        let disable_temporary_account_test = self.disable_temporary_account_test.unwrap_or(false);
+        let mut loop_actions = self.loop_actions;
+        let disable_temporary_account_test = self.disable_temporary_account_test;
         if !disable_temporary_account_test {
             let archival_id = archivals.iter().next().cloned();
             loop_actions.push(temporary_account_during_resharding(
@@ -290,43 +424,38 @@ impl TestReshardingParametersBuilder {
             client_index,
             archivals,
             new_boundary_account,
-            initial_balance: self.initial_balance.unwrap_or(Balance::from_near(1_000_000)),
+            initial_balance: Balance::from_near(1_000_000),
             epoch_length,
-            chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
+            chunk_ranges_to_drop: self.chunk_ranges_to_drop,
             shuffle_shard_assignment_for_chunk_producers: self
-                .shuffle_shard_assignment_for_chunk_producers
-                .unwrap_or(false),
-            track_all_shards: self.track_all_shards.unwrap_or(false),
+                .shuffle_shard_assignment_for_chunk_producers,
+            track_all_shards: self.track_all_shards,
             tracked_shard_schedule,
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
             loop_actions,
-            all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
-            deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
-            deploy_latest_protocol_test_contract: self
-                .deploy_latest_protocol_test_contract
-                .unwrap_or(false),
-            deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
-            use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
-            gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
-            limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
-            delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
-            short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
+            all_chunks_expected: self.all_chunks_expected,
+            deploy_test_contract: self.deploy_test_contract,
+            deploy_latest_protocol_test_contract: self.deploy_latest_protocol_test_contract,
+            deploy_test_global_contract: self.deploy_test_global_contract,
+            use_test_global_contract: self.use_test_global_contract,
+            gas_key_accounts: self.gas_key_accounts,
+            limit_outgoing_gas: self.limit_outgoing_gas,
+            delay_flat_state_resharding: self.delay_flat_state_resharding,
+            short_yield_timeout: self.short_yield_timeout,
             disable_temporary_account_test,
             temporary_account_id,
             num_epochs_to_wait,
-            second_resharding_boundary_account: self
-                .second_resharding_boundary_account
-                .unwrap_or(None),
+            second_resharding_boundary_account: self.second_resharding_boundary_account,
         }
     }
 
     fn add_loop_action(mut self, loop_action: LoopAction) -> Self {
-        self.loop_actions.get_or_insert_default().push(loop_action);
+        self.loop_actions.push(loop_action);
         self
     }
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
-        self.deploy_test_contract.get_or_insert_default().push(account_id);
+        self.deploy_test_contract.push(account_id);
         self
     }
 
@@ -335,7 +464,7 @@ impl TestReshardingParametersBuilder {
         account_id: AccountId,
         deploy_mode: GlobalContractDeployMode,
     ) -> Self {
-        self.deploy_test_global_contract.get_or_insert_default().push((account_id, deploy_mode));
+        self.deploy_test_global_contract.push((account_id, deploy_mode));
         self
     }
 
@@ -344,17 +473,13 @@ impl TestReshardingParametersBuilder {
         account_id: AccountId,
         identifier: GlobalContractIdentifier,
     ) -> Self {
-        self.use_test_global_contract.get_or_insert_default().push((account_id, identifier));
+        self.use_test_global_contract.push((account_id, identifier));
         self
     }
 
     fn gas_key_account(mut self, account_id: &AccountId, target_nonces: &[Nonce]) -> Self {
         let public_key = gas_key_signer_for_account(account_id).public_key();
-        self.gas_key_accounts.get_or_insert_default().push((
-            account_id.clone(),
-            public_key,
-            target_nonces.to_vec(),
-        ));
+        self.gas_key_accounts.push((account_id.clone(), public_key, target_nonces.to_vec()));
         self
     }
 
