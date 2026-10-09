@@ -14,6 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, ProtocolVersion};
+use near_primitives::universal_state_init::UniversalStateInit;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::{
     PendingCompileAccountQueue, PendingCompileReceiptQueue, TrieQueue,
@@ -161,10 +162,9 @@ fn has_pending_compile_receipts(
 /// Returns the code the first `FunctionCall` of `receipt` runs, or `None` if
 /// the receipt runs no code that can be cold.
 ///
-/// A `DeployContract` before the call compiles the code in the same receipt
-/// and writes its warmth, so the call is not gated.
-// TODO(async-compilation): resolve the global code a `DeterministicStateInit`
-// or `UniversalStateInit` binds; until then such receipts are not gated.
+/// The receiver's contract is followed through the actions before the call,
+/// as they would change it. A `DeployContract` before the call compiles the
+/// code in the same receipt and writes its warmth, so the call is not gated.
 fn called_code(
     state_update: &TrieUpdate,
     receipt: &Receipt,
@@ -177,22 +177,39 @@ fn called_code(
         _ => return Ok(None),
     };
     let receiver_id = receipt.receiver_id();
-    let Some(account) = get_account(state_update, receiver_id)? else {
-        return Ok(None);
-    };
-    let mut contract = account.contract().into_owned();
+    let account = get_account(state_update, receiver_id)?;
+    let mut contract =
+        account.as_ref().map_or(AccountContract::None, |account| account.contract().into_owned());
+    // A universal state init installs its code only on an account without state.
+    let mut universal_install_pending =
+        account.as_ref().is_none_or(|account| !account.is_initialized());
     for action in action_receipt.actions() {
         match action {
-            Action::DeployContract(_)
-            | Action::DeterministicStateInit(_)
-            | Action::UniversalStateInit(_) => return Ok(None),
+            Action::DeployContract(_) => return Ok(None),
+            Action::CreateAccount(_) => {
+                contract = AccountContract::None;
+                universal_install_pending = false;
+            }
             Action::UseGlobalContract(use_global) => {
-                contract = match &use_global.contract_identifier {
-                    GlobalContractIdentifier::CodeHash(hash) => AccountContract::Global(*hash),
-                    GlobalContractIdentifier::AccountId(account_id) => {
-                        AccountContract::GlobalByAccount(account_id.clone())
+                contract = global_account_contract(&use_global.contract_identifier);
+            }
+            Action::DeterministicStateInit(state_init) => {
+                if contract.is_none() {
+                    contract = global_account_contract(state_init.state_init.code());
+                }
+            }
+            Action::UniversalStateInit(state_init) => {
+                if universal_install_pending {
+                    // A state init that does not decode fails its action.
+                    let Ok(state_init) = UniversalStateInit::from_raw(&state_init.state_init)
+                    else {
+                        return Ok(None);
+                    };
+                    if let Some(code) = state_init.code() {
+                        contract = global_account_contract(code);
                     }
-                };
+                    universal_install_pending = false;
+                }
             }
             Action::FunctionCall(_) => {
                 return resolve_called_code(
@@ -207,6 +224,15 @@ fn called_code(
         }
     }
     Ok(None)
+}
+
+fn global_account_contract(identifier: &GlobalContractIdentifier) -> AccountContract {
+    match identifier {
+        GlobalContractIdentifier::CodeHash(hash) => AccountContract::Global(*hash),
+        GlobalContractIdentifier::AccountId(account_id) => {
+            AccountContract::GlobalByAccount(account_id.clone())
+        }
+    }
 }
 
 fn resolve_called_code(

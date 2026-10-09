@@ -5,17 +5,25 @@ use crate::{ApplyResult, ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_crypto::Signer;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::AccountContract;
-use near_primitives::action::{Action, DeployContractAction, FunctionCallAction, TransferAction};
+use near_primitives::action::{
+    Action, DeployContractAction, DeterministicStateInitAction, FunctionCallAction,
+    GlobalContractIdentifier, TransferAction,
+};
+use near_primitives::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, EpochInfoProvider, Gas, ProtocolVersion, StateChangeCause,
 };
+use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::{PendingCompileReceiptQueue, TrieQueue};
 use near_store::{ShardTries, ShardUId, TrieUpdate, get, get_account, set, set_account};
 use near_vm_runner::ContractCode;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -220,4 +228,58 @@ fn call_before_a_vm_change_marks_the_code_for_the_next_generation() {
     let result = chain.apply(&[alice_call.clone()]);
     assert!(executed(&result, &alice_call));
     assert_eq!(chain.warmth(alice_account()), Some(next));
+}
+
+#[test]
+fn call_after_a_state_init_is_gated_on_the_global_code_it_binds() {
+    let mut chain = setup(VmGenerations { current: generation(), next: generation() });
+    chain.deploy_cold(alice_account(), &large_contract(0));
+    let global_code = large_contract(1);
+    let identifier = GlobalContractCodeIdentifier::CodeHash(*global_code.hash());
+    chain.update_state(|state_update| {
+        state_update.set(
+            TrieKey::GlobalContractCode { identifier: identifier.clone() },
+            global_code.code().to_vec(),
+        );
+    });
+    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+        code: GlobalContractIdentifier::CodeHash(*global_code.hash()),
+        data: BTreeMap::new(),
+    });
+    let receiver_id = derive_near_deterministic_account_id(&state_init);
+    let init_and_call = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: receiver_id.clone(),
+        receipt_id: CryptoHash::hash_bytes(b"init_and_call"),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: chain.signers[0].public_key(),
+            gas_price: Balance::ZERO,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![
+                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init,
+                    deposit: Balance::from_near(1),
+                })),
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "main".to_string(),
+                    args: vec![],
+                    gas: Gas::from_teragas(1),
+                    deposit: Balance::ZERO,
+                })),
+            ],
+        }),
+    });
+    let alice_call = chain.call(alice_account(), "");
+
+    let result = chain.apply(&[alice_call, init_and_call.clone()]);
+    assert!(!executed(&result, &init_and_call));
+    assert_eq!(chain.queued_receipts(&receiver_id), 1);
+
+    let result = chain.apply(&[]);
+    assert!(executed(&result, &init_and_call));
+    let warmth: Option<ProtocolVersion> =
+        get(&chain.state(), &TrieKey::GlobalContractWarmth { identifier }).unwrap();
+    assert_eq!(warmth, Some(generation()));
 }
