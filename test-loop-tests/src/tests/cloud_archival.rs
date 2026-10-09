@@ -21,7 +21,6 @@ use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
-#[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_utils::save_block_data;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
@@ -35,7 +34,6 @@ use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
-#[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -44,7 +42,6 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::create_test_cloud_storage;
-#[cfg(feature = "nightly")]
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -2315,7 +2312,6 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
 /// layout-agnostic and round-trips the rows the seeder wrote (the anchor's own
 /// pre-split layout) without consulting any layout.
 #[test]
-#[cfg(feature = "nightly")]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
