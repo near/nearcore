@@ -281,16 +281,15 @@ impl Default for PendingConstraints {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
-/// - `DepositFailed`: apply gas-only state changes via `VerificationResult::apply`
-///   (only returned by gas key path).
+/// - `FailedAndCharged`: apply the charge to the key via `VerificationResult::apply`
+///   (only returned by the gas key and inclusion key paths).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
-    /// Gas key valid with sufficient gas balance, but account can't cover deposit.
-    /// Gas key balance is deducted, account balance unchanged.
-    DepositFailed { result: VerificationResult, error: InvalidTxError },
+    /// Invalid, but the key balance pays for it: the nonce is used, the account balance is unchanged.
+    FailedAndCharged { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
 }
@@ -324,6 +323,18 @@ pub enum AccessKeyUpdate {
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
+    /// Inclusion key tx that failed after the nonce check: the key balance pays the charge.
+    InclusionKeyCharge { new_balance: Balance, nonce: Nonce, last_transaction_nonce: Nonce },
+}
+
+/// Gas keys keep compute = gas for a charged transaction: changing it is a consensus change.
+fn charged_compute_usage(result: &VerificationResult) -> Compute {
+    match result.access_key_update {
+        AccessKeyUpdate::InclusionKeyCharge { .. } => result.compute_burnt,
+        AccessKeyUpdate::GasKey { .. }
+        | AccessKeyUpdate::Regular { .. }
+        | AccessKeyUpdate::Bootstrap { .. } => result.gas_burnt.as_gas(),
+    }
 }
 
 impl VerificationResult {
@@ -351,6 +362,9 @@ impl VerificationResult {
             AccessKeyUpdate::Regular { nonce, new_allowance } => {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 access_key.nonce = *nonce;
+                if let Some(inclusion_key_info) = access_key.inclusion_key_info_mut() {
+                    inclusion_key_info.last_transaction_nonce = *nonce;
+                }
                 if let Some(a) = new_allowance {
                     let permission = access_key
                         .permission
@@ -364,6 +378,15 @@ impl VerificationResult {
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
                 gas_key_info.balance = *new_balance;
+            }
+            AccessKeyUpdate::InclusionKeyCharge { new_balance, nonce, last_transaction_nonce } => {
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
+                access_key.nonce = *nonce;
+                let inclusion_key_info = access_key
+                    .inclusion_key_info_mut()
+                    .ok_or_else(|| inconsistent("no inclusion key"))?;
+                inclusion_key_info.balance = *new_balance;
+                inclusion_key_info.last_transaction_nonce = *last_transaction_nonce;
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
                 // Consumed on the account, so the same signed bytes cannot be
@@ -380,7 +403,9 @@ impl VerificationResult {
     pub fn gas_key_nonce_update(&self) -> Option<(NonceIndex, Nonce)> {
         match &self.access_key_update {
             AccessKeyUpdate::GasKey { nonce_index, nonce, .. } => Some((*nonce_index, *nonce)),
-            AccessKeyUpdate::Regular { .. } | AccessKeyUpdate::Bootstrap { .. } => None,
+            AccessKeyUpdate::Regular { .. }
+            | AccessKeyUpdate::Bootstrap { .. }
+            | AccessKeyUpdate::InclusionKeyCharge { .. } => None,
         }
     }
 }
@@ -2237,19 +2262,20 @@ impl Runtime {
 
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
-                TxVerdict::DepositFailed { result, error } => {
+                TxVerdict::FailedAndCharged { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
                         error = &error as &dyn std::error::Error,
-                        "gas key transaction failed deposit check, charging gas"
+                        "transaction failed after the nonce check, charging the key"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
-                    let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
+                    let outcome = ExecutionOutcomeWithId::failed_with_gas_and_compute_burnt(
                         tx,
                         error,
-                        cost.gas_burnt,
-                        cost.burnt_amount,
+                        result.gas_burnt,
+                        charged_compute_usage(&result),
+                        result.burnt_amount,
                     );
                     (outcome, result)
                 }

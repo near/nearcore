@@ -14,7 +14,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
+    AccessKey, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
 use near_primitives::action::delegate::{
     VersionedDelegateActionRef, VersionedSignedDelegateActionRef,
@@ -139,8 +139,7 @@ pub(crate) fn try_refund_allowance(
 ) -> Result<(), StorageError> {
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
-        if let AccessKeyPermission::FunctionCall(function_call_permission) =
-            &mut access_key.permission
+        if let Some(function_call_permission) = access_key.permission.function_call_permission_mut()
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(deposit);
@@ -956,7 +955,7 @@ mod tests {
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_crypto::{KeyType, Signature};
-    use near_primitives::account::FunctionCallPermission;
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, InclusionKeyInfo};
     use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
@@ -1752,6 +1751,36 @@ mod tests {
         .expect("Expect ok");
 
         result
+    }
+
+    #[test]
+    fn test_try_refund_allowance_inclusion_key_function_call() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey =
+            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 0 };
+        let function_call_permission = |allowance| FunctionCallPermission {
+            allowance: Some(allowance),
+            receiver_id: "bob.near".to_string(),
+            method_names: vec![],
+        };
+        let inclusion_key = |allowance| AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::InclusionKeyFunctionCall(
+                inclusion_key_info.clone(),
+                function_call_permission(allowance),
+            ),
+        };
+        let allowance = Balance::from_yoctonear(10);
+        let refund = Balance::from_yoctonear(5);
+        let mut state_update = setup_account(&account_id, &public_key, &inclusion_key(allowance));
+
+        try_refund_allowance(&mut state_update, &account_id, &public_key, refund).unwrap();
+
+        let refunded_allowance = allowance.checked_add(refund).unwrap();
+        let refunded_key = get_access_key(&state_update, &account_id, &public_key).unwrap();
+        assert_eq!(refunded_key, Some(inclusion_key(refunded_allowance)));
     }
 
     #[test]

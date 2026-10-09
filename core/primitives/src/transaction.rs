@@ -776,13 +776,29 @@ impl ExecutionOutcomeWithId {
         gas_burnt: Gas,
         tokens_burnt: Balance,
     ) -> Self {
+        Self::failed_with_gas_and_compute_burnt(
+            transaction,
+            error,
+            gas_burnt,
+            gas_burnt.as_gas(),
+            tokens_burnt,
+        )
+    }
+
+    pub fn failed_with_gas_and_compute_burnt(
+        transaction: &SignedTransaction,
+        error: InvalidTxError,
+        gas_burnt: Gas,
+        compute_usage: Compute,
+        tokens_burnt: Balance,
+    ) -> Self {
         Self {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
                 executor_id: transaction.transaction.signer_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
                 gas_burnt,
-                compute_usage: Some(gas_burnt.as_gas()),
+                compute_usage: Some(compute_usage),
                 tokens_burnt,
                 ..Default::default()
             },
