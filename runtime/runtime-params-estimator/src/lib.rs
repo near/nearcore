@@ -322,6 +322,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::AdversarialCompileMaxBlocks, adversarial_compile_max_blocks),
     (Cost::ContractLoadingBase, contract_loading_base),
     (Cost::ContractLoadingPerByte, contract_loading_per_byte),
+    (Cost::ContractCompileEmpty, contract_compile_empty),
+    (Cost::ContractCompileMinimal, contract_compile_minimal),
+    (Cost::AdversarialCompileManyGlobals, adversarial_compile_many_globals),
     (Cost::AdversarialLoadManyGlobals, adversarial_load_many_globals),
     (Cost::AdversarialLoadManyDataSegments, adversarial_load_many_data_segments),
     (Cost::AdversarialLoadManyElementSegments, adversarial_load_many_element_segments),
@@ -749,16 +752,62 @@ fn adversarial_compile_max_blocks(ctx: &mut EstimatorContext) -> GasCost {
     vm_estimator::adversarial_compile_max_blocks(ctx.config.metric, ctx.config.vm_kind)
 }
 
+/// Average fresh-cache precompilations, excluding the requested warmup samples.
+fn repeated_compile_cost(ctx: &EstimatorContext, code: &[u8]) -> GasCost {
+    let iters = ctx.config.iter_per_block;
+    assert!(iters > 0, "compilation measurements require --iters > 0");
+    let measure = || compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, code);
+    for _ in 0..ctx.config.warmup_iters_per_block {
+        measure();
+    }
+    let mut total = GasCost::zero();
+    for _ in 0..iters {
+        total = total + measure();
+    }
+    total / iters as u64
+}
+
+fn contract_compile_empty(ctx: &mut EstimatorContext) -> GasCost {
+    // The Wasm header alone is a valid empty module.
+    repeated_compile_cost(ctx, b"\0asm\x01\0\0\0")
+}
+
+fn contract_compile_minimal(ctx: &mut EstimatorContext) -> GasCost {
+    let code = near_test_contracts::contract_with_num_globals(0);
+    repeated_compile_cost(ctx, &code)
+}
+
+fn adversarial_compile_many_globals(ctx: &mut EstimatorContext) -> GasCost {
+    let code = near_test_contracts::contract_with_num_globals(ctx.config.globals_count);
+    repeated_compile_cost(ctx, &code)
+}
+
 fn adversarial_load_many_globals(ctx: &mut EstimatorContext) -> GasCost {
-    vm_estimator::adversarial_load_many_globals(ctx.config.metric, ctx.config.vm_kind)
+    vm_estimator::adversarial_load_many_globals(
+        ctx.config.metric,
+        ctx.config.vm_kind,
+        ctx.config.globals_count,
+        ctx.config.warmup_iters_per_block,
+        ctx.config.iter_per_block,
+    )
 }
 
 fn adversarial_load_many_data_segments(ctx: &mut EstimatorContext) -> GasCost {
-    vm_estimator::adversarial_load_many_data_segments(ctx.config.metric, ctx.config.vm_kind)
+    vm_estimator::adversarial_load_many_data_segments(
+        ctx.config.metric,
+        ctx.config.vm_kind,
+        ctx.config.warmup_iters_per_block,
+        ctx.config.iter_per_block,
+    )
 }
 
 fn adversarial_load_many_element_segments(ctx: &mut EstimatorContext) -> GasCost {
-    vm_estimator::adversarial_load_many_element_segments(ctx.config.metric, ctx.config.vm_kind)
+    vm_estimator::adversarial_load_many_element_segments(
+        ctx.config.metric,
+        ctx.config.vm_kind,
+        ctx.config.warmup_iters_per_block,
+        ctx.config.iter_per_block,
+    )
 }
 
 fn adversarial_float_nan_canonicalization(ctx: &mut EstimatorContext) -> GasCost {
@@ -796,23 +845,51 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     }
 
     let smallest_contract = near_test_contracts::smallest_rs_contract();
-    let smallest_cost =
-        compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, smallest_contract);
+    let smallest_cost = repeated_compile_cost(ctx, smallest_contract);
     let smallest_size = smallest_contract.len() as u64;
 
+    let mut samples = vec![json!({
+        "contract": "smallest_rs_contract",
+        "size_bytes": smallest_size,
+        "cost": smallest_cost.to_json(),
+    })];
+    let mut selected_contract = None;
     let mut max_bytes_cost = GasCost::zero();
     for (contract, _) in REAL_CONTRACTS_SAMPLE {
         let binary = read_resource(contract);
-        let cost = compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &binary);
+        let cost = repeated_compile_cost(ctx, &binary);
         let bytes_cost = cost.saturating_sub(&smallest_cost, &NonNegativeTolerance::PER_MILLE)
             / (binary.len() as u64 - smallest_size);
-        max_bytes_cost = std::cmp::max(bytes_cost, max_bytes_cost);
+        samples.push(json!({
+            "contract": contract,
+            "size_bytes": binary.len(),
+            "cost": cost.to_json(),
+            "candidate_per_byte": bytes_cost.to_json(),
+        }));
+        if bytes_cost >= max_bytes_cost {
+            selected_contract = Some(contract);
+            max_bytes_cost = bytes_cost;
+        }
     }
 
     let base_cost = smallest_cost.saturating_sub(
         &(max_bytes_cost.clone() * smallest_size),
         &NonNegativeTolerance::PER_MILLE,
     );
+    if ctx.config.debug {
+        eprintln!(
+            "{}",
+            json!({
+                "diagnostic": "compile_v2",
+                "iters": ctx.config.iter_per_block,
+                "warmup_iters": ctx.config.warmup_iters_per_block,
+                "samples": samples,
+                "selected_contract": selected_contract,
+                "per_byte": max_bytes_cost.to_json(),
+                "base": base_cost.to_json(),
+            })
+        );
+    }
     let costs = (base_cost, max_bytes_cost);
 
     ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
