@@ -3,7 +3,7 @@
 platform_excludes := if os() == "macos" {
     "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
 } else if os() == "windows" {
-    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+    "--exclude near-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
     ""
 }

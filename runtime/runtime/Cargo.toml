@@ -1,12 +1,15 @@
 [package]
-name = "node-runtime"
+name = "near-runtime"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+description = "Transaction and receipt processing runtime of the NEAR node"
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
+
+[lib]
+name = "node_runtime"
 
 [lints]
 workspace = true
