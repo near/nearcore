@@ -48,6 +48,7 @@ mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
 #[cfg(feature = "test_features")]
+mod inclusion_keys;
 mod indexer;
 mod jsonrpc;
 mod light_client;
