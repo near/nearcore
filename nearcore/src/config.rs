@@ -6,6 +6,8 @@ use bytesize::ByteSize;
 use near_async::thread_pool::background_runtime_tasks;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
+#[cfg(feature = "test_features")]
+use near_chain_configs::AdversarialMode;
 use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
     random_chain_id,
@@ -458,10 +460,26 @@ pub struct Config {
     /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
+    /// Adversarial (fault injection) behavior. Do not enable in production.
+    /// Not written to config.json when it is the default.
+    #[cfg(feature = "test_features")]
+    #[serde(skip_serializing_if = "is_default_adversarial_mode")]
+    pub adversarial_mode: AdversarialMode,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Tests use the `adv_*` RPC methods, so `test_features` builds accept them by default.
+#[cfg(feature = "test_features")]
+fn default_adversarial_mode() -> AdversarialMode {
+    AdversarialMode::Rpc
+}
+
+#[cfg(feature = "test_features")]
+fn is_default_adversarial_mode(mode: &AdversarialMode) -> bool {
+    *mode == default_adversarial_mode()
 }
 impl Default for Config {
     fn default() -> Self {
@@ -537,6 +555,8 @@ impl Default for Config {
             chunks_cache_height_horizon: None,
             #[cfg(feature = "protocol_feature_spice")]
             spice_pending_transaction_queue_enabled: false,
+            #[cfg(feature = "test_features")]
+            adversarial_mode: default_adversarial_mode(),
         }
     }
 }

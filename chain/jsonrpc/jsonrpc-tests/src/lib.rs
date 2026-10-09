@@ -7,6 +7,8 @@ use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
+#[cfg(feature = "test_features")]
+use near_chain_configs::AdversarialMode;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
@@ -320,6 +322,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         block_notification_watch_receiver,
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
+        #[cfg(feature = "test_features")]
+        AdversarialMode::Rpc,
         Arc::new(DummyEntityDebugHandler {}),
         pool,
     );

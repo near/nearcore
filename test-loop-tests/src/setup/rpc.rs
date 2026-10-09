@@ -4,6 +4,8 @@ use axum::http::{Request, StatusCode};
 use futures::future::BoxFuture;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::test_loop::sender::TestLoopSender;
+#[cfg(feature = "test_features")]
+use near_chain_configs::AdversarialMode;
 use near_chain_configs::GenesisConfig;
 use near_client::gc_actor::GCActor;
 use near_client_primitives::types::BlockNotificationMessage;
@@ -130,6 +132,8 @@ pub(crate) fn create_testloop_jsonrpc_router(
         block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_actor_sender.clone().into_multi_sender(),
+        #[cfg(feature = "test_features")]
+        AdversarialMode::Rpc,
         entity_debug_handler,
         pool,
     )
