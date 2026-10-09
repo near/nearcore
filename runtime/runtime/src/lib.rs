@@ -2129,21 +2129,25 @@ impl Runtime {
             let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
 
-            let cost =
-                match tx_cost(&processing_state.apply_state.config, &tx.transaction, gas_price) {
-                    Ok(c) => c,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let tx_error = match error {
-                            IntegerOverflowError => InvalidTxError::CostOverflow,
-                        };
-                        let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        processing_state.outcomes.push(outcome);
-                        continue;
-                    }
-                };
+            let cost = match tx_cost(
+                &processing_state.apply_state.config,
+                &tx.transaction,
+                tx.size_for_limits(protocol_version),
+                gas_price,
+            ) {
+                Ok(c) => c,
+                Err(error) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    let tx_error = match error {
+                        IntegerOverflowError => InvalidTxError::CostOverflow,
+                    };
+                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
+                    let error = &error as &dyn std::error::Error;
+                    tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                    processing_state.outcomes.push(outcome);
+                    continue;
+                }
+            };
 
             let mut account =
                 accounts.get_mut(signer_id).expect("accounts should've been prefetched");

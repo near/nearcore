@@ -34,7 +34,8 @@ fn gas_cost_per_transfer() -> Balance {
         Balance::from_yoctonear(0),
         CryptoHash::default(),
     );
-    tx_cost(&config, &sample_tx.transaction, TEST_GAS_PRICE).unwrap().gas_cost
+    let sample_tx_size = sample_tx.size_for_limits(PROTOCOL_VERSION);
+    tx_cost(&config, &sample_tx.transaction, sample_tx_size, TEST_GAS_PRICE).unwrap().gas_cost
 }
 
 /// Submit `count` transfer transactions from `sender` to `receiver`.

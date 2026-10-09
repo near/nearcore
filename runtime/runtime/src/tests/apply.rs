@@ -4636,7 +4636,9 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         }))],
         CryptoHash::default(),
     );
-    let sample_cost = crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
+    let sample_tx_size = sample_tx.size_for_limits(PROTOCOL_VERSION);
+    let sample_cost =
+        crate::config::tx_cost(&config, &sample_tx.transaction, sample_tx_size, GAS_PRICE).unwrap();
     // Set allowance so it covers exactly one transaction's total_cost.
     let allowance = sample_cost.total_cost;
 
@@ -5123,8 +5125,13 @@ fn test_apply_gas_key_transaction() {
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         CryptoHash::default(),
     );
-    let transaction_cost =
-        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+    let transaction_cost = tx_cost(
+        &apply_state.config,
+        &gas_key_tx.transaction,
+        gas_key_tx.size_for_limits(apply_state.current_protocol_version),
+        apply_state.gas_price,
+    )
+    .unwrap();
 
     // Apply the transaction
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
@@ -5308,8 +5315,13 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
         CryptoHash::default(),
     );
-    let transaction_cost =
-        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+    let transaction_cost = tx_cost(
+        &apply_state.config,
+        &gas_key_tx.transaction,
+        gas_key_tx.size_for_limits(apply_state.current_protocol_version),
+        apply_state.gas_price,
+    )
+    .unwrap();
 
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
     let apply_result = runtime
@@ -7574,4 +7586,160 @@ fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() 
         "one state-init receipt reserves {congestion_gas}, over a fifth of the whole-shard \
          outgoing cap of {cap}"
     );
+}
+
+struct TransactionInclusionGasRun {
+    tx_outcome: ExecutionOutcomeWithId,
+    receipt_outcomes: Vec<ExecutionOutcomeWithId>,
+    refund_receipt_count: usize,
+    transaction_inclusion_amount: Balance,
+    accounts_balance_drop: Balance,
+    destroyed_balance: Balance,
+}
+
+/// Applies `actions` from alice to bob with `transaction_inclusion_gas_per_byte` high enough to
+/// exceed the gas burnt at conversion, then the receipts they create until none are left.
+fn apply_with_transaction_inclusion_gas_until_settled(
+    actions: Vec<Action>,
+) -> TransactionInclusionGasRun {
+    let initial_balance = Balance::from_near(1);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let transaction_inclusion_gas_per_byte = Gas::from_gigagas(100);
+    let mut config = RuntimeConfig::test();
+    Arc::make_mut(&mut config.fees).transaction_inclusion_gas_per_byte =
+        transaction_inclusion_gas_per_byte;
+    apply_state.config = Arc::new(config);
+    let shard_uid = ShardUId::single_shard();
+    let accounts_balance = |root: CryptoHash| {
+        let state = tries.new_trie_update(shard_uid, root);
+        let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+        let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+        alice.amount().checked_add(bob.amount()).unwrap()
+    };
+    let accounts_balance_before = accounts_balance(root);
+
+    let tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        bob_account(),
+        &*signers[0],
+        actions,
+        CryptoHash::default(),
+    );
+    let tx_size = tx.size_for_limits(apply_state.current_protocol_version);
+    let transaction_inclusion_gas =
+        transaction_inclusion_gas_per_byte.checked_mul(tx_size).unwrap();
+    let transaction_inclusion_amount =
+        GAS_PRICE.checked_mul(u128::from(transaction_inclusion_gas.as_gas())).unwrap();
+
+    let mut tx_outcome = None;
+    let mut receipt_outcomes = vec![];
+    let mut refund_receipt_count = 0;
+    let mut incoming: Vec<Receipt> = vec![];
+    let mut destroyed_balance = Balance::ZERO;
+    let mut settled = false;
+    for round in 0..10 {
+        let transactions = if round == 0 {
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true])
+        } else {
+            SignedValidPeriodTransactions::empty()
+        };
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root),
+                &None,
+                &apply_state,
+                &incoming,
+                transactions,
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let stats = &apply_result.stats.balance;
+        destroyed_balance = destroyed_balance
+            .checked_add(stats.tx_burnt_amount)
+            .unwrap()
+            .checked_add(stats.slashed_burnt_amount)
+            .unwrap()
+            .checked_add(stats.other_burnt_amount)
+            .unwrap()
+            .checked_sub(stats.subsidized_amount)
+            .unwrap()
+            .checked_sub(stats.gas_deficit_amount)
+            .unwrap();
+        for outcome in &apply_result.outcomes {
+            if outcome.id == tx.get_hash() {
+                tx_outcome = Some(outcome.clone());
+            } else {
+                receipt_outcomes.push(outcome.clone());
+            }
+        }
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        incoming = apply_result.outgoing_receipts.clone();
+        refund_receipt_count +=
+            incoming.iter().filter(|receipt| receipt.predecessor_id().is_system()).count();
+        apply_state.block_height += 1;
+        if round > 0 && incoming.is_empty() && apply_result.delayed_receipts_count == 0 {
+            settled = true;
+            break;
+        }
+    }
+    assert!(settled);
+    let accounts_balance_drop =
+        accounts_balance_before.checked_sub(accounts_balance(root)).unwrap();
+    let tx_outcome = tx_outcome.unwrap();
+    assert!(transaction_inclusion_gas > tx_outcome.outcome.gas_burnt);
+    TransactionInclusionGasRun {
+        tx_outcome,
+        receipt_outcomes,
+        refund_receipt_count,
+        transaction_inclusion_amount,
+        accounts_balance_drop,
+        destroyed_balance,
+    }
+}
+
+#[test]
+fn transfer_with_transaction_inclusion_gas_burns_transaction_inclusion_amount_and_conserves_supply()
+{
+    let deposit = Balance::from_millinear(1);
+    let run = apply_with_transaction_inclusion_gas_until_settled(vec![Action::Transfer(
+        TransferAction { deposit },
+    )]);
+    assert_matches!(run.tx_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(run.tx_outcome.outcome.tokens_burnt, run.transaction_inclusion_amount);
+    assert_eq!(run.accounts_balance_drop, run.destroyed_balance);
+}
+
+#[test]
+fn failed_function_call_with_transaction_inclusion_gas_refunds_gas_and_conserves_supply() {
+    let attached_gas = Gas::from_teragas(10);
+    let run = apply_with_transaction_inclusion_gas_until_settled(vec![Action::FunctionCall(
+        Box::new(FunctionCallAction {
+            method_name: "missing_method".to_string(),
+            args: vec![],
+            gas: attached_gas,
+            deposit: Balance::ZERO,
+        }),
+    )]);
+    assert_matches!(run.tx_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(run.tx_outcome.outcome.tokens_burnt, run.transaction_inclusion_amount);
+    let failed_receipt_outcomes = run
+        .receipt_outcomes
+        .iter()
+        .filter(|outcome| {
+            matches!(
+                outcome.outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+            )
+        })
+        .count();
+    assert_eq!(failed_receipt_outcomes, 1);
+    assert_eq!(run.refund_receipt_count, 1);
+    assert_eq!(run.accounts_balance_drop, run.destroyed_balance);
 }
