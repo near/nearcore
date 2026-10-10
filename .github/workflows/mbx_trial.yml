@@ -47,6 +47,8 @@ jobs:
           github-cache-mode: objects
           save-on-pull-request: true
           cache-key-suffix: ${{ matrix.coverage && 'coverage' || 'plain' }}
+          # Restore matches by key prefix, so give coverage its own series.
+          cache-generation: ${{ matrix.coverage && 'v1-coverage' || 'v1' }}
 
       - name: Route plain cargo through mbx
         run: |
