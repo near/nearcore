@@ -45,7 +45,6 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
         with:
           github-cache-mode: objects
-          isolate-objects-cache: true
           save-on-pull-request: true
           cache-key-suffix: ${{ matrix.coverage && 'coverage' || 'plain' }}
 
