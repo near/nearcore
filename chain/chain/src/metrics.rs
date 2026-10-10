@@ -25,6 +25,13 @@ pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: LazyLock<IntCounter> = LazyLock::new
     )
     .unwrap()
 });
+pub static APPLY_CHUNK_RESULTS_CACHE_POPS_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_apply_chunk_results_cache_pops_total",
+        "Total number of lookups in the apply chunk results cache",
+    )
+    .unwrap()
+});
 pub static BLOCK_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter("near_block_processed_total", "Total number of blocks processed")
         .unwrap()

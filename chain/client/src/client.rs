@@ -767,7 +767,11 @@ impl Client {
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
-                tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
+                if height % 100 == 0 {
+                    tracing::warn!(target: "client", height, "skipping block production, prev block is not caught up");
+                } else {
+                    tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
+                }
                 return Ok(false);
             }
         }

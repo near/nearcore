@@ -211,6 +211,7 @@ impl ApplyChunksResultCache {
         record_metric: bool,
     ) -> Option<ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
+        metrics::APPLY_CHUNK_RESULTS_CACHE_POPS_TOTAL.inc();
         if let Some(result) = self.cache.pop(key) {
             self.hits.update(|v| v + 1);
             if record_metric {
@@ -3970,8 +3971,7 @@ impl Chain {
     /// Gets chain head.
     #[inline]
     pub fn head(&self) -> Result<Arc<Tip>, Error> {
-        let head = self.chain_store.head();
-        head
+        self.chain_store.head()
     }
 
     /// Gets chain tail height
