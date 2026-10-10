@@ -3970,7 +3970,8 @@ impl Chain {
     /// Gets chain head.
     #[inline]
     pub fn head(&self) -> Result<Arc<Tip>, Error> {
-        self.chain_store.head()
+        let head = self.chain_store.head();
+        head
     }
 
     /// Gets chain tail height
