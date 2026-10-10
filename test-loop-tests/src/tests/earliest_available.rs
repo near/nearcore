@@ -229,8 +229,7 @@ fn slow_test_earliest_available_after_state_sync() {
             config.gc.gc_num_epochs_to_keep = GC_NUM_EPOCHS_TO_KEEP;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let _sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);

@@ -750,13 +750,12 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = spice_data_sent_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let mut env = env.warmup();
@@ -794,13 +793,12 @@ fn test_spice_validator_only_sends_endorsements() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = endorsement_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let mut env = env.warmup();

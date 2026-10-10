@@ -564,8 +564,7 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("ek_sync_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("ek_sync_node", node_state);
     let synced_em = env.node(new_node_idx).client().epoch_manager.clone();
 
     // Wait for the epoch-sync proof to apply: the follower's header head jumps from

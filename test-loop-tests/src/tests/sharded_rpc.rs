@@ -536,8 +536,7 @@ fn test_rpc_receipt_forwarding() {
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     // Wait for execution to complete.
     let target_height = h.env.node_for_account(&validator).head().height + 10;
@@ -1289,8 +1288,7 @@ fn test_rpc_light_client_proof_forwarding() {
     let zoe_node = h.zoe_node.clone();
 
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     // Wait for tx + receipt to execute and for several further blocks so the
     // outcome's block is final and we have a final head ahead of it. Advance
@@ -1441,8 +1439,7 @@ fn test_rpc_changes_in_block_scatter_gather() {
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -1503,10 +1500,8 @@ fn test_rpc_changes_scatter_gather() {
         h.env.node_for_account(&validator).tx_send_money(&alice, &validator, Balance::from_near(1));
     let tx_zoe =
         h.env.node_for_account(&validator).tx_send_money(&zoe, &validator, Balance::from_near(1));
-    let tx_alice_hash = tx_alice.get_hash();
-    let tx_zoe_hash = tx_zoe.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx_alice);
-    h.env.node_for_account(&validator).submit_tx(tx_zoe);
+    let tx_alice_hash = h.env.node_for_account(&validator).submit_tx(tx_alice);
+    let tx_zoe_hash = h.env.node_for_account(&validator).submit_tx(tx_zoe);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -1659,8 +1654,7 @@ fn test_rpc_changes_single_access_key_scatter_gather() {
 
     // Create a transaction so alice has access key changes in a block.
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);

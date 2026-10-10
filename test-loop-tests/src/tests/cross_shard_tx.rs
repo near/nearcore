@@ -125,9 +125,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
 
     for node_datas in &env.node_datas {
         let rng = rng.clone();
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut rng = rng.write();
             match &request {
                 NetworkRequests::PartialEncodedChunkRequest { .. }
@@ -141,7 +139,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 _ => (),
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let mut finished_transfers = 0;

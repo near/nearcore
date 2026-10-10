@@ -86,9 +86,7 @@ impl Test {
 
         for node_datas in &env.node_datas {
             let from_whom = node_datas.account_id.clone();
-            let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-            let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-            peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
                 match request {
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: ref to_whom,
@@ -137,7 +135,7 @@ impl Test {
                     _ => {}
                 };
                 return HandlerResult::Unhandled(request);
-            }));
+            });
         }
 
         // We run for an epoch to make sure that validators are switched each epoch during testing

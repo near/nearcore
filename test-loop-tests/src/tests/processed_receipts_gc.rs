@@ -54,8 +54,7 @@ fn test_processed_receipt_ids_gc() {
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Wait for the local receipt to be processed (the transaction won't fully
     // complete because the yield callback is waiting for a resume).
@@ -199,8 +198,7 @@ fn test_receipt_to_tx_saved_and_gced() {
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Wait for the transaction outcome (tx → local receipt).
     let tx_outcome =
@@ -305,8 +303,7 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
     // have a ReceiptToTx mapping.
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Run enough blocks for the transaction to be processed.
     env.validator_runner().run_for_number_of_blocks(5);
@@ -641,8 +638,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
         &receiver,
         Balance::from_yoctonear(100),
     );
-    let tx_hash = tx.get_hash();
-    env.node_for_account(&validator_id).submit_tx(tx);
+    let tx_hash = env.node_for_account(&validator_id).submit_tx(tx);
 
     // Step 2: Wait for the tx outcome on the validator; extract receipt_id.
     let tx_outcome = env

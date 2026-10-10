@@ -139,9 +139,7 @@ fn test_catchup_random_single_part_sync_common(
         .build();
 
     for node_datas in &env.node_datas {
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
             if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
                 &request
             {
@@ -154,7 +152,7 @@ fn test_catchup_random_single_part_sync_common(
                 }
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
@@ -333,9 +331,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
             }
         };
 
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
             if let NetworkRequests::Block { block } = &request {
                 check_height(*block.hash(), block.header().height());
 
@@ -351,7 +347,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
                 }
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
@@ -404,9 +400,7 @@ fn slow_test_all_chunks_accepted() {
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |msg| {
             match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
                     ref account_id,
@@ -440,7 +434,7 @@ fn slow_test_all_chunks_accepted() {
                 _ => (),
             }
             HandlerResult::Unhandled(msg)
-        }));
+        });
     }
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
