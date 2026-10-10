@@ -5177,6 +5177,7 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "borsh",
  "clap",
  "cold-store-tool",
  "near-async",
