@@ -227,8 +227,7 @@ fn alter_optimistic_block_at_height(
     use near_primitives::optimistic_block;
 
     for data in &env.node_datas {
-        let peer_actor = env.test_loop.data.get_mut(&data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new({
+        data.register_override_handler(&mut env.test_loop.data, {
             let validator_signer = signer.clone();
             move |request: NetworkRequests| {
                 if let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
@@ -250,7 +249,7 @@ fn alter_optimistic_block_at_height(
                 };
                 HandlerResult::Unhandled(request)
             }
-        }));
+        });
     }
 }
 

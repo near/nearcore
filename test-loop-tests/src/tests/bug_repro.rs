@@ -72,9 +72,7 @@ fn slow_test_repro_1183() {
         let clients = clients.clone();
         let rng = rng.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node.register_override_handler(&mut env.test_loop.data, move |request| {
             if let NetworkRequests::Block { block } = &request {
                 let mut last_block = last_block.write();
                 let mut delayed_one_parts = delayed_one_parts.write();
@@ -150,7 +148,7 @@ fn slow_test_repro_1183() {
             } else {
                 HandlerResult::Unhandled(request)
             }
-        }));
+        });
     }
 
     env.node_runner(1).run_until_head_height_with_timeout(25, Duration::seconds(60));
@@ -205,9 +203,7 @@ fn slow_test_sync_from_archival_node() {
 
         let peer_id = node.peer_id.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut block_counter = block_counter.write();
 
             if let NetworkRequests::Block { block } = &request {
@@ -270,7 +266,7 @@ fn slow_test_sync_from_archival_node() {
                     _ => HandlerResult::Unhandled(request),
                 }
             }
-        }));
+        });
     }
 
     env.test_loop.run_until(|_| *largest_height.read() >= 50, Duration::seconds(20));
@@ -300,24 +296,20 @@ fn slow_test_long_gap_between_blocks() {
         .build();
 
     for node in &env.node_datas {
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            match &request {
-                NetworkRequests::Approval { approval_message } => {
-                    if approval_message.approval.target_height < target_height {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
+        node.register_override_handler(&mut env.test_loop.data, move |request| match &request {
+            NetworkRequests::Approval { approval_message } => {
+                if approval_message.approval.target_height < target_height {
+                    return HandlerResult::Handled(NetworkResponses::NoResponse);
+                } else {
+                    if approval_message.target == "test1" {
+                        return HandlerResult::Unhandled(request);
                     } else {
-                        if approval_message.target == "test1" {
-                            return HandlerResult::Unhandled(request);
-                        } else {
-                            return HandlerResult::Handled(NetworkResponses::NoResponse);
-                        }
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
                 }
-                _ => return HandlerResult::Unhandled(request),
             }
-        }));
+            _ => return HandlerResult::Unhandled(request),
+        });
     }
 
     env.node_runner(1)
@@ -347,18 +339,15 @@ fn test_rpc_forwards_retried_transaction() {
     // Record ForwardTx messages sent by the RPC node
     let forward_tx_requests = Rc::new(RefCell::new(Vec::new()));
     let forward_tx_requests_clone = forward_tx_requests.clone();
-    env.node_datas[rpc_data_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(move |nr| {
-            match &nr {
-                NetworkRequests::ForwardTx(account, transaction) => forward_tx_requests_clone
-                    .borrow_mut()
-                    .push((account.clone(), transaction.get_hash())),
-                _ => {}
-            }
-            HandlerResult::Unhandled(nr)
-        }),
-    );
+    env.node_datas[rpc_data_idx].register_override_handler(&mut env.test_loop.data, move |nr| {
+        match &nr {
+            NetworkRequests::ForwardTx(account, transaction) => forward_tx_requests_clone
+                .borrow_mut()
+                .push((account.clone(), transaction.get_hash())),
+            _ => {}
+        }
+        HandlerResult::Unhandled(nr)
+    });
 
     // Submit tx1 twice
     let tx1 = SignedTransaction::send_money(

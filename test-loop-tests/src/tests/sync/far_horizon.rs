@@ -835,15 +835,14 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let new_node_idx = env.node_datas.len() - 1;
 
     // Drop state part requests so state sync never completes.
-    env.node_datas[new_node_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(|request| match &request {
+    env.node_datas[new_node_idx].register_override_handler(&mut env.test_loop.data, |request| {
+        match &request {
             NetworkRequests::StateRequestPart { .. } => {
                 HandlerResult::Handled(NetworkResponses::NoResponse)
             }
             _ => HandlerResult::Unhandled(request),
-        }),
-    );
+        }
+    });
 
     // Run until new node enters StateSync and record its sync hash.
     let mut node_sync_hash = None;

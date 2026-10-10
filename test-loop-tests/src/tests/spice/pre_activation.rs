@@ -161,15 +161,14 @@ impl SpiceTrafficCounter {
 
     fn install_on(&self, data: &mut TestLoopData, node: &NodeExecutionData) {
         let counter = self.clone();
-        let peer_actor = data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node.register_override_handler(data, move |request| {
             counter.total.fetch_add(1, Ordering::Relaxed);
             if is_spice_request(&request) {
                 counter.spice.fetch_add(1, Ordering::Relaxed);
             }
             // Unhandled passes the request on to the real handler.
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     /// Asserts no spice request was emitted. Also asserts the counter saw *some*

@@ -369,15 +369,14 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
     let victim_idx = env.node_datas.len() - 1;
 
     // Drop state part requests so state sync stays in progress.
-    env.node_datas[victim_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(|request| match &request {
+    env.node_datas[victim_idx].register_override_handler(&mut env.test_loop.data, |request| {
+        match &request {
             NetworkRequests::StateRequestPart { .. } => {
                 HandlerResult::Handled(NetworkResponses::NoResponse)
             }
             _ => HandlerResult::Unhandled(request),
-        }),
-    );
+        }
+    });
 
     env.node_runner(victim_idx).run_until(
         |node| matches!(node.client().sync_handler.sync_status, SyncStatus::StateSync(_)),

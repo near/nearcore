@@ -33,8 +33,7 @@ fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
         let late = late.clone();
         let client_senders = client_senders.clone();
         let peer_id = data.peer_id.clone();
-        let peer_manager = env.test_loop.data.get_mut(&data.peer_manager_sender.actor_handle());
-        peer_manager.register_override_handler(Box::new(move |request| {
+        data.register_override_handler(&mut env.test_loop.data, move |request| {
             let NetworkRequests::Block { block } = &request else {
                 return HandlerResult::Unhandled(request);
             };
@@ -55,7 +54,7 @@ fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
                 }
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 }
 

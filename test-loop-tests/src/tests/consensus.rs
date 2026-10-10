@@ -80,9 +80,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let handler = handler.clone();
         let rng = rng.clone();
 
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut handler = handler.write();
             let mut rng = rng.write();
 
@@ -277,7 +275,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                 _ => {}
             };
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     const HEIGHT_GOAL: u64 = 140;
