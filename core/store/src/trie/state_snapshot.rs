@@ -69,8 +69,10 @@ impl From<SnapshotError> for StorageError {
 
 /// Snapshot of the state at the epoch boundary.
 pub struct StateSnapshot {
-    /// The state snapshot represents the state including changes of the next block of this block.
-    prev_block_hash: CryptoHash,
+    /// The block the snapshot was taken at. Without spice the snapshot holds the state
+    /// including the changes of the block *after* this one; under spice it holds the state
+    /// this block's own chunks left behind.
+    snapshot_hash: CryptoHash,
     /// Read-only store.
     store: TrieStoreAdapter,
     /// Access to flat storage in that store.
@@ -83,12 +85,12 @@ impl StateSnapshot {
     /// Creates an object and also creates flat storage for the given shards.
     pub fn new(
         store: TrieStoreAdapter,
-        prev_block_hash: CryptoHash,
+        snapshot_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: Option<&Block>,
     ) -> Self {
-        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new state snapshot");
+        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?snapshot_hash, "new state snapshot");
         let mut included_shard_uids = vec![];
         for &(shard_index, shard_uid) in shard_indexes_and_uids {
             if let Err(err) = flat_storage_manager.mark_ready_and_create_flat_storage(shard_uid) {
@@ -103,11 +105,17 @@ impl StateSnapshot {
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                if let Some(chunk) = block.chunks().get(shard_index) {
-                    // Flat state snapshot needs to be at a height that lets it
-                    // replay the last chunk of the shard.
-                    let desired_flat_head = chunk.prev_block_hash();
-                    match flat_storage.update_flat_head(desired_flat_head) {
+                // Spice writes a shard's flat state delta under the block whose chunk
+                // produced it, and snapshots the state that block left behind, so the head
+                // is the block itself. Otherwise the snapshot needs to sit at a height that
+                // lets it replay the shard's last chunk.
+                let desired_flat_head = if block.is_spice_block() {
+                    Some(*block.hash())
+                } else {
+                    block.chunks().get(shard_index).map(|chunk| *chunk.prev_block_hash())
+                };
+                if let Some(desired_flat_head) = desired_flat_head {
+                    match flat_storage.update_flat_head(&desired_flat_head) {
                         Ok(_) => {
                             tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "successfully moved flat storage head of the snapshot");
                             included_shard_uids.push(shard_uid);
@@ -117,11 +125,11 @@ impl StateSnapshot {
                         }
                     }
                 } else {
-                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "failed to move flat storage head of the snapshot, no chunk");
+                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?snapshot_hash, "failed to move flat storage head of the snapshot, no chunk");
                 }
             }
         }
-        Self { prev_block_hash, store, flat_storage_manager, included_shard_uids }
+        Self { snapshot_hash, store, flat_storage_manager, included_shard_uids }
     }
 
     /// Returns the UIds for the shards included in the snapshot.
@@ -206,11 +214,8 @@ impl ShardTries {
     ) -> Result<PartialState, SnapshotError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
-        if &data.prev_block_hash != block_hash {
-            return Err(SnapshotError::IncorrectSnapshotRequested(
-                *block_hash,
-                data.prev_block_hash,
-            ));
+        if &data.snapshot_hash != block_hash {
+            return Err(SnapshotError::IncorrectSnapshotRequested(*block_hash, data.snapshot_hash));
         };
         let cache = self
             .get_trie_cache_for(shard_uid, true)
@@ -229,14 +234,14 @@ impl ShardTries {
     /// If a new snapshot is created, returns the ids of the included shards.
     pub fn create_state_snapshot(
         &self,
-        prev_block_hash: CryptoHash,
+        snapshot_hash: CryptoHash,
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: &Block,
     ) -> Result<Option<Vec<ShardUId>>, anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
-            tracing::info_span!(target: "state_snapshot", "create_state_snapshot", ?prev_block_hash)
+            tracing::info_span!(target: "state_snapshot", "create_state_snapshot", ?snapshot_hash)
                 .entered();
         let _timer = metrics::CREATE_STATE_SNAPSHOT_ELAPSED.start_timer();
 
@@ -250,19 +255,19 @@ impl ShardTries {
         let mut state_snapshot_lock = self.state_snapshot().write();
         let db_snapshot_hash = self.store().get_state_snapshot_hash();
         if let Some(state_snapshot) = &*state_snapshot_lock {
-            // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and prev_block_hash are the same
-            if db_snapshot_hash.is_ok_and(|hash| hash == prev_block_hash)
-                && state_snapshot.prev_block_hash == prev_block_hash
+            // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and snapshot_hash are the same
+            if db_snapshot_hash.is_ok_and(|hash| hash == snapshot_hash)
+                && state_snapshot.snapshot_hash == snapshot_hash
             {
-                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "requested a state snapshot but that is already available");
+                tracing::warn!(target: "state_snapshot", ?snapshot_hash, "requested a state snapshot but that is already available");
                 return Ok(None);
             }
-            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?state_snapshot.prev_block_hash, "requested a state snapshot but that is already available with a different hash");
+            tracing::error!(target: "state_snapshot", ?snapshot_hash, ?state_snapshot.snapshot_hash, "requested a state snapshot but that is already available with a different hash");
         }
 
         let storage = checkpoint_hot_storage_and_cleanup_columns(
             &self.store().store(),
-            &Self::get_state_snapshot_base_dir(&prev_block_hash, state_snapshots_dir),
+            &Self::get_state_snapshot_base_dir(&snapshot_hash, state_snapshots_dir),
             // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
             Some(STATE_SNAPSHOT_COLUMNS),
@@ -274,18 +279,18 @@ impl ShardTries {
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         *state_snapshot_lock = Some(StateSnapshot::new(
             store,
-            prev_block_hash,
+            snapshot_hash,
             flat_storage_manager,
             shard_indexes_and_uids,
             Some(block),
         ));
 
         let mut store_update = self.store_update();
-        store_update.set_state_snapshot_hash(Some(prev_block_hash));
+        store_update.set_state_snapshot_hash(Some(snapshot_hash));
         store_update.commit();
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "made a checkpoint");
+        tracing::info!(target: "state_snapshot", ?snapshot_hash, "made a checkpoint");
         Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
     }
 
@@ -336,10 +341,10 @@ impl ShardTries {
     }
 
     pub fn get_state_snapshot_base_dir(
-        prev_block_hash: &CryptoHash,
+        snapshot_hash: &CryptoHash,
         state_snapshots_dir: &Path,
     ) -> PathBuf {
-        state_snapshots_dir.join(format!("{prev_block_hash}"))
+        state_snapshots_dir.join(format!("{snapshot_hash}"))
     }
 
     /// Read RocksDB for the latest available snapshot hash, if available, open base_path+snapshot_hash for the state snapshot

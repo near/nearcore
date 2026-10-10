@@ -1202,7 +1202,7 @@ fn slow_test_process_block_after_state_sync() {
         .state_sync_adapter
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
-    let state_root = header.chunk_prev_state_root();
+    let state_root = header.synced_state_root();
     let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
@@ -2016,7 +2016,7 @@ fn slow_test_catchup_gas_price_change() {
                 .runtime_adapter
                 .apply_state_part(
                     shard_id,
-                    &state_sync_header.chunk_prev_state_root(),
+                    &state_sync_header.synced_state_root(),
                     StatePartId::new(part_id, num_parts),
                     &part,
                     blocks[5].header().epoch_id(),
@@ -3443,7 +3443,7 @@ mod contract_precompilation_tests {
             .state_sync_adapter
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
-        let state_root = state_sync_header.chunk_prev_state_root();
+        let state_root = state_sync_header.synced_state_root();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
         let sync_prev_prev_hash = sync_prev_header.prev_hash();

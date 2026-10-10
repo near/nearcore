@@ -21,7 +21,7 @@ use crate::signature_verification::{
     verify_chunk_header_signature_by_hash,
 };
 use crate::spice::core::SpiceCoreReader;
-use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
@@ -80,7 +80,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
-use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -98,8 +98,8 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
@@ -1656,6 +1656,15 @@ impl Chain {
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
+        if header.is_spice() {
+            let execution_head = Tip::from_header(&header);
+            let mut store_update = self.chain_store.store().store_update();
+            let mut adapter = store_update.chain_store_update();
+            adapter.set_spice_execution_head(&execution_head)?;
+            adapter.set_spice_final_execution_head(&execution_head);
+            store_update.commit();
+        }
+
         // State sync moves the head without processing a block, so the tracker has to be told
         // separately. Otherwise its window stays where the head was before the sync.
         self.blocks_delay_tracker.update_head(tip.height);
@@ -2745,7 +2754,14 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let chunk_height_included = shard_state_header.chunk_height_included();
+        if self.get_block_header(&sync_hash)?.is_spice() {
+            return self.set_spice_state_finalize(shard_id, sync_hash, shard_state_header);
+        }
+        let Some(chunk_height_included) = shard_state_header.chunk_height_included() else {
+            return Err(Error::Other(
+                "set_state_finalize failed: a non-spice header must carry a chunk".into(),
+            ));
+        };
         let mut height = chunk_height_included;
         let mut chain_update = self.chain_update();
         let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
@@ -2778,6 +2794,37 @@ impl Chain {
             flat_storage.update_flat_head(header.prev_hash()).unwrap();
         }
 
+        Ok(())
+    }
+
+    fn set_spice_state_finalize(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_state_header: ShardStateSyncResponseHeader,
+    ) -> Result<(), Error> {
+        let Some(execution_result) = shard_state_header.spice_execution_result() else {
+            return Err(Error::Other(
+                "set_state_finalize failed: a spice header must carry an execution result".into(),
+            ));
+        };
+        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.chunk_store_update().set_chunk_extra(
+            &sync_hash,
+            &shard_uid,
+            &execution_result.chunk_extra,
+        );
+        store_update.commit();
+
+        // Spice writes a shard's flat state delta under the block whose chunk produced it, so
+        // the head of the state just downloaded is the sync block itself.
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
+            flat_storage.update_flat_head(&sync_hash).unwrap();
+        }
         Ok(())
     }
 
@@ -3814,52 +3861,21 @@ impl Chain {
         Some(PostStateReadyCallback::new(Box::new(closure)))
     }
 
-    fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
-        let mut ret = None;
-        for chunk in block.chunks().iter() {
-            let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
-                0
-            } else {
-                let prev_header = self.get_block_header(chunk.prev_block_hash())?;
-                prev_header.height()
-            };
-            if let Some(min_height) = ret {
-                ret = Some(std::cmp::min(min_height, prev_height));
-            } else {
-                ret = Some(prev_height);
-            }
-        }
-        Ok(ret.unwrap_or(0))
-    }
-
     /// Function to create or delete a snapshot if necessary.
     /// TODO: this function calls head() inside of start_process_block_impl(), consider moving this to be called right after HEAD gets updated
     fn process_snapshot(&self) -> Result<(), Error> {
-        let snapshot_action = self.should_make_snapshot()?;
-        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
-        match snapshot_action {
-            SnapshotAction::MakeSnapshot(prev_hash) => {
-                let prev_block = self.get_block(&prev_hash)?;
-                let prev_prev_hash = prev_block.header().prev_hash();
-                let min_chunk_prev_height = self.min_chunk_prev_height(&prev_block)?;
-                let epoch_height =
-                    self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
-                let shard_layout =
-                    &self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
-                let shard_uids = shard_layout
-                    .shard_uids()
-                    .enumerate()
-                    .filter(|&(_, shard_uid)| {
-                        self.shard_tracker.cares_about_shard(prev_prev_hash, shard_uid.shard_id())
-                    })
-                    .collect();
-
-                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
-            }
-            SnapshotAction::None => {}
+        let SnapshotAction::MakeSnapshot(block_hash) = self.should_make_snapshot()? else {
+            return Ok(());
         };
-        Ok(())
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        request_state_snapshot(
+            snapshot_callbacks,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            &self.chain_store.store().chain_store(),
+            &self.runtime_adapter.get_tries(),
+            self.get_block(&block_hash)?,
+        )
     }
 
     /// Function to check whether we need to create a new snapshot while processing the current block
@@ -3869,12 +3885,18 @@ impl Chain {
         if let StateSnapshotConfig::Disabled = tries.state_snapshot_config() {
             return Ok(SnapshotAction::None);
         }
-        let snapshot_every_n_epochs = tries.state_snapshot_config().snapshot_cadence();
 
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // genesis block, do not snapshot
+            return Ok(SnapshotAction::None);
+        }
+
+        // Spice snapshots the state the epoch's first block leaves behind, which only exists
+        // once that block's chunks have executed - after this block-processing path has run.
+        // The spice chunk executor drives it instead, from `ChunkExecutorActor::finalize_block`.
+        if self.get_block_header(&head.last_block_hash)?.is_spice() {
             return Ok(SnapshotAction::None);
         }
 
@@ -3884,16 +3906,6 @@ impl Chain {
         }
         // Here the head block is the prev block of what the sync hash will be, and the previous
         // block is the point in the chain we want to snapshot state for.
-        let epoch_height =
-            self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
-        if epoch_height % snapshot_every_n_epochs != 0 {
-            // Force the resharding epoch's snapshot even off-cadence; cloud
-            // archival requires it. A node snapshotting every epoch (cadence 1)
-            // never reaches this branch.
-            if !self.epoch_manager.is_resharding_epoch(&head.last_block_hash)? {
-                return Ok(SnapshotAction::None);
-            }
-        }
         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
     }
 

@@ -190,7 +190,6 @@ fn test_gc_incremental() {
 // Under V2 stale nodes get their DB wiped (EpochSyncDataReset), making the
 // multi-sync GC scenario redundant. This near-horizon variant is more meaningful.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_near_horizon_sync() {
     init_test_logger();
 
