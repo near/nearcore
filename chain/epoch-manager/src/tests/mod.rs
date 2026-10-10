@@ -526,19 +526,22 @@ fn test_validator_reward_one_validator() {
             ),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -1619,7 +1622,8 @@ fn test_chunk_producer_kickout() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
     }
 
     let last_epoch_info =
@@ -1694,7 +1698,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
     }
 
     let last_epoch_info =
@@ -1805,7 +1810,8 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 }),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
     }
 
     let last_epoch_info =
