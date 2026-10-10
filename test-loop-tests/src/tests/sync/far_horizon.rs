@@ -73,8 +73,7 @@ fn test_far_horizon_full_pipeline() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -129,8 +128,7 @@ fn test_far_horizon_chained_epoch_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node0", node_state);
-    let new_node0_idx = env.node_datas.len() - 1;
+    let new_node0_idx = env.add_node("new_node0", node_state);
 
     let history_0 = track_sync_status(&mut env.test_loop, &env.node_datas, new_node0_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node0_idx, 0);
@@ -147,8 +145,7 @@ fn test_far_horizon_chained_epoch_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node1", node_state);
-    let new_node1_idx = env.node_datas.len() - 1;
+    let new_node1_idx = env.add_node("new_node1", node_state);
 
     let history_1 = track_sync_status(&mut env.test_loop, &env.node_datas, new_node1_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node1_idx, 0);
@@ -296,8 +293,7 @@ fn test_far_horizon_archival_skips_epoch_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -359,8 +355,7 @@ fn test_far_horizon_restart_during_header_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Throttle header responses so header sync takes multiple events, creating
@@ -381,8 +376,7 @@ fn test_far_horizon_restart_during_header_sync() {
 
     let killed_state = env.kill_node("new_node");
 
-    env.restart_node("restart_header_sync", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("restart_header_sync", killed_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
     let history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
 
@@ -432,8 +426,7 @@ fn test_far_horizon_restart_during_state_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node enters StateSync.
@@ -447,8 +440,7 @@ fn test_far_horizon_restart_during_state_sync() {
 
     let killed_state = env.kill_node("new_node");
 
-    env.restart_node("restart_state_sync", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("restart_state_sync", killed_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
     let history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
 
@@ -502,8 +494,7 @@ fn test_far_horizon_restart_during_block_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     // Run until new node is in the MIDDLE of BlockSync (current_height > start_height).
@@ -518,8 +509,7 @@ fn test_far_horizon_restart_during_block_sync() {
 
     let killed_state = env.kill_node("new_node");
 
-    env.restart_node("restart_block_sync", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("restart_block_sync", killed_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
@@ -571,8 +561,7 @@ fn test_far_horizon_restart_after_long_downtime() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     env.node_runner(new_node_idx).run_until(
@@ -592,8 +581,7 @@ fn test_far_horizon_restart_after_long_downtime() {
     // Restart — header_head is outside the horizon → enters EpochSync →
     // response handler detects header_head != genesis → triggers data reset.
     let restart_id = "new_node_long_downtime";
-    env.restart_node(restart_id, killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node(restart_id, killed_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
 
     env.node_runner(0).run_for_number_of_blocks(5);
@@ -673,8 +661,7 @@ fn test_far_horizon_staking_state() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
@@ -733,8 +720,7 @@ fn test_far_horizon_tx_during_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
@@ -831,8 +817,7 @@ fn test_far_horizon_stale_sync_hash_detection() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     // Drop state part requests so state sync never completes.
     env.node_datas[new_node_idx].register_override_handler(&mut env.test_loop.data, |request| {
@@ -927,8 +912,7 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     // The chain is already well past `far_horizon_height` by now, so take the window from
     // where it actually is: the node syncs and catches up within the next couple of epochs.

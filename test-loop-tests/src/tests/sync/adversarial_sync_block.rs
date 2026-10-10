@@ -74,8 +74,7 @@ fn test_forged_sync_block_body_is_rejected() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("victim", node_state);
-    let victim_idx = env.node_datas.len() - 1;
+    let victim_idx = env.add_node("victim", node_state);
 
     // The victim publishes its sync hash on entering StateSync. The interceptor needs it to
     // tell the sync-hash request from the prev/extra block requests: only the sync-hash block
