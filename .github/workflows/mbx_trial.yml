@@ -1,0 +1,65 @@
+name: mbx trial
+
+# Temporary: compare mbx against sccache for the Cargo Nextest (Linux) job.
+# Mirrors that job (including coverage), with sccache replaced by mbx.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mbx_trial.yml"
+      - "**.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+
+env:
+  CI_HACKS: 1
+  MBX_SUMMARY: full
+
+jobs:
+  cargo_nextest_mbx:
+    name: "Cargo Nextest (Linux, mbx)"
+    runs-on: warp-ubuntu-2404-x64-16x
+    timeout-minutes: 90
+    permissions:
+      contents: "read"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Install the pinned toolchain before mbx so its cache key sees the right rustc.
+      - run: rustup toolchain install && rustc -vV
+
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          github-cache-mode: objects
+          isolate-objects-cache: true
+          save-on-pull-request: true
+
+      - name: Route plain cargo through mbx
+        run: |
+          mbx setup --yes
+          shim="$(find "$HOME" -path '*mbx/bin/cargo' -type f 2>/dev/null | head -1)"
+          test -n "$shim"
+          dirname "$shim" >> "$GITHUB_PATH"
+      - run: |
+          command -v cargo
+          mbx doctor
+
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        with:
+          tool: just,cargo-nextest,cargo-llvm-cov
+
+      - uses: ./.github/actions/install-clang
+
+      - name: just nextest-slow stable (with coverage)
+        run: |
+          mkdir -p coverage/codecov
+          just codecov-ci "nextest-slow stable"
+
+      - if: always()
+        run: mbx explain --last || true
