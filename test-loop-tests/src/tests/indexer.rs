@@ -358,8 +358,7 @@ fn test_indexer_global_contract_function_call_metadata() {
         Balance::ZERO,
         Gas::from_teragas(100),
     );
-    let call_tx_hash = call_tx.get_hash();
-    env.rpc_node().submit_tx(call_tx);
+    let call_tx_hash = env.rpc_node().submit_tx(call_tx);
     let tx_outcome =
         env.rpc_runner().run_until_outcome_available(call_tx_hash, Duration::seconds(5));
     let ExecutionStatus::SuccessReceiptId(call_receipt_id) =
@@ -514,8 +513,7 @@ fn test_indexer_broken_block_terminates_streamer() {
 /// the receipt, i.e. the block that can no longer be built.
 fn drop_receipt_of_local_tx(env: &mut TestLoopEnv) -> BlockHeight {
     let tx = create_local_tx(env);
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
     let tx_outcome =
         env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
     let ExecutionStatus::SuccessReceiptId(receipt_id) = tx_outcome.outcome_with_id.outcome.status

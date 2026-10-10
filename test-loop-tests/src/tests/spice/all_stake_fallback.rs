@@ -310,8 +310,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     // Wait for the deploy to be included before submitting the call, so the call runs against an
     // already-settled contract (`record_contract_call` skips newly-deployed code).
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&contract_user);
-    let deploy_hash = deploy_tx.get_hash();
-    env.rpc_node().submit_tx(deploy_tx);
+    let deploy_hash = env.rpc_node().submit_tx(deploy_tx);
     env.rpc_runner().run_until_included(&[deploy_hash]);
 
     // The call's chunk witness omits the code, so a cold non-designated fallback validator must
@@ -324,8 +323,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let call_hash = call_tx.get_hash();
-    env.rpc_node().submit_tx(call_tx);
+    let call_hash = env.rpc_node().submit_tx(call_tx);
     let call_height = env.rpc_runner().run_until_included(&[call_hash]);
 
     // Execution advances only as the fallback certifies; wait for the certified frontier to reach

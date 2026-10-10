@@ -255,8 +255,7 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
 
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
 
