@@ -1,7 +1,7 @@
 name: mbx trial
 
 # Temporary: compare mbx against sccache for the Cargo Nextest (Linux) job.
-# Mirrors that job (including coverage), with sccache replaced by mbx.
+# Mirrors that job with sccache replaced by mbx, with and without coverage.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,8 +21,16 @@ env:
 
 jobs:
   cargo_nextest_mbx:
-    name: "Cargo Nextest (Linux, mbx)"
+    name: "Cargo Nextest (Linux, mbx, ${{ matrix.name }})"
     runs-on: warp-ubuntu-2404-x64-16x
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: coverage
+            coverage: true
+          - name: no coverage
+            coverage: false
     timeout-minutes: 90
     permissions:
       contents: "read"
@@ -39,6 +47,7 @@ jobs:
           github-cache-mode: objects
           isolate-objects-cache: true
           save-on-pull-request: true
+          cache-key-suffix: ${{ matrix.coverage && 'coverage' || 'plain' }}
 
       - name: Route plain cargo through mbx
         run: |
@@ -57,9 +66,14 @@ jobs:
       - uses: ./.github/actions/install-clang
 
       - name: just nextest-slow stable (with coverage)
+        if: matrix.coverage
         run: |
           mkdir -p coverage/codecov
           just codecov-ci "nextest-slow stable"
+
+      - name: just nextest-slow stable
+        if: ${{ !matrix.coverage }}
+        run: just nextest-slow stable
 
       - if: always()
         run: mbx explain --last || true
