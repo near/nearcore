@@ -90,12 +90,12 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             config.block_header_fetch_horizon = 8;
         })
         .build();
-    env.add_node(&identifier, node_state);
+    let new_node_idx = env.add_node(&identifier, node_state);
 
     // Allow talking only with the source node.
-    let new_node_peer_id = env.node_datas.last().unwrap().peer_id.clone();
+    let new_node_peer_id = env.node_datas[new_node_idx].peer_id.clone();
     env.shared_state.network_shared_state.allow_all_requests();
-    for (index, data) in env.node_datas[..env.node_datas.len() - 1].iter().enumerate() {
+    for (index, data) in env.node_datas[..new_node_idx].iter().enumerate() {
         if index != source_node {
             env.shared_state
                 .network_shared_state
@@ -107,7 +107,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     }
 
     // Check that the new node will reach a high height as well.
-    let client_sender = &env.node_datas.last().unwrap().client_sender;
+    let client_sender = &env.node_datas[new_node_idx].client_sender;
     let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
@@ -142,7 +142,6 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 
     let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
-    let new_node_idx = env.node_datas.len() - 1;
     env.node_runner(new_node_idx).run_until_head_height(current_height + 30);
     let expected: Vec<String> =
         ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]

@@ -55,8 +55,7 @@ fn test_near_horizon_block_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -98,8 +97,7 @@ fn test_near_horizon_epoch_sync_boundary() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -133,8 +131,7 @@ fn test_near_horizon_restart_during_block_sync() {
 
     let new_account = create_account_id("new_node");
     let node_state = env.node_state_builder().account_id(&new_account).build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     // Wait until new node is in the MIDDLE of BlockSync (current_height > start_height).
     env.node_runner(new_node_idx).run_until(
@@ -148,8 +145,7 @@ fn test_near_horizon_restart_during_block_sync() {
 
     let killed_state = env.kill_node("new_node");
 
-    env.restart_node("restart_block_sync", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("restart_block_sync", killed_state);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
 }
@@ -209,8 +205,7 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
     env.node_runner(1).run_until_new_epoch();
 
     // Restart node 0 — it block-syncs to catch up.
-    env.restart_node("node0_restart", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("node0_restart", killed_state);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 1);
     assert_near_horizon_sync_sequence(&sync_history.borrow());
@@ -270,8 +265,7 @@ fn test_near_horizon_sync_beyond_gc_window() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = custom_horizon;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);

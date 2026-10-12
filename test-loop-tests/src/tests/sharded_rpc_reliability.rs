@@ -201,8 +201,7 @@ fn test_rpc_parallel_take_first_partial_failure() {
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -244,8 +243,7 @@ fn test_rpc_block_effects_coordinator_bypass() {
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -322,8 +320,7 @@ fn test_rpc_changes_coordinator_bypass() {
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -444,8 +441,7 @@ fn test_rpc_block_effects_scatter_gather_retry() {
     let rpc1 = h.rpc1.clone();
 
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
@@ -536,8 +532,7 @@ fn test_rpc_block_effects_scatter_gather_all_nodes_fail() {
     let rpc1 = h.rpc1.clone();
 
     let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+    let tx_hash = h.env.node_for_account(&validator).submit_tx(tx);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);

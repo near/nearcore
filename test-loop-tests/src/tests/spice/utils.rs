@@ -57,8 +57,7 @@ fn install_endorsement_delay_handler(
     let delayed_endorsements: Arc<
         RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
     > = Default::default();
-    let peer_actor = data.get_mut(&node.peer_manager_sender.actor_handle());
-    peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    node.register_override_handler(data, move |request| {
         let delay_height = delay.load(Ordering::Relaxed);
         match request {
             NetworkRequests::Block { ref block } => {
@@ -103,5 +102,5 @@ fn install_endorsement_delay_handler(
             }
             _ => HandlerResult::Unhandled(request),
         }
-    }));
+    });
 }

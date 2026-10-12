@@ -27,15 +27,13 @@ fn network_drop_random_messages() {
     // it a test of resilience against misbehaving nodes who withhold messages.
     for node_data in &env.node_datas {
         let rng = rng.clone();
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut rng = rng.write();
             if rng.gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR) {
                 return HandlerResult::Handled(NetworkResponses::NoResponse);
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     // We need to allow more than the default timeout calculated by

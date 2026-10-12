@@ -20,8 +20,7 @@ fn test_save_receipt_to_tx_false() {
 
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -123,8 +122,7 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
 
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -180,8 +178,7 @@ fn test_no_index_when_both_disabled() {
 
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -246,8 +243,7 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
         &user_account,
         Balance::from_yoctonear(100),
     );
-    let tx_hash = tx.get_hash();
-    env.node_for_account(&restart_account).submit_tx(tx);
+    let tx_hash = env.node_for_account(&restart_account).submit_tx(tx);
 
     // Run until ReceiptToTx entries for tx appear. Can't use execute_tx
     // or get_execution_outcome — save_tx_outcomes=false.

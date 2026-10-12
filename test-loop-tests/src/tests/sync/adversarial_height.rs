@@ -56,8 +56,7 @@ fn test_synced_node_ignores_unverified_far_ahead_height() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("victim", node_state);
-    let victim_idx = env.node_datas.len() - 1;
+    let victim_idx = env.add_node("victim", node_state);
     run_until_synced(&mut env.test_loop, &env.node_datas, victim_idx, 0);
 
     // A real header with its height bumped past the epoch sync horizon, attributed
@@ -121,8 +120,7 @@ fn test_genesis_node_bootstraps() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("syncer", node_state);
-    let syncer_idx = env.node_datas.len() - 1;
+    let syncer_idx = env.add_node("syncer", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, syncer_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
@@ -163,8 +161,7 @@ fn test_stale_node_syncs() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("syncer", node_state);
-    let syncer_idx = env.node_datas.len() - 1;
+    let syncer_idx = env.add_node("syncer", node_state);
     run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
 
     // Advance past the horizon while it is down: the virtual clock moves with block
@@ -173,8 +170,7 @@ fn test_stale_node_syncs() {
     env.node_runner(0).run_for_number_of_blocks(far_horizon_height(epoch_length) as usize);
 
     let restart_id = "syncer_restarted";
-    env.restart_node(restart_id, killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node(restart_id, killed_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
     env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
@@ -219,8 +215,7 @@ fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
     env.node_runner(1).run_until_head_height(kill_height + epoch_length + epoch_length / 2);
 
     let restart_id = format!("{}-restart", node0_identifier);
-    env.restart_node(&restart_id, killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node(&restart_id, killed_state);
 
     let head = env.node(restarted_idx).head();
     let head_before = head.height;
@@ -365,19 +360,17 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("victim", node_state);
-    let victim_idx = env.node_datas.len() - 1;
+    let victim_idx = env.add_node("victim", node_state);
 
     // Drop state part requests so state sync stays in progress.
-    env.node_datas[victim_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(|request| match &request {
+    env.node_datas[victim_idx].register_override_handler(&mut env.test_loop.data, |request| {
+        match &request {
             NetworkRequests::StateRequestPart { .. } => {
                 HandlerResult::Handled(NetworkResponses::NoResponse)
             }
             _ => HandlerResult::Unhandled(request),
-        }),
-    );
+        }
+    });
 
     env.node_runner(victim_idx).run_until(
         |node| matches!(node.client().sync_handler.sync_status, SyncStatus::StateSync(_)),
@@ -460,8 +453,7 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
             config.epoch_sync.timeout_for_epoch_sync = Duration::seconds(2);
         })
         .build();
-    env.add_node("syncer", node_state);
-    let syncer_idx = env.node_datas.len() - 1;
+    let syncer_idx = env.add_node("syncer", node_state);
 
     let head = env.node(0).head();
     let head_block = env.node(0).block(head.last_block_hash);

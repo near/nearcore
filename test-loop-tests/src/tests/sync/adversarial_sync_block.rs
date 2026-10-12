@@ -74,8 +74,7 @@ fn test_forged_sync_block_body_is_rejected() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("victim", node_state);
-    let victim_idx = env.node_datas.len() - 1;
+    let victim_idx = env.add_node("victim", node_state);
 
     // The victim publishes its sync hash on entering StateSync. The interceptor needs it to
     // tell the sync-hash request from the prev/extra block requests: only the sync-hash block
@@ -122,42 +121,37 @@ fn test_forged_sync_block_body_is_rejected() {
     let victim_account_id = victim_data.account_id.clone();
     let future_spawner: Arc<dyn FutureSpawner> =
         Arc::new(env.test_loop.future_spawner(&victim_data.identifier));
-    victim_data.register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(move |request| match request {
-            NetworkRequests::BlockRequest { hash, peer_id }
-                if Some(hash) == *sync_hash.lock() && !forged_once.swap(true, Ordering::SeqCst) =>
-            {
-                let my_peer_id = network_shared_state.account_to_peer_id(&victim_account_id);
-                let responder = network_shared_state
-                    .senders_for_peer(&peer_id, &my_peer_id)
-                    .client_sender
-                    .clone();
-                let future = network_shared_state
-                    .senders_for_peer(&my_peer_id, &peer_id)
-                    .view_client_sender
-                    .send_async(BlockRequest(hash));
-                let forged_counter = forged_counter.clone();
-                let forged_chunks = forged_chunks.clone();
-                future_spawner.spawn("forged sync block response", async move {
-                    let Ok(Some(block)) = future.await else { return };
-                    let forged = forge_block_body(&block);
-                    // The whole point: the forgery keeps the honest hash, so a node that
-                    // accepts it stores it under the hash it is waiting for.
-                    assert_eq!(forged.hash(), block.hash());
-                    *forged_chunks.lock() =
-                        Some(forged.chunks().iter_raw().cloned().collect::<Vec<_>>());
-                    forged_counter.fetch_add(1, Ordering::SeqCst);
-                    let future = responder.send_async(
-                        BlockResponse { block: forged, peer_id, was_requested: true }.span_wrap(),
-                    );
-                    drop(future);
-                });
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            other => HandlerResult::Unhandled(other),
-        }),
-    );
+    victim_data.register_override_handler(&mut env.test_loop.data, move |request| match request {
+        NetworkRequests::BlockRequest { hash, peer_id }
+            if Some(hash) == *sync_hash.lock() && !forged_once.swap(true, Ordering::SeqCst) =>
+        {
+            let my_peer_id = network_shared_state.account_to_peer_id(&victim_account_id);
+            let responder =
+                network_shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
+            let future = network_shared_state
+                .senders_for_peer(&my_peer_id, &peer_id)
+                .view_client_sender
+                .send_async(BlockRequest(hash));
+            let forged_counter = forged_counter.clone();
+            let forged_chunks = forged_chunks.clone();
+            future_spawner.spawn("forged sync block response", async move {
+                let Ok(Some(block)) = future.await else { return };
+                let forged = forge_block_body(&block);
+                // The whole point: the forgery keeps the honest hash, so a node that
+                // accepts it stores it under the hash it is waiting for.
+                assert_eq!(forged.hash(), block.hash());
+                *forged_chunks.lock() =
+                    Some(forged.chunks().iter_raw().cloned().collect::<Vec<_>>());
+                forged_counter.fetch_add(1, Ordering::SeqCst);
+                let future = responder.send_async(
+                    BlockResponse { block: forged, peer_id, was_requested: true }.span_wrap(),
+                );
+                drop(future);
+            });
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        other => HandlerResult::Unhandled(other),
+    });
 
     // Let the victim reject the forgery, wait out `block_request_timeout` (100 ms), re-request
     // from another peer and finish syncing.

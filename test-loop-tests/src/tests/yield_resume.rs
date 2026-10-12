@@ -144,8 +144,7 @@ fn test_yield_then_resume_one_block_apart() {
             deposit: Balance::ZERO,
         }))],
     );
-    let yield_tx_hash = yield_transaction.get_hash();
-    env.validator().submit_tx(yield_transaction);
+    let yield_tx_hash = env.validator().submit_tx(yield_transaction);
 
     // Allow the yield create to be included and processed.
     for _ in 0..2 {
@@ -225,8 +224,7 @@ fn test_yield_then_resume_same_block() {
             deposit: Balance::ZERO,
         }))],
     );
-    let yield_tx_hash = yield_transaction.get_hash();
-    env.validator().submit_tx(yield_transaction);
+    let yield_tx_hash = env.validator().submit_tx(yield_transaction);
 
     // Add another transaction invoking `yield_resume`.
     let resume_transaction = env.validator().tx_from_actions(
@@ -239,8 +237,7 @@ fn test_yield_then_resume_same_block() {
             deposit: Balance::ZERO,
         }))],
     );
-    let resume_tx_hash = resume_transaction.get_hash();
-    env.validator().submit_tx(resume_transaction);
+    let resume_tx_hash = env.validator().submit_tx(resume_transaction);
 
     // Allow the yield create and resume to be included and processed.
     for _ in 0..2 {

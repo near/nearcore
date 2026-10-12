@@ -242,8 +242,7 @@ fn prepare_env_with_yield(
             deposit: Balance::ZERO,
         }))],
     );
-    let yield_tx_hash = yield_transaction.get_hash();
-    env.validator().submit_tx(yield_transaction);
+    let yield_tx_hash = env.validator().submit_tx(yield_transaction);
     env.validator_runner().run_until_executed_height(yield_create_height());
     assert!(matches!(
         env.validator()
@@ -282,8 +281,7 @@ fn invoke_yield_resume(
             deposit: Balance::ZERO,
         }))],
     );
-    let tx_hash = resume_transaction.get_hash();
-    env.validator().submit_tx(resume_transaction);
+    let tx_hash = env.validator().submit_tx(resume_transaction);
     tx_hash
 }
 

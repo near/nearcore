@@ -56,10 +56,9 @@ fn slow_test_sync_from_genesis() {
 
     // Add new node
     let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
-    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
+    let new_node_idx = env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.
-    let new_node_idx = env.node_datas.len() - 1;
     env.node_runner(new_node_idx)
         .run_until(|node| node.head().height > 10050, Duration::seconds(20));
 }

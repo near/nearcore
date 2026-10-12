@@ -67,10 +67,8 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
         .collect();
 
     for node_data in &env.node_datas {
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         let shards_manager_senders = shards_manager_senders.clone();
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if let NetworkRequests::PartialEncodedChunkMessage {
                 account_id: ref to,
                 partial_encoded_chunk: ref genuine,
@@ -90,7 +88,7 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
             }
             // Pass the genuine chunk through unchanged.
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let start_height = env.node(0).head().height;
