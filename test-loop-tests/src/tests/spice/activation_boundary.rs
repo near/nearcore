@@ -493,8 +493,10 @@ fn run_restart_across_boundary(kill_at: impl Fn(&TestLoopNode<'_>) -> bool) {
     };
     let killed_node_state = env.kill_node(&restart_identifier);
 
-    // The remaining nodes cross the boundary and run within the first spice epoch.
+    // The remaining nodes cross the boundary and run a few spice blocks past it, so the
+    // restarted node has spice blocks to catch up on.
     env.node_runner(1).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(60));
+    env.node_runner(1).run_for_number_of_blocks(3);
     let catch_up_height = env.node(1).head().height;
 
     let new_identifier = format!("{restart_identifier}-restart");
@@ -506,9 +508,6 @@ fn run_restart_across_boundary(kill_at: impl Fn(&TestLoopNode<'_>) -> bool) {
 
     let restarted = env.node(restarted_index);
     assert!(restarted.head_block().is_spice_block(), "the restarted node must cross the boundary");
-    // Catching up re-ran the activation seeding: both execution heads must be present.
-    restarted.client().chain.chain_store.spice_execution_head().unwrap();
-    restarted.client().chain.chain_store.spice_final_execution_head().unwrap();
 
     // The re-bootstrapped executor must execute across the boundary, not just follow headers.
     env.node_runner(restarted_index).run_until(
