@@ -5,7 +5,7 @@ use super::test_vm_config;
 use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use expect_test::expect;
 use near_primitives_core::version::ProtocolFeature;
-use near_test_contracts::fallback_elements_contract;
+use near_test_contracts::{fallback_elements_contract, many_data_segments_contract};
 
 static SIMD: &str = r#"
 (module
@@ -292,6 +292,12 @@ fn too_many_table_elements() {
                 Err: PrepareError: Too many table elements declared in the contract.
             "#]],
         ]);
+}
+
+#[test]
+fn test_many_data_segments_contract() {
+    let code = many_data_segments_contract(50_000);
+    test_builder().wasm(&code).opaque_outcome().expects(&[expect![[""]]]);
 }
 
 #[test]

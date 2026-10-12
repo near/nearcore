@@ -304,12 +304,12 @@ pub fn many_data_segments_contract(num_segments: u32) -> Vec<u8> {
     for i in 0..num_segments {
         data.active(0, &ConstExpr::i32_const(0), [i as u8]);
     }
-    module.section(&data);
     let mut code = CodeSection::new();
     let mut f = Function::new([]);
     f.instruction(&Instruction::End);
     code.function(&f);
     module.section(&code);
+    module.section(&data);
     module.finish()
 }
 
