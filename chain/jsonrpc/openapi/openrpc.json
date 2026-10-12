@@ -1292,7 +1292,7 @@
           },
           {
             "const": "MalformedUniversalStateInit",
-            "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
+            "description": "The bytes of a `UniversalStateInit` action are not the canonical borsh of a\nstate init. Action validation rejects such an action before it runs, so this\nonly fires if that check was bypassed.",
             "type": "string"
           },
           {
@@ -2306,7 +2306,7 @@
           },
           {
             "const": "MalformedUniversalStateInit",
-            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
+            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the\ncanonical representation of the struct.",
             "type": "string"
           },
           {
@@ -8184,7 +8184,7 @@
         "type": "string"
       },
       "RawStateInit": {
-        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Two encodings of the same logical value\nare two different accounts, which is deliberate: canonical encoding cannot be\nenforced end to end anyway, since contracts serialize their own nested state\ninside the opaque storage values.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
+        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Only the canonical encoding is accepted\n(see `UniversalStateInit::from_raw`), so each logical value has one ID.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
         "title": "RawStateInit",
         "type": "string"
       },

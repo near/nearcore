@@ -616,14 +616,17 @@ pub unsafe fn universal_state_init_to_account_id_10b_10k() {
     // empty key set.
     let buffer = [0u8; 10];
     // Fail loudly if the payload ever stops being accepted: the loop would then time
-    // the cheap rejection path instead.
-    assert_eq!(
-        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0),
-        0
-    );
+    // the cheap rejection path instead. The call count must stay exactly 10_000, so
+    // the statuses are collected and checked after the loop.
+    let mut status = 0;
     for _ in 0..10_000 {
-        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+        status |= universal_state_init_to_account_id(
+            buffer.len() as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
     }
+    assert_eq!(status, 0);
 }
 // Derive an account id from a ~10kib state init 10k times.
 //
@@ -652,14 +655,17 @@ pub unsafe fn universal_state_init_to_account_id_10kib_10k() {
         buffer[at + 4..at + 8].copy_from_slice(&(i as u32).to_be_bytes());
     }
     // Fail loudly if the payload ever stops being accepted: the loop would then time
-    // the cheap rejection path instead.
-    assert_eq!(
-        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0),
-        0
-    );
+    // the cheap rejection path instead. The call count must stay exactly 10_000, so
+    // the statuses are collected and checked after the loop.
+    let mut status = 0;
     for _ in 0..10_000 {
-        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+        status |= universal_state_init_to_account_id(
+            buffer.len() as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
     }
+    assert_eq!(status, 0);
 }
 
 // Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,
