@@ -43,11 +43,11 @@ action_universal_state_init_per_byte: {
     execution: 74_000_000,
   },
 }
-# `universal_state_init_to_account_id_checked` decodes the bytes it is given, checks that
-# they re-encode to the same bytes (canonical borsh), and then hashes them with SHA3-256
-# and base32-encodes the digest. Calibrated by icount against sha3_256 measured in the
-# same run, so each cost inherits sha3_256's safety margin by scaling its committed value
-# by the instruction ratio, rounded up:
+# From this version `universal_state_init_to_account_id` decodes the bytes it is given,
+# checks that they re-encode to the same bytes (canonical borsh), and then hashes them
+# with SHA3-256 and base32-encodes the digest. Calibrated by icount against sha3_256
+# measured in the same run, so each cost inherits sha3_256's safety margin by scaling its
+# committed value by the instruction ratio, rounded up:
 # base: 5_879_491_275 * 12_978.61 / 8_579.23 = 8_894_460_721.6
 # byte: 21_471_105 * 107.78 / 34.80 = 66_498_726.9
 # The byte input is a dense payload of many tiny map entries (852 entries in 10_234

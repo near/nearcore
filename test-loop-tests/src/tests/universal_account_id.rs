@@ -681,7 +681,7 @@ fn test_universal_state_init_non_canonical_from_contract_by_version() {
 
 /// The protocol version the block was produced under.
 fn version_of_block(node: &TestLoopNode, block_hash: CryptoHash) -> ProtocolVersion {
-    let epoch_id = node.block(block_hash).header().epoch_id().clone();
+    let epoch_id = *node.block(block_hash).header().epoch_id();
     node.client().epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap()
 }
 
