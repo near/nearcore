@@ -1,3 +1,4 @@
+#[cfg(feature = "test_features")]
 mod activation_boundary;
 mod all_stake_fallback;
 mod basic;
