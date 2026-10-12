@@ -373,6 +373,27 @@ impl ChainStoreAdapter {
         )
     }
 
+    /// Hashes of every processed block descending from `start`, `start` excluded, in
+    /// increasing height order.
+    pub fn get_processed_descendants(&self, start: &Tip) -> Result<Vec<CryptoHash>, Error> {
+        let head_height = self.head()?.height;
+        let mut descendants = HashSet::from([start.last_block_hash]);
+        let mut ordered = Vec::new();
+        for height in start.height + 1..=head_height {
+            let mut block_hashes: Vec<CryptoHash> =
+                self.get_all_block_hashes_by_height(height).values().flatten().copied().collect();
+            block_hashes.sort();
+            for block_hash in block_hashes {
+                let header = self.get_block_header(&block_hash)?;
+                if descendants.contains(header.prev_hash()) {
+                    descendants.insert(block_hash);
+                    ordered.push(block_hash);
+                }
+            }
+        }
+        Ok(ordered)
+    }
+
     /// Returns a vector of all known processed next block hashes.
     pub fn get_all_next_block_hashes(&self, block_hash: &CryptoHash) -> Vec<CryptoHash> {
         self.store.get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref()).unwrap_or_default()

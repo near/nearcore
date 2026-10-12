@@ -34,6 +34,7 @@ use near_chain::spice::boundary::{applies_chunk_itself, shards_applied_itself};
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
+use near_chain::types::Tip;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -80,7 +81,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
@@ -262,6 +262,8 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
         if spice_enabled_at_head_on_startup(&self.chain_store) {
             self.start_waiting_on_missing_data()
                 .expect("we should be able to figure out missing data on startup");
+        } else if let Err(err) = self.start_waiting_on_boundary_data() {
+            tracing::error!(target: "spice_data_distribution", ?err, "failed to start waiting on boundary data on startup");
         }
         self.schedule_data_fetching(ctx);
     }
@@ -1811,16 +1813,36 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
-        let start_block = self.chain_store.spice_final_execution_head()?.last_block_hash;
+    /// Startup counterpart of [`Self::start_waiting_on_missing_data`] for a pre-spice head,
+    /// where no spice final execution head exists yet. A fork past the final head may already
+    /// hold a last pre-spice block, or even a spice block.
+    fn start_waiting_on_boundary_data(&mut self) -> Result<(), Error> {
+        match self.chain_store.final_head() {
+            Ok(final_head) => self.start_waiting_on_data_for_descendants(&final_head),
+            Err(near_chain::Error::DBNotFoundErr(_)) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
 
-        let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block).into();
-        while let Some(block_hash) = next_block_hashes.pop_front() {
+    fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        self.start_waiting_on_data_for_descendants(&final_execution_head)
+    }
+
+    /// Starts waiting on the data of every processed spice or last pre-spice block descending
+    /// from `start`.
+    fn start_waiting_on_data_for_descendants(&mut self, start: &Tip) -> Result<(), Error> {
+        for block_hash in self.chain_store.get_processed_descendants(start)? {
+            if !is_spice_or_last_pre_spice_block(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                &block_hash,
+            )? {
+                continue;
+            }
             self.start_waiting_on_data(&block_hash)?;
             let block = self.chain_store.get_block(&block_hash)?;
             self.data_manager.track_block(&block)?;
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
         Ok(())
     }
