@@ -200,16 +200,17 @@ impl PendingAccount {
 /// The criterion is whether the action can set the contract field of an account.
 ///
 /// A `UniversalStateInit` without code is not deploy-like, and neither is one
-/// whose bytes are not accepted (malformed or not canonical), since it cannot
-/// execute at all.
+/// whose bytes do not decode, since it cannot execute at all.
 fn is_deploy_like_action(action: &Action) -> bool {
     match action {
         Action::DeployContract(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::DeterministicStateInit(_) => true,
-        Action::UniversalStateInit(action) => UniversalStateInit::from_raw(&action.state_init)
-            .is_ok_and(|state_init| state_init.code().is_some()),
+        Action::UniversalStateInit(action) => {
+            UniversalStateInit::from_raw_lenient(&action.state_init)
+                .is_ok_and(|state_init| state_init.code().is_some())
+        }
         Action::Delegate(signed_delegate) => {
             signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
         }

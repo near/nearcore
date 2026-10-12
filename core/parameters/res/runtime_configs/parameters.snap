@@ -271,6 +271,7 @@ fix_contract_loading_error              true
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
 universal_accounts                      true
+canonical_universal_state_init          true
 fix_ml_dsa_cost_charging                false
 discard_custom_sections                 true
 reftypes_bulk_memory                    true

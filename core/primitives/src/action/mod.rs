@@ -5,7 +5,7 @@ pub mod delegate;
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit,
     trie_key::GlobalContractCodeIdentifier,
-    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
+    universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit, state_init_counts},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -466,17 +466,15 @@ impl Action {
             | Action::UseGlobalContract(_)
             | Action::DeterministicStateInit(_) => false,
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
-            // A state init that is not accepted (malformed or not canonical) carries no
-            // keys as far as this is concerned; it is rejected by action validation
-            // before it can run.
-            Action::UniversalStateInit(a) => {
-                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+            // A state init that does not decode carries no keys as far as this is
+            // concerned; it is rejected by action validation before it can run.
+            Action::UniversalStateInit(a) => UniversalStateInit::from_raw_lenient(&a.state_init)
+                .is_ok_and(|state_init| {
                     state_init
                         .access_keys()
                         .iter()
                         .any(|handle| handle.key_type().is_post_quantum())
-                })
-            }
+                }),
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
             Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),
@@ -514,19 +512,21 @@ impl Action {
     /// decode of the payload, and keeping them in one accessor is what stops the
     /// two limits drifting apart.
     ///
+    /// `mode` is how a payload is decoded, see [`state_init_counts`].
+    ///
     /// Exhaustive by design, so that a new action variant has to make the
     /// decision explicitly rather than silently counting as zero. Do not
     /// collapse the arms into a wildcard.
-    pub fn state_init_counts(&self) -> StateInitCounts {
+    pub fn state_init_counts(&self, mode: DecodeMode) -> StateInitCounts {
         match self {
-            // Carries a state init directly. A payload that is not accepted
+            // Carries a state init directly. A payload that does not decode
             // describes nothing as far as this is concerned; it is rejected by
             // action validation before it can run.
             Action::DeterministicStateInit(a) => {
                 StateInitCounts { entries: a.state_init.data().len() as u64, keys: 0 }
             }
             Action::UniversalStateInit(a) => {
-                let counts = state_init_counts(&a.state_init);
+                let counts = state_init_counts(&a.state_init, mode);
                 StateInitCounts { entries: counts.num_entries, keys: counts.num_keys }
             }
             // Recursive: the inner actions become their own receipt, but the
@@ -536,13 +536,13 @@ impl Action {
                 .delegate_action
                 .get_actions()
                 .iter()
-                .map(Action::state_init_counts)
+                .map(|action| action.state_init_counts(mode))
                 .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
             Action::DelegateV2(sda) => sda
                 .delegate_action
                 .get_actions()
                 .iter()
-                .map(Action::state_init_counts)
+                .map(|action| action.state_init_counts(mode))
                 .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
             // No state init anywhere in these.
             Action::CreateAccount(_)

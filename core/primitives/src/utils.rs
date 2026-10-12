@@ -497,9 +497,9 @@ pub fn derive_near_deterministic_account_id(
 ///
 /// **Note:** This function deliberately does not take `UniversalStateInit`, but
 /// `RawStateInit`, because the account ID is committed to the exact bytes. It does
-/// not check them: only the canonical encoding is accepted by
-/// `UniversalStateInit::from_raw`, which every consumer of the ID goes through, so
-/// a non-canonical encoding can derive an ID but can never create the account.
+/// not check them: from `CanonicalUniversalStateInit` on only the canonical encoding
+/// is accepted (see `UniversalStateInit::from_raw_strict`), so a non-canonical encoding can
+/// derive an ID but can never create the account.
 pub fn derive_universal_account_id(state_init: &RawStateInit) -> AccountId {
     use sha3::Digest;
     let hash = sha3::Sha3_256::digest(&state_init.0).into();
@@ -589,8 +589,9 @@ mod tests {
     }
 
     /// The derivation commits to the bytes it is given, and nothing re-serializes a
-    /// decoded value to derive one. Non-canonical bytes are rejected before they
-    /// get here (see `UniversalStateInit::from_raw`), but the hash itself is blind.
+    /// decoded value to derive one. From `CanonicalUniversalStateInit` on, non-canonical
+    /// bytes are rejected before they get here (see `UniversalStateInit::from_raw_strict`), but
+    /// the hash itself is blind.
     #[test]
     fn test_derive_universal_account_id_is_over_raw_bytes() {
         use crate::universal_state_init::{RawStateInit, UniversalStateInit};

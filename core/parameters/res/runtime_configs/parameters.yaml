@@ -145,29 +145,15 @@ action_universal_state_init: {
   send_not_sir: 500_000_000_000,
   execution: 7_430_000_000_000,
 }
-# Per entry: unlike the deterministic action, the payload is raw bytes that are decoded
-# (and checked to be canonical) in several passes before the action runs, so the send
-# side does real work per entry, mostly building the map. Measured by icount on 100_000
-# entries with 7-byte keys: 704M gas raw per entry in total, 624M after removing the
-# 15 bytes' share already paid by the per-byte fee. At the 4.94x margin of the sha3_256
-# anchor that is 3.08G, rounded up. The execution fee is unchanged.
 action_universal_state_init_per_entry: {
-  send_sir: 3_100_000_000,
-  send_not_sir: 3_100_000_000,
+  send_sir: 0,
+  send_not_sir: 0,
   execution: 200_000_000_000,
 }
-# Per byte: the `action_deterministic_state_init_per_byte` fees plus the extra work of
-# the canonical decode check (decode and re-encode, several passes per action). Measured
-# by icount against the deterministic action in the same run, on one 1 MB entry: send
-# 42.89 vs 34.27 instructions/byte, exec 7.52 vs 1.48. The difference, priced at the
-# 4.94x margin of the sha3_256 anchor (see `wasm_universal_state_init_to_account_id_*`),
-# at 125_000 gas per instruction, is added to the existing fee and rounded up:
-# send 72_000_000 + 8.62 * 125_000 * 4.94 = 77.3M, exec 70_000_000 + 6.04 * 125_000 * 4.94 = 73.7M.
-# The existing fees are mostly storage and already far above the measured compute.
 action_universal_state_init_per_byte: {
-  send_sir: 78_000_000,
-  send_not_sir: 78_000_000,
-  execution: 74_000_000,
+  send_sir: 72_000_000,
+  send_not_sir: 72_000_000,
+  execution: 70_000_000,
 }
 action_gas_key_transfer: {
   send_sir: 115_123_062_500,
@@ -230,19 +216,15 @@ wasm_p256_verify_byte: 13_000_000
 # ML-DSA-65 (FIPS 204) verification, cost derived from measurements relative to ed25519
 wasm_ml_dsa_verify_base: 540_000_000_000
 wasm_ml_dsa_verify_byte: 11_000_000
-# `universal_state_init_to_account_id` decodes the bytes it is given, checks that they
-# re-encode to the same bytes (canonical borsh), and then hashes them with SHA3-256 and
-# base32-encodes the digest. Calibrated by icount against sha3_256 measured in the same
-# run, so each cost inherits sha3_256's safety margin by scaling its committed value by
-# the instruction ratio, rounded up:
-# base: 5_879_491_275 * 12_978.61 / 8_579.23 = 8_894_460_721.6
-# byte: 21_471_105 * 107.78 / 34.80 = 66_498_726.9
-# The byte input is a dense payload of many tiny map entries (852 entries in 10_234
-# bytes), since decoding and re-encoding costs a map insertion per entry. A single large
-# value is much cheaper per byte. Shorter keys and out-of-order keys can cost more still,
-# and are covered by the inherited margin, not measured.
-wasm_universal_state_init_to_account_id_base: 8_900_000_000
-wasm_universal_state_init_to_account_id_byte: 66_500_000
+# `universal_state_init_to_account_id` is SHA3-256 over the bytes it is given plus a
+# base32 encoding of the 32-byte digest. Calibrated by icount against sha3_256 measured
+# in the same run: per byte it is the same hash over the same bytes (33.96 vs 33.97
+# instructions/byte), so it reuses that cost. Its base is 1.45x sha3_256's (11_784 vs
+# 8_141 instructions) for the encoding, the account id parse and the allocation, so the
+# base is scaled by that ratio to inherit sha3_256's safety margin:
+# 5_879_491_275 * 11_784.07 / 8_140.94 = 8_510_606_483.9, rounded up.
+wasm_universal_state_init_to_account_id_base: 8_520_000_000
+wasm_universal_state_init_to_account_id_byte: 21_471_105
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000
@@ -345,6 +327,7 @@ fix_contract_loading_error: false
 vm_kind: Wasmer2
 eth_implicit_accounts: false
 universal_accounts: false
+canonical_universal_state_init: false
 discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false

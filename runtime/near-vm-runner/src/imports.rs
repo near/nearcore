@@ -213,6 +213,9 @@ imports! {
     // ######################
     // # Universal accounts #
     // ######################
+    // Returns an exit status. The signature cannot follow the protocol version, so it changed
+    // for `UniversalAccounts` as well. The check behind the status is what
+    // `canonical_universal_state_init` turns on.
     #[universal_accounts] universal_state_init_to_account_id<[
         state_init_len: u64,
         state_init_ptr: u64,

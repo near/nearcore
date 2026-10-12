@@ -2,6 +2,7 @@ use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::types::Gas;
+use near_primitives_core::universal_state_init::DecodeMode;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -250,6 +251,13 @@ pub struct Config {
     // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
 
+    /// Enable the `CanonicalUniversalStateInit` protocol feature: a universal state init is
+    /// accepted only in its canonical borsh encoding, which is also what its fees are counted
+    /// on. Turns on the check behind the status of `universal_state_init_to_account_id`.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 88, where the feature is enabled.
+    pub canonical_universal_state_init: bool,
+
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
@@ -315,6 +323,12 @@ impl Config {
         s.finish()
     }
 
+    /// How a universal state init is decoded when it is priced: `Strict` once
+    /// `canonical_universal_state_init` is on.
+    pub fn state_init_decode_mode(&self) -> DecodeMode {
+        DecodeMode::strict_if(self.canonical_universal_state_init)
+    }
+
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
@@ -332,6 +346,7 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.universal_accounts = true;
+        self.canonical_universal_state_init = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;

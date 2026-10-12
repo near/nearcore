@@ -139,6 +139,7 @@ const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
 /// authority for these; it lives in `near-primitives`, out of this crate's reach,
 /// so the cross-check against it is a test-loop test.
 const EMPTY_STATE_INIT_ACCOUNT_ID: &str = "0u1kajgpx8a97y8ap8y03pvt8kbm2p2cn9k5h17bgw1wa21j88865g"; // cspell:disable-line
+const GARBAGE_ACCOUNT_ID: &str = "0ux21v0ayd887nt762sfhvgfbv9q46vcgsw2s5x5mapcdx6b1x89sg"; // cspell:disable-line
 
 #[test]
 fn test_universal_state_init_to_account_id() {
@@ -221,6 +222,24 @@ fn test_universal_state_init_to_account_id_rejects_invalid() {
             ExtCosts::universal_state_init_to_account_id_byte: garbage.len,
         });
     }
+}
+
+/// Before `CanonicalUniversalStateInit` the derivation commits to the bytes as given and
+/// looks at nothing else, so a string that is not a state init still maps to an account id
+/// and the status is `0`. That account is unusable, which the state-init receipt's own
+/// validation catches.
+#[test]
+fn test_universal_state_init_to_account_id_before_canonical_accepts_any_bytes() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.canonical_universal_state_init = false;
+    // What the host would say, if it were asked.
+    logic_builder.ext.state_init_error = Some(StateInitError::Malformed);
+    let mut logic = logic_builder.build();
+
+    let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
+    assert_eq!(logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap(), 0);
+    logic.assert_read_register(GARBAGE_ACCOUNT_ID.as_bytes(), 0);
+    assert_eq!(logic_builder.ext.check_state_init_calls.get(), 0, "nothing to check yet");
 }
 
 /// The per-byte fee is charged before the host is asked to decode, so a call that

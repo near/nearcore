@@ -31,7 +31,7 @@ use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
 use near_primitives_core::universal_account_id::encode_universal_account_id;
-use near_primitives_core::universal_state_init::RawStateInit;
+use near_primitives_core::universal_state_init::{DecodeMode, RawStateInit};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -3264,17 +3264,26 @@ pub fn set_state_init_data_entry(
 /// `promise_batch_action_universal_state_init` and know the promise it
 /// creates will pass the receiver check.
 ///
-/// Only the canonical borsh encoding is accepted, as in the action itself. Bytes
-/// that do not decode, or decode but differ from the canonical re-encoding, have
-/// no ID, and the register is left untouched.
+/// From `CanonicalUniversalStateInit` on, only the canonical borsh encoding is
+/// accepted, as in the action itself. Bytes that do not decode, or decode but differ
+/// from the canonical re-encoding, have no ID, and the register is left untouched.
+/// Before it nothing here inspects the contents: any byte string maps to some ID, and
+/// one that is not a well-formed state init maps to an account that can never be
+/// initialized, which the receipt's own validation catches.
 ///
 /// # Returns
 ///
 /// An exit status:
 ///
-/// * `0` if `state_init` is canonical and the ID was written to `register_id`;
+/// * `0` if the ID was written to `register_id`. From `CanonicalUniversalStateInit` on
+///   that means `state_init` is canonical, and no more: limits on the keys, the values
+///   and the number of entries are still checked when the action is validated. Before it,
+///   this is the only status.
 /// * `1` if `state_init` does not decode into a `UniversalStateInit`;
 /// * `2` if it decodes but is not the canonical encoding of the result.
+///
+/// The signature, unlike the check behind the status, does not follow the protocol
+/// version: a contract importing the version that returns nothing no longer links.
 ///
 /// # Errors
 ///
@@ -3309,8 +3318,10 @@ pub fn universal_state_init_to_account_id(
         .pay_per(universal_state_init_to_account_id_byte, state_init.len() as u64)?;
 
     // The per-byte fee above pays for this check, so it is charged before it runs.
-    if let Err(error) = ctx.ext.check_state_init(&RawStateInit(state_init.to_vec())) {
-        return Ok(error.exit_status());
+    if ctx.config.state_init_decode_mode() == DecodeMode::Strict {
+        if let Err(error) = ctx.ext.check_state_init(&RawStateInit(state_init.to_vec())) {
+            return Ok(error.exit_status());
+        }
     }
 
     let account_id = encode_universal_account_id(&sha3::Sha3_256::digest(state_init).into());
@@ -3335,7 +3346,9 @@ pub fn universal_state_init_to_account_id(
 /// Deliberately does not check that the promise's receiver is the account the
 /// state init derives to. That check belongs to the receipt this creates, and
 /// runs when that receipt is validated, so bytes that are not a state init at all
-/// are rejected there rather than here.
+/// (or, from `CanonicalUniversalStateInit` on, not a canonical one) are rejected
+/// there rather than here. [`universal_state_init_to_account_id`] tells a
+/// contract up front.
 ///
 /// # Errors
 ///
@@ -3391,7 +3404,7 @@ pub fn promise_batch_action_universal_state_init(
     // the action exists, so a failed charge never leaves one behind on the receipt.
     let num_bytes = state_init.0.len() as u64;
     pay_universal_state_init_terms(ctx, universal_state_init_size_terms(num_bytes), sir)?;
-    let counts = ctx.ext.state_init_counts(&state_init);
+    let counts = ctx.ext.state_init_counts(&state_init, ctx.config.state_init_decode_mode());
     debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
     pay_universal_state_init_terms(ctx, universal_state_init_content_terms(counts), sir)?;
 

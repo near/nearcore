@@ -38,12 +38,12 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
 use near_primitives::utils::derive_universal_account_id;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -61,6 +61,10 @@ struct Env {
 
 impl Env {
     fn setup() -> Self {
+        Self::setup_at(PROTOCOL_VERSION)
+    }
+
+    fn setup_at(protocol_version: ProtocolVersion) -> Self {
         let [user_account, global_contract_account, caller_account] =
             create_account_ids(["account0", "account", "account2"]);
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
@@ -76,7 +80,7 @@ impl Env {
                 Balance::from_near(100),
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
-            .protocol_version(PROTOCOL_VERSION)
+            .protocol_version(protocol_version)
             .build();
 
         let env = TestLoopBuilder::new()
@@ -173,6 +177,14 @@ impl Env {
     /// Deploy `wasm` to the global-contract account and call its `main`, returning
     /// whatever it passes to `value_return`.
     fn deploy_and_call(&mut self, wasm: Vec<u8>) -> Vec<u8> {
+        match self.deploy_and_call_outcome(wasm).status {
+            FinalExecutionStatus::SuccessValue(bytes) => bytes,
+            other => panic!("contract call failed: {other:?}"),
+        }
+    }
+
+    /// Like [`Self::deploy_and_call`], but returns the outcome, for calls that may fail.
+    fn deploy_and_call_outcome(&mut self, wasm: Vec<u8>) -> FinalExecutionOutcomeView {
         let account = self.global_contract_account.clone();
         let deploy = self.env.rpc_node().tx_deploy_contract(&account, wasm);
         self.env.rpc_runner().run_tx(deploy, Duration::seconds(5));
@@ -185,12 +197,7 @@ impl Env {
             Balance::ZERO,
             Gas::from_teragas(300),
         );
-        let outcome =
-            self.env.rpc_runner().execute_tx(call, Duration::seconds(5)).expect("valid tx");
-        match outcome.status {
-            FinalExecutionStatus::SuccessValue(bytes) => bytes,
-            other => panic!("contract call failed: {other:?}"),
-        }
+        self.env.rpc_runner().execute_tx(call, Duration::seconds(5)).expect("valid tx")
     }
 
     /// Deploy the test contract exposing the universal-account host functions,
@@ -432,7 +439,7 @@ fn test_universal_state_init_rejects_non_canonical() {
     // form must write something else.
     let decoded = UniversalStateInit::try_from_slice(&raw.0).expect("fixture must be valid borsh");
     assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
-    assert!(UniversalStateInit::from_raw(&raw).is_err());
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err());
 
     let from_supplied = derive_universal_account_id(&raw);
     let canonical = decoded.derive_account_id();
@@ -573,6 +580,101 @@ fn test_universal_state_init_from_contract_rejects_invalid() {
         );
     }
     assert!(env.try_view_account(&id_of_unsorted).is_err(), "nothing should have been created");
+}
+
+/// The version just below `CanonicalUniversalStateInit`, where universal accounts are already on.
+fn before_canonical_state_init() -> ProtocolVersion {
+    let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version() - 1;
+    assert!(ProtocolFeature::UniversalAccounts.enabled(version));
+    version
+}
+
+/// Before `CanonicalUniversalStateInit` a non-canonical encoding is a state init like any
+/// other: it creates the account at the id its bytes derive to. Pins the behavior the
+/// canonical check must not change below its version.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_accepts_non_canonical_before_canonical_feature() {
+    init_test_logger();
+    let mut env = Env::setup_at(before_canonical_state_init());
+
+    let public_key =
+        SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical-before").public_key();
+    let raw = non_canonical_state_init(&public_key);
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err(), "fixture must be non-canonical");
+    let account = derive_universal_account_id(&raw);
+
+    env.create_universal_account(raw, &account, Balance::from_near(1));
+
+    assert!(env.view_account(&account).storage_usage > 0, "the account should have been created");
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
+    assert!(matches!(access_key.permission, AccessKeyPermissionView::FullAccess));
+}
+
+/// A contract that creates the state init at `state_init` for `receiver`, funding it with
+/// 1 NEAR from its own balance. It does not ask the host to derive the id, which refuses
+/// bytes that are not canonical, but is handed it, so it can get them to the action anyway.
+fn create_without_derive_wasm(state_init: &[u8], receiver: &AccountId) -> Vec<u8> {
+    let data = wat_data(state_init);
+    let amount = wat_data(&Balance::from_near(1).as_yoctonear().to_le_bytes());
+    let receiver_data = wat_data(receiver.as_bytes());
+    let len = state_init.len();
+    let receiver_len = receiver.as_bytes().len();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "promise_batch_create" (func $create (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_universal_state_init" (func $action (param i64 i64 i64 i64)))
+  (memory (export "memory") 1)
+
+  (data (i32.const 0) "{data}")
+  (data (i32.const 4096) "{amount}")
+  (data (i32.const 8192) "{receiver_data}")
+
+  (func (export "main")
+    (local $promise i64)
+    (local.set $promise (call $create (i64.const {receiver_len}) (i64.const 8192)))
+    (call $action (local.get $promise) (i64.const {len}) (i64.const 0) (i64.const 4096))
+  )
+)"#,
+    ))
+}
+
+fn wat_data(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("\\{byte:02x}")).collect()
+}
+
+/// A contract that hands non-canonical bytes straight to the action, without deriving the id
+/// through the host, creates the account below `CanonicalUniversalStateInit`, and fails the
+/// receipt it builds from there on: the receipt's own validation is what rejects them.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_from_contract_by_version() {
+    init_test_logger();
+    let feature_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+
+    for (version, accepted) in [(before_canonical_state_init(), true), (feature_version, false)] {
+        let mut env = Env::setup_at(version);
+        let public_key =
+            SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical-contract").public_key();
+        let raw = non_canonical_state_init(&public_key);
+        let account = derive_universal_account_id(&raw);
+
+        let outcome = env.deploy_and_call_outcome(create_without_derive_wasm(&raw.0, &account));
+
+        if accepted {
+            assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_), "{outcome:?}");
+            assert!(env.view_account(&account).storage_usage > 0, "version {version}");
+        } else {
+            let FinalExecutionStatus::Failure(error) = &outcome.status else {
+                panic!("version {version}: a non-canonical state init must fail, got {outcome:?}");
+            };
+            assert!(
+                format!("{error:?}").contains("MalformedUniversalStateInit"),
+                "version {version}: expected the receipt to reject the payload, got {error:?}"
+            );
+            assert!(env.try_view_account(&account).is_err(), "version {version}");
+        }
+    }
 }
 
 /// A state init only creates the account its bytes identify. Addressed anywhere

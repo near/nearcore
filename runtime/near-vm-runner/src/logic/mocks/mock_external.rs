@@ -10,8 +10,9 @@ use near_primitives_core::deterministic_account_id::{
 use near_primitives_core::hash::{CryptoHash, YieldId, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use near_primitives_core::universal_state_init::{
-    RawStateInit, StateInitError, UniversalStateInitCounts,
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInitCounts,
 };
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -143,10 +144,13 @@ pub struct MockedExternal {
     pub state_init_error: Option<StateInitError>,
     /// How many times `check_state_init` was asked, so a test can assert the
     /// per-byte fee is charged before the host does that work.
-    pub check_state_init_calls: std::cell::Cell<u64>,
+    pub check_state_init_calls: Cell<u64>,
     /// How many times `state_init_counts` was asked for a decode, so a test can
     /// assert the per-byte fee is charged before the host does that work.
-    pub state_init_counts_calls: std::cell::Cell<u64>,
+    pub state_init_counts_calls: Cell<u64>,
+    /// The `mode` argument of the last `state_init_counts` call, so a test can
+    /// assert the host derives it from the config.
+    pub state_init_counts_mode: Cell<Option<DecodeMode>>,
     data_count: u64,
 }
 
@@ -415,8 +419,13 @@ impl External for MockedExternal {
 
     /// The byte count comes from the payload; the entry and key counts are
     /// whatever the test asked for, since decoding needs `near-primitives`.
-    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
+    fn state_init_counts(
+        &self,
+        state_init: &RawStateInit,
+        mode: DecodeMode,
+    ) -> UniversalStateInitCounts {
         self.state_init_counts_calls.set(self.state_init_counts_calls.get() + 1);
+        self.state_init_counts_mode.set(Some(mode));
         UniversalStateInitCounts {
             num_bytes: state_init.0.len() as u64,
             num_entries: self.universal_state_init_entries,

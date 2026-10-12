@@ -10,7 +10,7 @@ use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeErro
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, Nonce};
-use near_primitives::universal_state_init::UniversalStateInit;
+use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
 use near_primitives::version::ProtocolFeature;
 use near_store::{TrieUpdate, set_access_key_by_handle};
 use std::cmp::max;
@@ -72,12 +72,15 @@ pub(crate) fn action_universal_state_init(
     }
 
     // The action carries the bytes the producer serialized; installing the
-    // state needs them decoded. Every receipt is validated before its actions
-    // run and validation rejects a state init that is not canonical, so this
-    // only fires if that invariant has been broken. Failing the action rather
-    // than the chunk keeps a hypothetical gap in that coverage from becoming a
-    // halt, since the payload comes from outside.
-    let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init) else {
+    // state needs them decoded. Validation of a new receipt rejects a state init that
+    // is not canonical, so from `CanonicalUniversalStateInit` on this only fires for a
+    // receipt created before it took effect, or if that invariant has been broken.
+    // Failing the action rather than the chunk keeps either from becoming a halt, since
+    // the payload comes from outside.
+    let mode = DecodeMode::strict_if(
+        ProtocolFeature::CanonicalUniversalStateInit.enabled(apply_state.current_protocol_version),
+    );
+    let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init, mode) else {
         result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
         return Ok(());
     };
