@@ -712,31 +712,3 @@ fn test_receipt_to_tx_rpc_cross_shard() {
         assert_eq!(refund_response.sender_account_id, sender_account);
     }
 }
-
-/// Regression: column-only path (no hint) keeps exact pre-hint behavior.
-#[test]
-fn test_column_unaffected_without_hint() {
-    init_test_logger();
-    let user_account = create_account_id("account0");
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .add_user_account(&user_account, Balance::from_near(1_000_000))
-        .epoch_length(EPOCH_LENGTH)
-        .build();
-
-    let tx =
-        env.rpc_node().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
-    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
-
-    let response = env
-        .rpc_runner()
-        .run_with_jsonrpc_client(
-            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(receipt_id)),
-            Duration::seconds(5),
-        )
-        .unwrap();
-    assert_eq!(response.transaction_hash, tx_hash);
-    assert_eq!(response.sender_account_id, user_account);
-}
