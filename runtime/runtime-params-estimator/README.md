@@ -65,6 +65,7 @@ ESTIMATOR_HOME="$PWD/estimator-home"
 COSTS=ContractLoadingBase,ContractLoadingPerByte,\
 AdversarialLoadManyGlobals,AdversarialLoadManyDataSegments,\
 AdversarialLoadManyElementSegments,AdversarialCompileMaxBlocks,\
+AdversarialCompileFallbackElements,AdversarialLoadFallbackElements,\
 ContractCompileEmpty,ContractCompileMinimal,ContractCompileBaseV2,\
 ContractCompileBytesV2
 mkdir "$ESTIMATOR_HOME/suite"

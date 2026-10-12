@@ -5,6 +5,7 @@ use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_test_contracts::fallback_elements_contract as generate_fallback_elements_contract;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
@@ -193,6 +194,21 @@ pub(crate) fn adversarial_load_many_element_segments(
     iters: usize,
 ) -> GasCost {
     let code = near_test_contracts::many_element_segments_contract(10_000);
+    measure_instantiation_overhead(metric, vm_kind, &code, warmup_iters, iters)
+}
+
+/// Shared workload for compilation and loading: 100k expressions in a 1k-slot table.
+pub(crate) fn fallback_elements_contract() -> Vec<u8> {
+    generate_fallback_elements_contract(100, 1_000)
+}
+
+pub(crate) fn adversarial_load_fallback_elements(
+    metric: GasMetric,
+    vm_kind: VMKind,
+    warmup_iters: usize,
+    iters: usize,
+) -> GasCost {
+    let code = fallback_elements_contract();
     measure_instantiation_overhead(metric, vm_kind, &code, warmup_iters, iters)
 }
 

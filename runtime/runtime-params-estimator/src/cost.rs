@@ -760,6 +760,12 @@ pub enum Cost {
     /// Invocation cost with 10k active element segments.
     /// Exposes unbounded per-call table-initialization work not covered by gas.
     AdversarialLoadManyElementSegments,
+    /// Precompilation of 100 segments with 1,000 `ref.func` expressions.
+    /// Circumvents Wasmtime's precomputed table initialization and forces the
+    /// fallback implementation.
+    AdversarialCompileFallbackElements,
+    /// Cached invocation of the same fallback element-initialization workload.
+    AdversarialLoadFallbackElements,
     /// Wasm instruction cost for float ops, including NaN Canonicalization cost.
     OpFloat,
     /// Wasm instruction cost for integer ops.

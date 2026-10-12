@@ -5,6 +5,7 @@ use super::test_vm_config;
 use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use expect_test::expect;
 use near_primitives_core::version::ProtocolFeature;
+use near_test_contracts::fallback_elements_contract;
 
 static SIMD: &str = r#"
 (module
@@ -291,6 +292,13 @@ fn too_many_table_elements() {
                 Err: PrepareError: Too many table elements declared in the contract.
             "#]],
         ]);
+}
+
+#[test]
+fn test_fallback_elements_contract() {
+    let code = fallback_elements_contract(100, 1_000);
+    assert!(code.len() < 4 * 1024 * 1024, "benchmark contract exceeds the size limit");
+    test_builder().wasm(&code).opaque_outcome().expects(&[expect![[""]]]);
 }
 
 #[test]

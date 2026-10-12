@@ -122,7 +122,10 @@ use utils::{
     fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
     read_resource, transaction_cost, transaction_cost_ext,
 };
-use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
+use vm_estimator::{
+    adversarial_load_fallback_elements as measure_fallback_elements_load,
+    compile_single_contract_cost, compute_compile_cost_vm, fallback_elements_contract,
+};
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
@@ -328,6 +331,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::AdversarialLoadManyGlobals, adversarial_load_many_globals),
     (Cost::AdversarialLoadManyDataSegments, adversarial_load_many_data_segments),
     (Cost::AdversarialLoadManyElementSegments, adversarial_load_many_element_segments),
+    (Cost::AdversarialCompileFallbackElements, adversarial_compile_fallback_elements),
+    (Cost::AdversarialLoadFallbackElements, adversarial_load_fallback_elements),
     (Cost::FunctionCallPerStorageByte, function_call_per_storage_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
@@ -803,6 +808,20 @@ fn adversarial_load_many_data_segments(ctx: &mut EstimatorContext) -> GasCost {
 
 fn adversarial_load_many_element_segments(ctx: &mut EstimatorContext) -> GasCost {
     vm_estimator::adversarial_load_many_element_segments(
+        ctx.config.metric,
+        ctx.config.vm_kind,
+        ctx.config.warmup_iters_per_block,
+        ctx.config.iter_per_block,
+    )
+}
+
+fn adversarial_compile_fallback_elements(ctx: &mut EstimatorContext) -> GasCost {
+    let code = fallback_elements_contract();
+    repeated_compile_cost(ctx, &code)
+}
+
+fn adversarial_load_fallback_elements(ctx: &mut EstimatorContext) -> GasCost {
+    measure_fallback_elements_load(
         ctx.config.metric,
         ctx.config.vm_kind,
         ctx.config.warmup_iters_per_block,
