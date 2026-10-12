@@ -11560,7 +11560,7 @@ Which makes it most representative for measuring the realistic throughput of the
 <p>One needs to compile the <code>benchmarks/synth-bm</code>, create the link to the <code>neard</code> executable and run the tasks from the <code>justfile</code>.
 The details are available on the dedicated <a href="practices/workflows/./benchmarking_synthetic_workloads.html">page</a>.</p>
 <h3 id="direct-transaction-injection"><a class="header" href="#direct-transaction-injection">Direct transaction injection</a></h3>
-<p>This section closely follows (duplicates) the dedicated <code>readme.md</code> in <code>benchmarks/transaction-generator</code>.
+<p>This section closely follows (duplicates) the dedicated <code>readme.md</code> in <code>benchmarks/transactions-generator</code>.
 In case of questions you may want to consult that as well.</p>
 <p>This benchmark bypasses the RPC layer and injects the transactions using direct calls to the ingress handling actor.
 It is representative of the performance of the <code>neard</code> excluding the RPC layer.
@@ -12978,9 +12978,9 @@ python tests/sanity/block_production.py
 </code></pre>
 <p>Use <code>pytest/tests/sanity/block_production.py</code> as the basic example of starting a
 cluster with multiple nodes, and doing RPC calls.</p>
-<p>See <code>pytest/tests/sanity/deploy_call_smart_contract.py</code> to see how contracts can
+<p>See <code>pytest/tests/contracts/deploy_call_smart_contract.py</code> to see how contracts can
 be deployed, or transactions called.</p>
-<p>See <code>pytest/tests/sanity/state_sync.py</code> to see how to delay the launch of the
+<p>See <code>pytest/tests/sanity/state_sync_routed.py</code> to see how to delay the launch of the
 whole cluster by using <code>init_cluster</code> instead of <code>start_cluster</code>, and then
 launching nodes manually.</p>
 <h3 id="enabling-adversarial-behavior"><a class="header" href="#enabling-adversarial-behavior">Enabling adversarial behavior</a></h3>
@@ -13081,7 +13081,7 @@ local config.</p>
 tests that test syncing) might want to configure the nodes but delay their
 start. In such a case you will initialize the cluster by calling
 <code>init_cluster</code> and will run the nodes manually, for example, see
-<a href="https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync.py"><code>state_sync.py</code></a></p>
+<a href="https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync_routed.py"><code>state_sync_routed.py</code></a></p>
 <h2 id="connecting-to-a-mocknet"><a class="header" href="#connecting-to-a-mocknet">Connecting to a mocknet</a></h2>
 <p>Nodes that run against a mocknet would connect to an existing cluster instead of
 running their own.</p>
