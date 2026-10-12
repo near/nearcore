@@ -12,8 +12,9 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+    create_account_id, create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
@@ -30,18 +31,19 @@ use near_primitives::action::{
     UniversalStateInitAction,
 };
 use near_primitives::errors::{
-    ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    DeployContractAction, FunctionCallAction, SignedTransaction, TransferAction,
+    DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -675,6 +677,123 @@ fn test_universal_state_init_non_canonical_from_contract_by_version() {
             assert!(env.try_view_account(&account).is_err(), "version {version}");
         }
     }
+}
+
+/// The protocol version the block was produced under.
+fn version_of_block(node: &TestLoopNode, block_hash: CryptoHash) -> ProtocolVersion {
+    let epoch_id = node.block(block_hash).header().epoch_id().clone();
+    node.client().epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap()
+}
+
+/// A receipt created while the old rules applied that only executes after
+/// `CanonicalUniversalStateInit` takes over. One chain is taken across the real upgrade, with a
+/// non-canonical state init submitted every block while the old version is current. The last one
+/// admitted before the upgrade leaves a receipt that executes in the first block of the new
+/// version. It must pass validation as an existing receipt and fail its action, without
+/// halting the chain, and without creating the account. Receipts that execute before the
+/// upgrade still create theirs.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_receipt_across_upgrade() {
+    init_test_logger();
+    let new_protocol = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+    let old_protocol = before_canonical_state_init();
+    let user = create_account_id("alice");
+    let epoch_length = 10;
+
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .protocol_version(old_protocol)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_protocol))
+        .epoch_length(epoch_length)
+        .add_user_account(&user, Balance::from_near(1_000_000))
+        .build();
+    assert_eq!(
+        env.rpc_node().protocol_version_at_head(),
+        old_protocol,
+        "expected a pre-upgrade start"
+    );
+
+    // Each state init is distinct, so each one is its own account. Keep going until a few
+    // blocks have passed under the new version, so every receipt has had time to execute.
+    let mut submitted = vec![];
+    let mut blocks_after_upgrade = 0;
+    for i in 0.. {
+        assert!(i < 20 * epoch_length, "the upgrade never happened");
+        if blocks_after_upgrade == 5 {
+            break;
+        }
+        if env.rpc_node().protocol_version_at_head() >= new_protocol {
+            blocks_after_upgrade += 1;
+        } else {
+            let public_key =
+                SecretKey::from_seed(KeyType::ED25519, &format!("uaid-upgrade-{i}")).public_key();
+            let raw = non_canonical_state_init(&public_key);
+            let receiver = derive_universal_account_id(&raw);
+            let tx = env.rpc_node().tx_from_actions(
+                &user,
+                &receiver,
+                vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw,
+                    deposit: Balance::from_near(1),
+                }))],
+            );
+            submitted.push((env.rpc_node().submit_tx(tx), receiver));
+        }
+        env.rpc_runner().run_for_number_of_blocks(1);
+    }
+
+    let node = env.rpc_node();
+    let (mut created_before, mut crossed_upgrade) = (0, 0);
+    for (tx_hash, receiver) in &submitted {
+        // A transaction pooled when the upgrade came is either dropped before it is included,
+        // and has no outcome, or fails its validation when it is converted, and has no receipt.
+        let Ok(tx_outcome) = node.client().chain.get_execution_outcome(tx_hash) else {
+            continue;
+        };
+        let tx_version = version_of_block(&node, tx_outcome.block_hash);
+        let tx_status = &tx_outcome.outcome_with_id.outcome.status;
+        let [receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+            assert_matches!(
+                tx_status,
+                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::MalformedUniversalStateInit
+                    )
+                ))
+            );
+            assert!(tx_version >= new_protocol, "only the new rules reject the transaction");
+            continue;
+        };
+        let receipt_outcome = node.execution_outcome_with_proof(receipt_id);
+        let executed_version = version_of_block(&node, receipt_outcome.block_hash);
+        let status = receipt_outcome.outcome_with_id.outcome.status;
+        let exists = node.view_account_query(receiver).is_ok();
+
+        if executed_version < new_protocol {
+            assert_matches!(status, ExecutionStatus::SuccessValue(_), "{receiver}");
+            assert!(exists, "{receiver} should have been created under the old rules");
+            created_before += 1;
+        } else {
+            assert_matches!(
+                status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                    kind: ActionErrorKind::MalformedUniversalStateInit,
+                    ..
+                })),
+                "{receiver}"
+            );
+            assert!(!exists, "{receiver} must not be created under the new rules");
+            if tx_version < new_protocol {
+                crossed_upgrade += 1;
+            }
+        }
+    }
+    assert!(created_before > 0, "no receipt executed before the upgrade");
+    assert!(
+        crossed_upgrade > 0,
+        "no receipt created under the old rules executed under the new ones"
+    );
 }
 
 /// A state init only creates the account its bytes identify. Addressed anywhere
