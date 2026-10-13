@@ -41,7 +41,6 @@ updates:
     directories:
       - "/benchmarks/synth-bm"
       - "/benchmarks/continuous/db/tool"
-      - "/runtime/near-wallet-contract/implementation"
       - "/runtime/near-test-contracts/sharded-contract"
       - "/pytest/tools/mirror/contract"
       - "/tracing"

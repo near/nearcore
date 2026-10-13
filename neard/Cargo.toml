@@ -48,7 +48,6 @@ near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
 near-replay-tool.workspace = true
-near-state-parts.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
@@ -92,7 +91,6 @@ nightly = [
   "near-o11y/nightly",
   "near-ping/nightly",
   "near-primitives/nightly",
-  "near-state-parts/nightly",
   "near-store/nightly",
   "near-undo-block/nightly",
   "nearcore/nightly",

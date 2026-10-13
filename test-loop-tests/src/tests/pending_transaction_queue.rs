@@ -48,8 +48,7 @@ fn submit_transfers(
     (0..count)
         .map(|_| {
             let tx = env.validator().tx_send_money(sender, receiver, Balance::from_millinear(1));
-            let hash = tx.get_hash();
-            env.validator().submit_tx(tx);
+            let hash = env.validator().submit_tx(tx);
             hash
         })
         .collect()
@@ -225,8 +224,7 @@ fn test_ptq_cleanup_on_certification() {
 
     // Submit P_MAX transactions and wait for inclusion + certification.
     let first_batch = submit_transfers(&env, &sender, &receiver, P_MAX);
-    env.validator_runner().run_until_included(&first_batch);
-    let height = env.validator().head().height;
+    let height = env.validator_runner().run_until_included(&first_batch);
     env.validator_runner().run_until_certified(height);
 
     // Submit P_MAX more. All should be admitted since the first batch is certified.

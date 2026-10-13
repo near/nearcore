@@ -22,15 +22,15 @@ fn test_genesis_chunk_request_does_not_panic() {
 
     let response_seen = Arc::new(Mutex::new(None));
     let response_seen_handler = response_seen.clone();
-    let peer_handle = env.node_datas[0].peer_manager_sender.actor_handle();
-    let peer_actor = env.test_loop.data.get_mut(&peer_handle);
-    peer_actor.register_override_handler(Box::new(move |request| match request {
-        NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
-            *response_seen_handler.lock() = Some(response);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
+    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
+        match request {
+            NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
+                *response_seen_handler.lock() = Some(response);
+                HandlerResult::Handled(NetworkResponses::NoResponse)
+            }
+            _ => HandlerResult::Unhandled(request),
         }
-        _ => HandlerResult::Unhandled(request),
-    }));
+    });
 
     let genesis_chunk_hash = env
         .validator()

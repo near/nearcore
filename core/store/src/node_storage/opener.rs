@@ -369,6 +369,11 @@ impl<'a> StoreOpener<'a> {
             .map(|cold| cold.open(mode, DB_VERSION))
             .transpose()?
             .map(|(db, _)| db);
+        if let Some(cold_db) = &cold_db
+            && mode.read_write()
+        {
+            cold_db.disable_age_based_compactions();
+        }
         Ok((hot_db, hot_snapshot, cold_db, cold_snapshot))
     }
 

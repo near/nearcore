@@ -1,9 +1,7 @@
-use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use near_async::test_loop::data::TestLoopData;
-use near_client::Client;
 use near_client::client_actor::ClientActor;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::AccountId;
 
 pub(crate) mod account;
 pub(crate) mod cloud_archival;
@@ -20,41 +18,6 @@ pub(crate) mod sharding;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
-
-pub(crate) fn get_node_client<'a>(
-    env: &'a TestLoopEnv,
-    client_account_id: &AccountId,
-) -> &'a Client {
-    let client_handle =
-        get_node_data(&env.node_datas, client_account_id).client_sender.actor_handle();
-    &env.test_loop.data.get(&client_handle).client
-}
-
-pub(crate) fn get_node_head_height(
-    env: &TestLoopEnv,
-    client_account_id: &AccountId,
-) -> BlockHeight {
-    get_node_client(env, client_account_id).chain.head().unwrap().height
-}
-
-pub(crate) fn run_for_number_of_blocks(
-    env: &mut TestLoopEnv,
-    client_account_id: &AccountId,
-    num_blocks: usize,
-) {
-    let max_block_production_delay =
-        get_node_client(env, client_account_id).config.max_block_production_delay.get();
-    let initial_head_height = get_node_head_height(env, client_account_id);
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client_actor =
-                retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
-            let current_height = client_actor.client.chain.head().unwrap().height;
-            current_height >= initial_head_height + num_blocks as u64
-        },
-        max_block_production_delay * (num_blocks as u32 + 1),
-    );
-}
 
 /// Returns the test data of for the node with the given account id.
 pub(crate) fn get_node_data<'a>(

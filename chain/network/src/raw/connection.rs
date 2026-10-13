@@ -4,10 +4,7 @@ use crate::network_protocol::{
     Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody, TieredMessageBody,
 };
 use crate::tcp;
-use crate::types::{
-    Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
-    StateResponseInfo,
-};
+use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo};
 use bytes::BytesMut;
 use bytes::buf::{Buf, BufMut};
 use near_async::time::{Clock, Duration, Instant, Utc};
@@ -84,9 +81,6 @@ pub enum DirectMessage {
     Block(Arc<Block>),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<Arc<BlockHeader>>),
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(Box<StateResponseInfo>),
 }
 
 impl fmt::Display for DirectMessage {
@@ -109,18 +103,6 @@ impl fmt::Debug for DirectMessage {
                     h.iter().map(|h| format!("#{} {}", h.height(), h.hash())).collect::<Vec<_>>()
                 )
             }
-            Self::StateRequestHeader(shard_id, hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, hash)
-            }
-            Self::StateRequestPart(shard_id, hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, hash, part_id)
-            }
-            Self::VersionedStateResponse(r) => write!(
-                f,
-                "VersionedStateResponse(shard_id: {} sync_hash: {})",
-                r.shard_id(),
-                r.sync_hash()
-            ),
         }
     }
 }
@@ -387,15 +369,6 @@ impl Connection {
             DirectMessage::Block(b) => PeerMessage::Block(b),
             DirectMessage::BlockHeadersRequest(h) => PeerMessage::BlockHeadersRequest(h),
             DirectMessage::BlockHeaders(h) => PeerMessage::BlockHeaders(h),
-            DirectMessage::StateRequestHeader(shard_id, sync_hash) => {
-                PeerMessage::StateRequestHeader(shard_id, sync_hash)
-            }
-            DirectMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
-                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
-            }
-            DirectMessage::VersionedStateResponse(request) => {
-                PeerMessage::VersionedStateResponse(*request)
-            }
         };
 
         self.stream.write_message(&peer_msg).await
@@ -509,14 +482,6 @@ impl Connection {
                 }
                 PeerMessage::BlockHeaders(headers) => {
                     return Ok((Message::Direct(DirectMessage::BlockHeaders(headers)), timestamp));
-                }
-                PeerMessage::VersionedStateResponse(state_response) => {
-                    return Ok((
-                        Message::Direct(DirectMessage::VersionedStateResponse(Box::new(
-                            state_response,
-                        ))),
-                        timestamp,
-                    ));
                 }
                 _ => {}
             }

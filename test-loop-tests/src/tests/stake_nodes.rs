@@ -61,12 +61,8 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .max_inflation_rate(Rational32::new(0, 1))
         .build();
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
-        .delay_warmup()
-        .build();
+    let mut env =
+        TestLoopBuilder::new().genesis(genesis).clients(accounts.clone()).delay_warmup().build();
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
@@ -135,7 +131,6 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .delay_warmup()
@@ -242,7 +237,6 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .delay_warmup()
@@ -527,11 +521,7 @@ fn test_inflation() {
         .build();
     let initial_total_supply = genesis.config.total_supply;
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
     // Check total_supply unchanged in epoch 1
     {
@@ -605,14 +595,10 @@ fn test_validator_reward_in_get_validator_info() {
         .validators_spec(validators_spec)
         .protocol_reward_rate(Rational32::new(1, 10))
         .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts.clone()).build();
 
     env.node_runner(0).run_until_new_epoch();
-    let boundary_block = env.node(0).client().chain.get_head_block().unwrap();
+    let boundary_block = env.node(0).head_block();
     env.node_runner(0).run_until_new_epoch();
 
     let mut all_ids = accounts;

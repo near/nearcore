@@ -1,0 +1,5 @@
+# Unit tests for the mocknet / forknet tooling under pytest/tests/mocknet.
+# They do not start neard, so they skip the build.
+
+# SshSharingMachine against the python-rc it depends on (no ssh connections).
+pytest --skip-build mocknet/test_mocknet_ssh.py

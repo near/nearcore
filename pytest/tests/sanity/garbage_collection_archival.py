@@ -17,6 +17,12 @@ from key import Key
 
 EPOCH_LENGTH = 5
 TARGET_HEIGHT = 300
+# How many epochs the validators keep before garbage collecting. With 5-block
+# epochs and ~0.2s blocks the default of 5 gives the archival node only a few
+# seconds to start up and block-sync from genesis before the validators delete
+# the blocks it needs; a slow DB open makes the test flaky. Keep more so that
+# archival node startup is not on the critical path.
+GC_NUM_EPOCHS_TO_KEEP = 20
 
 client_config = {
     "consensus": {
@@ -37,6 +43,7 @@ client_config = {
         "secs": 0,
         "nanos": 100000000
     },
+    "gc_num_epochs_to_keep": GC_NUM_EPOCHS_TO_KEEP,
     "rpc": {
         "polling_config": {
             "polling_interval": {
@@ -128,8 +135,8 @@ for key in keys:
 # wait for the deletions to be garbage collected
 deletion_finish_block_height = int(
     nodes[1].get_latest_block(check_storage=False).height)
-wait_for_blocks(nodes[1],
-                target=deletion_finish_block_height + EPOCH_LENGTH * 6)
+gc_wait_blocks = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 1)
+wait_for_blocks(nodes[1], target=deletion_finish_block_height + gc_wait_blocks)
 
 # check that querying a validator node on the block at which the key inserted fails,
 # but querying an archival node succeeds

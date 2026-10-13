@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::instrument;
 
+mod boundary;
+
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStoreAdapter,
     transaction_validity_period: NumBlocks,
@@ -234,6 +236,7 @@ impl ChunkExecutorActor {
         // of block processing and has no spice state to work from, so this returns
         // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            self.bootstrap_last_pre_spice_block(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -277,7 +280,7 @@ impl ChunkExecutorActor {
         }
     }
 
-    /// After a shard applies, wake local destination shards (their incoming
+    /// After a shard applies, progress its receiving shards (their incoming
     /// receipts are now on disk — local-path fanout), then finalize the block once
     /// all its tracked shards are applied.
     pub(crate) fn coordinator_post_apply(
@@ -285,13 +288,7 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
-        let destinations: HashSet<ShardId> =
-            outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
-        for to_shard_id in destinations {
-            if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
-                executor.handle_local_chunk_applied();
-            }
-        }
+        self.try_progress_receiving_shards(outgoing_proofs);
         // Each tracked shard's apply-done lands here; finalize the block once all of
         // them are applied. `finalize_block` is idempotent, so being driven here
         // repeatedly is harmless.
@@ -299,6 +296,18 @@ impl ChunkExecutorActor {
             self.finalize_block(block_hash)?;
         }
         Ok(())
+    }
+
+    /// Local-path fanout: the receipts in `outgoing_proofs` are already on disk, so
+    /// re-check the parked queue of each locally tracked receiving shard.
+    fn try_progress_receiving_shards(&mut self, outgoing_proofs: &[ReceiptProof]) {
+        let destinations: HashSet<ShardId> =
+            outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
+        for to_shard_id in destinations {
+            if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
+                executor.try_apply_pending();
+            }
+        }
     }
 
     /// Disk-driven head recovery: walk canonical-next from `spice_execution_head`
@@ -394,6 +403,15 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
+        }
+        // The head can be a last pre-spice block, which is still pre-spice, so this
+        // must run before the spice-at-head gate below.
+        if let Err(err) = self.recover_boundary_bootstrap() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to re-run boundary bootstrap on startup",
+            );
         }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active

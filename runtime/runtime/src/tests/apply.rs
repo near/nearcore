@@ -1,10 +1,12 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{total_send_fees, tx_cost};
-use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
+};
+use crate::wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
 };
 use crate::{
     ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
@@ -36,6 +38,7 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, EpochError,
     FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
@@ -70,9 +73,6 @@ use near_store::{
     get_received_data, remove_account, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
-use near_wallet_contract::{
-    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
-};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;

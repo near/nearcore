@@ -9,6 +9,7 @@ import sys
 import re
 from typing import Optional
 import tempfile
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -39,6 +40,9 @@ class RemoteNeardRunner:
 
     def neard_port(self):
         return 3030
+
+    def neard_runner_port(self):
+        return 3000
 
     def init(self):
         cmd_utils.init_node(self.node)
@@ -110,7 +114,7 @@ class RemoteNeardRunner:
             --home {self.neard_runner_home}\
             --neard-home "/home/ubuntu/.near"\
             --neard-logs-dir "/home/ubuntu/neard-logs"\
-            --port 3000'
+            --port {self.neard_runner_port()}'
 
         SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner \
             --uid={USER} \
@@ -123,6 +127,28 @@ class RemoteNeardRunner:
             -- {NEARD_RUNNER_CMD}'
 
         self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)
+        self.wait_neard_runner_up()
+
+    # systemd-run returns before the runner binds its port. Callers send
+    # JSON-RPC right after start, so wait until the runner answers.
+    # Poll GET /status: it does not take the runner lock. JSON-RPC methods
+    # such as `ready` take it, and the main loop holds it for minutes during
+    # network init, reset or backup.
+    # The runner downloads binaries before it binds the port, so allow time
+    # for that (300 s, same as the unit's TimeoutStartSec).
+    def wait_neard_runner_up(self, timeout_seconds=300):
+        cmd = f'curl -sS -f -m 3 localhost:{self.neard_runner_port()}/status'
+        deadline = time.time() + timeout_seconds
+        while True:
+            r = cmd_utils.run_cmd(self.node, cmd, return_on_fail=True)
+            if r.exitcode == 0:
+                logger.info(f'neard runner is up on {self.name()}')
+                return
+            if time.time() > deadline:
+                sys.exit(
+                    f'neard runner on {self.name()} did not come up within {timeout_seconds} seconds:\nstdout: {r.stdout}\nstderr: {r.stderr}'
+                )
+            time.sleep(3)
 
     def neard_runner_post(self, schedule_ctx: Optional[ScheduleContext], body):
         body = json.dumps(body)
@@ -130,7 +156,7 @@ class RemoteNeardRunner:
         # followed by a new quote started with ' and the rest of the string, to get any single quotes
         # in method or params into the command correctly
         body = body.replace("'", "'\"'\"'")
-        cmd = f'curl localhost:3000 -d \'{body}\''
+        cmd = f'curl localhost:{self.neard_runner_port()} -d \'{body}\''
         if schedule_ctx is not None:
             r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx)
             logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(

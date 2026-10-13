@@ -9,7 +9,7 @@ use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
@@ -22,8 +22,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use parking_lot::Mutex;
@@ -42,19 +41,13 @@ fn test_producer_with_expired_transactions() {
     let chunk_producer = accounts[0].as_str();
     let validators: Vec<_> = accounts[1..].iter().map(|a| a.as_str()).collect();
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &validators);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut test_loop_env = TestLoopBuilder::new()
         .epoch_length(10)
         .shard_layout(ShardLayout::multi_shard_custom(vec![], 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(10)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut test_loop_env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts.clone())
         .build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
@@ -73,18 +66,8 @@ fn test_producer_with_expired_transactions() {
         let sender = account.clone();
         let receiver = accounts[0].clone();
         test_loop.send_adhoc_event("transaction".into(), move |data| {
-            let signer = create_user_test_signer(&sender);
             let node = TestLoopNode { data, node_data: &chunk_producer };
-            let access_key = node.view_access_key_query(&sender, &signer.public_key()).unwrap();
-            let anchor_hash = node.head().last_block_hash;
-            let tx = SignedTransaction::send_money(
-                access_key.nonce + 1,
-                sender,
-                receiver,
-                &signer,
-                Balance::from_near(1),
-                anchor_hash,
-            );
+            let tx = node.tx_send_money(&sender, &receiver, Balance::from_near(1));
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
             chunk_producer.rpc_handler_sender.send(process_tx_request);
@@ -172,9 +155,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
     let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
-    let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
-    let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
-    peer_manager_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
         match request {
             NetworkRequests::PartialEncodedChunkMessage {
                 account_id,
@@ -221,7 +202,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
             }
             _ => HandlerResult::Unhandled(request),
         }
-    }));
+    });
 
     env.node_runner(0).run_for_number_of_blocks(10);
 }
@@ -253,9 +234,7 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
     let recipient_account = create_validator_id(1);
     let inflated_reached_recipient = Arc::new(AtomicBool::new(false));
     let inflated_reached_recipient_clone = Arc::clone(&inflated_reached_recipient);
-    let producer_pm_handle = env.node_datas[0].peer_manager_sender.actor_handle();
-    let producer_pm_actor = env.test_loop.data.get_mut(&producer_pm_handle);
-    producer_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
         match request {
             NetworkRequests::PartialEncodedStateWitness(parts) => {
                 let inflated = parts
@@ -293,20 +272,18 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
             }
             _ => HandlerResult::Unhandled(request),
         }
-    }));
+    });
 
     let inflated_forward_seen = Arc::new(AtomicBool::new(false));
     let inflated_forward_seen_clone = Arc::clone(&inflated_forward_seen);
-    let recipient_pm_handle = env.node_datas[1].peer_manager_sender.actor_handle();
-    let recipient_pm_actor = env.test_loop.data.get_mut(&recipient_pm_handle);
-    recipient_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    env.node_datas[1].register_override_handler(&mut env.test_loop.data, move |request| {
         if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
             if witness.encoded_length() > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
                 inflated_forward_seen_clone.store(true, Ordering::Relaxed);
             }
         }
         HandlerResult::Unhandled(request)
-    }));
+    });
 
     env.node_runner(0).run_for_number_of_blocks(15);
 
@@ -338,9 +315,7 @@ fn test_partial_witness_foreign_part_not_forwarded() {
     let injected_parts: Arc<Mutex<HashSet<(ChunkProductionKey, usize)>>> =
         Arc::new(Mutex::new(HashSet::new()));
     let injected_parts_clone = Arc::clone(&injected_parts);
-    let producer_pm_handle = env.node_datas[0].peer_manager_sender.actor_handle();
-    let producer_pm_actor = env.test_loop.data.get_mut(&producer_pm_handle);
-    producer_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
         match request {
             NetworkRequests::PartialEncodedStateWitness(mut parts) => {
                 let foreign_part = parts
@@ -357,16 +332,14 @@ fn test_partial_witness_foreign_part_not_forwarded() {
             }
             _ => HandlerResult::Unhandled(request),
         }
-    }));
+    });
 
     let foreign_forward_seen = Arc::new(AtomicBool::new(false));
     let foreign_forward_seen_clone = Arc::clone(&foreign_forward_seen);
     let own_forward_seen = Arc::new(AtomicBool::new(false));
     let own_forward_seen_clone = Arc::clone(&own_forward_seen);
     let injected_parts_watch = Arc::clone(&injected_parts);
-    let recipient_pm_handle = env.node_datas[1].peer_manager_sender.actor_handle();
-    let recipient_pm_actor = env.test_loop.data.get_mut(&recipient_pm_handle);
-    recipient_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+    env.node_datas[1].register_override_handler(&mut env.test_loop.data, move |request| {
         if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
             let part = (witness.chunk_production_key(), witness.part_ord());
             if injected_parts_watch.lock().contains(&part) {
@@ -376,7 +349,7 @@ fn test_partial_witness_foreign_part_not_forwarded() {
             }
         }
         HandlerResult::Unhandled(request)
-    }));
+    });
 
     env.node_runner(0).run_for_number_of_blocks(15);
 

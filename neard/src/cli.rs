@@ -24,7 +24,6 @@ use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_replay_tool::ReplayCommand;
-use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::{Mode, ShardUId};
@@ -135,9 +134,6 @@ impl NeardCmd {
             }
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
-            }
-            NeardSubCommand::StateParts(cmd) => {
-                cmd.run()?;
             }
             NeardSubCommand::FlatStorage(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
@@ -256,9 +252,6 @@ pub(super) enum NeardSubCommand {
 
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
-
-    /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
-    StateParts(StatePartsCommand),
 
     /// Flat storage related tooling.
     FlatStorage(FlatStorageCommand),

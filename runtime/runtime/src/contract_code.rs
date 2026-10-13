@@ -1,3 +1,7 @@
+use crate::wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
+    is_legacy_eth_wallet,
+};
 use near_primitives::account::AccountContract;
 use near_primitives::account::id::AccountType;
 use near_primitives::action::GlobalContractIdentifier;
@@ -9,9 +13,6 @@ use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
-use near_wallet_contract::{
-    LegacyEthWallet, eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
-};
 
 /// Identifies a resolved contract for execution.
 ///
@@ -73,7 +74,7 @@ impl RuntimeContractIdentifier {
             // description of #11606) may have something else deployed to them. Only return
             // something here if the accounts have a wallet contract hash. Otherwise use the
             // regular path to grab the deployed contract.
-            if LegacyEthWallet::resolve(local_hash).is_some() {
+            if is_legacy_eth_wallet(local_hash) {
                 // ETH implicit wallet accounts use global contracts, including
                 // those created in old protocol versions.
                 let global_hash = eth_wallet_global_contract_hash(chain_id, protocol_version);

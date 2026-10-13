@@ -171,6 +171,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         };
         let block_context = build_spice_apply_chunk_block_context(
             block.header(),
+            prev_block_header,
             prev_execution_results,
             epoch_manager,
         )?;
@@ -1454,6 +1455,7 @@ pub(super) mod tests {
             let prev_execution_result = prev_execution_results.0.get(&self.shard_id()).unwrap();
             let prev_chunk_chunk_extra = &prev_execution_result.chunk_extra;
             let prev_block_hash = block.header().prev_hash();
+            let prev_block_header = self.chain.get_block_header(prev_block_hash).unwrap();
             let prev_validator_proposals = self
                 .chain
                 .spice_core_reader
@@ -1469,6 +1471,7 @@ pub(super) mod tests {
                 receipts,
                 block: build_spice_apply_chunk_block_context(
                     block.header(),
+                    &prev_block_header,
                     &prev_execution_results,
                     self.chain.epoch_manager.as_ref(),
                 )

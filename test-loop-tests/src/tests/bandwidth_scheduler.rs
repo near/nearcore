@@ -22,7 +22,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -32,9 +32,7 @@ use near_primitives::bandwidth_scheduler::{
 };
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
-};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -156,11 +154,9 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
         .delay_warmup()
         .build()
@@ -219,7 +215,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // the consensus head otherwise, so this is correct in both modes.
     env.validator_runner().run_until_executed_height(last_height.unwrap());
 
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 
@@ -395,14 +391,7 @@ fn analyze_workload_blocks(
                     .to_shard(target_shard_id)
                     .iter(&trie, false)
                     .map(|res| res.unwrap())
-                    .map(|receipt| match receipt {
-                        ReceiptOrStateStoredReceipt::Receipt(_) => {
-                            panic!("Old receipts shouldn't occur")
-                        }
-                        ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt) => {
-                            ByteSize::b(state_stored_receipt.metadata().congestion_size)
-                        }
-                    })
+                    .map(|receipt| ByteSize::b(receipt.metadata().congestion_size))
                     .collect();
                 let mut total_size: ByteSize = ByteSize::b(0);
                 for &receipt_size in &buffered_receipt_sizes {

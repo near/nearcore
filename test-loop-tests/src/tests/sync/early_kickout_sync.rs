@@ -88,8 +88,7 @@ fn slow_test_early_kickout_far_horizon_observer() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     // One source peer, so the sync sequence below describes one peer's data rather than
     // a race between four.
@@ -294,8 +293,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -305,9 +303,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
 
     let node = env.node(new_node_idx);
-    let head = node.head();
-    let version_at_head =
-        node.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap();
+    let version_at_head = node.protocol_version_at_head();
     assert!(
         ProtocolFeature::EarlyKickout.enabled(version_at_head),
         "head epoch is still at version {version_at_head}; the network never upgraded"

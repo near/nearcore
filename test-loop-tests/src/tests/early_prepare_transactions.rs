@@ -33,17 +33,12 @@ fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
     let account_names = accounts.iter().map(|acc| acc.as_str()).collect_vec();
     let shard_layout = ShardLayout::single_shard();
     let validators_spec = ValidatorsSpec::desired_roles(&account_names, &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .genesis_height(10000)
-        .build();
-    TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts)
         .config_modifier(|config, _| {
             config.enable_early_prepare_transactions = true;
         })

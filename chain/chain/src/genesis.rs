@@ -20,7 +20,6 @@ use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
-use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
 
@@ -299,7 +298,6 @@ fn get_genesis_congestion_infos_impl(
 ) -> Result<Vec<CongestionInfo>, Error> {
     let genesis_prev_hash = CryptoHash::default();
     let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
-    let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
 
     // Check we had already computed the congestion infos from the genesis state roots.
@@ -311,23 +309,18 @@ fn get_genesis_congestion_infos_impl(
     let mut new_infos = vec![];
     for (shard_index, &state_root) in state_roots.iter().enumerate() {
         let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
-        let congestion_info = match get_genesis_congestion_info(
-            runtime,
-            genesis_protocol_version,
-            &genesis_prev_hash,
-            shard_id,
-            state_root,
-        ) {
-            Ok(info) => info,
-            Err(_) => {
-                tracing::info!(
-                    target: "chain",
-                    %shard_id,
-                    "genesis state unavailable, using default congestion info"
-                );
-                CongestionInfo::default()
-            }
-        };
+        let congestion_info =
+            match get_genesis_congestion_info(runtime, &genesis_prev_hash, shard_id, state_root) {
+                Ok(info) => info,
+                Err(_) => {
+                    tracing::info!(
+                        target: "chain",
+                        %shard_id,
+                        "genesis state unavailable, using default congestion info"
+                    );
+                    CongestionInfo::default()
+                }
+            };
         new_infos.push(congestion_info);
     }
 
@@ -344,7 +337,6 @@ fn get_genesis_congestion_infos_impl(
 
 fn get_genesis_congestion_info(
     runtime: &dyn RuntimeAdapter,
-    protocol_version: ProtocolVersion,
     prev_hash: &CryptoHash,
     shard_id: ShardId,
     state_root: StateRoot,
@@ -352,8 +344,7 @@ fn get_genesis_congestion_info(
     // Get the view trie because it's possible that the chain is ahead of
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
-    let runtime_config = runtime.get_runtime_config(protocol_version);
-    let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
+    let congestion_info = bootstrap_congestion_info(&trie, shard_id)?;
     tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "computed genesis congestion info");
     Ok(congestion_info)
 }

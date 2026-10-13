@@ -1,10 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
-};
+use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
@@ -15,17 +12,18 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::{Error, Provenance};
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, Gas, SpiceChunkId,
 };
 use near_primitives::views::QueryRequest;
 use parking_lot::Mutex;
@@ -91,9 +89,7 @@ fn test_spice_chain() {
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let mut env = builder.genesis(genesis).clients(clients).build();
 
     let client_handles =
         env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
@@ -101,7 +97,7 @@ fn test_spice_chain() {
     // TODO(spice): Should be able to use execute_money_transfers here eventually. It shouldn't reach into
     // runtime directly though, or do it correctly with separated execution and chunks.
 
-    let client = &env.test_loop.data.get(&client_handles[0]).client;
+    let client = env.node(0).client();
     let epoch_manager = client.epoch_manager.clone();
 
     let node_datas = &env.node_datas;
@@ -111,7 +107,7 @@ fn test_spice_chain() {
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
         let node_data = get_node_data(node_datas, cp);
         let node = TestLoopNode { data: test_loop_data, node_data };
-        node.view_account_query(account).unwrap().amount
+        node.query_balance(account)
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -157,8 +153,7 @@ fn test_spice_chain() {
 
     assert_eq!(*sent_txs.lock(), observed_txs);
 
-    let client = &env.test_loop.data.get(&client_handles[0]).client;
-    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
@@ -184,17 +179,11 @@ fn test_spice_chain_with_delayed_execution() {
     let validators_spec = create_validators_spec(num_producers, num_validators);
     let clients = validators_spec_clients(&validators_spec);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
     let producer_account = clients[0].clone();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators_spec(validators_spec)
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
         .build();
 
@@ -204,14 +193,10 @@ fn test_spice_chain_with_delayed_execution() {
 
     env = env.warmup();
 
-    let block_hash = env.node_for_account(&producer_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
+    let tx = env.node_for_account(&producer_account).tx_send_money(
+        &sender,
+        &receiver,
         Balance::from_near(1),
-        block_hash,
     );
     env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(10));
 
@@ -230,12 +215,11 @@ fn test_spice_epoch_gated_by_certification() {
 
     let num_producers = 2;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
 
     let epoch_length = 5;
     let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators(num_producers, num_validators)
         .delay_warmup()
         .build();
     let execution_delay = 2 * epoch_length;
@@ -245,7 +229,7 @@ fn test_spice_epoch_gated_by_certification() {
     // With the delay active, verify the consensus chain can still produce many
     // blocks and the epoch advances but only one epoch ahead of the last
     // certified block's epoch.
-    let starting_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let starting_epoch_id = env.node(0).head().epoch_id;
     env.node_runner(0).run_until(
         |node| {
             let head = node.head();
@@ -270,9 +254,9 @@ fn test_spice_epoch_gated_by_certification() {
     // Lift the delay and wrap up the current epoch. The chain should go back to transitioning epochs normally.
     env.delay_endorsements_propagation(0);
     env.node_runner(0).run_until_new_epoch();
-    let current_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let current_epoch_id = env.node(0).head().epoch_id;
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
-    let new_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let new_epoch_id = env.node(0).head().epoch_id;
     assert_ne!(
         current_epoch_id, new_epoch_id,
         "epoch should have advanced after delay is lifted with normal amount of blocks"
@@ -287,15 +271,8 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let validators_spec = create_validators_spec(num_producers, num_validators);
     let clients = validators_spec_clients(&validators_spec);
 
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -321,13 +298,10 @@ fn test_spice_rpc_get_block_by_finality() {
     let (mut env, producer_account) = setup_spice_env_with_execution_delay();
 
     let execution_head = env.node_for_account(&producer_account).last_executed();
-    let final_head = {
-        let node = env.node_for_account(&producer_account);
-        node.client().chain.final_head().unwrap()
-    };
+    let final_head = env.node_for_account(&producer_account).final_head();
 
-    let node_data = env.get_node_data_by_account_id(&producer_account);
-    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
+    let mut node = env.node_for_account_mut(&producer_account);
+    let view_client = node.view_client_actor();
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
     assert_eq!(block_none.header.height, execution_head.height);
@@ -350,8 +324,8 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
     let consensus_head = env.node_for_account(&producer_account).head();
     assert!(consensus_head.height > execution_head.height + 1);
 
-    let node_data = env.get_node_data_by_account_id(&producer_account);
-    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
+    let mut node = env.node_for_account_mut(&producer_account);
+    let view_client = node.view_client_actor();
 
     // Query by height within execution head: should succeed
     let result = view_client
@@ -397,22 +371,15 @@ fn test_restart_rpc_node() {
 
     let num_producers = 1;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(num_producers, num_validators)
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
+        .enable_rpc()
         .build();
 
     let rpc_id = crate::utils::account::rpc_account_id();
@@ -423,15 +390,7 @@ fn test_restart_rpc_node() {
     let rpc_identifier = env.get_node_data_by_account_id(&rpc_id).identifier.clone();
     let killed_rpc_state = env.kill_node(&rpc_identifier);
 
-    let block_hash = env.node(0).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
-        Balance::from_near(1),
-        block_hash,
-    );
+    let tx = env.node(0).tx_send_money(&sender, &receiver, Balance::from_near(1));
     env.node_runner(0).run_tx(tx, Duration::seconds(20));
 
     let new_rpc_identifier = format!("{}-restart", rpc_identifier);
@@ -453,8 +412,6 @@ fn test_restart_producer_node() {
 
     let num_producers = 4;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
@@ -466,17 +423,11 @@ fn test_restart_producer_node() {
         shard_layout.account_id_to_shard_id(&receiver)
     );
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .shard_layout(shard_layout.clone())
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(num_producers, num_validators)
+        .shard_layout(shard_layout.clone())
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
         .build();
 
@@ -487,7 +438,7 @@ fn test_restart_producer_node() {
 
     let mut env = env.warmup();
 
-    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
     let shard_id = shard_layout.account_id_to_shard_id(&receiver);
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producers = epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap();
@@ -499,14 +450,10 @@ fn test_restart_producer_node() {
     let restart_identifier = env.get_node_data_by_account_id(&restart_account).identifier.clone();
     let killed_node_state = env.kill_node(&restart_identifier);
 
-    let block_hash = env.node_for_account(&stable_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
+    let tx = env.node_for_account(&stable_account).tx_send_money(
+        &sender,
+        &receiver,
         Balance::from_near(1),
-        block_hash,
     );
     env.runner_for_account(&stable_account).run_tx(tx, Duration::seconds(20));
 
@@ -536,13 +483,7 @@ fn test_spice_delay_endorsements_propagation_instruments_added_node() {
 
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients.clone())
-        .delay_warmup()
-        .build();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     env.delay_endorsements_propagation(2);
     let mut env = env.warmup();
@@ -576,22 +517,14 @@ fn test_restart_validator_node() {
 
     let num_producers = 1;
     let num_validators = 1;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(num_producers, num_validators)
+        .add_user_account(&sender, Balance::from_near(10))
+        .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
         .build();
 
@@ -602,7 +535,7 @@ fn test_restart_validator_node() {
 
     let mut env = env.warmup();
 
-    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producer = epoch_manager
         .get_epoch_chunk_producers(&epoch_id)
@@ -673,8 +606,6 @@ fn test_restart_validator_node() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_missing_chunks() {
-    use crate::utils::account::validators_spec_clients_with_rpc;
-
     init_test_logger();
     let accounts: Vec<AccountId> =
         (0..100).map(|i| create_account_id(&format!("account{}", i))).collect_vec();
@@ -686,25 +617,17 @@ fn test_spice_chain_with_missing_chunks() {
     let boundary_account = accounts[accounts.len() / 2].clone();
     let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
-        .build();
 
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .shard_layout(shard_layout)
+        .validators(num_producers, num_validators)
+        .add_user_accounts(&accounts, INITIAL_BALANCE)
+        .enable_rpc()
         .build();
 
     let epoch_manager = env.rpc_node().client().epoch_manager.clone();
-    let head_epoch_id =
-        *env.rpc_node().client().chain.get_head_block().unwrap().header().epoch_id();
+    let head_epoch_id = *env.rpc_node().head_block().header().epoch_id();
     let node_with_missing_chunks_account = epoch_manager
         .get_epoch_chunk_producers(&head_epoch_id)
         .unwrap()
@@ -717,7 +640,7 @@ fn test_spice_chain_with_missing_chunks() {
     );
 
     for account in &accounts {
-        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
+        let got_balance = env.rpc_node().query_balance(account);
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -791,7 +714,7 @@ fn test_spice_chain_with_missing_chunks() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
+        let got_balance = env.rpc_node().query_balance(account);
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
@@ -827,13 +750,12 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = spice_data_sent_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let mut env = env.warmup();
@@ -871,13 +793,12 @@ fn test_spice_validator_only_sends_endorsements() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = endorsement_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     let mut env = env.warmup();
@@ -967,6 +888,52 @@ fn test_spice_total_supply_decreases_with_gas_burn() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_transaction_burns_gas_at_prev_block_gas_price() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let max_gas_price = min_gas_price.checked_mul(20).unwrap();
+    // A transfer burns about 446 Ggas, more than half of this limit, so the price goes up.
+    let chunk_gas_limit = Gas::from_gigagas(500);
+    let mut env = TestLoopBuilder::new()
+        .validators(2, 0)
+        .gas_limit(chunk_gas_limit)
+        .gas_prices(min_gas_price, max_gas_price)
+        .gas_price_adjustment_rate(Rational32::new(1, 10))
+        .add_user_accounts([&sender, &receiver], Balance::from_near(10))
+        .build();
+
+    let num_transactions = 10;
+    let transfer_amount = Balance::from_millinear(1);
+    let mut tx_hashes = Vec::new();
+    for _ in 0..num_transactions {
+        let tx = env.validator().tx_send_money(&sender, &receiver, transfer_amount);
+        tx_hashes.push(env.validator().submit_tx(tx));
+        env.validator_runner().run_for_number_of_blocks(1);
+    }
+
+    let mut num_blocks_with_changed_gas_price = 0;
+    for tx_hash in tx_hashes {
+        let outcome_with_proof =
+            env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(20));
+        let block = env.validator().block(outcome_with_proof.block_hash);
+        let prev_block = env.validator().block(*block.header().prev_hash());
+        let prev_block_gas_price = prev_block.header().next_gas_price();
+        if block.header().next_gas_price() != prev_block_gas_price {
+            num_blocks_with_changed_gas_price += 1;
+        }
+        let outcome = outcome_with_proof.outcome_with_id.outcome;
+        let expected_tokens_burnt =
+            prev_block_gas_price.checked_mul(u128::from(outcome.gas_burnt.as_gas())).unwrap();
+        assert_eq!(outcome.tokens_burnt, expected_tokens_burnt);
+    }
+    assert!(num_blocks_with_changed_gas_price > 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
     init_test_logger();
 
@@ -974,8 +941,8 @@ fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
     let producer = validators_spec_clients(&validators_spec)[0].clone();
     let mut env = TestLoopBuilder::new().validators_spec(validators_spec).build();
 
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &mut env.test_loop.data.get_mut(&handle).client;
+    let mut node = env.node_mut(0);
+    let client = &mut node.client_actor().client;
 
     // Use an already-produced block: it carries valid doomslug approvals, so
     // processing the tampered copy reaches the chunk_execution_root check instead

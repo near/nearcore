@@ -123,7 +123,7 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 
     // Restart node 0 with its stale data (at height 30, network at ~80).
     let restart_id = format!("{}-restart", node0_identifier);
-    env.restart_node(&restart_id, killed_state);
+    let restart_node_idx = env.restart_node(&restart_id, killed_state);
 
     // Run node 1 a bit more to give node 0 time to detect it's stale and trigger shutdown.
     // Once node 0's ClientActor detects it's stale, it sends EpochSyncDataReset on the
@@ -132,7 +132,6 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 
     // The restarted node should have been denylisted (shutdown signal fired).
     // Its head should be at or near the kill height (it didn't catch up).
-    let restart_node_idx = env.node_datas.len() - 1;
     let node0_head = env.node(restart_node_idx).head().height;
     assert!(
         node0_head <= kill_height + 2,
@@ -172,10 +171,9 @@ fn test_epoch_sync_bootstrap_fresh_node() {
             config.block_header_fetch_horizon = 8;
         })
         .build();
-    env.add_node(identifier, node_state);
+    let fresh_node_idx = env.add_node(identifier, node_state);
 
     // Track sync status transitions on the fresh node.
-    let fresh_node_idx = env.node_datas.len() - 1;
     let new_node = env.node_datas[fresh_node_idx].client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {

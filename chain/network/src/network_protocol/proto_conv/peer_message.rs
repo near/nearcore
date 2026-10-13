@@ -315,21 +315,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::SyncSnapshotHosts(ssh) => ProtoMT::SyncSnapshotHosts(ssh.into()),
-                PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
-                    ProtoMT::StateRequestHeader(proto::StateRequestHeader {
-                        shard_id: (*shard_id).into(),
-                        sync_hash: MF::some(sync_hash.into()),
-                        ..Default::default()
-                    })
-                }
-                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
-                    ProtoMT::StateRequestPart(proto::StateRequestPart {
-                        shard_id: (*shard_id).into(),
-                        sync_hash: MF::some(sync_hash.into()),
-                        part_id: *part_id,
-                        ..Default::default()
-                    })
-                }
                 PeerMessage::VersionedStateResponse(sri) => {
                     ProtoMT::StateResponse(proto::StateResponse {
                         state_response_info: MF::some(sri.into()),
@@ -510,15 +495,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Challenge(c) => PeerMessage::Challenge(Box::new(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             )),
-            ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
-                srh.shard_id.into(),
-                try_from_required(&srh.sync_hash).map_err(Self::Error::BlockRequest)?,
-            ),
-            ProtoMT::StateRequestPart(srp) => PeerMessage::StateRequestPart(
-                srp.shard_id.into(),
-                try_from_required(&srp.sync_hash).map_err(Self::Error::BlockRequest)?,
-                srp.part_id,
-            ),
             ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
                 try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
             ),

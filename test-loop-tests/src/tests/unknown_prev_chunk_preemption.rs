@@ -67,10 +67,8 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
         .collect();
 
     for node_data in &env.node_datas {
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         let shards_manager_senders = shards_manager_senders.clone();
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
             if let NetworkRequests::PartialEncodedChunkMessage {
                 account_id: ref to,
                 partial_encoded_chunk: ref genuine,
@@ -90,17 +88,17 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
             }
             // Pass the genuine chunk through unchanged.
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
-    let start_height = env.node(0).client().chain.head().unwrap().height;
+    let start_height = env.node(0).head().height;
     let window = 12;
     let end_height = start_height + window;
     env.node_runner(0).run_until_head_height(end_height);
 
     // chunk_mask is indexed by shard index, not shard id.
     let node = env.node(0);
-    let head = node.client().chain.head().unwrap();
+    let head = node.head();
     let shard_layout = node.client().epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
     let target_index = shard_layout.get_shard_index(target_shard).unwrap();
 
