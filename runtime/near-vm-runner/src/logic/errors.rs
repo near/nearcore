@@ -240,6 +240,10 @@ pub enum PrepareError {
     OperandStackTooLarge = 18,
     /// Contract declares too many entries in the wasm global section.
     TooManyGlobals = 19,
+    /// Contract declares too many entries across all wasm element segments.
+    TooManyElementSegmentEntries = 20,
+    /// Contract declares too many wasm element segments.
+    TooManyElementSegments = 21,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -489,6 +493,8 @@ impl fmt::Display for PrepareError {
             TooManyParamsPerFunction => "Too many parameters in a single function",
             OperandStackTooLarge => "A function uses too much operand stack.",
             TooManyGlobals => "Too many globals declared in the contract.",
+            TooManyElementSegmentEntries => "Too many element segment entries in the contract.",
+            TooManyElementSegments => "Too many element segments in the contract.",
         })
     }
 }

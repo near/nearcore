@@ -16,6 +16,8 @@ struct PrepareContext<'a> {
     table_element_limit: u64,
     type_limit: u64,
     global_limit: u64,
+    element_segment_entry_limit: u64,
+    element_segment_limit: u64,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -46,6 +48,10 @@ impl<'a> PrepareContext<'a> {
             table_element_limit,
             type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
             global_limit: limits.max_globals_per_contract.unwrap_or(u64::MAX),
+            element_segment_entry_limit: limits
+                .max_element_segment_entries_per_contract
+                .unwrap_or(u64::MAX),
+            element_segment_limit: limits.max_element_segments_per_contract.unwrap_or(u64::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -211,6 +217,21 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .element_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    self.element_segment_limit = self
+                        .element_segment_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyElementSegments)?;
+                    for element in reader.clone() {
+                        let element = element.map_err(|_| PrepareError::Deserialization)?;
+                        let entries = match element.items {
+                            wp::ElementItems::Functions(entries) => entries.count(),
+                            wp::ElementItems::Expressions(_, entries) => entries.count(),
+                        };
+                        self.element_segment_entry_limit = self
+                            .element_segment_entry_limit
+                            .checked_sub(u64::from(entries))
+                            .ok_or(PrepareError::TooManyElementSegmentEntries)?;
+                    }
                     self.copy_section(SectionId::Element, reader.range())?;
                 }
                 wp::Payload::DataCountSection { count, range } => {

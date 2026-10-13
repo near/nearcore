@@ -247,6 +247,8 @@ pub enum Parameter {
     MaxParamsPerContract,
     MaxOperandStackBytesPerFunction,
     MaxGlobalsPerContract,
+    MaxElementSegmentEntriesPerContract,
+    MaxElementSegmentsPerContract,
 
     // Contract runtime features
     FixContractLoadingCost,
@@ -423,6 +425,8 @@ impl Parameter {
             Parameter::MaxParamsPerContract,
             Parameter::MaxOperandStackBytesPerFunction,
             Parameter::MaxGlobalsPerContract,
+            Parameter::MaxElementSegmentEntriesPerContract,
+            Parameter::MaxElementSegmentsPerContract,
         ]
         .iter()
     }
