@@ -91,14 +91,15 @@ assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 tx_hash = result['result']
 
-_ = utils.wait_for_blocks(nodes[3], count=4)
-
-result = nodes[3].get_tx(tx_hash, sender_account_id, timeout=10)
+# FINAL waits for the refund receipt, which returns the gas bought at
+# min_gas_purchase_price.
+result = nodes[3].get_tx(tx_hash, sender_account_id, wait_until='FINAL')
 assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
 new_balances = [
-    int(nodes[3].get_account("test%s" % x)['result']['amount'])
+    int(nodes[3].get_account("test%s" % x,
+                             finality='final')['result']['amount'])
     for x in [0, 1, 2]
 ]
 logger.info(f"BALANCES AFTER {new_balances}")

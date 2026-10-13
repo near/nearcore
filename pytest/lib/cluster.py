@@ -483,10 +483,18 @@ class BaseNode(object):
     # node's default polling_timeout. It's done this way to differentiate
     # between the case when the transaction is not found on the node and when
     # the node is dead or not responding.
-    def get_tx(self, tx_hash, sender_account_id, timeout=15):
+    def get_tx(self,
+               tx_hash,
+               sender_account_id,
+               timeout=15,
+               wait_until='EXECUTED_OPTIMISTIC'):
         return self.json_rpc(
             'tx',
-            [tx_hash, sender_account_id],
+            {
+                'tx_hash': tx_hash,
+                'sender_account_id': sender_account_id,
+                'wait_until': wait_until,
+            },
             timeout=timeout,
             max_retries=0,
         )
