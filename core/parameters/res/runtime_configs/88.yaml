@@ -62,3 +62,9 @@ action_universal_state_init_per_byte: {
 # They are not measured.
 wasm_universal_state_init_to_account_id_base: { old: 8_520_000_000, new: 8_900_000_000 }
 wasm_universal_state_init_to_account_id_byte: { old: 21_471_105, new: 83_100_000 }
+
+# Lift the promise-input size limit that 87 sets by restoring its unlimited base
+# value. The check stays enabled, but no receipt can reach this value: it awaits at
+# most `max_number_input_data_dependencies` (128) inputs of at most
+# `max_length_returned_data` (4 MiB) each.
+max_receipt_total_input_size: {old: 4_194_944, new: 4_294_967_295}
