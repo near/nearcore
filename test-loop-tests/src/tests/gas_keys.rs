@@ -506,7 +506,7 @@ fn test_gas_key_deposit_failed() {
     assert!(gas_burnt.as_gas() > 0);
     assert_eq!(tokens_burnt, gas_price.checked_mul(u128::from(gas_burnt.as_gas())).unwrap());
 
-    // Verify: no receipt was created (DepositFailed doesn't produce receipts)
+    // Verify: no receipt was created (FailedAndCharged doesn't produce receipts)
     assert!(outcome.outcome_with_id.outcome.receipt_ids.is_empty());
 
     // Verify: gas key balance decreased by exactly tokens_burnt

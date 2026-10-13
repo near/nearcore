@@ -800,7 +800,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         match verdict {
             TxVerdict::Success(_) => Ok(()),
-            TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
+            TxVerdict::FailedAndCharged { error, .. } | TxVerdict::Failed(error) => Err(error),
         }
     }
 
@@ -1109,7 +1109,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => {
+                    TxVerdict::FailedAndCharged { error, .. } | TxVerdict::Failed(error) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?error, "discarding transaction that failed validation or verification");
                         rejected_invalid_tx += 1;
                     }

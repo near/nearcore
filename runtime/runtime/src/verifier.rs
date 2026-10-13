@@ -4,7 +4,7 @@ use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, FunctionCallPermission};
+use near_primitives::account::{AccessKey, FunctionCallPermission, InclusionKeyInfo};
 use near_primitives::errors::{
     DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -14,7 +14,7 @@ use near_primitives::receipt::{
 use near_primitives::transaction::{
     Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
@@ -416,7 +416,7 @@ fn check_and_compute_new_allowance(
 
 /// Verify a regular (non-gas-key) transaction and compute the charge outcome.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedAndCharged`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
 /// This function performs no mutation; all state changes are returned in the
@@ -443,6 +443,105 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
             num_nonces: gas_key_info.num_nonces,
         });
     }
+    if let Some(inclusion_key_info) = access_key.inclusion_key_info() {
+        return verify_and_charge_inclusion_key_tx_ephemeral(
+            config,
+            account,
+            access_key,
+            inclusion_key_info,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        );
+    }
+    let tx_nonce = tx.nonce().nonce();
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
+        return TxVerdict::Failed(e);
+    }
+    verify_and_charge_access_key_tx_after_nonce_check(
+        config,
+        account,
+        access_key,
+        tx,
+        transaction_cost,
+        pending,
+        TxVerdict::Failed,
+    )
+}
+
+/// Inclusion key order: permission, then nonce, then balance; failures after the nonce check are
+/// charged to the key balance.
+fn verify_and_charge_inclusion_key_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &Account,
+    access_key: &AccessKey,
+    inclusion_key_info: &InclusionKeyInfo,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+) -> TxVerdict {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
+    }
+    let tx_nonce = tx.nonce().nonce();
+    if tx_nonce <= inclusion_key_info.last_transaction_nonce {
+        return TxVerdict::Failed(InvalidTxError::InvalidNonce {
+            tx_nonce,
+            ak_nonce: access_key.nonce,
+        });
+    }
+    let charge = |error: InvalidTxError, nonce: Nonce| {
+        let charged_amount = transaction_cost.burnt_amount.min(inclusion_key_info.balance);
+        TxVerdict::FailedAndCharged {
+            result: VerificationResult {
+                gas_burnt: transaction_cost.gas_burnt,
+                compute_burnt: transaction_cost.compute_burnt,
+                gas_remaining: Gas::ZERO,
+                receipt_gas_price: transaction_cost.receipt_gas_price,
+                burnt_amount: charged_amount,
+                new_account_amount: account.amount(),
+                access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                    new_balance: inclusion_key_info.balance.saturating_sub(charged_amount),
+                    nonce,
+                    last_transaction_nonce: tx_nonce,
+                },
+            },
+            error,
+        }
+    };
+    if tx_nonce <= access_key.nonce {
+        let error = InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: access_key.nonce };
+        return charge(error, access_key.nonce);
+    }
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
+        return TxVerdict::Failed(e);
+    }
+    verify_and_charge_access_key_tx_after_nonce_check(
+        config,
+        account,
+        access_key,
+        tx,
+        transaction_cost,
+        pending,
+        |error| charge(error, tx_nonce),
+    )
+}
+
+fn verify_and_charge_access_key_tx_after_nonce_check(
+    config: &RuntimeConfig,
+    account: &Account,
+    access_key: &AccessKey,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    pending: &PendingConstraints,
+    verdict_for_balance_failure: impl Fn(InvalidTxError) -> TxVerdict,
+) -> TxVerdict {
     let TransactionCost {
         gas_burnt,
         compute_burnt,
@@ -454,17 +553,13 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
-    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
-        return TxVerdict::Failed(e);
-    }
 
     // saturating_sub is fine here: on the consensus path pending constraints
     // are always default (zero), so the subtraction is exact. On the RPC /
     // chunk-production path it is best-effort and does not affect consensus.
     let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
     if available_balance < total_cost {
-        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
+        return verdict_for_balance_failure(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
             balance: available_balance,
             cost: total_cost,
@@ -481,13 +576,13 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
         total_cost,
     ) {
         Ok(a) => a,
-        Err(e) => return TxVerdict::Failed(e),
+        Err(e) => return verdict_for_balance_failure(e),
     };
 
     match check_storage_stake(account, new_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
+            return verdict_for_balance_failure(InvalidTxError::LackBalanceForState {
                 signer_id: account_id.clone(),
                 amount,
             });
@@ -531,7 +626,7 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
 /// otherwise have provided, a nonce plus the balance and storage checks. The
 /// nonce lives on the account until the state init installs the keys.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedAndCharged`).
 /// Performs no mutation; changes are returned in the `VerificationResult`.
 pub fn verify_and_charge_bootstrap_tx_ephemeral(
     config: &RuntimeConfig,
@@ -631,7 +726,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
 /// This function performs validation only and does NOT mutate `account` or `access_key`.
 /// Callers are responsible for applying state changes based on the returned variant:
 /// - `Success(result)`: apply all state changes via `result.apply()`.
-/// - `DepositFailed { result, .. }`: apply gas-only changes via `result.apply()`.
+/// - `FailedAndCharged { result, .. }`: apply gas-only changes via `result.apply()`.
 /// - `Failed(_)`: no state changes.
 pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
@@ -755,7 +850,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     // best-effort.
     let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
     if available_balance < deposit_cost {
-        return TxVerdict::DepositFailed {
+        return TxVerdict::FailedAndCharged {
             result: make_deposit_failed_result(account.amount()),
             error: InvalidTxError::NotEnoughBalanceForDeposit {
                 signer_id: account_id.clone(),
@@ -771,7 +866,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return TxVerdict::DepositFailed {
+            return TxVerdict::FailedAndCharged {
                 result: make_deposit_failed_result(account.amount()),
                 error: InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
@@ -906,7 +1001,7 @@ mod tests {
     use crate::{ActionResult, ApplyState};
     use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
     use near_primitives::account::{
-        AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+        AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission, InclusionKeyInfo,
     };
     use near_primitives::action::{
         FundInclusionKeyAction, TransferToGasKeyAction, UniversalStateInitAction,
@@ -1217,7 +1312,7 @@ mod tests {
         )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
-            TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
+            TxVerdict::Failed(e) | TxVerdict::FailedAndCharged { error: e, .. } => return Err(e),
         };
         let mut access_key = authorization.into_access_key();
         result.apply(&mut signer, access_key.as_mut())?;
@@ -3036,7 +3131,7 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+        let TxVerdict::FailedAndCharged { result, error } = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
@@ -3046,7 +3141,7 @@ mod tests {
             None,
             &PendingConstraints::default(),
         ) else {
-            panic!("expected DepositFailed");
+            panic!("expected FailedAndCharged");
         };
         match error {
             InvalidTxError::NotEnoughBalanceForDeposit { signer_id, reason, .. } => {
@@ -3103,7 +3198,7 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+        let TxVerdict::FailedAndCharged { result, error } = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
@@ -3113,7 +3208,7 @@ mod tests {
             None,
             &PendingConstraints::default(),
         ) else {
-            panic!("expected DepositFailed");
+            panic!("expected FailedAndCharged");
         };
         let new_account_amount = initial_balance.checked_sub(cost.deposit_cost).unwrap();
         match error {
@@ -3371,5 +3466,526 @@ mod tests {
                 InvalidTxError::InvalidNonce { tx_nonce: u64::MAX, ak_nonce: u64::MAX }
             );
         }
+    }
+
+    #[test]
+    fn test_apply_regular_update_sets_inclusion_key_last_transaction_nonce() {
+        let account_amount = Balance::from_near(1);
+        let mut account = Account::new(account_amount, Balance::ZERO, AccountContract::None, 100);
+        let key_balance = Balance::from_millinear(10);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: 3 };
+        let mut access_key = AccessKey {
+            nonce: 5,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let tx_nonce = 6;
+        let result = VerificationResult {
+            gas_burnt: Gas::ZERO,
+            compute_burnt: 0,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: account_amount,
+            access_key_update: AccessKeyUpdate::Regular { nonce: tx_nonce, new_allowance: None },
+        };
+
+        result.apply(&mut account, Some(&mut access_key)).unwrap();
+
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: tx_nonce };
+        let expected_key = AccessKey {
+            nonce: tx_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(expected_inclusion_key_info),
+        };
+        assert_eq!(access_key, expected_key);
+    }
+
+    #[test]
+    fn test_apply_inclusion_key_charge_updates_inclusion_key_info_and_access_key_nonce() {
+        let account_amount = Balance::from_near(1);
+        let mut account = Account::new(account_amount, Balance::ZERO, AccountContract::None, 100);
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 3 };
+        let mut access_key = AccessKey {
+            nonce: 5,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let new_balance = Balance::from_millinear(4);
+        let nonce = 5;
+        let last_transaction_nonce = 4;
+        let result = VerificationResult {
+            gas_burnt: Gas::ZERO,
+            compute_burnt: 0,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: account_amount,
+            access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                new_balance,
+                nonce,
+                last_transaction_nonce,
+            },
+        };
+
+        result.apply(&mut account, Some(&mut access_key)).unwrap();
+
+        let expected_inclusion_key_info =
+            InclusionKeyInfo { balance: new_balance, last_transaction_nonce };
+        let expected_key = AccessKey {
+            nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(expected_inclusion_key_info),
+        };
+        assert_eq!(access_key, expected_key);
+        assert_eq!(account.amount(), account_amount);
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_permission_failure_not_charged() {
+        let config = RuntimeConfig::test();
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce: 0 };
+        let function_call_permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        };
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::InclusionKeyFunctionCall(
+                    inclusion_key_info,
+                    function_call_permission,
+                ),
+            }),
+        );
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            eve_dot_alice_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: vec![],
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
+                tx_receiver: eve_dot_alice_account(),
+                ak_receiver: bob_account().into()
+            }),
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_nonce_at_last_transaction_nonce_not_charged() {
+        let config = RuntimeConfig::test();
+        let last_transaction_nonce = 5;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: Balance::from_millinear(10), last_transaction_nonce };
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: last_transaction_nonce,
+                permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+            }),
+        );
+        let signed_tx = SignedTransaction::send_money(
+            last_transaction_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::InclusionKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce {
+                tx_nonce: last_transaction_nonce,
+                ak_nonce: last_transaction_nonce
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_nonce_used_by_delegate_action_charged() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_millinear(10);
+        let last_transaction_nonce = 3;
+        let delegate_action_nonce = 5;
+        let inclusion_key_info = InclusionKeyInfo { balance: key_balance, last_transaction_nonce };
+        let access_key = AccessKey {
+            nonce: delegate_action_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = 4;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        let expected_charge = cost.burnt_amount;
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_action_nonce }
+        );
+        assert_eq!(result.burnt_amount, expected_charge);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(expected_charge).unwrap(),
+                nonce: delegate_action_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_charge_clamped_to_key_balance() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_yoctonear(1);
+        let last_transaction_nonce = 3;
+        let delegate_action_nonce = 5;
+        let inclusion_key_info = InclusionKeyInfo { balance: key_balance, last_transaction_nonce };
+        let access_key = AccessKey {
+            nonce: delegate_action_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = 4;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(100),
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        let expected_charge = key_balance;
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_action_nonce }
+        );
+        assert_eq!(result.burnt_amount, expected_charge);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(expected_charge).unwrap(),
+                nonce: delegate_action_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_not_enough_balance_charged() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_millinear(10);
+        let key_nonce = 3;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: key_nonce };
+        let access_key = AccessKey {
+            nonce: key_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = key_nonce + 1;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            TESTING_INIT_BALANCE,
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        assert_eq!(
+            error,
+            InvalidTxError::NotEnoughBalance {
+                signer_id: alice_account(),
+                balance: account.amount(),
+                cost: cost.total_cost,
+            }
+        );
+        assert_eq!(result.burnt_amount, cost.burnt_amount);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(cost.burnt_amount).unwrap(),
+                nonce: tx_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_not_enough_allowance_charged() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_millinear(10);
+        let allowance = Balance::from_yoctonear(1);
+        let key_nonce = 3;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: key_nonce };
+        let access_key = AccessKey {
+            nonce: key_nonce,
+            permission: AccessKeyPermission::InclusionKeyFunctionCall(
+                inclusion_key_info,
+                FunctionCallPermission {
+                    allowance: Some(allowance),
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                },
+            ),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let tx_nonce = key_nonce + 1;
+        let signed_tx = SignedTransaction::from_actions(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: vec![],
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                account_id: alice_account(),
+                public_key: signer.public_key().into(),
+                allowance,
+                cost: cost.total_cost,
+            })
+        );
+        assert_eq!(result.burnt_amount, cost.burnt_amount);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(cost.burnt_amount).unwrap(),
+                nonce: tx_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_inclusion_key_tx_lack_balance_for_state_charged() {
+        let config = RuntimeConfig::test();
+        let key_balance = Balance::from_millinear(10);
+        let key_nonce = 3;
+        let inclusion_key_info =
+            InclusionKeyInfo { balance: key_balance, last_transaction_nonce: key_nonce };
+        let access_key = AccessKey {
+            nonce: key_nonce,
+            permission: AccessKeyPermission::InclusionKeyFullAccess(inclusion_key_info),
+        };
+        let (signer, state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(access_key.clone()));
+        let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let storage_usage_above_balance = 1_000_000_000_000_000;
+        account.set_storage_usage(storage_usage_above_balance);
+        let tx_nonce = key_nonce + 1;
+        let signed_tx = SignedTransaction::send_money(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let protocol_version = ProtocolFeature::InclusionKeys.protocol_version();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
+        let cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
+
+        let TxVerdict::FailedAndCharged { result, error } =
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &account,
+                &access_key,
+                &signed_tx.transaction,
+                &cost,
+                None,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedAndCharged");
+        };
+
+        assert!(
+            matches!(error, InvalidTxError::LackBalanceForState { ref signer_id, .. } if *signer_id == alice_account()),
+            "unexpected error: {error:?}"
+        );
+        assert_eq!(result.burnt_amount, cost.burnt_amount);
+        assert_eq!(result.new_account_amount, account.amount());
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: key_balance.checked_sub(cost.burnt_amount).unwrap(),
+                nonce: tx_nonce,
+                last_transaction_nonce: tx_nonce,
+            }
+        );
+    }
+
+    #[test]
+    fn test_charged_compute_usage_inclusion_key_uses_compute_burnt() {
+        let gas_burnt = Gas::from_gas(1_000);
+        let compute_burnt = 3_000;
+        let result = VerificationResult {
+            gas_burnt,
+            compute_burnt,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: Balance::ZERO,
+            access_key_update: AccessKeyUpdate::InclusionKeyCharge {
+                new_balance: Balance::ZERO,
+                nonce: 1,
+                last_transaction_nonce: 1,
+            },
+        };
+
+        assert_eq!(crate::charged_compute_usage(&result), compute_burnt);
+    }
+
+    #[test]
+    fn test_charged_compute_usage_gas_key_uses_gas_burnt() {
+        let gas_burnt = Gas::from_gas(1_000);
+        let compute_burnt = 3_000;
+        let result = VerificationResult {
+            gas_burnt,
+            compute_burnt,
+            gas_remaining: Gas::ZERO,
+            receipt_gas_price: Balance::ZERO,
+            burnt_amount: Balance::ZERO,
+            new_account_amount: Balance::ZERO,
+            access_key_update: AccessKeyUpdate::GasKey {
+                new_balance: Balance::ZERO,
+                nonce_index: 0,
+                nonce: 1,
+            },
+        };
+
+        assert_eq!(crate::charged_compute_usage(&result), gas_burnt.as_gas());
     }
 }
