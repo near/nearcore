@@ -7,7 +7,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json
 
-cargo insta test --accept -p near-parameters
+cargo insta test --accept -p near-parameters -p near-primitives
 
 set +e
 cargo run -p protocol-schema-check
