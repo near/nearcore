@@ -20,6 +20,7 @@ The limits are:
   * Hard limit on the combined size of a receipt's resolved promise inputs (the `ReceivedData` referenced by its `input_data_ids`). Receipts which exceed it fail with `TotalPromiseInputSizeExceeded` without executing their actions.
   * These inputs are read before `per_receipt_storage_proof_size_limit` starts counting, so without this limit a single receipt could pull `max_number_input_data_dependencies * max_receipt_size` (128 * 4 MiB) into the witness.
   * The limit is `max_length_returned_data` (4 MiB) plus the worst-case per-input framing overhead (128 * 5 bytes), so 4 MiB of input data always fits no matter how it's split across data receipts.
+  * Only enabled in nightly for now (`ProtocolFeature::ReceiptPromiseInputSizeLimit`). The stable protocol doesn't enforce it yet.
 * `combined_transactions_size_limit - 4 MiB`
   * Hard limit on total size of transactions from this and previous chunk. `ChunkStateWitness` contains transactions from two chunks, this limit applies to the sum of their sizes.
 * `new_transactions_validation_state_size_soft_limit - 500 KiB`
@@ -37,7 +38,7 @@ The limits are:
   * On every block height there's one special "allowed shard" which is allowed to send larger receipts, up to 4.5 MiB in total.
   * A receiving shard will receive receipts from `num_shards - 1` shards using the usual limit and one shard using the big limit.
 
-In total that gives 4 MiB + 500 KiB + 8MB + 4 MiB + 5*100 KiB + 4.5 MiB ~= 21 MiB of maximum witness size. Possibly a little more on missing chunks.
+In total that gives 4 MiB + 500 KiB + 8MB + 4 MiB + 5*100 KiB + 4.5 MiB ~= 21 MiB of maximum witness size. Possibly a little more on missing chunks. The 4 MiB promise-input term only holds where `max_receipt_total_input_size` is enforced, which is nightly for now.
 
 ### Validating the limits
 
