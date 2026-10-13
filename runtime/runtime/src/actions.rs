@@ -5,6 +5,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::verifier::is_fund_own_inclusion_key;
 use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -34,7 +35,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
-    StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
+    StorageError, TrieUpdate, compute_key_balance_sums, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
@@ -368,12 +369,12 @@ pub(crate) fn action_delete_account(
                 .into());
         return Ok(());
     }
-    let gas_key_balance_to_burn = compute_gas_key_balance_sum(state_update, account_id)?;
-    if gas_key_balance_to_burn > GasKeyInfo::MAX_BALANCE_TO_BURN {
+    let key_balance_sums = compute_key_balance_sums(state_update, account_id)?;
+    if key_balance_sums.gas_keys > GasKeyInfo::MAX_BALANCE_TO_BURN {
         result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
             account_id: account_id.clone(),
             public_key: None,
-            balance: gas_key_balance_to_burn,
+            balance: key_balance_sums.gas_keys,
         }
         .into());
         return Ok(());
@@ -386,10 +387,13 @@ pub(crate) fn action_delete_account(
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
     let remove_result = remove_account(state_update, account_id)?;
-    result.tokens_burnt =
-        result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
-            StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
-        })?;
+    let tokens_burnt_overflow =
+        || StorageError::StorageInconsistentState("tokens_burnt overflow".to_string());
+    result.tokens_burnt = result
+        .tokens_burnt
+        .checked_add(key_balance_sums.gas_keys)
+        .and_then(|tokens_burnt| tokens_burnt.checked_add(key_balance_sums.inclusion_keys))
+        .ok_or_else(tokens_burnt_overflow)?;
     if remove_result.gas_key_nonce_count > 0 {
         let compute = storage_removes_compute(
             &config.wasm_config.ext_costs,
@@ -670,7 +674,14 @@ fn validate_delegate_action_key(
 
     // The restriction of "function call" access keys:
     // the transaction must contain the only `FunctionCall` if "function call" access key is used
-    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && !is_fund_own_inclusion_key(
+            delegate_action.sender_id(),
+            delegate_action.receiver_id(),
+            delegate_action.public_key(),
+            &actions,
+        )
+    {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
@@ -952,9 +963,9 @@ mod tests {
         VersionedDelegateActionPayload, VersionedSignedDelegateAction,
     };
     use near_primitives::action::{
-        AddKeyAction, DeleteKeyAction, DeployGlobalContractAction, GlobalContractDeployMode,
-        GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
-        UseGlobalContractAction, WithdrawFromGasKeyAction,
+        AddKeyAction, DeleteKeyAction, DeployGlobalContractAction, FundInclusionKeyAction,
+        GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
+        UniversalStateInitAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
     };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -1762,6 +1773,29 @@ mod tests {
                 deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
+            })))];
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert!(result.result.is_ok(), "Result error {:?}", result.result);
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_function_call_key_funds_own_inclusion_key() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec![],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.receiver_id = delegate_action.sender_id.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FundInclusionKey(Box::new(FundInclusionKeyAction {
+                public_key: delegate_action.public_key.clone(),
+                target_balance: Balance::from_millinear(10),
             })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
