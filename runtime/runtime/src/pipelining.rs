@@ -14,7 +14,6 @@ use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, FunctionCallAction, GlobalContractIdentifier};
-use near_primitives::config::ViewConfig;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
@@ -245,7 +244,6 @@ impl ReceiptPreparationPipeline {
                             account.contract().into_owned(),
                             state_update,
                             function_call,
-                            None,
                             AccessOptions::NO_SIDE_EFFECTS,
                             self.current_protocol_version,
                         )
@@ -331,7 +329,6 @@ impl ReceiptPreparationPipeline {
         account_contract: AccountContract,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
-        view_config: Option<&ViewConfig>,
         access: AccessOptions,
         protocol_version: ProtocolVersion,
     ) -> Result<ContractPreparation, StorageError> {
@@ -343,7 +340,7 @@ impl ReceiptPreparationPipeline {
             account_contract,
             state_update,
             function_call,
-            view_config,
+            None,
             access,
             protocol_version,
         )

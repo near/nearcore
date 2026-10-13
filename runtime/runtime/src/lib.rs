@@ -690,7 +690,6 @@ impl Runtime {
                     account_contract,
                     &state_update,
                     function_call,
-                    None,
                     AccessOptions::DEFAULT,
                     apply_state.current_protocol_version,
                 )?;
