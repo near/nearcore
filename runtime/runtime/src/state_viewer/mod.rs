@@ -528,6 +528,7 @@ impl TrieViewer {
             ContractPreparation::Ready { contract: code_ext, gas_counter } => {
                 let contract_id_resolved = code_ext.identifier.clone();
                 // Views prepare directly: speculative tasks use non-view gas accounting.
+                near_vm_runner::reset_metrics();
                 let contract = prepare_function_call(
                     &code_ext,
                     apply_state.cache.as_deref(),
@@ -536,6 +537,10 @@ impl TrieViewer {
                     &function_call.method_name,
                     // View calls are user-facing (RPC) but off the block-production path.
                     CompilePriority::Interactive,
+                );
+                near_vm_runner::report_metrics(
+                    apply_state.shard_id,
+                    &apply_state.apply_reason.to_string(),
                 );
                 execute_function_call(
                     contract,
