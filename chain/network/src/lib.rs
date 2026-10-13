@@ -34,6 +34,16 @@ pub mod types;
 #[cfg(test)]
 pub(crate) mod testonly;
 
+#[cfg(test)]
+mod test_alloc;
+
+#[cfg(test)]
+use test_alloc::CountingAllocator;
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: CountingAllocator = CountingAllocator;
+
 // TODO(gprusak): these should be testonly, once all network integration tests are moved to near_network.
 pub mod broadcast;
 pub mod recv_permit;

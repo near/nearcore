@@ -1,3 +1,4 @@
+pub(crate) mod bounded;
 /// Contains types that belong to the `network protocol.
 mod edge;
 mod peer;
