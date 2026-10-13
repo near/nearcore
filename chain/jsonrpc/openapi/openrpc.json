@@ -7285,6 +7285,24 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_element_segment_entries_per_contract": {
+            "description": "If present, stores the maximum sum of entries across all element\nsegments in a contract. Repeated and overlapping entries are counted\nindividually.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_element_segments_per_contract": {
+            "description": "If present, stores max number of element segments in a contract,\nincluding empty segments.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_elements_per_contract_table": {
             "description": "If present, stores max number of elements in a single contract's table",
             "format": "uint",
@@ -8130,6 +8148,16 @@
           {
             "const": "TooManyGlobals",
             "description": "Contract declares too many entries in the wasm global section.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyElementSegmentEntries",
+            "description": "Contract declares too many entries across all wasm element segments.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyElementSegments",
+            "description": "Contract declares too many wasm element segments.",
             "type": "string"
           }
         ],
