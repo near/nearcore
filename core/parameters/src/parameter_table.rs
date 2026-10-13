@@ -439,6 +439,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     SignatureKind::Ed25519 | SignatureKind::Secp256k1 => ParameterCost::ZERO,
                     SignatureKind::MlDsa65 => params.get(Parameter::MlDsa65VerificationCost)?,
                 },
+                transaction_inclusion_gas_per_byte: params
+                    .get(Parameter::TransactionInclusionGasPerByte)?,
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {

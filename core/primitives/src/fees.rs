@@ -35,7 +35,8 @@ pub struct TransactionCost {
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
     pub receipt_gas_price: Balance,
-    /// The amount of tokens burnt by converting this transaction to a receipt.
+    /// The amount of tokens burnt by converting this transaction to a receipt: the gas price times
+    /// the larger of `gas_burnt` and `tx_size * transaction_inclusion_gas_per_byte`.
     pub burnt_amount: Balance,
     /// The total gas cost in tokens (burnt_amount + remaining gas amount).
     pub gas_cost: Balance,
@@ -461,34 +462,24 @@ fn permission_exec_fees(
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
+/// Gas price of the action receipt created from a transaction. Gas attached to the receipt is
+/// purchased at a price which should be at least as large as min_gas_purchase_price. Later it
+/// might be burned at a lower price, in which case the price difference will be refunded.
+pub fn receipt_gas_price(config: &RuntimeConfig, current_gas_price: Balance) -> Balance {
+    std::cmp::max(current_gas_price, config.min_gas_purchase_price)
+}
+
 /// Returns the total cost of converting a `tx` into a receipt, including the
 /// costs of the spawned receipts.
 pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
+    tx_size: u64,
     current_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    calculate_tx_cost(
-        tx.receiver_id(),
-        tx.signer_id(),
-        tx.public_key(),
-        tx.actions(),
-        config,
-        current_gas_price,
-    )
-}
-
-/// Like [`tx_cost`], for callers that have the transaction's fields but not a
-/// `Transaction` (e.g. the indexer prices transaction views).
-pub fn calculate_tx_cost(
-    receiver_id: &AccountId,
-    signer_id: &AccountId,
-    signer_public_key: &PublicKey,
-    actions: &[Action],
-    config: &RuntimeConfig,
-    current_gas_price: Balance,
-) -> Result<TransactionCost, IntegerOverflowError> {
-    let sender_is_receiver = receiver_id == signer_id;
+    let receiver_id = tx.receiver_id();
+    let actions = tx.actions();
+    let sender_is_receiver = receiver_id == tx.signer_id();
     let fees = &config.fees;
     let mut burnt: ParameterCost =
         fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -505,7 +496,7 @@ pub fn calculate_tx_cost(
     // unaffected.
     burnt = burnt.checked_add_result(signature_verification_cost(
         fees,
-        signer_public_key,
+        tx.public_key(),
         actions,
         config.wasm_config.fix_ml_dsa_cost_charging,
     )?)?;
@@ -526,12 +517,16 @@ pub fn calculate_tx_cost(
         .checked_add_result(prepaid_exec_fee.gas)?;
 
     // Gas burned on converting the transaction to a receipt is burned at the current price.
-    let burnt_amount = safe_gas_to_balance(current_gas_price, burnt.gas)?;
+    let transaction_inclusion_gas = fees
+        .transaction_inclusion_gas_per_byte
+        .checked_mul(tx_size)
+        .ok_or(IntegerOverflowError {})?;
+    let burnt_amount = safe_gas_to_balance(
+        current_gas_price,
+        std::cmp::max(burnt.gas, transaction_inclusion_gas),
+    )?;
 
-    // Gas attached to the receipt is purchased at a price which should be at least as large as
-    // min_gas_purchase_price. Later it might be burned at a lower price, in which case the price
-    // difference will be refunded.
-    let receipt_gas_price = std::cmp::max(current_gas_price, config.min_gas_purchase_price);
+    let receipt_gas_price = receipt_gas_price(config, current_gas_price);
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
@@ -778,13 +773,14 @@ pub fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::TransferAction;
     use crate::action::delegate::{
         DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedSignedDelegateAction,
     };
-    use crate::transaction::{TransactionNonce, TransactionV0};
+    use crate::action::{FunctionCallAction, TransferAction};
+    use crate::transaction::{SignedTransaction, TransactionNonce, TransactionV0};
     use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
-    use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
+    use crate::version::PROTOCOL_VERSION;
+    use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle, SecretKey};
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
@@ -823,22 +819,30 @@ mod tests {
         }))
     }
 
+    /// A tx from alice.near to bob.near signed with `signer_key_type` carrying `actions`.
+    fn signed_tx(signer_key_type: KeyType, actions: Vec<Action>) -> SignedTransaction {
+        let signer_id: AccountId = "alice.near".parse().unwrap();
+        let secret_key = SecretKey::from_seed(signer_key_type, "signer");
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: signer_id.clone(),
+            public_key: secret_key.public_key(),
+            nonce: 1,
+            receiver_id: "bob.near".parse().unwrap(),
+            block_hash: Default::default(),
+            actions,
+        });
+        tx.sign(&InMemorySigner::from_secret_key(signer_id, secret_key))
+    }
+
     /// Cost of a tx signed with `signer_key_type` carrying `actions`.
     fn cost_of(
         config: &RuntimeConfig,
         signer_key_type: KeyType,
         actions: Vec<Action>,
     ) -> TransactionCost {
-        let public_key = SecretKey::from_seed(signer_key_type, "signer").public_key();
-        let tx = Transaction::V0(TransactionV0 {
-            signer_id: "alice.near".parse().unwrap(),
-            public_key,
-            nonce: 1,
-            receiver_id: "bob.near".parse().unwrap(),
-            block_hash: Default::default(),
-            actions,
-        });
-        tx_cost(config, &tx, Balance::from_yoctonear(1)).unwrap()
+        let signed_tx = signed_tx(signer_key_type, actions);
+        let tx_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
+        tx_cost(config, &signed_tx.transaction, tx_size, Balance::from_yoctonear(1)).unwrap()
     }
 
     /// An ML-DSA-65 outer signature adds exactly `ml_dsa_65_verification_cost`
@@ -1036,5 +1040,134 @@ mod tests {
         let malformed = RawStateInit(vec![7, 7, 7]);
         let bytes_only = universal_state_init_fee(&fees, &malformed, Fee::exec_fee).unwrap();
         assert_eq!(bytes_only.gas, Gas::from_gas(1 + 3));
+    }
+
+    struct TransferCosts {
+        without_transaction_inclusion_gas: TransactionCost,
+        with_transaction_inclusion_gas: TransactionCost,
+        transaction_inclusion_gas: Gas,
+        gas_price: Balance,
+    }
+
+    /// Costs of one transfer without and with `transaction_inclusion_gas_per_byte`, computed from
+    /// the transfer's `gas_burnt / tx_size`.
+    fn transfer_costs(
+        transaction_inclusion_gas_per_byte_from_gas_burnt_per_byte: fn(u64) -> u64,
+    ) -> TransferCosts {
+        let signed_tx = signed_tx(KeyType::ED25519, vec![transfer()]);
+        let tx_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
+        let gas_price = Balance::from_yoctonear(100_000_000);
+        let mut config_without_transaction_inclusion_gas = RuntimeConfig::test();
+        Arc::make_mut(&mut config_without_transaction_inclusion_gas.fees)
+            .transaction_inclusion_gas_per_byte = Gas::ZERO;
+        let without_transaction_inclusion_gas = tx_cost(
+            &config_without_transaction_inclusion_gas,
+            &signed_tx.transaction,
+            tx_size,
+            gas_price,
+        )
+        .unwrap();
+        let gas_burnt_per_byte = without_transaction_inclusion_gas.gas_burnt.as_gas() / tx_size;
+        let transaction_inclusion_gas_per_byte = Gas::from_gas(
+            transaction_inclusion_gas_per_byte_from_gas_burnt_per_byte(gas_burnt_per_byte),
+        );
+        let mut config_with_transaction_inclusion_gas = RuntimeConfig::test();
+        Arc::make_mut(&mut config_with_transaction_inclusion_gas.fees)
+            .transaction_inclusion_gas_per_byte = transaction_inclusion_gas_per_byte;
+        let with_transaction_inclusion_gas = tx_cost(
+            &config_with_transaction_inclusion_gas,
+            &signed_tx.transaction,
+            tx_size,
+            gas_price,
+        )
+        .unwrap();
+        let transaction_inclusion_gas =
+            transaction_inclusion_gas_per_byte.checked_mul(tx_size).unwrap();
+        TransferCosts {
+            without_transaction_inclusion_gas,
+            with_transaction_inclusion_gas,
+            transaction_inclusion_gas,
+            gas_price,
+        }
+    }
+
+    fn assert_gas_fields_unchanged(costs: &TransferCosts) {
+        let TransferCosts {
+            without_transaction_inclusion_gas: without,
+            with_transaction_inclusion_gas: with,
+            ..
+        } = costs;
+        assert_eq!(with.gas_burnt, without.gas_burnt);
+        assert_eq!(with.compute_burnt, without.compute_burnt);
+        assert_eq!(with.gas_remaining, without.gas_remaining);
+        assert_eq!(with.receipt_gas_price, without.receipt_gas_price);
+        assert_eq!(with.deposit_cost, without.deposit_cost);
+    }
+
+    #[test]
+    fn burnt_amount_prices_transaction_inclusion_gas_when_above_gas_burnt() {
+        let costs = transfer_costs(|gas_burnt_per_byte| gas_burnt_per_byte + 1);
+        let TransferCosts {
+            without_transaction_inclusion_gas: without,
+            with_transaction_inclusion_gas: with,
+            transaction_inclusion_gas,
+            gas_price,
+        } = &costs;
+        assert!(*transaction_inclusion_gas > without.gas_burnt);
+        let transaction_inclusion_amount =
+            safe_gas_to_balance(*gas_price, *transaction_inclusion_gas).unwrap();
+        assert_eq!(with.burnt_amount, transaction_inclusion_amount);
+        let extra_burnt_amount =
+            transaction_inclusion_amount.checked_sub(without.burnt_amount).unwrap();
+        assert_eq!(with.gas_cost, without.gas_cost.checked_add(extra_burnt_amount).unwrap());
+        assert_eq!(with.total_cost, without.total_cost.checked_add(extra_burnt_amount).unwrap());
+        assert_gas_fields_unchanged(&costs);
+    }
+
+    #[test]
+    fn burnt_amount_prices_gas_burnt_when_transaction_inclusion_gas_is_not_above() {
+        let costs = transfer_costs(|gas_burnt_per_byte| gas_burnt_per_byte);
+        let TransferCosts {
+            without_transaction_inclusion_gas: without,
+            with_transaction_inclusion_gas: with,
+            transaction_inclusion_gas,
+            ..
+        } = &costs;
+        assert!(*transaction_inclusion_gas <= without.gas_burnt);
+        assert_eq!(with.burnt_amount, without.burnt_amount);
+        assert_eq!(with.total_cost, without.total_cost);
+        assert_gas_fields_unchanged(&costs);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "nightly"), ignore)]
+    fn function_call_to_other_account_at_max_size_burns_more_gas_than_transaction_inclusion_gas() {
+        let config_store = near_parameters::RuntimeConfigStore::new();
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let transaction_inclusion_gas_per_byte = config.fees.transaction_inclusion_gas_per_byte;
+        assert!(transaction_inclusion_gas_per_byte > Gas::ZERO);
+        let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
+        let function_call_with_args = |args: Vec<u8>| {
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "f".to_string(),
+                args,
+                gas: Gas::from_teragas(1),
+                deposit: Balance::ZERO,
+            }))
+        };
+        let empty_args_tx = signed_tx(KeyType::ED25519, vec![function_call_with_args(vec![])]);
+        let empty_args_tx_size = empty_args_tx.size_for_limits(PROTOCOL_VERSION);
+        let args_len = usize::try_from(max_transaction_size - empty_args_tx_size).unwrap();
+        let max_size_tx =
+            signed_tx(KeyType::ED25519, vec![function_call_with_args(vec![0; args_len])]);
+        let max_size_tx_size = max_size_tx.size_for_limits(PROTOCOL_VERSION);
+        assert_eq!(max_size_tx_size, max_transaction_size);
+
+        let gas_price = Balance::from_yoctonear(100_000_000);
+        let cost = tx_cost(config, &max_size_tx.transaction, max_size_tx_size, gas_price).unwrap();
+        let transaction_inclusion_gas =
+            transaction_inclusion_gas_per_byte.checked_mul(max_size_tx_size).unwrap();
+        assert!(cost.gas_burnt > transaction_inclusion_gas);
+        assert_eq!(cost.burnt_amount, safe_gas_to_balance(gas_price, cost.gas_burnt).unwrap());
     }
 }

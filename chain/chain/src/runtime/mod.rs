@@ -774,7 +774,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
         let tx = validated_tx.to_tx();
-        let cost = tx_cost(runtime_config, &tx, gas_price)?;
+        let tx_size = validated_tx.size_for_limits(current_protocol_version);
+        let cost = tx_cost(runtime_config, &tx, tx_size, gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
@@ -1064,6 +1065,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let cost = match tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
+                    validated_tx.size_for_limits(protocol_version),
                     prev_block.next_gas_price,
                 ) {
                     Ok(cost) => cost,

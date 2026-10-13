@@ -27,6 +27,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (88, include_config!("88.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
+    (158, include_config!("158.yaml")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.

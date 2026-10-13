@@ -88,6 +88,7 @@ mod split_storage;
 mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
+mod transaction_inclusion_gas;
 mod tx_inclusion_with_missed_chunks;
 mod universal_account_id;
 mod unknown_prev_chunk_preemption;

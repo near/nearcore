@@ -4141,7 +4141,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
-            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\nThis value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\nthe prepaid gas price might be lower than the actual gas price and it creates a deficit.\n`tokens_burnt` also contains the penalty subtracted from refunds, while\n`gas_burnt` only contains the gas that we actually burn for the execution."
+            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\nThis value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\nthe prepaid gas price might be lower than the actual gas price and it creates a deficit.\n`tokens_burnt` also contains the penalty subtracted from refunds, while\n`gas_burnt` only contains the gas that we actually burn for the execution.\nFor a transaction, `tokens_burnt` is at least its size times\n`transaction_inclusion_gas_per_byte` times the gas price."
           }
         },
         "required": [
@@ -11597,6 +11597,15 @@
               }
             ],
             "description": "Describes fees for storage."
+          },
+          "transaction_inclusion_gas_per_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "default": 0,
+            "description": "Minimum gas, per byte of a transaction, paid at the gas price when the transaction is\nconverted to a receipt. It does not add to `gas_burnt`."
           }
         },
         "title": "RuntimeFeesConfigView",

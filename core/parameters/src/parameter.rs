@@ -296,6 +296,9 @@ pub enum Parameter {
     /// of the gas cost. 0 before `PostQuantumSignatures`.
     #[strum(serialize = "ml_dsa_65_verification_cost")]
     MlDsa65VerificationCost,
+    /// Minimum gas, per byte of a transaction, paid at the gas price when the transaction is
+    /// converted to a receipt. It does not add to `gas_burnt`.
+    TransactionInclusionGasPerByte,
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,

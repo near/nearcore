@@ -522,7 +522,9 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
+        let tx_size = validated_tx.size_for_limits(PROTOCOL_VERSION);
+        let cost =
+            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), tx_size, gas_price).unwrap();
         let (mut signer, authorization) =
             get_signer_and_authorization(&state_update, &validated_tx)
                 .expect("getting signer and access key should not fail in estimator");

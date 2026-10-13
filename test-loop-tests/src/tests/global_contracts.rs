@@ -119,11 +119,14 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
     const INITIAL_BALANCE: Balance = Balance::from_near(1000);
     let mut env = GlobalContractsTestEnv::setup(INITIAL_BALANCE);
 
-    let deploy_tx_hash = env.deploy_global_contract(deploy_mode.clone());
+    let deploy_tx = env.deploy_global_contract_tx(deploy_mode.clone());
+    let deploy_tx_hash = deploy_tx.get_hash();
+    let deploy_tx_size = deploy_tx.size_for_limits(PROTOCOL_VERSION);
+    env.run_tx(deploy_tx);
     let deploy_cost = INITIAL_BALANCE
         .checked_sub(env.get_account_state(env.deploy_account.clone()).amount)
         .unwrap();
-    assert_eq!(deploy_cost, env.deploy_global_contract_total_cost());
+    assert_eq!(deploy_cost, env.deploy_global_contract_total_cost(deploy_tx_size));
 
     let receipt_id = env.env.rpc_node().tx_receipt_id(deploy_tx_hash);
     let receipt_execution_outcome = env.env.rpc_node().execution_outcome(receipt_id);
@@ -411,19 +414,22 @@ impl GlobalContractsTestEnv {
         GAS_PRICE.checked_mul(u128::from(gas_fees.as_gas())).unwrap()
     }
 
-    fn deploy_global_contract_total_cost(&self) -> Balance {
-        let contract_size = self.contract.code().len();
+    fn deploy_global_contract_total_cost(&self, tx_size: u64) -> Balance {
+        let contract_size = self.contract.code().len() as u64;
         let fees = &self.runtime_config_store.get_config(PROTOCOL_VERSION).fees;
-        let gas_fees = Self::total_action_cost(fees, ActionCosts::new_action_receipt)
-            .checked_add(Self::total_action_cost(fees, ActionCosts::deploy_global_contract_base))
-            .unwrap()
-            .checked_add(Gas::from_gas(
-                Self::total_action_cost(fees, ActionCosts::deploy_global_contract_byte).as_gas()
-                    * contract_size as u64,
-            ))
-            .unwrap();
+        let receipt_fee = &fees.action_fees[ActionCosts::new_action_receipt];
+        let base_fee = &fees.action_fees[ActionCosts::deploy_global_contract_base];
+        let byte_fee = &fees.action_fees[ActionCosts::deploy_global_contract_byte];
+        let send_gas = receipt_fee.send_fee(true).gas.as_gas()
+            + base_fee.send_fee(true).gas.as_gas()
+            + byte_fee.send_fee(true).gas.as_gas() * contract_size;
+        let transaction_inclusion_gas = fees.transaction_inclusion_gas_per_byte.as_gas() * tx_size;
+        let conversion_gas = std::cmp::max(send_gas, transaction_inclusion_gas);
+        let exec_gas = receipt_fee.exec_fee().gas.as_gas()
+            + base_fee.exec_fee().gas.as_gas()
+            + byte_fee.exec_fee().gas.as_gas() * contract_size;
         GAS_PRICE
-            .checked_mul(u128::from(gas_fees.as_gas()))
+            .checked_mul(u128::from(conversion_gas + exec_gas))
             .unwrap()
             .checked_add(self.deploy_global_contract_storage_cost())
             .unwrap()

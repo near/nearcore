@@ -1130,7 +1130,8 @@ mod tests {
                     return;
                 }
             };
-        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
+        let tx_size = validated_tx.size_for_limits(current_protocol_version);
+        let cost = match tx_cost(config, &validated_tx.to_tx(), tx_size, gas_price) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -1176,7 +1177,8 @@ mod tests {
         };
         let (mut signer, authorization) =
             get_signer_and_authorization(state_update, &validated_tx)?;
-        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
+        let tx_size = validated_tx.size_for_limits(current_protocol_version);
+        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), tx_size, gas_price)?;
         let tx = validated_tx.to_tx();
 
         let gas_key_nonce = |nonce_index| {
@@ -2468,7 +2470,8 @@ mod tests {
             CryptoHash::default(),
         );
 
-        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        let tx_size = signed_tx.size_for_limits(ProtocolFeature::GasKeys.protocol_version());
+        let tx_cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
@@ -2540,7 +2543,8 @@ mod tests {
             CryptoHash::default(),
         );
 
-        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        let tx_size = signed_tx.size_for_limits(ProtocolFeature::GasKeys.protocol_version());
+        let tx_cost = tx_cost(&config, &signed_tx.transaction, tx_size, gas_price).unwrap();
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
@@ -2638,7 +2642,8 @@ mod tests {
             CryptoHash::default(),
         );
         let tx = &signed_tx.transaction;
-        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let cost =
+            tx_cost(&config, tx, signed_tx.size_for_limits(PROTOCOL_VERSION), gas_price).unwrap();
         let verify = |pending| {
             verify_and_charge_bootstrap_tx_ephemeral(&config, &account, tx, &cost, None, &pending)
         };
@@ -2825,8 +2830,10 @@ mod tests {
             let tx = padded_tx(keys, copies).unwrap_or_else(|| {
                 panic!("{copies} actions x {keys} keys must fit in {max_size} B")
             });
-            let burnt =
-                tx_cost(config, &tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+            let tx_size = tx.size_for_limits(PROTOCOL_VERSION);
+            let burnt = tx_cost(config, &tx.transaction, tx_size, Balance::from_yoctonear(1))
+                .unwrap()
+                .gas_burnt;
             if let Err((err, _)) = validate_transaction(config, tx, PROTOCOL_VERSION) {
                 panic!(
                     "{copies} actions x {keys} keys must be a shape the validator accepts: {err}"
@@ -2871,7 +2878,8 @@ mod tests {
             validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
                 .unwrap();
         let tx = validated_tx.to_tx();
-        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let tx_size = validated_tx.size_for_limits(ProtocolFeature::GasKeys.protocol_version());
+        let cost = tx_cost(&config, &tx, tx_size, gas_price).unwrap();
         let (signer_account, authorization) =
             get_signer_and_authorization(&state_update, &validated_tx).unwrap();
         let access_key =
@@ -2937,7 +2945,8 @@ mod tests {
             validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
                 .unwrap();
         let tx = validated_tx.to_tx();
-        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let tx_size = validated_tx.size_for_limits(ProtocolFeature::GasKeys.protocol_version());
+        let cost = tx_cost(&config, &tx, tx_size, gas_price).unwrap();
         let (signer_account, authorization) =
             get_signer_and_authorization(&state_update, &validated_tx).unwrap();
         let access_key =

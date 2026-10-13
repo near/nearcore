@@ -5,7 +5,7 @@ use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
+use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex, ProtocolVersion};
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
@@ -205,6 +205,7 @@ impl PendingTransactionQueue {
         block_hash: CryptoHash,
         transactions: &[SignedTransaction],
         config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
         gas_price: Balance,
     ) {
         let mut chunk_data = PendingChunkData {
@@ -221,17 +222,18 @@ impl PendingTransactionQueue {
             let is_gas_key_tx = nonce_index.is_some();
             let key_handle = PublicKeyHandle::from(tx.public_key());
 
-            let cost = match tx_cost(config, tx, gas_price) {
-                Ok(cost) => cost,
-                Err(e) => {
-                    tracing::warn!(
-                        target: "client",
-                        ?e,
-                        "tx_cost failed for block transaction in pending transaction queue"
-                    );
-                    continue;
-                }
-            };
+            let cost =
+                match tx_cost(config, tx, signed_tx.size_for_limits(protocol_version), gas_price) {
+                    Ok(cost) => cost,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "client",
+                            ?e,
+                            "tx_cost failed for block transaction in pending transaction queue"
+                        );
+                        continue;
+                    }
+                };
 
             // Update per-account aggregates.
             let chunk_account = chunk_data.accounts.entry(signer_id.clone()).or_default();
@@ -520,6 +522,7 @@ mod tests {
     use near_primitives::transaction::{SignedTransaction, TransactionNonce};
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
+    use near_primitives::version::PROTOCOL_VERSION;
     use std::collections::BTreeSet;
     use std::slice;
 
@@ -575,7 +578,7 @@ mod tests {
         gas_price: Balance,
     ) {
         with_shard_ptq(sharded, |ptq| {
-            ptq.add_chunk_transactions(block_hash, txs, config, gas_price)
+            ptq.add_chunk_transactions(block_hash, txs, config, PROTOCOL_VERSION, gas_price)
         });
     }
 
@@ -929,7 +932,10 @@ mod tests {
         let sharded = make_sharded_ptq();
         let signer = test_signer();
         let tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        let expected_cost = tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let expected_cost =
+            tx_cost(&config, &tx.transaction, tx.size_for_limits(PROTOCOL_VERSION), TEST_GAS_PRICE)
+                .unwrap()
+                .total_cost;
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[tx], &config, TEST_GAS_PRICE);
         let mut session = make_session(&sharded);
         let next_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
@@ -950,14 +956,28 @@ mod tests {
         let sharded = make_sharded_ptq();
         let signer = test_signer();
         let tx1 = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        let expected_cost = tx_cost(&config, &tx1.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let expected_cost = tx_cost(
+            &config,
+            &tx1.transaction,
+            tx1.size_for_limits(PROTOCOL_VERSION),
+            TEST_GAS_PRICE,
+        )
+        .unwrap()
+        .total_cost;
 
         // Before adding anything, constraints should be all zero/default.
         assert!(sharded.lock().get(&TEST_SHARD_UID).is_none());
 
         // Add a chunk with two transactions.
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        let expected_cost2 = tx_cost(&config, &tx2.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let expected_cost2 = tx_cost(
+            &config,
+            &tx2.transaction,
+            tx2.size_for_limits(PROTOCOL_VERSION),
+            TEST_GAS_PRICE,
+        )
+        .unwrap()
+        .total_cost;
         let block_hash = CryptoHash::hash_bytes(&[1]);
         add_chunk_txs(&sharded, block_hash, &[tx1.clone(), tx2], &config, TEST_GAS_PRICE);
         with_shard_ptq(&sharded, |ptq| {

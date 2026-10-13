@@ -2077,6 +2077,8 @@ pub struct ExecutionOutcomeView {
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     /// `tokens_burnt` also contains the penalty subtracted from refunds, while
     /// `gas_burnt` only contains the gas that we actually burn for the execution.
+    /// For a transaction, `tokens_burnt` is at least its size times
+    /// `transaction_inclusion_gas_per_byte` times the gas price.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.

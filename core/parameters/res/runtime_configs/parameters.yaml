@@ -407,6 +407,8 @@ deploy_global_contract_execution_per_byte: 250_000_000
 # triggers. 0 until PostQuantumSignatures activates (see 85.yaml).
 ml_dsa_65_verification_cost: 0
 
+transaction_inclusion_gas_per_byte: 0
+
 action_use_global_contract: {
   send_sir: 184_765_750_000,
   send_not_sir: 184_765_750_000,

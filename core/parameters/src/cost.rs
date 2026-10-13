@@ -611,6 +611,10 @@ pub struct RuntimeFeesConfig {
     /// contracts are unaffected (no signing there). All 0 before
     /// `PostQuantumSignatures`.
     pub signature_verification_costs: EnumMap<SignatureKind, ParameterCost>,
+
+    /// Minimum gas, per byte of a transaction, paid at the gas price when the transaction is
+    /// converted to a receipt. It does not add to `gas_burnt`.
+    pub transaction_inclusion_gas_per_byte: Gas,
 }
 
 /// Describes cost of storage per block
@@ -694,6 +698,7 @@ impl RuntimeFeesConfig {
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
             signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
+            transaction_inclusion_gas_per_byte: Gas::ZERO,
         }
     }
 
@@ -715,6 +720,7 @@ impl RuntimeFeesConfig {
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
             signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
+            transaction_inclusion_gas_per_byte: Gas::ZERO,
         }
     }
 
