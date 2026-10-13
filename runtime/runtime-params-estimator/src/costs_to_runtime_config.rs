@@ -61,6 +61,19 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         })
     };
 
+    // For fees that are estimated for send and execution separately.
+    let split_fee = |send_sir: Cost, send_not_sir: Cost, execution: Cost| -> anyhow::Result<Fee> {
+        let component = |cost: Cost| -> anyhow::Result<FeeComponent> {
+            let gas = cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
+            Ok(FeeComponent::Gas(gas))
+        };
+        Ok(Fee {
+            send_sir: component(send_sir)?,
+            send_not_sir: component(send_not_sir)?,
+            execution: component(execution)?,
+        })
+    };
+
     let config_store = RuntimeConfigStore::new(None);
     let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).fees;
     let res = RuntimeFeesConfig {
@@ -92,13 +105,19 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::gas_key_transfer_base => actual_fees_config.fee(ActionCosts::gas_key_transfer_base).clone(),
             ActionCosts::gas_key_byte => actual_fees_config.fee(ActionCosts::gas_key_byte).clone(),
             ActionCosts::gas_key_nonce_write_base => actual_fees_config.fee(ActionCosts::gas_key_nonce_write_base).clone(),
-            // The universal state init costs are estimated (`Cost::ActionUniversalStateInit*`,
-            // send and exec separately), but the config keeps the values from the config
-            // store, since the base fee is not estimated and the estimates are not split
-            // as the config expects.
+            // The base fee has no estimator, so it keeps the value from the config store. The
+            // per-byte and per-entry fees are estimated for send and execution separately.
             ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
-            ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
-            ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
+            ActionCosts::universal_state_init_byte => split_fee(
+                Cost::ActionUniversalStateInitPerByteSendSir,
+                Cost::ActionUniversalStateInitPerByteSendNotSir,
+                Cost::ActionUniversalStateInitPerByteExec,
+            )?,
+            ActionCosts::universal_state_init_entry => split_fee(
+                Cost::ActionUniversalStateInitPerEntrySendSir,
+                Cost::ActionUniversalStateInitPerEntrySendNotSir,
+                Cost::ActionUniversalStateInitPerEntryExec,
+            )?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

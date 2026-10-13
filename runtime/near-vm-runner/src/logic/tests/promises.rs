@@ -12,7 +12,6 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, Gas, GasWeight};
-use near_primitives_core::universal_state_init::DecodeMode;
 
 fn test_public_key() -> PublicKey {
     "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
@@ -611,32 +610,6 @@ fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
         0,
         "the host must not be asked to decode before the bytes are paid for"
     );
-}
-
-/// How a payload is decoded for pricing follows the `canonical_universal_state_init` flag
-/// of the config, so it flips with the protocol version like the fees do.
-#[test]
-fn test_promise_batch_action_universal_state_init_decode_mode_follows_canonical_flag() {
-    for (canonical, mode) in [(false, DecodeMode::Lenient), (true, DecodeMode::Strict)] {
-        let mut logic_builder = VMLogicBuilder::default();
-        logic_builder.config.canonical_universal_state_init = canonical;
-        let mut logic = logic_builder.build();
-
-        let receiver = "rick.test";
-        let index = promise_batch_create(&mut logic, &receiver).expect("should create a promise");
-        let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
-        let amount = logic.internal_mem_write(&0u128.to_le_bytes());
-        logic
-            .promise_batch_action_universal_state_init(
-                index,
-                state_init.len,
-                state_init.ptr,
-                amount.ptr,
-            )
-            .expect("should add the action");
-
-        assert_eq!(logic_builder.ext.state_init_counts_mode.get(), Some(mode));
-    }
 }
 
 #[test]

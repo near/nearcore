@@ -180,10 +180,10 @@ impl ExtCostsConfig {
             ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
             // Decode and canonical re-encode, then sha3_256 and the base32 encoding. See
-            // the calibration note in `parameters.yaml`. Rounded up to a multiple of
+            // the calibration note in `88.yaml`. Rounded up to a multiple of
             // `SAFETY_MULTIPLIER`.
             ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2966666667,
-            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 22166667,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 27_700_000,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,

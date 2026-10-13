@@ -9,8 +9,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
 use near_primitives::universal_state_init::{
-    DecodeMode, RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitCounts,
-    state_init_counts,
+    RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitCounts, state_init_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -481,12 +480,8 @@ impl<'a> External for RuntimeExt<'a> {
         UniversalStateInit::from_raw_strict(state_init).map(|_| ())
     }
 
-    fn state_init_counts(
-        &self,
-        state_init: &RawStateInit,
-        mode: DecodeMode,
-    ) -> UniversalStateInitCounts {
-        state_init_counts(state_init, mode)
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
+        state_init_counts(state_init)
     }
 
     fn append_action_universal_state_init(

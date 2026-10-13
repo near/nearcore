@@ -3404,7 +3404,7 @@ pub fn promise_batch_action_universal_state_init(
     // the action exists, so a failed charge never leaves one behind on the receipt.
     let num_bytes = state_init.0.len() as u64;
     pay_universal_state_init_terms(ctx, universal_state_init_size_terms(num_bytes), sir)?;
-    let counts = ctx.ext.state_init_counts(&state_init, ctx.config.state_init_decode_mode());
+    let counts = ctx.ext.state_init_counts(&state_init);
     debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
     pay_universal_state_init_terms(ctx, universal_state_init_content_terms(counts), sir)?;
 

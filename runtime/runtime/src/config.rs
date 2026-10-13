@@ -15,7 +15,7 @@ use near_parameters::{
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
-use near_primitives::universal_state_init::{DecodeMode, RawStateInit, state_init_counts};
+use near_primitives::universal_state_init::{RawStateInit, state_init_counts};
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -212,12 +212,11 @@ pub fn total_send_fees(
                 gas_key_send_pk_len(config, &action.public_key),
             )
             .total(),
-            UniversalStateInit(action) => universal_state_init_fee(
-                fees,
-                &action.state_init,
-                config.wasm_config.state_init_decode_mode(),
-                |fee| fee.send_fee(sender_is_receiver),
-            )?,
+            UniversalStateInit(action) => {
+                universal_state_init_fee(fees, &action.state_init, |fee| {
+                    fee.send_fee(sender_is_receiver)
+                })?
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -231,10 +230,6 @@ pub fn total_send_fees(
 /// decoded form would let a large payload that collapses to nothing ride along for
 /// the base fee alone.
 ///
-/// `mode` is `state_init_decode_mode` of the VM config. In `Strict` mode, from
-/// `CanonicalUniversalStateInit` on, a payload that is not canonical describes no
-/// entries and no keys, like one that does not decode.
-///
 /// The terms come from `near_parameters`, shared with the VM host function that
 /// lets a contract create this action, so what a contract prepays is what the
 /// action is charged when it runs.
@@ -247,10 +242,9 @@ pub fn total_send_fees(
 fn universal_state_init_fee(
     fees: &RuntimeFeesConfig,
     state_init: &RawStateInit,
-    mode: DecodeMode,
     rate: impl Fn(&Fee) -> ParameterCost,
 ) -> Result<ParameterCost, IntegerOverflowError> {
-    let counts = state_init_counts(state_init, mode);
+    let counts = state_init_counts(state_init);
     universal_state_init_size_terms(counts.num_bytes)
         .into_iter()
         .chain(universal_state_init_content_terms(counts))
@@ -410,12 +404,9 @@ pub fn exec_fee(
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
-        UniversalStateInit(action) => universal_state_init_fee(
-            fees,
-            &action.state_init,
-            config.wasm_config.state_init_decode_mode(),
-            Fee::exec_fee,
-        )?,
+        UniversalStateInit(action) => {
+            universal_state_init_fee(fees, &action.state_init, Fee::exec_fee)?
+        }
         TransferToGasKey(action) => {
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
@@ -933,8 +924,7 @@ mod tests {
         // bytes + 2 entries + 2 keys.
         let num_bytes = state_init.0.len() as u64;
         let fees = universal_state_init_fees(1, &[]);
-        let ok = universal_state_init_fee(&fees, &state_init, DecodeMode::Strict, Fee::exec_fee)
-            .unwrap();
+        let ok = universal_state_init_fee(&fees, &state_init, Fee::exec_fee).unwrap();
         assert_eq!(ok.gas, Gas::from_gas(1 + num_bytes + 2 + 2));
 
         // Priced at u64::MAX, each count-multiplied term overflows on its own...
@@ -945,7 +935,7 @@ mod tests {
         ] {
             let fees = universal_state_init_fees(0, &[cost]);
             assert_eq!(
-                universal_state_init_fee(&fees, &state_init, DecodeMode::Strict, Fee::exec_fee),
+                universal_state_init_fee(&fees, &state_init, Fee::exec_fee),
                 Err(IntegerOverflowError)
             );
         }
@@ -953,7 +943,7 @@ mod tests {
         // ...and the summation overflows on the base term, whose count is one.
         let fees = universal_state_init_fees(1, &[ActionCosts::universal_state_init_base]);
         assert_eq!(
-            universal_state_init_fee(&fees, &state_init, DecodeMode::Strict, Fee::exec_fee),
+            universal_state_init_fee(&fees, &state_init, Fee::exec_fee),
             Err(IntegerOverflowError)
         );
 
@@ -964,16 +954,14 @@ mod tests {
             &[ActionCosts::universal_state_init_entry, ActionCosts::add_full_access_key],
         );
         let malformed = RawStateInit(vec![7, 7, 7]);
-        let bytes_only =
-            universal_state_init_fee(&fees, &malformed, DecodeMode::Strict, Fee::exec_fee).unwrap();
+        let bytes_only = universal_state_init_fee(&fees, &malformed, Fee::exec_fee).unwrap();
         assert_eq!(bytes_only.gas, Gas::from_gas(1 + 3));
     }
 
-    /// Whether a payload that decodes but is not canonical describes any entries follows the
-    /// decode mode: it is priced on what it decodes to when lenient, and on its bytes alone
-    /// when strict.
+    /// A payload that decodes but is not canonical is priced on what it decodes to, like a
+    /// canonical one: the host did the same decoding for it, and sorted out-of-order keys too.
     #[test]
-    fn universal_state_init_fee_follows_decode_mode() {
+    fn universal_state_init_fee_counts_non_canonical_payload() {
         let mut bytes = vec![0u8, 0u8]; // V1, code: None
         bytes.extend_from_slice(&2u32.to_le_bytes()); // data: two entries, out of order
         for key in [b'b', b'a'] {
@@ -986,11 +974,7 @@ mod tests {
         let num_bytes = unsorted.0.len() as u64;
 
         let fees = universal_state_init_fees(1, &[]);
-        let before =
-            universal_state_init_fee(&fees, &unsorted, DecodeMode::Lenient, Fee::exec_fee).unwrap();
-        assert_eq!(before.gas, Gas::from_gas(1 + num_bytes + 2));
-        let after =
-            universal_state_init_fee(&fees, &unsorted, DecodeMode::Strict, Fee::exec_fee).unwrap();
-        assert_eq!(after.gas, Gas::from_gas(1 + num_bytes));
+        let fee = universal_state_init_fee(&fees, &unsorted, Fee::exec_fee).unwrap();
+        assert_eq!(fee.gas, Gas::from_gas(1 + num_bytes + 2));
     }
 }

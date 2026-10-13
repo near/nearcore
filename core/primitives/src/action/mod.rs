@@ -5,7 +5,7 @@ pub mod delegate;
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit,
     trie_key::GlobalContractCodeIdentifier,
-    universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit, state_init_counts},
+    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -512,12 +512,10 @@ impl Action {
     /// decode of the payload, and keeping them in one accessor is what stops the
     /// two limits drifting apart.
     ///
-    /// `mode` is how a payload is decoded, see [`state_init_counts`].
-    ///
     /// Exhaustive by design, so that a new action variant has to make the
     /// decision explicitly rather than silently counting as zero. Do not
     /// collapse the arms into a wildcard.
-    pub fn state_init_counts(&self, mode: DecodeMode) -> StateInitCounts {
+    pub fn state_init_counts(&self) -> StateInitCounts {
         match self {
             // Carries a state init directly. A payload that does not decode
             // describes nothing as far as this is concerned; it is rejected by
@@ -526,7 +524,7 @@ impl Action {
                 StateInitCounts { entries: a.state_init.data().len() as u64, keys: 0 }
             }
             Action::UniversalStateInit(a) => {
-                let counts = state_init_counts(&a.state_init, mode);
+                let counts = state_init_counts(&a.state_init);
                 StateInitCounts { entries: counts.num_entries, keys: counts.num_keys }
             }
             // Recursive: the inner actions become their own receipt, but the
@@ -536,13 +534,13 @@ impl Action {
                 .delegate_action
                 .get_actions()
                 .iter()
-                .map(|action| action.state_init_counts(mode))
+                .map(Action::state_init_counts)
                 .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
             Action::DelegateV2(sda) => sda
                 .delegate_action
                 .get_actions()
                 .iter()
-                .map(|action| action.state_init_counts(mode))
+                .map(Action::state_init_counts)
                 .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
             // No state init anywhere in these.
             Action::CreateAccount(_)

@@ -323,8 +323,8 @@ impl Config {
         s.finish()
     }
 
-    /// How a universal state init is decoded when it is priced: `Strict` once
-    /// `canonical_universal_state_init` is on.
+    /// How the host function `universal_state_init_to_account_id` checks its bytes: `Strict`
+    /// once `canonical_universal_state_init` is on, and `Lenient` before.
     pub fn state_init_decode_mode(&self) -> DecodeMode {
         DecodeMode::strict_if(self.canonical_universal_state_init)
     }

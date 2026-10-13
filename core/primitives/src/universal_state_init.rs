@@ -20,8 +20,9 @@
 //! Before the feature, any well-formed borsh encoding was accepted, and a
 //! non-canonical one simply hashed to a different id. That is
 //! [`UniversalStateInit::from_raw_lenient`]. Which of the two applies is a protocol
-//! decision, so callers on the validity, gas or state path pick one through
-//! [`UniversalStateInit::from_raw`] and a [`DecodeMode`].
+//! decision, so callers on the validity or state path pick one through
+//! [`UniversalStateInit::from_raw`] and a [`DecodeMode`]. Pricing does not: what a
+//! payload is priced on is the same under both, see [`state_init_counts`].
 //!
 //! This is host-only (it embeds `near-crypto` key handles). The crypto-free wire
 //! form [`RawStateInit`] lives in `near-primitives-core` and is re-exported here.
@@ -144,7 +145,8 @@ impl UniversalStateInit {
     /// Rejects only malformed or trailing bytes. A non-canonical encoding of the same logical
     /// value is accepted and hashes to a different id. This is what the protocol did before
     /// `CanonicalUniversalStateInit`, so it stays for everything that has to behave as it did
-    /// then, and for callers that are not part of consensus.
+    /// then, for pricing (see [`state_init_counts`]), and for callers that are not part of
+    /// consensus.
     pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
         Self::try_from_slice(&raw.0).map_err(|_| StateInitError::Malformed)
     }
@@ -155,22 +157,25 @@ impl UniversalStateInit {
 /// The byte count is the payload's own length, not that of the decoded state, so
 /// it is what the host actually had to read and decode.
 ///
-/// The entry and key counts come from [`UniversalStateInit::from_raw`], and bytes
-/// it rejects describe no entries and no keys. In `Strict` mode that includes
-/// bytes that are not the canonical encoding. That arm is reachable and priced: a
-/// contract can hand `promise_batch_action_universal_state_init` anything at all, and
-/// it pays for the bytes it made the host read before new-receipt validation turns
-/// them into `MalformedUniversalStateInit`. Base and per-byte is what that work
-/// amounts to.
+/// The entry and key counts are those of [`UniversalStateInit::from_raw_lenient`], whether
+/// or not the encoding is canonical. A non-canonical payload costs as much to decode as a
+/// canonical one, and more when its keys are out of order, since they are sorted, so it
+/// pays the per-entry and per-key fees for what it decodes to.
 ///
-/// Gas therefore depends on what is accepted, so `mode` has to come from the
-/// protocol version (the `canonical_universal_state_init` config flag), and a new
-/// [`UniversalStateInit`] variant has to arrive behind a protocol feature: two nodes
-/// on one protocol version that disagree about whether a payload is accepted would
-/// charge different gas for it. Validity already carried that requirement, since
-/// `validate_universal_state_init` rejects the same payloads; gas now shares it.
-pub fn state_init_counts(raw: &RawStateInit, mode: DecodeMode) -> UniversalStateInitCounts {
-    let (num_entries, num_keys) = match UniversalStateInit::from_raw(raw, mode) {
+/// Bytes that do not decode describe no entries and no keys. That arm is reachable: a
+/// contract can hand `promise_batch_action_universal_state_init` anything at all, and it
+/// pays for the bytes it made the host read before new-receipt validation turns them
+/// into `MalformedUniversalStateInit`. The host did decode work for them as well, most of
+/// a full decode when the failure is near the end, but there is no count to charge it on,
+/// so base and per-byte is what that work amounts to.
+///
+/// Gas therefore depends on what decodes, so a new [`UniversalStateInit`] variant has to
+/// arrive behind a protocol feature: two nodes on one protocol version that disagree
+/// about whether a payload decodes would charge different gas for it. Validity already
+/// carried that requirement, since `validate_universal_state_init` rejects what does not
+/// decode; gas shares it.
+pub fn state_init_counts(raw: &RawStateInit) -> UniversalStateInitCounts {
+    let (num_entries, num_keys) = match UniversalStateInit::from_raw_lenient(raw) {
         Ok(state_init) => (state_init.data().len() as u64, state_init.access_keys().len() as u64),
         Err(_) => (0, 0),
     };
@@ -380,26 +385,24 @@ mod tests {
         assert_eq!(DecodeMode::strict_if(false), DecodeMode::Lenient);
     }
 
-    /// What a non-canonical payload is priced on depends on whether it is accepted.
+    /// A payload is priced on what it decodes to, canonical or not. Only bytes that do not
+    /// decode describe nothing.
     #[test]
-    fn state_init_counts_follow_the_mode() {
+    fn state_init_counts_count_what_decodes() {
         let raw = v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]);
-        let num_bytes = raw.0.len() as u64;
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
         assert_eq!(
-            state_init_counts(&raw, DecodeMode::Lenient),
-            UniversalStateInitCounts { num_bytes, num_entries: 2, num_keys: 2 }
+            state_init_counts(&raw),
+            UniversalStateInitCounts { num_bytes: raw.0.len() as u64, num_entries: 2, num_keys: 2 }
         );
-        assert_eq!(
-            state_init_counts(&raw, DecodeMode::Strict),
-            UniversalStateInitCounts { num_bytes, num_entries: 0, num_keys: 0 }
-        );
+        // Duplicates collapse on decode, so they count once.
+        let duplicated = v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]);
+        assert_eq!(state_init_counts(&duplicated).num_entries, 1);
         // The bytes are priced whether or not they decode.
         let garbage = RawStateInit(vec![9; 5]);
-        for mode in [DecodeMode::Lenient, DecodeMode::Strict] {
-            assert_eq!(
-                state_init_counts(&garbage, mode),
-                UniversalStateInitCounts { num_bytes: 5, num_entries: 0, num_keys: 0 }
-            );
-        }
+        assert_eq!(
+            state_init_counts(&garbage),
+            UniversalStateInitCounts { num_bytes: 5, num_entries: 0, num_keys: 0 }
+        );
     }
 }

@@ -49,10 +49,16 @@ action_universal_state_init_per_byte: {
 # measured in the same run, so each cost inherits sha3_256's safety margin by scaling its
 # committed value by the instruction ratio, rounded up:
 # base: 5_879_491_275 * 12_978.61 / 8_579.23 = 8_894_460_721.6
-# byte: 21_471_105 * 107.78 / 34.80 = 66_498_726.9
+#       5_879_491_275 * 13_799.50 / 9_250.40 = 8_770_868_270.5 (a later run)
+# The larger one is kept, rounded up.
+# byte: 21_471_105 * 134.94 / 34.87 = 83_088_927.7, rounded up.
 # The byte input is a dense payload of many tiny map entries (852 entries in 10_234
 # bytes), since decoding and re-encoding costs a map insertion per entry. A single large
-# value is much cheaper per byte. Shorter keys and out-of-order keys can cost more still,
-# and are covered by the inherited margin, not measured.
+# value is much cheaper per byte. Two shapes of it are measured, and the slower one sets
+# the fee: keys in ascending order, which is canonical, and the same keys in pseudo-random
+# order, which are sorted while the payload is decoded and then rejected as not canonical,
+# without being hashed. The ascending keys alone measured 107.78 instructions per byte.
+# Entries with shorter keys or small non-empty values are denser and cost more per byte.
+# They are not measured.
 wasm_universal_state_init_to_account_id_base: { old: 8_520_000_000, new: 8_900_000_000 }
-wasm_universal_state_init_to_account_id_byte: { old: 21_471_105, new: 66_500_000 }
+wasm_universal_state_init_to_account_id_byte: { old: 21_471_105, new: 83_100_000 }

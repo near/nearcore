@@ -628,32 +628,40 @@ pub unsafe fn universal_state_init_to_account_id_10b_10k() {
     }
     assert_eq!(status, 0);
 }
+// The dense state init that the two functions below derive an id from: V1 tag, `code: None`,
+// a data map of 852 empty values under 4-byte keys, and an empty access-key set. It is
+// hand-assembled because the typed struct lives in host-only crates. The layout is mirrored
+// by `UNIVERSAL_STATE_INIT_DENSE_BYTES` in the estimator (`runtime-params-estimator/src/lib.rs`).
+const DENSE_STATE_INIT_ENTRIES: usize = 852;
+const DENSE_STATE_INIT_ENTRY_LEN: usize = 4 + 4 + 4; // key length, key, value length
+const DENSE_STATE_INIT_LEN: usize = 2 + 4 + DENSE_STATE_INIT_ENTRIES * DENSE_STATE_INIT_ENTRY_LEN + 4;
+
+// `key_of(i)` is the key of the i-th entry written, in the order the entries are written.
+fn dense_state_init(key_of: impl Fn(u32) -> u32) -> [u8; DENSE_STATE_INIT_LEN] {
+    let mut buffer = [0u8; DENSE_STATE_INIT_LEN];
+    buffer[2..6].copy_from_slice(&(DENSE_STATE_INIT_ENTRIES as u32).to_le_bytes());
+    for i in 0..DENSE_STATE_INIT_ENTRIES {
+        let at = 6 + i * DENSE_STATE_INIT_ENTRY_LEN;
+        buffer[at..at + 4].copy_from_slice(&4u32.to_le_bytes());
+        buffer[at + 4..at + 8].copy_from_slice(&key_of(i as u32).to_be_bytes());
+    }
+    buffer
+}
+
 // Derive an account id from a ~10kib state init 10k times.
 //
 // The host function decodes the payload and checks that it re-encodes to the same
 // bytes, so the per-byte cost depends on its shape. A single large value is the
 // cheapest to decode; many tiny entries are far more expensive per byte (a map
-// insertion and allocation per entry), so a dense payload is measured. It is not
-// the absolute worst: shorter keys pack more entries per byte, and out-of-order
-// keys are sorted before being rejected. Those are covered by the margin inherited
-// from the sha3_256 anchor, not measured. The layout is mirrored by
-// `iteration_bytes` in `universal_state_init_to_account_id_byte` in the estimator
-// (`runtime-params-estimator/src/lib.rs`). Hand-assembled
-// because the typed struct lives in host-only crates: V1 tag, `code: None`, a data
-// map of empty values under sorted 4-byte keys, and an empty access-key set.
+// insertion and allocation per entry), so a dense payload is measured. The keys are in
+// ascending order, so this is canonical, and it is also the fast path for building the
+// map. Out-of-order keys are measured by `universal_state_init_to_account_id_10kib_10k_unsorted`.
+// The shape is not the densest possible: keys shorter than 4 bytes, or small non-empty
+// values, pack more entries per byte and cost more per byte. They are not measured.
 #[unsafe(no_mangle)]
 pub unsafe fn universal_state_init_to_account_id_10kib_10k() {
-    const ENTRIES: usize = 852;
-    const ENTRY_LEN: usize = 4 + 4 + 4; // key length, key, value length
-    const LEN: usize = 2 + 4 + ENTRIES * ENTRY_LEN + 4;
-    let mut buffer = [0u8; LEN];
-    buffer[2..6].copy_from_slice(&(ENTRIES as u32).to_le_bytes());
-    for i in 0..ENTRIES {
-        let at = 6 + i * ENTRY_LEN;
-        buffer[at..at + 4].copy_from_slice(&4u32.to_le_bytes());
-        // Big-endian, so that the keys are in ascending order.
-        buffer[at + 4..at + 8].copy_from_slice(&(i as u32).to_be_bytes());
-    }
+    // Big-endian keys, so that they are in ascending order.
+    let buffer = dense_state_init(|i| i);
     // Fail loudly if the payload ever stops being accepted: the loop would then time
     // the cheap rejection path instead. The call count must stay exactly 10_000, so
     // the statuses are collected and checked after the loop.
@@ -666,6 +674,30 @@ pub unsafe fn universal_state_init_to_account_id_10kib_10k() {
         );
     }
     assert_eq!(status, 0);
+}
+// Derive an account id from a ~10kib state init with its keys out of order 10k times.
+//
+// The same entries as `universal_state_init_to_account_id_10kib_10k`, in a pseudo-random
+// order. Building a `BTreeMap` from input that is already sorted is the cheap path, since
+// the entries only have to be sorted when they are not, so this is what a user can send to
+// make decoding more expensive. The host function rejects it as not canonical (status 2),
+// after decoding it and re-encoding the result, but before hashing it.
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init_to_account_id_10kib_10k_unsorted() {
+    // Multiplying by an odd constant is a bijection on `u32`, so the keys are distinct.
+    let buffer = dense_state_init(|i| i.wrapping_mul(2_654_435_761));
+    // Fail loudly if the payload ever stops being rejected as non-canonical, since the
+    // loop would then time something else. Any call that returns another status shows up
+    // in `wrong`.
+    let mut wrong = 0;
+    for _ in 0..10_000 {
+        wrong |= 2 ^ universal_state_init_to_account_id(
+            buffer.len() as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
+    }
+    assert_eq!(wrong, 0);
 }
 
 // Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,

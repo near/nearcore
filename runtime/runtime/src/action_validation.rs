@@ -48,14 +48,10 @@ fn validate_number_of_deploy_actions(
 fn validate_state_init_counts(
     actions: &[Action],
     limit_config: &LimitConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    let decode_mode = DecodeMode::strict_if(
-        ProtocolFeature::CanonicalUniversalStateInit.enabled(current_protocol_version),
-    );
     let counts = actions
         .iter()
-        .map(|action| action.state_init_counts(decode_mode))
+        .map(Action::state_init_counts)
         .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add);
 
     if counts.entries > limit_config.max_state_init_entries {
@@ -134,7 +130,7 @@ pub(crate) fn validate_actions_with_mode(
         // `DeterministicStateInit` predates the entry limit, so it is applied to newly
         // created receipts only. A receipt built before the limit took effect has to
         // keep executing.
-        validate_state_init_counts(actions, limit_config, current_protocol_version)?;
+        validate_state_init_counts(actions, limit_config)?;
     }
 
     let mut found_delegate_action = false;
@@ -1752,10 +1748,11 @@ mod tests {
         }
     }
 
-    /// What a non-canonical payload counts as follows the version too, so the receipt limits
-    /// see what the fees see: the entries it decodes to before the feature, none after.
+    /// A non-canonical payload counts what it decodes to, at every version, so the receipt
+    /// limits see what the fees see. It is the limit that turns it away here, and not the
+    /// check that it is canonical, which comes after.
     #[test]
-    fn test_validate_state_init_counts_non_canonical_by_version() {
+    fn test_validate_state_init_counts_non_canonical_counts_what_decodes() {
         let mut limit = test_limit_config();
         limit.max_state_init_entries = 1;
         let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
@@ -1763,18 +1760,16 @@ mod tests {
         let actions = [action];
 
         // Two entries against a limit of one.
-        assert_eq!(
-            validate_actions(&limit, &actions, &receiver, canonical_version - 1),
-            Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
-                number_of_entries: 2,
-                limit: 1,
-            })
-        );
-        // Counted as nothing, so the payload is turned away for what it is.
-        assert_eq!(
-            validate_actions(&limit, &actions, &receiver, canonical_version),
-            Err(ActionsValidationError::MalformedUniversalStateInit)
-        );
+        for version in [canonical_version - 1, canonical_version] {
+            assert_eq!(
+                validate_actions(&limit, &actions, &receiver, version),
+                Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                    number_of_entries: 2,
+                    limit: 1,
+                }),
+                "version {version}"
+            );
+        }
     }
 
     /// `copies` byte-identical state-init actions, all addressed to the receiver
