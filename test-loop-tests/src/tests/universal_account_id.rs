@@ -24,7 +24,9 @@ use near_crypto::{
     InMemorySigner, KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey,
 };
 use near_o11y::testonly::init_test_logger;
-use near_parameters::RuntimeConfigStore;
+use near_parameters::{
+    RuntimeConfigStore, universal_state_init_content_terms, universal_state_init_size_terms,
+};
 use near_primitives::account::{AccessKey, AccountState};
 use near_primitives::action::{
     Action, AddKeyAction, GlobalContractDeployMode, GlobalContractIdentifier, StakeAction,
@@ -41,7 +43,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion};
 use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    DecodeMode, RawStateInit, UniversalStateInit, UniversalStateInitCounts, UniversalStateInitV1,
+    state_init_counts, state_init_send_counts,
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_universal_account_id;
@@ -677,6 +680,50 @@ fn test_universal_state_init_non_canonical_from_contract_by_version() {
             assert!(env.try_view_account(&account).is_err(), "version {version}");
         }
     }
+}
+
+/// A contract that passes a payload to the action that is going to be rejected is charged as if
+/// it held as many entries and keys as its length allows, not for what it decodes to. A payload
+/// of repeated entries decodes to one entry, so counting what decodes would let it through for
+/// the byte fee alone.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_from_contract_is_charged_for_its_length() {
+    init_test_logger();
+    let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+    let mut env = Env::setup_at(version);
+
+    // 200 copies of one empty entry, and no access keys.
+    let mut bytes = vec![0, 0];
+    bytes.extend_from_slice(&200u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 200 * 8]);
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    let raw = RawStateInit(bytes);
+    assert_eq!(state_init_counts(&raw).num_entries, 1, "fixture must collapse on decode");
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err(), "fixture must be non-canonical");
+    let account = derive_universal_account_id(&raw);
+
+    let outcome = env.deploy_and_call_outcome(create_without_derive_wasm(&raw.0, &account));
+
+    let FinalExecutionStatus::Failure(error) = &outcome.status else {
+        panic!("a non-canonical state init must fail, got {outcome:?}");
+    };
+    assert!(format!("{error:?}").contains("MalformedUniversalStateInit"), "{error:?}");
+
+    let config = RuntimeConfigStore::new(None).get_config(version).clone();
+    let send_fee = |counts: UniversalStateInitCounts| {
+        universal_state_init_size_terms(counts.num_bytes)
+            .into_iter()
+            .chain(universal_state_init_content_terms(counts))
+            .map(|(cost, units)| config.fees.fee(cost).send_fee(false).gas.as_gas() * units)
+            .sum::<u64>()
+    };
+    let charged = send_fee(state_init_send_counts(&raw, DecodeMode::Strict));
+    let decoded = send_fee(state_init_counts(&raw));
+    assert!(charged > decoded + Gas::from_teragas(1).as_gas(), "{charged} vs {decoded}");
+    // The call burns the fees and a little besides.
+    let gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt.as_gas();
+    assert!(gas_burnt >= charged, "burnt {gas_burnt}, send fee for what it could hold {charged}");
 }
 
 /// The protocol version the block was produced under.

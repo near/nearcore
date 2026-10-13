@@ -21,8 +21,10 @@
 //! non-canonical one simply hashed to a different id. That is
 //! [`UniversalStateInit::from_raw_lenient`]. Which of the two applies is a protocol
 //! decision, so callers on the validity or state path pick one through
-//! [`UniversalStateInit::from_raw`] and a [`DecodeMode`]. Pricing does not: what a
-//! payload is priced on is the same under both, see [`state_init_counts`].
+//! [`UniversalStateInit::from_raw`] and a [`DecodeMode`]. Pricing an action that exists
+//! does not: what it is priced on is the same under both, see [`state_init_counts`]. Only
+//! what a contract is charged for bytes it has not had validated yet depends on the mode,
+//! see [`state_init_send_counts`].
 //!
 //! This is host-only (it embeds `near-crypto` key handles). The crypto-free wire
 //! form [`RawStateInit`] lives in `near-primitives-core` and is re-exported here.
@@ -152,34 +154,70 @@ impl UniversalStateInit {
     }
 }
 
-/// The counts a `UniversalStateInit` action is priced on.
+/// The counts for which an *existing* `UniversalStateInit` is priced: the payload's own
+/// length, and the entries and keys it decodes to. Bytes that do not decode count as zero keys
+/// and entries, since validation rejects them.
 ///
-/// The byte count is the payload's own length, not that of the decoded state, so
-/// it is what the host actually had to read and decode.
+/// Receipts created under earlier protocol versions are re-priced from this (for refunds,
+/// among other things), so it must give the same answer on every version. This is why it
+/// does not accept [`DecodeMode`] parameter, always using lenient decoding. For the charge
+/// at send time see [`state_init_send_counts`].
 ///
-/// The entry and key counts are those of [`UniversalStateInit::from_raw_lenient`], whether
-/// or not the encoding is canonical. A non-canonical payload costs as much to decode as a
-/// canonical one, and more when its keys are out of order, since they are sorted, so it
-/// pays the per-entry and per-key fees for what it decodes to.
-///
-/// Bytes that do not decode describe no entries and no keys. That arm is reachable: a
-/// contract can hand `promise_batch_action_universal_state_init` anything at all, and it
-/// pays for the bytes it made the host read before new-receipt validation turns them
-/// into `MalformedUniversalStateInit`. The host did decode work for them as well, most of
-/// a full decode when the failure is near the end, but there is no count to charge it on,
-/// so base and per-byte is what that work amounts to.
-///
-/// Gas therefore depends on what decodes, so a new [`UniversalStateInit`] variant has to
-/// arrive behind a protocol feature: two nodes on one protocol version that disagree
-/// about whether a payload decodes would charge different gas for it. Validity already
-/// carried that requirement, since `validate_universal_state_init` rejects what does not
-/// decode; gas shares it.
+/// Gas depends on what decodes, so a new [`UniversalStateInit`] variant needs a protocol
+/// feature, as validity already does.
 pub fn state_init_counts(raw: &RawStateInit) -> UniversalStateInitCounts {
-    let (num_entries, num_keys) = match UniversalStateInit::from_raw_lenient(raw) {
-        Ok(state_init) => (state_init.data().len() as u64, state_init.access_keys().len() as u64),
-        Err(_) => (0, 0),
-    };
-    UniversalStateInitCounts { num_bytes: raw.0.len() as u64, num_entries, num_keys }
+    match UniversalStateInit::from_raw_lenient(raw) {
+        Ok(state_init) => decoded_counts(raw, &state_init),
+        Err(_) => UniversalStateInitCounts { num_bytes: raw.0.len() as u64, ..Default::default() },
+    }
+}
+
+/// The counts a contract is charged for a payload it passes to
+/// `promise_batch_action_universal_state_init`, before validation.
+///
+/// In `Lenient` mode this is the same as [`state_init_counts`]. In `Strict` mode, any payload
+/// that does not decode or is non-canonical, is charged for as many entries and keys as its
+/// length could hold. That is because in pessimistic case the decoder needs to parse all the
+/// bytes, even when the input is rejected.
+///
+/// Only for the charge at *send time*. For other uses, see [`state_init_counts`].
+pub fn state_init_send_counts(raw: &RawStateInit, mode: DecodeMode) -> UniversalStateInitCounts {
+    // Technically, upper-bound charging it is independent form the decode mode, but it is
+    // introduced with `CanonicalUniversalStateInit` protocol feature, the same which enables
+    // strict mode.
+    match mode {
+        DecodeMode::Lenient => state_init_counts(raw),
+        DecodeMode::Strict => match UniversalStateInit::from_raw_strict(raw) {
+            Ok(state_init) => decoded_counts(raw, &state_init),
+            Err(_) => upper_bound_counts(raw.0.len() as u64),
+        },
+    }
+}
+
+fn decoded_counts(raw: &RawStateInit, state_init: &UniversalStateInit) -> UniversalStateInitCounts {
+    UniversalStateInitCounts {
+        num_bytes: raw.0.len() as u64,
+        num_entries: state_init.data().len() as u64,
+        num_keys: state_init.access_keys().len() as u64,
+    }
+}
+
+/// The most entries and keys a payload of `num_bytes` can hold, from the smallest encoding
+/// of each. The two are not reachable together, which only makes this more pessimistic.
+fn upper_bound_counts(num_bytes: u64) -> UniversalStateInitCounts {
+    // A data entry is an empty key and an empty value: two `u32` lengths.
+    const MIN_ENTRY_BYTES: u64 = 8;
+    // An access key is a one byte tag and a 32 byte key or key hash.
+    const MIN_KEY_BYTES: u64 = 33;
+    // Before the entries: the variant, `code: None` and the map length.
+    const BYTES_BEFORE_ENTRIES: u64 = 1 + 1 + 4;
+    // Before the keys, as well: the set length.
+    const BYTES_BEFORE_KEYS: u64 = BYTES_BEFORE_ENTRIES + 4;
+    UniversalStateInitCounts {
+        num_bytes,
+        num_entries: num_bytes.saturating_sub(BYTES_BEFORE_ENTRIES).div_ceil(MIN_ENTRY_BYTES),
+        num_keys: num_bytes.saturating_sub(BYTES_BEFORE_KEYS).div_ceil(MIN_KEY_BYTES),
+    }
 }
 
 #[cfg(test)]
@@ -404,5 +442,76 @@ mod tests {
             state_init_counts(&garbage),
             UniversalStateInitCounts { num_bytes: 5, num_entries: 0, num_keys: 0 }
         );
+    }
+
+    /// Before the canonical feature the charge at send is the same as for any other action.
+    #[test]
+    fn state_init_send_counts_lenient_matches_state_init_counts() {
+        let payloads = [
+            contract_init().to_raw(),
+            v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]),
+            v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]),
+            RawStateInit(vec![9; 5]),
+        ];
+        for raw in payloads {
+            assert_eq!(
+                state_init_send_counts(&raw, DecodeMode::Lenient),
+                state_init_counts(&raw),
+                "{raw:?}"
+            );
+        }
+    }
+
+    /// What is accepted is charged for what it is, so a contract prepays what the action is
+    /// charged when it runs.
+    #[test]
+    fn state_init_send_counts_strict_matches_state_init_counts_when_canonical() {
+        for state_init in [contract_init(), key_only_init()] {
+            let raw = state_init.to_raw();
+            assert_eq!(
+                state_init_send_counts(&raw, DecodeMode::Strict),
+                state_init_counts(&raw),
+                "{state_init:?}"
+            );
+        }
+    }
+
+    /// What will be rejected has been decoded all the same, so it is charged for the most it
+    /// could have held.
+    #[test]
+    fn state_init_send_counts_strict_charges_the_bound_for_what_is_rejected() {
+        let empty_entry: (&[u8], &[u8]) = (b"", b"");
+        // Many copies of one entry and of one key: they collapse to one each on decode.
+        let duplicated =
+            v1_bytes(&[empty_entry; 1_000], &[ed_handle(1), ed_handle(1), ed_handle(1)]);
+        let unsorted = v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]);
+        let mut trailing = contract_init().to_raw();
+        trailing.0.push(0);
+        let garbage = RawStateInit(vec![9; 5_000]);
+
+        let wire_counts = [(&duplicated, 1_000, 3), (&unsorted, 2, 2), (&trailing, 2, 2)];
+        for (raw, entries, keys) in wire_counts {
+            let counts = state_init_send_counts(raw, DecodeMode::Strict);
+            assert_eq!(counts.num_bytes, raw.0.len() as u64);
+            assert!(counts.num_entries >= entries, "entries of {raw:?}: {counts:?}");
+            assert!(counts.num_keys >= keys, "keys of {raw:?}: {counts:?}");
+        }
+        // Duplicates are the case where `state_init_counts` counts too little.
+        assert_eq!(state_init_counts(&duplicated).num_entries, 1);
+        assert_eq!(
+            state_init_send_counts(&garbage, DecodeMode::Strict),
+            // (5_000 - 6) / 8 entries and (5_000 - 10) / 33 keys, each rounded up.
+            UniversalStateInitCounts { num_bytes: 5_000, num_entries: 625, num_keys: 152 }
+        );
+    }
+
+    #[test]
+    fn upper_bound_counts_does_not_underflow() {
+        for num_bytes in [0, 1, 6, 9, 10] {
+            let counts = upper_bound_counts(num_bytes);
+            assert_eq!(counts.num_bytes, num_bytes);
+            assert!(counts.num_entries <= 1 && counts.num_keys <= 1, "{counts:?}");
+        }
+        assert_eq!(upper_bound_counts(u64::MAX).num_bytes, u64::MAX);
     }
 }

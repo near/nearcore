@@ -12,6 +12,7 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, Gas, GasWeight};
+use near_primitives_core::universal_state_init::DecodeMode;
 
 fn test_public_key() -> PublicKey {
     "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
@@ -606,10 +607,40 @@ fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
         "the state init must not reach the host before its bytes are paid for"
     );
     assert_eq!(
-        logic_builder.ext.state_init_counts_calls.get(),
+        logic_builder.ext.state_init_send_counts_calls.get(),
         0,
         "the host must not be asked to decode before the bytes are paid for"
     );
+}
+
+/// The host asks for the counts in the mode its protocol version calls for, so the
+/// charge for a payload that is not canonical changes only when the feature does.
+#[test]
+fn test_promise_batch_action_universal_state_init_asks_for_the_configured_mode() {
+    for (canonical, expected_mode) in [(false, DecodeMode::Lenient), (true, DecodeMode::Strict)] {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.canonical_universal_state_init = canonical;
+        let mut logic = logic_builder.build();
+
+        let index =
+            promise_batch_create(&mut logic, &"rick.test").expect("should create a promise");
+        let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+        let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+        logic
+            .promise_batch_action_universal_state_init(
+                index,
+                state_init.len,
+                state_init.ptr,
+                amount.ptr,
+            )
+            .expect("should attach the action");
+
+        assert_eq!(
+            logic_builder.ext.state_init_send_counts_mode.get(),
+            Some(expected_mode),
+            "canonical_universal_state_init: {canonical}"
+        );
+    }
 }
 
 #[test]

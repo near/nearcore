@@ -6,7 +6,7 @@ use near_crypto::PublicKey;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use near_primitives_core::universal_state_init::{
-    RawStateInit, StateInitError, UniversalStateInitCounts,
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInitCounts,
 };
 
 /// Representation of the address slice of guest memory.
@@ -401,16 +401,22 @@ pub trait External {
     /// i.e. exactly what the action validation accepts from
     /// `CanonicalUniversalStateInit` on. The host only asks from then on.
     ///
-    /// Decoding is a host-side concern, see [`Self::state_init_counts`].
+    /// Decoding is a host-side concern, see [`Self::state_init_send_counts`].
     fn check_state_init(&self, state_init: &RawStateInit) -> Result<(), StateInitError>;
 
-    /// The counts a `UniversalStateInit` action carrying `state_init` is priced on.
+    /// The counts to charge a contract for passing `state_init` to a `UniversalStateInit`
+    /// action, before the payload has been validated. `mode` is the one the protocol
+    /// version calls for. For an accepted payload this is what the action is priced on.
     ///
     /// Decoding is a host-side concern: the typed form carries public key handles,
     /// whose types live outside this crate. Split from the append so the caller can
     /// charge before the action exists, rather than relying on a failed charge
     /// discarding a receipt it has already been added to.
-    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts;
+    fn state_init_send_counts(
+        &self,
+        state_init: &RawStateInit,
+        mode: DecodeMode,
+    ) -> UniversalStateInitCounts;
 
     /// Attach a `UniversalStateInit` action, built from the bytes a contract
     /// supplied, to an existing receipt.

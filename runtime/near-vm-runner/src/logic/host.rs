@@ -3370,6 +3370,10 @@ pub fn universal_state_init_to_account_id(
 ///             + add_full_access_key send fee * num access keys
 ///
 /// `used_gas`  := burnt_gas + the same four fees at their exec rate
+///
+/// From `CanonicalUniversalStateInit` on, a state init that is not canonical, which the
+/// receipt is going to be rejected for, is charged as many entries and access keys as its
+/// length could hold, see `state_init_send_counts`.
 pub fn promise_batch_action_universal_state_init(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3404,7 +3408,7 @@ pub fn promise_batch_action_universal_state_init(
     // the action exists, so a failed charge never leaves one behind on the receipt.
     let num_bytes = state_init.0.len() as u64;
     pay_universal_state_init_terms(ctx, universal_state_init_size_terms(num_bytes), sir)?;
-    let counts = ctx.ext.state_init_counts(&state_init);
+    let counts = ctx.ext.state_init_send_counts(&state_init, ctx.config.state_init_decode_mode());
     debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
     pay_universal_state_init_terms(ctx, universal_state_init_content_terms(counts), sir)?;
 
