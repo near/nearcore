@@ -766,7 +766,9 @@ pub(crate) fn check_actor_permissions(
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
-        | Action::WithdrawFromGasKey(_) => {
+        | Action::WithdrawFromGasKey(_)
+        | Action::FundInclusionKey(_)
+        | Action::WithdrawFromInclusionKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -871,7 +873,9 @@ pub(crate) fn check_account_existence(
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
-        | Action::WithdrawFromGasKey(_) => {
+        | Action::WithdrawFromGasKey(_)
+        | Action::FundInclusionKey(_)
+        | Action::WithdrawFromInclusionKey(_) => {
             let Some(account) = account else {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

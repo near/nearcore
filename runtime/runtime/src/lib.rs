@@ -1,7 +1,8 @@
 // cspell:ignore contractregistry
 
 use crate::access_keys::{
-    action_add_key, action_delete_key, action_transfer_to_gas_key, action_withdraw_from_gas_key,
+    action_add_key, action_delete_key, action_fund_inclusion_key, action_transfer_to_gas_key,
+    action_withdraw_from_gas_key, action_withdraw_from_inclusion_key,
 };
 use crate::actions::*;
 use crate::config::{
@@ -814,6 +815,25 @@ impl Runtime {
                     &mut result,
                     account_id,
                     withdraw_from_gas_key,
+                )?;
+            }
+            Action::FundInclusionKey(fund_inclusion_key) => {
+                action_fund_inclusion_key(
+                    &apply_state.config,
+                    state_update,
+                    &mut result,
+                    account_id,
+                    receipt,
+                    fund_inclusion_key,
+                )?;
+            }
+            Action::WithdrawFromInclusionKey(withdraw_from_inclusion_key) => {
+                action_withdraw_from_inclusion_key(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    withdraw_from_inclusion_key,
                 )?;
             }
         };

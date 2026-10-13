@@ -509,6 +509,10 @@ pub enum ActionsValidationError {
         number_of_entries: u64,
         limit: u64,
     } = 29,
+    /// An AddKey action cannot add an inclusion key; FundInclusionKey converts an existing key.
+    AddInclusionKeyNotAllowed = 30,
+    /// A WithdrawFromInclusionKey action is not allowed inside a delegate action.
+    WithdrawFromInclusionKeyNotAllowedInDelegate = 31,
 }
 
 /// Describes the error for validating a receipt.
@@ -767,6 +771,15 @@ impl Display for ActionsValidationError {
                     "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
                 )
             }
+            ActionsValidationError::AddInclusionKeyNotAllowed => {
+                write!(f, "an AddKey action cannot add an inclusion key")
+            }
+            ActionsValidationError::WithdrawFromInclusionKeyNotAllowedInDelegate => {
+                write!(
+                    f,
+                    "a WithdrawFromInclusionKey action is not allowed inside a delegate action"
+                )
+            }
         }
     }
 }
@@ -961,6 +974,21 @@ pub enum ActionErrorKind {
     AccountNotInitialized {
         account_id: AccountId,
     } = 30,
+    /// The access key to fund does not exist
+    FundInclusionKeyAccessKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 31,
+    /// The access key to fund is a gas key
+    FundInclusionKeyIsGasKey {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 32,
+    /// Inclusion key does not exist for the specified public key
+    InclusionKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 33,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1279,6 +1307,23 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
+            }
+            ActionErrorKind::FundInclusionKeyAccessKeyDoesNotExist { account_id, public_key } => {
+                write!(
+                    f,
+                    "Access key {} to fund does not exist for account {}",
+                    public_key, account_id
+                )
+            }
+            ActionErrorKind::FundInclusionKeyIsGasKey { account_id, public_key } => {
+                write!(
+                    f,
+                    "Access key {} to fund is a gas key of account {}",
+                    public_key, account_id
+                )
+            }
+            ActionErrorKind::InclusionKeyDoesNotExist { account_id, public_key } => {
+                write!(f, "Inclusion key {} does not exist for account {}", public_key, account_id)
             }
             ActionErrorKind::GasKeyDoesNotExist { account_id, public_key } => {
                 write!(f, "Gas key {} does not exist for account {}", public_key, account_id)

@@ -9,9 +9,10 @@ use crate::action::delegate::{
     VersionedSignedDelegateAction,
 };
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
-    UseGlobalContractAction, WithdrawFromGasKeyAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, FundInclusionKeyAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
+    UniversalStateInitAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
+    WithdrawFromInclusionKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -206,6 +207,14 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                     num_nonces: gas_key_info.num_nonces,
                 }
             }
+            AccessKeyPermission::InclusionKeyFunctionCall(_, func_call) => {
+                AccessKeyPermissionView::FunctionCall {
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::InclusionKeyFullAccess(_) => AccessKeyPermissionView::FullAccess,
         }
     }
 }
@@ -1566,6 +1575,14 @@ pub enum ActionView {
         state_init: RawStateInit,
         deposit: Balance,
     } = 17,
+    FundInclusionKey {
+        public_key: PublicKey,
+        target_balance: Balance,
+    } = 18,
+    WithdrawFromInclusionKey {
+        public_key: PublicKey,
+        target_balance: Balance,
+    } = 19,
 }
 
 impl From<Action> for ActionView {
@@ -1635,6 +1652,14 @@ impl From<Action> for ActionView {
             Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
                 public_key: action.public_key,
                 amount: action.amount,
+            },
+            Action::FundInclusionKey(action) => ActionView::FundInclusionKey {
+                public_key: action.public_key,
+                target_balance: action.target_balance,
+            },
+            Action::WithdrawFromInclusionKey(action) => ActionView::WithdrawFromInclusionKey {
+                public_key: action.public_key,
+                target_balance: action.target_balance,
             },
             Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
                 state_init: action.state_init,
@@ -1716,6 +1741,18 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::TransferToGasKey { public_key, deposit } => {
                 Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
+            }
+            ActionView::FundInclusionKey { public_key, target_balance } => {
+                Action::FundInclusionKey(Box::new(FundInclusionKeyAction {
+                    public_key,
+                    target_balance,
+                }))
+            }
+            ActionView::WithdrawFromInclusionKey { public_key, target_balance } => {
+                Action::WithdrawFromInclusionKey(Box::new(WithdrawFromInclusionKeyAction {
+                    public_key,
+                    target_balance,
+                }))
             }
             ActionView::WithdrawFromGasKey { public_key, amount } => {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {

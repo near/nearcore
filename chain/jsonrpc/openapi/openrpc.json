@@ -137,6 +137,44 @@
             ],
             "title": "GasKeyFullAccess",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Function call key with a balance that pays for its transactions that fail at execution.",
+            "properties": {
+              "InclusionKeyFunctionCall": {
+                "items": [
+                  {
+                    "$ref": "#/components/schemas/InclusionKeyInfo"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FunctionCallPermission"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "InclusionKeyFunctionCall"
+            ],
+            "title": "InclusionKeyFunctionCall",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Full access key with a balance that pays for its transactions that fail at execution.",
+            "properties": {
+              "InclusionKeyFullAccess": {
+                "$ref": "#/components/schemas/InclusionKeyInfo"
+              }
+            },
+            "required": [
+              "InclusionKeyFullAccess"
+            ],
+            "title": "InclusionKeyFullAccess",
+            "type": "object"
           }
         ],
         "title": "AccessKeyPermission"
@@ -1309,6 +1347,84 @@
             ],
             "title": "AccountNotInitialized",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The access key to fund does not exist",
+            "properties": {
+              "FundInclusionKeyAccessKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKeyAccessKeyDoesNotExist"
+            ],
+            "title": "FundInclusionKeyAccessKeyDoesNotExist",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The access key to fund is a gas key",
+            "properties": {
+              "FundInclusionKeyIsGasKey": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKeyIsGasKey"
+            ],
+            "title": "FundInclusionKeyIsGasKey",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Inclusion key does not exist for the specified public key",
+            "properties": {
+              "InclusionKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InclusionKeyDoesNotExist"
+            ],
+            "title": "InclusionKeyDoesNotExist",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -1730,6 +1846,56 @@
               "UniversalStateInit"
             ],
             "title": "UniversalStateInit",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "FundInclusionKey": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "target_balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "target_balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "FundInclusionKey"
+            ],
+            "title": "FundInclusionKey",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromInclusionKey": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "target_balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "target_balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "WithdrawFromInclusionKey"
+            ],
+            "title": "WithdrawFromInclusionKey",
             "type": "object"
           }
         ],
@@ -2394,6 +2560,16 @@
             ],
             "title": "TotalNumberOfStateInitEntriesExceeded",
             "type": "object"
+          },
+          {
+            "const": "AddInclusionKeyNotAllowed",
+            "description": "An AddKey action cannot add an inclusion key; FundInclusionKey converts an existing key.",
+            "type": "string"
+          },
+          {
+            "const": "WithdrawFromInclusionKeyNotAllowedInDelegate",
+            "description": "A WithdrawFromInclusionKey action is not allowed inside a delegate action.",
+            "type": "string"
           }
         ],
         "title": "ActionsValidationError"
@@ -5370,6 +5546,23 @@
         "title": "FunctionCallPermission",
         "type": "object"
       },
+      "FundInclusionKeyAction": {
+        "description": "Raise the inclusion key balance of an access key to `target_balance`; a plain key is converted.",
+        "properties": {
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "target_balance": {
+            "$ref": "#/components/schemas/NearToken"
+          }
+        },
+        "required": [
+          "public_key",
+          "target_balance"
+        ],
+        "title": "FundInclusionKeyAction",
+        "type": "object"
+      },
       "GCConfig": {
         "description": "Configuration for garbage collection.",
         "properties": {
@@ -6453,6 +6646,25 @@
           }
         ],
         "title": "HostError"
+      },
+      "InclusionKeyInfo": {
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "last_transaction_nonce": {
+            "description": "Nonce of the last transaction signed with this key that executed or was charged.\nDelegate actions do not write it. Always `<= AccessKey::nonce`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "balance",
+          "last_transaction_nonce"
+        ],
+        "title": "InclusionKeyInfo",
+        "type": "object"
       },
       "IndexerChunkView": {
         "properties": {
@@ -7899,6 +8111,32 @@
               "UniversalStateInit"
             ],
             "title": "UniversalStateInit",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "FundInclusionKey": {
+                "$ref": "#/components/schemas/FundInclusionKeyAction"
+              }
+            },
+            "required": [
+              "FundInclusionKey"
+            ],
+            "title": "FundInclusionKey",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromInclusionKey": {
+                "$ref": "#/components/schemas/WithdrawFromInclusionKeyAction"
+              }
+            },
+            "required": [
+              "WithdrawFromInclusionKey"
+            ],
+            "title": "WithdrawFromInclusionKey",
             "type": "object"
           }
         ],
@@ -11490,6 +11728,15 @@
             ],
             "description": "The configuration for congestion control."
           },
+          "max_inclusion_key_balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "Largest balance an inclusion key can hold."
+          },
           "min_gas_purchase_price": {
             "allOf": [
               {
@@ -14045,6 +14292,23 @@
           "amount"
         ],
         "title": "WithdrawFromGasKeyAction",
+        "type": "object"
+      },
+      "WithdrawFromInclusionKeyAction": {
+        "description": "Lower the balance of an inclusion key to `target_balance`; the difference goes to the account.",
+        "properties": {
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "target_balance": {
+            "$ref": "#/components/schemas/NearToken"
+          }
+        },
+        "required": [
+          "public_key",
+          "target_balance"
+        ],
+        "title": "WithdrawFromInclusionKeyAction",
         "type": "object"
       },
       "WitnessConfigView": {

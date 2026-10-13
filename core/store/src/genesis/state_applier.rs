@@ -58,7 +58,7 @@ impl<'a> StorageComputer<'a> {
                 let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
                     + public_key.trie_id_len() as u64
-                    + borsh::object_length(&access_key).unwrap() as u64;
+                    + access_key.storage_usage_borsh_len();
                 Some((account_id.clone(), storage_usage))
             }
             StateRecord::GasKeyNonce { account_id, public_key, index: _index, nonce } => {

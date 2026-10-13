@@ -357,6 +357,42 @@ pub struct WithdrawFromGasKeyAction {
     pub amount: Balance,
 }
 
+/// Raise the inclusion key balance of an access key to `target_balance`; a plain key is converted.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct FundInclusionKeyAction {
+    pub public_key: PublicKey,
+    pub target_balance: Balance,
+}
+
+/// Lower the balance of an inclusion key to `target_balance`; the difference goes to the account.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct WithdrawFromInclusionKeyAction {
+    pub public_key: PublicKey,
+    pub target_balance: Balance,
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -394,6 +430,8 @@ pub enum Action {
     /// Meta transaction carrying a `DelegateActionV2`, which supports gas keys.
     DelegateV2(Box<delegate::VersionedSignedDelegateAction>) = 14,
     UniversalStateInit(Box<UniversalStateInitAction>) = 15,
+    FundInclusionKey(Box<FundInclusionKeyAction>) = 16,
+    WithdrawFromInclusionKey(Box<WithdrawFromInclusionKeyAction>) = 17,
 }
 
 const _: () = assert!(
@@ -425,7 +463,9 @@ impl Action {
             | Action::DeterministicStateInit(_)
             | Action::UniversalStateInit(_)
             | Action::TransferToGasKey(_)
-            | Action::WithdrawFromGasKey(_) => false,
+            | Action::WithdrawFromGasKey(_)
+            | Action::FundInclusionKey(_)
+            | Action::WithdrawFromInclusionKey(_) => false,
         }
     }
 
@@ -442,6 +482,7 @@ impl Action {
             Action::DeterministicStateInit(a) => a.deposit,
             Action::UniversalStateInit(a) => a.deposit,
             Action::TransferToGasKey(a) => a.deposit,
+            Action::FundInclusionKey(a) => a.target_balance,
             _ => Balance::ZERO,
         }
     }
@@ -482,6 +523,8 @@ impl Action {
             Action::DeleteKey(a) => a.public_key.key_type().is_post_quantum(),
             Action::TransferToGasKey(a) => a.public_key.key_type().is_post_quantum(),
             Action::WithdrawFromGasKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::FundInclusionKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::WithdrawFromInclusionKey(a) => a.public_key.key_type().is_post_quantum(),
             // Recursive: a delegate action carries an inner signer pubkey,
             // its signature, and a nested set of actions; any of them can
             // transport post-quantum key material.
@@ -555,7 +598,9 @@ impl Action {
             | Action::DeployGlobalContract(_)
             | Action::UseGlobalContract(_)
             | Action::TransferToGasKey(_)
-            | Action::WithdrawFromGasKey(_) => StateInitCounts::ZERO,
+            | Action::WithdrawFromGasKey(_)
+            | Action::FundInclusionKey(_)
+            | Action::WithdrawFromInclusionKey(_) => StateInitCounts::ZERO,
         }
     }
 }
@@ -641,6 +686,18 @@ impl From<DeleteAccountAction> for Action {
 impl From<TransferToGasKeyAction> for Action {
     fn from(action: TransferToGasKeyAction) -> Self {
         Self::TransferToGasKey(Box::new(action))
+    }
+}
+
+impl From<FundInclusionKeyAction> for Action {
+    fn from(action: FundInclusionKeyAction) -> Self {
+        Self::FundInclusionKey(Box::new(action))
+    }
+}
+
+impl From<WithdrawFromInclusionKeyAction> for Action {
+    fn from(action: WithdrawFromInclusionKeyAction) -> Self {
+        Self::WithdrawFromInclusionKey(Box::new(action))
     }
 }
 
