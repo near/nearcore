@@ -179,11 +179,11 @@ impl ExtCostsConfig {
             // based on relative measurements compared to ed25519
             ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
-            // Same hash as sha3_256 over the same bytes, so the per-byte cost is
-            // sha3_256's; the base is scaled up for the base32 encoding. See the
-            // calibration note in `parameters.yaml`.
-            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2840000000,
-            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
+            // Decode and canonical re-encode, then sha3_256 and the base32 encoding. See
+            // the calibration note in `88.yaml`. Rounded up to a multiple of
+            // `SAFETY_MULTIPLIER`.
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2966666667,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 27_700_000,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
@@ -688,8 +688,8 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
                 ActionCosts::universal_state_init_base => Fee::new(500_000_000_000, 500_000_000_000, 7_430_000_000_000),
-                ActionCosts::universal_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
-                ActionCosts::universal_state_init_entry => Fee::new(0, 0, 200_000_000_000),
+                ActionCosts::universal_state_init_byte => Fee::new(78_000_000, 78_000_000, 74_000_000),
+                ActionCosts::universal_state_init_entry => Fee::new(3_100_000_000, 3_100_000_000, 200_000_000_000),
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,

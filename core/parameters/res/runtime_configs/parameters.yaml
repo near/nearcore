@@ -327,6 +327,7 @@ fix_contract_loading_error: false
 vm_kind: Wasmer2
 eth_implicit_accounts: false
 universal_accounts: false
+canonical_universal_state_init: false
 discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false

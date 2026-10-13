@@ -1,0 +1,64 @@
+# Canonical universal state init: a `UniversalStateInit` is accepted only in the
+# one encoding that its decoded value re-encodes to, so each state init has exactly
+# one account id. Turns on the check behind the status that the
+# `universal_state_init_to_account_id` host function returns. Below this version any
+# decodable encoding is accepted, and that host function takes any bytes and returns 0.
+canonical_universal_state_init: { old: false, new: true }
+
+# Per entry: unlike the deterministic action, the payload is raw bytes that are decoded
+# (and checked to be canonical) in several passes before the action runs, so the send
+# side does real work per entry, mostly building the map. Measured by icount on 100_000
+# entries with 7-byte keys: 704M gas raw per entry in total, 624M after removing the
+# 15 bytes' share already paid by the per-byte fee. At the 4.94x margin of the sha3_256
+# anchor that is 3.08G, rounded up. The execution fee is unchanged.
+action_universal_state_init_per_entry: {
+  old: {
+    send_sir: 0,
+    send_not_sir: 0,
+    execution: 200_000_000_000,
+  },
+  new: {
+    send_sir: 3_100_000_000,
+    send_not_sir: 3_100_000_000,
+    execution: 200_000_000_000,
+  },
+}
+# Per byte: the `action_deterministic_state_init_per_byte` fees plus the extra work of
+# the canonical decode check (decode and re-encode, several passes per action). Measured
+# by icount against the deterministic action in the same run, on one 1 MB entry: send
+# 42.89 vs 34.27 instructions/byte, exec 7.52 vs 1.48. The difference, priced at the
+# 4.94x margin of the sha3_256 anchor (see `wasm_universal_state_init_to_account_id_*`),
+# at 125_000 gas per instruction, is added to the existing fee and rounded up:
+# send 72_000_000 + 8.62 * 125_000 * 4.94 = 77.3M, exec 70_000_000 + 6.04 * 125_000 * 4.94 = 73.7M.
+# The existing fees are mostly storage and already far above the measured compute.
+action_universal_state_init_per_byte: {
+  old: {
+    send_sir: 72_000_000,
+    send_not_sir: 72_000_000,
+    execution: 70_000_000,
+  },
+  new: {
+    send_sir: 78_000_000,
+    send_not_sir: 78_000_000,
+    execution: 74_000_000,
+  },
+}
+# From this version `universal_state_init_to_account_id` decodes the bytes it is given,
+# checks that they re-encode to the same bytes (canonical borsh), and then hashes them
+# with SHA3-256 and base32-encodes the digest. Calibrated by icount against sha3_256
+# measured in the same run, so each cost inherits sha3_256's safety margin by scaling its
+# committed value by the instruction ratio, rounded up:
+# base: 5_879_491_275 * 12_978.61 / 8_579.23 = 8_894_460_721.6
+#       5_879_491_275 * 13_799.50 / 9_250.40 = 8_770_868_270.5 (a later run)
+# The larger one is kept, rounded up.
+# byte: 21_471_105 * 134.94 / 34.87 = 83_088_927.7, rounded up.
+# The byte input is a dense payload of many tiny map entries (852 entries in 10_234
+# bytes), since decoding and re-encoding costs a map insertion per entry. A single large
+# value is much cheaper per byte. Two shapes of it are measured, and the slower one sets
+# the fee: keys in ascending order, which is canonical, and the same keys in pseudo-random
+# order, which are sorted while the payload is decoded and then rejected as not canonical,
+# without being hashed. The ascending keys alone measured 107.78 instructions per byte.
+# Entries with shorter keys or small non-empty values are denser and cost more per byte.
+# They are not measured.
+wasm_universal_state_init_to_account_id_base: { old: 8_520_000_000, new: 8_900_000_000 }
+wasm_universal_state_init_to_account_id_byte: { old: 21_471_105, new: 83_100_000 }

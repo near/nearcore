@@ -12,7 +12,7 @@ use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::universal_state_init::UniversalStateInit;
+use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
@@ -164,7 +164,8 @@ pub(crate) fn validate_actions_with_mode(
 }
 
 /// Validates a single given action.
-/// The `mode` only affects nested validation of `Action::Delegate` payloads
+/// The `mode` affects nested validation of `Action::Delegate` payloads, and whether a
+/// `UniversalStateInit` has to be canonical.
 fn validate_action_with_mode(
     limit_config: &LimitConfig,
     action: &Action,
@@ -219,7 +220,7 @@ fn validate_action_with_mode(
             validate_deterministic_state_init(limit_config, a, receiver)
         }
         Action::UniversalStateInit(a) => {
-            validate_universal_state_init(limit_config, a, receiver, current_protocol_version)
+            validate_universal_state_init(limit_config, a, receiver, current_protocol_version, mode)
         }
         Action::TransferToGasKey(_) => {
             validate_transfer_to_gas_key_action(current_protocol_version)
@@ -569,6 +570,7 @@ fn validate_universal_state_init(
     action: &UniversalStateInitAction,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(
         ProtocolFeature::UniversalAccounts,
@@ -586,8 +588,16 @@ fn validate_universal_state_init(
         });
     }
 
-    // Everything below inspects the contents, so the bytes have to decode.
-    let state_init = UniversalStateInit::from_raw(&action.state_init)
+    // Everything below inspects the contents, so the bytes have to decode. From
+    // `CanonicalUniversalStateInit` on they also have to be canonical, but only for newly
+    // created receipts: a receipt built before that took effect was valid then, and has
+    // to keep passing here. Failing it would halt the chunk, while execution only fails
+    // the action.
+    let decode_mode = DecodeMode::strict_if(
+        mode == ValidateReceiptMode::NewReceipt
+            && ProtocolFeature::CanonicalUniversalStateInit.enabled(current_protocol_version),
+    );
+    let state_init = UniversalStateInit::from_raw(&action.state_init, decode_mode)
         .map_err(|_| ActionsValidationError::MalformedUniversalStateInit)?;
 
     if let Some(code) = state_init.code() {
@@ -1674,6 +1684,92 @@ mod tests {
             validate_action(&limit, &action, &receiver, feature_version),
             Err(ActionsValidationError::MalformedUniversalStateInit)
         );
+    }
+
+    /// A `UniversalStateInit` whose data keys are out of order: it decodes, but is not the
+    /// canonical encoding of what it decodes to. The receiver derived from its bytes is valid.
+    fn unsorted_state_init_action() -> (Action, AccountId) {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        let unsorted = RawStateInit(bytes);
+        let receiver = derive_universal_account_id(&unsorted);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: unsorted,
+            deposit: Balance::ZERO,
+        }));
+        (action, receiver)
+    }
+
+    /// Only from `CanonicalUniversalStateInit` on is a non-canonical encoding rejected, and
+    /// only in a newly created receipt: one built before it took effect was valid then, and
+    /// failing it here would halt the chunk rather than fail an action.
+    #[test]
+    fn test_validate_universal_state_init_canonical_by_version() {
+        use ValidateReceiptMode::{ExistingReceipt, NewReceipt};
+
+        let limit = test_limit_config();
+        let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let (action, receiver) = unsorted_state_init_action();
+        let validate =
+            |version, mode| validate_action_with_mode(&limit, &action, &receiver, version, mode);
+
+        assert_eq!(validate(canonical_version - 1, NewReceipt), Ok(()));
+        assert_eq!(validate(canonical_version - 1, ExistingReceipt), Ok(()));
+        assert_eq!(
+            validate(canonical_version, NewReceipt),
+            Err(ActionsValidationError::MalformedUniversalStateInit)
+        );
+        assert_eq!(validate(canonical_version, ExistingReceipt), Ok(()));
+
+        // Still malformed whatever the version and mode: it does not decode at all.
+        let malformed = RawStateInit(vec![7, 7, 7]);
+        let receiver = derive_universal_account_id(&malformed);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: malformed,
+            deposit: Balance::ZERO,
+        }));
+        for (version, mode) in [
+            (canonical_version - 1, NewReceipt),
+            (canonical_version - 1, ExistingReceipt),
+            (canonical_version, NewReceipt),
+            (canonical_version, ExistingReceipt),
+        ] {
+            assert_eq!(
+                validate_action_with_mode(&limit, &action, &receiver, version, mode),
+                Err(ActionsValidationError::MalformedUniversalStateInit),
+                "version {version}, {mode:?}"
+            );
+        }
+    }
+
+    /// A non-canonical payload counts what it decodes to, at every version, so the receipt
+    /// limits see what the fees see. It is the limit that turns it away here, and not the
+    /// check that it is canonical, which comes after.
+    #[test]
+    fn test_validate_state_init_counts_non_canonical_counts_what_decodes() {
+        let mut limit = test_limit_config();
+        limit.max_state_init_entries = 1;
+        let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let (action, receiver) = unsorted_state_init_action();
+        let actions = [action];
+
+        // Two entries against a limit of one.
+        for version in [canonical_version - 1, canonical_version] {
+            assert_eq!(
+                validate_actions(&limit, &actions, &receiver, version),
+                Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                    number_of_entries: 2,
+                    limit: 1,
+                }),
+                "version {version}"
+            );
+        }
     }
 
     /// `copies` byte-identical state-init actions, all addressed to the receiver

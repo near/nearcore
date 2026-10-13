@@ -6655,6 +6655,169 @@ mod self_signed_state_init {
             ))
         );
     }
+
+    /// A state init that decodes but is not canonical: the data keys are out of order. Valid
+    /// below `CanonicalUniversalStateInit`, so a receipt carrying it can be in flight when
+    /// the protocol upgrades.
+    fn non_canonical_state_init() -> near_primitives::universal_state_init::RawStateInit {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        near_primitives::universal_state_init::RawStateInit(bytes)
+    }
+
+    fn state_init_receipt(
+        raw: near_primitives::universal_state_init::RawStateInit,
+        receiver: &AccountId,
+    ) -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: bob_account(),
+            receiver_id: receiver.clone(),
+            receipt_id: hash(b"in-flight-state-init"),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: bob_account(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw,
+                    deposit: Balance::ZERO,
+                }))],
+            }),
+        })
+    }
+
+    /// Applies one chunk with `receipts` as the incoming receipts. Returns the new root, the
+    /// outcomes, and how many receipts were left delayed. The congestion info of the result
+    /// is carried into `apply_state`, as the next chunk would see it.
+    fn apply_receipts(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &mut ApplyState,
+        epoch_info_provider: &impl EpochInfoProvider,
+        receipts: &[Receipt],
+    ) -> (CryptoHash, Vec<ExecutionOutcomeWithId>, u64) {
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                apply_state,
+                receipts,
+                SignedValidPeriodTransactions::empty(),
+                epoch_info_provider,
+                Default::default(),
+            )
+            .expect("an in-flight receipt must never fail the chunk");
+        let new_root = commit_apply_result(&result, apply_state, tries, ShardUId::single_shard());
+        (new_root, result.outcomes, result.delayed_receipts_count)
+    }
+
+    fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
+        apply_state.current_protocol_version = version;
+        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+    }
+
+    fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
+        assert_matches!(
+            &outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::MalformedUniversalStateInit,
+                ..
+            }))
+        );
+    }
+
+    /// A non-canonical receipt created under the old rules arrives as an incoming receipt
+    /// in the first block of the new ones. It passes validation like any existing receipt,
+    /// and its action fails, so nothing halts the chunk and nothing gets installed.
+    #[test]
+    fn in_flight_non_canonical_state_init_fails_the_action_when_incoming() {
+        init_test_logger();
+        let raw = non_canonical_state_init();
+        let account_id = derive_universal_account_id(&raw);
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+        at_protocol_version(
+            &mut apply_state,
+            ProtocolFeature::CanonicalUniversalStateInit.protocol_version(),
+        );
+
+        let receipt = state_init_receipt(raw, &account_id);
+        let (root, outcomes, _) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[receipt]);
+
+        assert_malformed_state_init(&outcomes);
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "nothing may be installed");
+    }
+
+    /// The same receipt, but delayed under the old rules and picked up in the first chunk
+    /// of the new ones. Picking a delayed receipt up validates it again, and reports a
+    /// failure as `StorageInconsistentState`, so that validation must not reject what the
+    /// old rules accepted.
+    #[test]
+    fn in_flight_non_canonical_state_init_fails_the_action_when_delayed() {
+        init_test_logger();
+        let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let raw = non_canonical_state_init();
+        let account_id = derive_universal_account_id(&raw);
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+
+        // Under the old rules, with no gas to spend, so the receipt is stored as delayed.
+        at_protocol_version(&mut apply_state, canonical_version - 1);
+        let normal_gas_limit = apply_state.gas_limit;
+        apply_state.gas_limit = Some(Gas::ZERO);
+        let receipt = state_init_receipt(raw, &account_id);
+        let (root, outcomes, delayed) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[receipt]);
+        assert!(outcomes.is_empty(), "nothing should have run");
+        assert_eq!(delayed, 1, "the receipt should be delayed");
+
+        // The first chunk under the new rules.
+        at_protocol_version(&mut apply_state, canonical_version);
+        apply_state.gas_limit = normal_gas_limit;
+        apply_state.block_height += 1;
+        let (root, outcomes, delayed) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[]);
+        assert_eq!(delayed, 0);
+        assert_malformed_state_init(&outcomes);
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "nothing may be installed");
+    }
+
+    /// Below the feature the same receipt is an ordinary state init and creates the account,
+    /// so the failure above is the new rule and not something the receipt always did.
+    #[test]
+    fn non_canonical_state_init_receipt_installs_before_the_canonical_feature() {
+        init_test_logger();
+        let raw = non_canonical_state_init();
+        let account_id = derive_universal_account_id(&raw);
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+        at_protocol_version(
+            &mut apply_state,
+            ProtocolFeature::CanonicalUniversalStateInit.protocol_version() - 1,
+        );
+
+        let receipt = state_init_receipt(raw, &account_id);
+        let (root, outcomes, _) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[receipt]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized(), "the state init must have run");
+    }
 }
 
 /// A relayer creating a `0u` account from nothing: the transfer that funds the

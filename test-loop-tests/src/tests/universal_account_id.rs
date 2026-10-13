@@ -12,37 +12,43 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+    create_account_id, create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
+use borsh::BorshDeserialize;
 use near_async::time::Duration;
 use near_client_primitives::types::QueryError;
 use near_crypto::{
     InMemorySigner, KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey,
 };
 use near_o11y::testonly::init_test_logger;
-use near_parameters::RuntimeConfigStore;
+use near_parameters::{
+    RuntimeConfigStore, universal_state_init_content_terms, universal_state_init_size_terms,
+};
 use near_primitives::account::{AccessKey, AccountState};
 use near_primitives::action::{
     Action, AddKeyAction, GlobalContractDeployMode, GlobalContractIdentifier, StakeAction,
     UniversalStateInitAction,
 };
 use near_primitives::errors::{
-    ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    DeployContractAction, FunctionCallAction, SignedTransaction, TransferAction,
+    DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion};
 use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    DecodeMode, RawStateInit, UniversalStateInit, UniversalStateInitCounts, UniversalStateInitV1,
+    state_init_counts, state_init_send_counts,
 };
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_universal_account_id;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -60,6 +66,10 @@ struct Env {
 
 impl Env {
     fn setup() -> Self {
+        Self::setup_at(PROTOCOL_VERSION)
+    }
+
+    fn setup_at(protocol_version: ProtocolVersion) -> Self {
         let [user_account, global_contract_account, caller_account] =
             create_account_ids(["account0", "account", "account2"]);
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
@@ -75,7 +85,7 @@ impl Env {
                 Balance::from_near(100),
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
-            .protocol_version(PROTOCOL_VERSION)
+            .protocol_version(protocol_version)
             .build();
 
         let env = TestLoopBuilder::new()
@@ -172,6 +182,14 @@ impl Env {
     /// Deploy `wasm` to the global-contract account and call its `main`, returning
     /// whatever it passes to `value_return`.
     fn deploy_and_call(&mut self, wasm: Vec<u8>) -> Vec<u8> {
+        match self.deploy_and_call_outcome(wasm).status {
+            FinalExecutionStatus::SuccessValue(bytes) => bytes,
+            other => panic!("contract call failed: {other:?}"),
+        }
+    }
+
+    /// Like [`Self::deploy_and_call`], but returns the outcome, for calls that may fail.
+    fn deploy_and_call_outcome(&mut self, wasm: Vec<u8>) -> FinalExecutionOutcomeView {
         let account = self.global_contract_account.clone();
         let deploy = self.env.rpc_node().tx_deploy_contract(&account, wasm);
         self.env.rpc_runner().run_tx(deploy, Duration::seconds(5));
@@ -184,12 +202,7 @@ impl Env {
             Balance::ZERO,
             Gas::from_teragas(300),
         );
-        let outcome =
-            self.env.rpc_runner().execute_tx(call, Duration::seconds(5)).expect("valid tx");
-        match outcome.status {
-            FinalExecutionStatus::SuccessValue(bytes) => bytes,
-            other => panic!("contract call failed: {other:?}"),
-        }
+        self.env.rpc_runner().execute_tx(call, Duration::seconds(5)).expect("valid tx")
     }
 
     /// Deploy the test contract exposing the universal-account host functions,
@@ -394,9 +407,10 @@ fn test_universal_state_init_after_transfer() {
     );
 }
 
-/// A state init whose borsh is valid but is not what the typed form would write:
+/// A state init whose borsh decodes but is not what the typed form would write:
 /// the storage entries are in descending key order, which borsh accepts and
 /// re-sorts on decode. Hand-assembled, since the typed API cannot express it.
+/// The protocol rejects it, since only the canonical encoding is accepted.
 fn non_canonical_state_init(public_key: &PublicKey) -> RawStateInit {
     let mut bytes = vec![
         0, // V1
@@ -415,44 +429,40 @@ fn non_canonical_state_init(public_key: &PublicKey) -> RawStateInit {
     RawStateInit(bytes)
 }
 
-/// The account created is the one derived from the bytes the sender serialized,
-/// not from re-encoding the struct they decode to. Two encodings of the same
-/// logical state init are two different accounts, which is what lets a producer
-/// whose serializer does not sort `BTree*` containers still address its account.
+/// Only the canonical encoding creates an account. The bytes hash to a well-formed
+/// receiver id, but the action is rejected when the transaction is validated, and
+/// its canonical re-encoding, a different account, is untouched.
 #[test]
-fn test_universal_state_init_derives_from_supplied_bytes() {
+fn test_universal_state_init_rejects_non_canonical() {
     init_test_logger();
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical").public_key();
     let raw = non_canonical_state_init(&public_key);
 
-    // Without this the test proves nothing: it has to be an encoding the typed
-    // form would not have written.
-    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
+    // Without this the test proves nothing: borsh must decode it, and the typed
+    // form must write something else.
+    let decoded = UniversalStateInit::try_from_slice(&raw.0).expect("fixture must be valid borsh");
     assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err());
 
     let from_supplied = derive_universal_account_id(&raw);
-    let from_re_encoding = decoded.derive_account_id();
-    assert_ne!(from_supplied, from_re_encoding, "the two encodings must derive different ids");
+    let canonical = decoded.derive_account_id();
+    assert_ne!(from_supplied, canonical, "the two encodings must derive different ids");
 
-    env.create_universal_account(raw, &from_supplied, Balance::from_near(1));
-
-    // The account exists at the id derived from the bytes that were sent...
-    let view = env.view_account(&from_supplied);
-    assert!(view.storage_usage > 0, "the supplied bytes should have created the account");
-    let access_key = env.env.rpc_node().view_access_key_query(&from_supplied, &public_key).unwrap();
-    assert!(
-        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
-        "installed key must be full access, got {:?}",
-        access_key.permission
+    let error = env
+        .try_create_universal_account(raw, &from_supplied, Balance::from_near(1))
+        .expect_err("a non-canonical state init must be rejected");
+    assert_matches!(
+        error,
+        InvalidTxError::ActionsValidation(ActionsValidationError::MalformedUniversalStateInit)
     );
+    assert!(env.try_view_account(&from_supplied).is_err(), "nothing at the supplied id");
 
-    // ...and nothing exists at the id their re-encoding would have derived.
-    assert!(
-        env.try_view_account(&from_re_encoding).is_err(),
-        "re-encoding the decoded state init must not be what the id follows"
-    );
+    // The canonical encoding of the same logical value is accepted.
+    env.create_universal_account(decoded.to_raw(), &canonical, Balance::from_near(1));
+    let access_key = env.env.rpc_node().view_access_key_query(&canonical, &public_key).unwrap();
+    assert!(matches!(access_key.permission, AccessKeyPermissionView::FullAccess));
 }
 
 /// Build a contract that derives an account ID from `state_init` through the host
@@ -466,7 +476,7 @@ fn derive_wasm(state_init: &[u8]) -> Vec<u8> {
     let len = state_init.len();
     near_test_contracts::wat_contract(&format!(
         r#"(module
-  (import "env" "universal_state_init_to_account_id" (func $derive (param i64 i64 i64)))
+  (import "env" "universal_state_init_to_account_id" (func $derive (param i64 i64 i64) (result i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (memory (export "memory") 1)
 
@@ -474,7 +484,7 @@ fn derive_wasm(state_init: &[u8]) -> Vec<u8> {
 
   (func (export "main")
     ;; derive the id of [0, len) into register 0
-    (call $derive (i64.const {len}) (i64.const 0) (i64.const 0))
+    (drop (call $derive (i64.const {len}) (i64.const 0) (i64.const 0)))
     ;; return register 0 (value_len == u64::MAX selects register mode)
     (call $value_return (i64.const -1) (i64.const 0))
   )
@@ -519,10 +529,9 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     assert!(env.view_account(&derived).storage_usage > 0, "the account should have been created");
 }
 
-/// A contract creates a universal account end to end, from bytes it did not
-/// serialize canonically. Both host functions have to agree with the protocol's
-/// own derivation over those exact bytes, or the receipt's receiver check rejects
-/// the state init.
+/// A contract creates a universal account end to end. Both host functions have to
+/// agree with the protocol's own derivation over the exact bytes, or the receipt's
+/// receiver check rejects the state init.
 #[test]
 fn test_universal_state_init_from_contract() {
     init_test_logger();
@@ -530,55 +539,307 @@ fn test_universal_state_init_from_contract() {
     let caller = env.deploy_caller_contract();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-from-contract").public_key();
-    let raw = non_canonical_state_init(&public_key);
-    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
-    assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
-
-    let from_supplied = derive_universal_account_id(&raw);
-    let from_re_encoding = decoded.derive_account_id();
-    assert_ne!(from_supplied, from_re_encoding, "the two encodings must derive different ids");
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::from([(b"a".to_vec(), b"1".to_vec()), (b"b".to_vec(), b"2".to_vec())]),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
 
     let outcome = env
-        .call_universal_state_init(&caller, raw, Balance::from_near(2))
+        .call_universal_state_init(&caller, state_init.to_raw(), Balance::from_near(2))
         .expect("call should be a valid transaction");
     assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_), "{outcome:?}");
 
-    // The contract addressed the ID derived from the bytes it passed...
-    let view = env.view_account(&from_supplied);
+    let view = env.view_account(&account);
     assert!(view.storage_usage > 0, "the supplied bytes should have created the account");
-    let access_key = env.env.rpc_node().view_access_key_query(&from_supplied, &public_key).unwrap();
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
     assert!(
         matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
         "installed key must be full access, got {:?}",
         access_key.permission
     );
-
-    // ...and nothing exists at the ID their re-encoding would have derived.
-    assert!(
-        env.try_view_account(&from_re_encoding).is_err(),
-        "re-encoding the decoded state init must not be what the ID follows"
-    );
 }
 
-/// Bytes that are not a state init still map to some account ID, so the host
-/// functions accept them and the state-init receipt is what rejects them. The
-/// contract's own call therefore fails only once that receipt is validated.
+/// The host function refuses bytes that are not the canonical encoding and says
+/// why: `1` if they do not decode at all, `2` if they decode to something else when
+/// re-encoded. The contract creates nothing, and its call succeeds.
 #[test]
-fn test_universal_state_init_from_contract_malformed() {
+fn test_universal_state_init_from_contract_rejects_invalid() {
     init_test_logger();
     let mut env = Env::setup();
     let caller = env.deploy_caller_contract();
 
-    let outcome = env
-        .call_universal_state_init(&caller, RawStateInit(vec![7, 7, 7]), Balance::ZERO)
-        .expect("call should be a valid transaction");
-    let status = outcome.status;
-    let FinalExecutionStatus::Failure(error) = &status else {
-        panic!("a malformed state init must fail, got {status:?}");
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-from-contract-nc").public_key();
+    let unsorted = non_canonical_state_init(&public_key);
+    let id_of_unsorted = derive_universal_account_id(&unsorted);
+
+    for (raw, status) in [(unsorted, 2u8), (RawStateInit(vec![7, 7, 7]), 1u8)] {
+        let outcome = env
+            .call_universal_state_init(&caller, raw, Balance::from_near(2))
+            .expect("call should be a valid transaction");
+        assert_matches!(
+            outcome.status,
+            FinalExecutionStatus::SuccessValue(value) if value == [status],
+            "{outcome:?}"
+        );
+    }
+    assert!(env.try_view_account(&id_of_unsorted).is_err(), "nothing should have been created");
+}
+
+/// The version just below `CanonicalUniversalStateInit`, where universal accounts are already on.
+fn before_canonical_state_init() -> ProtocolVersion {
+    let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version() - 1;
+    assert!(ProtocolFeature::UniversalAccounts.enabled(version));
+    version
+}
+
+/// Before `CanonicalUniversalStateInit` a non-canonical encoding is a state init like any
+/// other: it creates the account at the id its bytes derive to. Pins the behavior the
+/// canonical check must not change below its version.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_accepts_non_canonical_before_canonical_feature() {
+    init_test_logger();
+    let mut env = Env::setup_at(before_canonical_state_init());
+
+    let public_key =
+        SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical-before").public_key();
+    let raw = non_canonical_state_init(&public_key);
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err(), "fixture must be non-canonical");
+    let account = derive_universal_account_id(&raw);
+
+    env.create_universal_account(raw, &account, Balance::from_near(1));
+
+    assert!(env.view_account(&account).storage_usage > 0, "the account should have been created");
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
+    assert!(matches!(access_key.permission, AccessKeyPermissionView::FullAccess));
+}
+
+/// A contract that creates the state init at `state_init` for `receiver`, funding it with
+/// 1 NEAR from its own balance. It does not ask the host to derive the id, which refuses
+/// bytes that are not canonical, but is handed it, so it can get them to the action anyway.
+fn create_without_derive_wasm(state_init: &[u8], receiver: &AccountId) -> Vec<u8> {
+    let data = wat_data(state_init);
+    let amount = wat_data(&Balance::from_near(1).as_yoctonear().to_le_bytes());
+    let receiver_data = wat_data(receiver.as_bytes());
+    let len = state_init.len();
+    let receiver_len = receiver.as_bytes().len();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "promise_batch_create" (func $create (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_universal_state_init" (func $action (param i64 i64 i64 i64)))
+  (memory (export "memory") 1)
+
+  (data (i32.const 0) "{data}")
+  (data (i32.const 4096) "{amount}")
+  (data (i32.const 8192) "{receiver_data}")
+
+  (func (export "main")
+    (local $promise i64)
+    (local.set $promise (call $create (i64.const {receiver_len}) (i64.const 8192)))
+    (call $action (local.get $promise) (i64.const {len}) (i64.const 0) (i64.const 4096))
+  )
+)"#,
+    ))
+}
+
+fn wat_data(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("\\{byte:02x}")).collect()
+}
+
+/// A contract that hands non-canonical bytes straight to the action, without deriving the id
+/// through the host, creates the account below `CanonicalUniversalStateInit`, and fails the
+/// receipt it builds from there on: the receipt's own validation is what rejects them.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_from_contract_by_version() {
+    init_test_logger();
+    let feature_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+
+    for (version, accepted) in [(before_canonical_state_init(), true), (feature_version, false)] {
+        let mut env = Env::setup_at(version);
+        let public_key =
+            SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical-contract").public_key();
+        let raw = non_canonical_state_init(&public_key);
+        let account = derive_universal_account_id(&raw);
+
+        let outcome = env.deploy_and_call_outcome(create_without_derive_wasm(&raw.0, &account));
+
+        if accepted {
+            assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_), "{outcome:?}");
+            assert!(env.view_account(&account).storage_usage > 0, "version {version}");
+        } else {
+            let FinalExecutionStatus::Failure(error) = &outcome.status else {
+                panic!("version {version}: a non-canonical state init must fail, got {outcome:?}");
+            };
+            assert!(
+                format!("{error:?}").contains("MalformedUniversalStateInit"),
+                "version {version}: expected the receipt to reject the payload, got {error:?}"
+            );
+            assert!(env.try_view_account(&account).is_err(), "version {version}");
+        }
+    }
+}
+
+/// A contract that passes a payload to the action that is going to be rejected is charged as if
+/// it held as many entries and keys as its length allows, not for what it decodes to. A payload
+/// of repeated entries decodes to one entry, so counting what decodes would let it through for
+/// the byte fee alone.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_from_contract_is_charged_for_its_length() {
+    init_test_logger();
+    let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+    let mut env = Env::setup_at(version);
+
+    // 200 copies of one empty entry, and no access keys.
+    let mut bytes = vec![0, 0];
+    bytes.extend_from_slice(&200u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 200 * 8]);
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    let raw = RawStateInit(bytes);
+    assert_eq!(state_init_counts(&raw).num_entries, 1, "fixture must collapse on decode");
+    assert!(UniversalStateInit::from_raw_strict(&raw).is_err(), "fixture must be non-canonical");
+    let account = derive_universal_account_id(&raw);
+
+    let outcome = env.deploy_and_call_outcome(create_without_derive_wasm(&raw.0, &account));
+
+    let FinalExecutionStatus::Failure(error) = &outcome.status else {
+        panic!("a non-canonical state init must fail, got {outcome:?}");
     };
+    assert!(format!("{error:?}").contains("MalformedUniversalStateInit"), "{error:?}");
+
+    let config = RuntimeConfigStore::new(None).get_config(version).clone();
+    let send_fee = |counts: UniversalStateInitCounts| {
+        universal_state_init_size_terms(counts.num_bytes)
+            .into_iter()
+            .chain(universal_state_init_content_terms(counts))
+            .map(|(cost, units)| config.fees.fee(cost).send_fee(false).gas.as_gas() * units)
+            .sum::<u64>()
+    };
+    let charged = send_fee(state_init_send_counts(&raw, DecodeMode::Strict));
+    let decoded = send_fee(state_init_counts(&raw));
+    assert!(charged > decoded + Gas::from_teragas(1).as_gas(), "{charged} vs {decoded}");
+    // The call burns the fees and a little besides.
+    let gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt.as_gas();
+    assert!(gas_burnt >= charged, "burnt {gas_burnt}, send fee for what it could hold {charged}");
+}
+
+/// The protocol version the block was produced under.
+fn version_of_block(node: &TestLoopNode, block_hash: CryptoHash) -> ProtocolVersion {
+    let epoch_id = *node.block(block_hash).header().epoch_id();
+    node.client().epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap()
+}
+
+/// A receipt created while the old rules applied that only executes after
+/// `CanonicalUniversalStateInit` takes over. One chain is taken across the real upgrade, with a
+/// non-canonical state init submitted every block while the old version is current. The last one
+/// admitted before the upgrade leaves a receipt that executes in the first block of the new
+/// version. It must pass validation as an existing receipt and fail its action, without
+/// halting the chain, and without creating the account. Receipts that execute before the
+/// upgrade still create theirs.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_universal_state_init_non_canonical_receipt_across_upgrade() {
+    init_test_logger();
+    let new_protocol = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+    let old_protocol = before_canonical_state_init();
+    let user = create_account_id("alice");
+    let epoch_length = 10;
+
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .protocol_version(old_protocol)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_protocol))
+        .epoch_length(epoch_length)
+        .add_user_account(&user, Balance::from_near(1_000_000))
+        .build();
+    assert_eq!(
+        env.rpc_node().protocol_version_at_head(),
+        old_protocol,
+        "expected a pre-upgrade start"
+    );
+
+    // Each state init is distinct, so each one is its own account. Keep going until a few
+    // blocks have passed under the new version, so every receipt has had time to execute.
+    let mut submitted = vec![];
+    let mut blocks_after_upgrade = 0;
+    for i in 0.. {
+        assert!(i < 20 * epoch_length, "the upgrade never happened");
+        if blocks_after_upgrade == 5 {
+            break;
+        }
+        if env.rpc_node().protocol_version_at_head() >= new_protocol {
+            blocks_after_upgrade += 1;
+        } else {
+            let public_key =
+                SecretKey::from_seed(KeyType::ED25519, &format!("uaid-upgrade-{i}")).public_key();
+            let raw = non_canonical_state_init(&public_key);
+            let receiver = derive_universal_account_id(&raw);
+            let tx = env.rpc_node().tx_from_actions(
+                &user,
+                &receiver,
+                vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw,
+                    deposit: Balance::from_near(1),
+                }))],
+            );
+            submitted.push((env.rpc_node().submit_tx(tx), receiver));
+        }
+        env.rpc_runner().run_for_number_of_blocks(1);
+    }
+
+    let node = env.rpc_node();
+    let (mut created_before, mut crossed_upgrade) = (0, 0);
+    for (tx_hash, receiver) in &submitted {
+        // A transaction pooled when the upgrade came is either dropped before it is included,
+        // and has no outcome, or fails its validation when it is converted, and has no receipt.
+        let Ok(tx_outcome) = node.client().chain.get_execution_outcome(tx_hash) else {
+            continue;
+        };
+        let tx_version = version_of_block(&node, tx_outcome.block_hash);
+        let tx_status = &tx_outcome.outcome_with_id.outcome.status;
+        let [receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+            assert_matches!(
+                tx_status,
+                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::MalformedUniversalStateInit
+                    )
+                ))
+            );
+            assert!(tx_version >= new_protocol, "only the new rules reject the transaction");
+            continue;
+        };
+        let receipt_outcome = node.execution_outcome_with_proof(receipt_id);
+        let executed_version = version_of_block(&node, receipt_outcome.block_hash);
+        let status = receipt_outcome.outcome_with_id.outcome.status;
+        let exists = node.view_account_query(receiver).is_ok();
+
+        if executed_version < new_protocol {
+            assert_matches!(status, ExecutionStatus::SuccessValue(_), "{receiver}");
+            assert!(exists, "{receiver} should have been created under the old rules");
+            created_before += 1;
+        } else {
+            assert_matches!(
+                status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                    kind: ActionErrorKind::MalformedUniversalStateInit,
+                    ..
+                })),
+                "{receiver}"
+            );
+            assert!(!exists, "{receiver} must not be created under the new rules");
+            if tx_version < new_protocol {
+                crossed_upgrade += 1;
+            }
+        }
+    }
+    assert!(created_before > 0, "no receipt executed before the upgrade");
     assert!(
-        format!("{error:?}").contains("MalformedUniversalStateInit"),
-        "expected the receipt to reject the payload, got {error:?}"
+        crossed_upgrade > 0,
+        "no receipt created under the old rules executed under the new ones"
     );
 }
 

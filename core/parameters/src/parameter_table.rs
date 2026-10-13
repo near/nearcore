@@ -464,6 +464,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
+                canonical_universal_state_init: params
+                    .get(Parameter::CanonicalUniversalStateInit)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,

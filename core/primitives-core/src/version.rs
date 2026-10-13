@@ -495,6 +495,11 @@ pub enum ProtocolFeature {
     /// A universal state init on an already initialized account refunds the whole deposit.
     /// Before it, the deposit also tops up storage staking.
     RefundRepeatedUniversalStateInitDeposit,
+    /// A `UniversalStateInit` is accepted only in its canonical borsh encoding, so that each
+    /// state init has exactly one valid encoding and one account id. Turns on the check behind
+    /// the status of the `universal_state_init_to_account_id` host function, and comes with the
+    /// fees that price the decode and canonical check.
+    CanonicalUniversalStateInit,
 }
 
 impl ProtocolFeature {
@@ -633,6 +638,7 @@ impl ProtocolFeature {
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::RejectUniversalAccountTransfers => 87,
             ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
+            ProtocolFeature::CanonicalUniversalStateInit => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
