@@ -154,6 +154,11 @@ pub enum ProtocolFeature {
     /// A universal state init on an already initialized account refunds the whole deposit.
     /// Before it, the deposit also tops up storage staking.
     RefundRepeatedUniversalStateInitDeposit,
+    /// A `UniversalStateInit` is accepted only in its canonical borsh encoding, so that each
+    /// state init has exactly one valid encoding and one account id. Turns on the check behind
+    /// the status of the `universal_state_init_to_account_id` host function, and comes with the
+    /// fees that price the decode and canonical check.
+    CanonicalUniversalStateInit,
     /// Use the new version of the eth-wallet contract.
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
@@ -200,6 +205,7 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
             ProtocolFeature::RejectUniversalAccountTransfers => 87,
             ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
+            ProtocolFeature::CanonicalUniversalStateInit => 88,
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,

@@ -486,7 +486,8 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 24,
-    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the
+    /// canonical representation of the struct.
     MalformedUniversalStateInit = 25,
     /// The transaction includes a feature that was removed at or before the
     /// current protocol version. The counterpart of
@@ -751,7 +752,10 @@ impl Display for ActionsValidationError {
                 )
             }
             ActionsValidationError::MalformedUniversalStateInit => {
-                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+                write!(
+                    f,
+                    "RawStateInit bytes are not a canonical borsh encoding of UniversalStateInit"
+                )
             }
             ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
                 number_of_keys,
@@ -958,9 +962,9 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
-    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
-    /// Action validation rejects such an action before it runs, so this only fires
-    /// if that check was bypassed.
+    /// The bytes of a `UniversalStateInit` action are not the canonical borsh of a
+    /// state init. Action validation rejects such an action before it runs, so this
+    /// only fires if that check was bypassed.
     MalformedUniversalStateInit = 29,
     /// The action needs a set-up account, but the receiver is an uninitialized
     /// universal account. Distinct from `AccountDoesNotExist`: the account is
