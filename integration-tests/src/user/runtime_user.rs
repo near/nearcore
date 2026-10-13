@@ -208,6 +208,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             next_wasm_config: None,
+            vm_generations: Default::default(),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,

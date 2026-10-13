@@ -83,10 +83,25 @@ pub mod col {
     pub const YIELD_ID_TO_DATA_ID: u8 = 22;
     /// Reverse mapping from runtime data ID to user-provided yield ID.
     pub const DATA_ID_TO_YIELD_ID: u8 = 23;
+    /// VM generation under which the chain last admitted the contract deployed on an
+    /// `account_id`. Values are `ProtocolVersion`.
+    pub const CONTRACT_WARMTH: u8 = 24;
+    /// VM generation under which the chain last admitted a global contract. Values are
+    /// `ProtocolVersion`.
+    pub const GLOBAL_CONTRACT_WARMTH: u8 = 25;
+    /// Indices of the FIFO of accounts with receipts in the pending-compile queue. A
+    /// singleton per shard.
+    pub const PENDING_COMPILE_ACCOUNT_INDICES: u8 = 26;
+    /// An `AccountId` in the FIFO of accounts with receipts in the pending-compile queue.
+    pub const PENDING_COMPILE_ACCOUNT: u8 = 27;
+    /// Indices of the pending-compile receipts of one receiver.
+    pub const PENDING_COMPILE_RECEIPT_INDICES: u8 = 28;
+    /// A pending-compile receipt of one receiver.
+    pub const PENDING_COMPILE_RECEIPT: u8 = 29;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 12] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 15] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -99,9 +114,12 @@ pub mod col {
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
         (YIELD_ID_TO_DATA_ID, "YieldIdToDataId"),
         (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
+        (CONTRACT_WARMTH, "ContractWarmth"),
+        (PENDING_COMPILE_RECEIPT_INDICES, "PendingCompileReceiptIndices"),
+        (PENDING_COMPILE_RECEIPT, "PendingCompileReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 22] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 28] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -124,6 +142,12 @@ pub mod col {
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
         (YIELD_ID_TO_DATA_ID, "YieldIdToDataId"),
         (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
+        (CONTRACT_WARMTH, "ContractWarmth"),
+        (GLOBAL_CONTRACT_WARMTH, "GlobalContractWarmth"),
+        (PENDING_COMPILE_ACCOUNT_INDICES, "PendingCompileAccountIndices"),
+        (PENDING_COMPILE_ACCOUNT, "PendingCompileAccount"),
+        (PENDING_COMPILE_RECEIPT_INDICES, "PendingCompileReceiptIndices"),
+        (PENDING_COMPILE_RECEIPT, "PendingCompileReceipt"),
     ];
 }
 
@@ -300,6 +324,32 @@ pub enum TrieKey {
         key_handle: PublicKeyHandle,
         index: NonceIndex,
     } = 21,
+    /// The VM generation under which the chain last admitted the contract
+    /// deployed on `account_id`.
+    ContractWarmth {
+        account_id: AccountId,
+    } = col::CONTRACT_WARMTH,
+    /// The VM generation under which the chain last admitted a global contract.
+    GlobalContractWarmth {
+        identifier: GlobalContractCodeIdentifier,
+    } = col::GLOBAL_CONTRACT_WARMTH,
+    /// Indices of the FIFO of accounts with pending-compile receipts.
+    /// NOTE: It is a singleton per shard.
+    PendingCompileAccountIndices = col::PENDING_COMPILE_ACCOUNT_INDICES,
+    /// An `AccountId` at a given index in the FIFO of accounts with
+    /// pending-compile receipts.
+    PendingCompileAccount {
+        index: u64,
+    } = col::PENDING_COMPILE_ACCOUNT,
+    /// Indices of the pending-compile receipts of `receiver_id`.
+    PendingCompileReceiptIndices {
+        receiver_id: AccountId,
+    } = col::PENDING_COMPILE_RECEIPT_INDICES,
+    /// A `Receipt` at a given index in the pending-compile receipts of `receiver_id`.
+    PendingCompileReceipt {
+        receiver_id: AccountId,
+        index: u64,
+    } = col::PENDING_COMPILE_RECEIPT,
 }
 
 /// Provides `len` function.
@@ -450,6 +500,23 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + data_id.as_ref().len()
             }
+            TrieKey::ContractWarmth { account_id } => col::CONTRACT_WARMTH.len() + account_id.len(),
+            TrieKey::GlobalContractWarmth { identifier } => {
+                col::GLOBAL_CONTRACT_WARMTH.len() + identifier.len()
+            }
+            TrieKey::PendingCompileAccountIndices => col::PENDING_COMPILE_ACCOUNT_INDICES.len(),
+            TrieKey::PendingCompileAccount { .. } => {
+                col::PENDING_COMPILE_ACCOUNT.len() + size_of::<u64>()
+            }
+            TrieKey::PendingCompileReceiptIndices { receiver_id } => {
+                col::PENDING_COMPILE_RECEIPT_INDICES.len() + receiver_id.len()
+            }
+            TrieKey::PendingCompileReceipt { receiver_id, .. } => {
+                col::PENDING_COMPILE_RECEIPT.len()
+                    + receiver_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + size_of::<u64>()
+            }
         }
     }
 
@@ -576,6 +643,31 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
+            TrieKey::ContractWarmth { account_id } => {
+                buf.push(col::CONTRACT_WARMTH);
+                buf.extend(account_id.as_bytes());
+            }
+            TrieKey::GlobalContractWarmth { identifier } => {
+                buf.push(col::GLOBAL_CONTRACT_WARMTH);
+                identifier.append_into(buf);
+            }
+            TrieKey::PendingCompileAccountIndices => {
+                buf.push(col::PENDING_COMPILE_ACCOUNT_INDICES);
+            }
+            TrieKey::PendingCompileAccount { index } => {
+                buf.push(col::PENDING_COMPILE_ACCOUNT);
+                buf.extend(&index.to_le_bytes());
+            }
+            TrieKey::PendingCompileReceiptIndices { receiver_id } => {
+                buf.push(col::PENDING_COMPILE_RECEIPT_INDICES);
+                buf.extend(receiver_id.as_bytes());
+            }
+            TrieKey::PendingCompileReceipt { receiver_id, index } => {
+                buf.push(col::PENDING_COMPILE_RECEIPT);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(&index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -615,6 +707,12 @@ impl TrieKey {
             TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::YieldIdToDataId { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::DataIdToYieldId { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::ContractWarmth { account_id } => Some(account_id.clone()),
+            TrieKey::GlobalContractWarmth { .. } => None,
+            TrieKey::PendingCompileAccountIndices => None,
+            TrieKey::PendingCompileAccount { .. } => None,
+            TrieKey::PendingCompileReceiptIndices { receiver_id } => Some(receiver_id.clone()),
+            TrieKey::PendingCompileReceipt { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
 }
@@ -835,6 +933,16 @@ pub mod trie_key_parsers {
         parse_account_id_from_slice(account_id, "ContractCode")
     }
 
+    /// Parses a key that is the column byte followed by the account id and nothing else.
+    pub fn parse_account_id_after_column(
+        col: u8,
+        raw_key: &[u8],
+        col_name: &str,
+    ) -> Result<AccountId, std::io::Error> {
+        let account_id = parse_account_id_prefix(col, raw_key)?;
+        parse_account_id_from_slice(account_id, col_name)
+    }
+
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
@@ -845,6 +953,9 @@ pub mod trie_key_parsers {
             let account_id = match col {
                 col::ACCOUNT => parse_account_id_from_account_key(raw_key)?,
                 col::CONTRACT_CODE => parse_account_id_from_contract_code_key(raw_key)?,
+                col::CONTRACT_WARMTH | col::PENDING_COMPILE_RECEIPT_INDICES => {
+                    parse_account_id_after_column(col, raw_key, col_name)?
+                }
                 col::ACCESS_KEY => parse_account_id_from_access_key_key(raw_key)?,
                 _ => parse_account_id_from_trie_key_with_separator(col, raw_key, col_name)?,
             };

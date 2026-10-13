@@ -4,7 +4,7 @@ use crate::config::{
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -150,6 +150,28 @@ impl RuntimeConfigStore {
                 panic!("Not found RuntimeConfig for protocol version {}", protocol_version)
             })
             .1
+    }
+
+    /// Returns the VM generation of `protocol_version`: the latest protocol version
+    /// after `ColdContractAdmission` and up to `protocol_version` whose wasm config
+    /// differs from the one before it, or 0 if there is none.
+    // TODO(async-compilation): a Wasmtime upgrade changes compiled artifacts
+    // without a wasm config change, and needs its own generation bump.
+    pub fn vm_generation(&self, protocol_version: ProtocolVersion) -> ProtocolVersion {
+        let first_tracked = ProtocolFeature::ColdContractAdmission.protocol_version();
+        let mut generation = 0;
+        let mut previous: Option<&Arc<RuntimeConfig>> = None;
+        for (version, config) in
+            self.store.range((Bound::Unbounded, Bound::Included(protocol_version)))
+        {
+            if *version > first_tracked
+                && previous.is_some_and(|previous| previous.wasm_config != config.wasm_config)
+            {
+                generation = *version;
+            }
+            previous = Some(config);
+        }
+        generation
     }
 
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
@@ -352,5 +374,35 @@ mod tests {
             min_config_protocol_version,
             MIN_SUPPORTED_PROTOCOL_VERSION
         );
+    }
+
+    #[test]
+    fn cold_contract_admission_activates_in_a_version_without_a_vm_change() {
+        let store = RuntimeConfigStore::new();
+        let version = ProtocolFeature::ColdContractAdmission.protocol_version();
+        assert_eq!(
+            store.get_config(version).wasm_config,
+            store.get_config(version - 1).wasm_config
+        );
+    }
+
+    #[test]
+    fn vm_generation_is_the_latest_wasm_config_change_after_cold_contract_admission() {
+        let activation = ProtocolFeature::ColdContractAdmission.protocol_version();
+        let base = Arc::new(RuntimeConfig::test());
+        let mut changed = RuntimeConfig::test();
+        let mut wasm_config = (*changed.wasm_config).clone();
+        wasm_config.regular_op_cost += 1;
+        changed.wasm_config = Arc::new(wasm_config);
+        let changed = Arc::new(changed);
+        let store = RuntimeConfigStore::new_custom(BTreeMap::from([
+            (0, Arc::clone(&base)),
+            (activation, Arc::clone(&changed)),
+            (activation + 1, Arc::clone(&base)),
+            (activation + 2, Arc::clone(&base)),
+        ]));
+        assert_eq!(store.vm_generation(activation), 0);
+        assert_eq!(store.vm_generation(activation + 1), activation + 1);
+        assert_eq!(store.vm_generation(activation + 5), activation + 1);
     }
 }

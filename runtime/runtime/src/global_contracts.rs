@@ -17,7 +17,7 @@ use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
-use near_store::{StorageError, TrieAccess as _, TrieUpdate};
+use near_store::{StorageError, TrieAccess as _, TrieUpdate, set};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -207,6 +207,10 @@ fn apply_distribution_current_shard(
     }
 
     let config = apply_state.config.wasm_config.clone();
+    if ProtocolFeature::ColdContractAdmission.enabled(apply_state.current_protocol_version) {
+        let warmth_key = TrieKey::GlobalContractWarmth { identifier: identifier.clone() };
+        set(state_update, warmth_key, &apply_state.vm_generations.current);
+    }
     let trie_key = TrieKey::GlobalContractCode { identifier };
     let code_len = global_contract_data.code().len() as u64;
     state_update.set(trie_key, global_contract_data.code().to_vec());

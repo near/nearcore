@@ -14,9 +14,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self};
 use near_primitives::trie_key::trie_key_parsers::{
-    parse_account_id_from_access_key_key, parse_account_id_from_account_key,
-    parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
-    parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
+    parse_account_id_after_column, parse_account_id_from_access_key_key,
+    parse_account_id_from_account_key, parse_account_id_from_contract_code_key,
+    parse_account_id_from_contract_data_key, parse_account_id_from_received_data_key,
+    parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
@@ -867,9 +868,19 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_RECEIPT
         | col::PROMISE_YIELD_STATUS
         | col::YIELD_ID_TO_DATA_ID
-        | col::DATA_ID_TO_YIELD_ID => {
+        | col::DATA_ID_TO_YIELD_ID
+        | col::PENDING_COMPILE_RECEIPT => {
             copy_kv_to_child(&split_params, key, value, store_update, |raw_key: &[u8]| {
                 parse_account_id_from_trie_key_with_separator(
+                    key_column_prefix,
+                    raw_key,
+                    &format!("col at index {}", key_column_prefix),
+                )
+            })?
+        }
+        col::CONTRACT_WARMTH | col::PENDING_COMPILE_RECEIPT_INDICES => {
+            copy_kv_to_child(&split_params, key, value, store_update, |raw_key: &[u8]| {
+                parse_account_id_after_column(
                     key_column_prefix,
                     raw_key,
                     &format!("col at index {}", key_column_prefix),
@@ -881,7 +892,10 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE
-        | col::GLOBAL_CONTRACT_NONCE => {
+        | col::GLOBAL_CONTRACT_NONCE
+        | col::GLOBAL_CONTRACT_WARMTH
+        | col::PENDING_COMPILE_ACCOUNT_INDICES
+        | col::PENDING_COMPILE_ACCOUNT => {
             copy_kv_to_all_children(&split_params, key, value, store_update)
         }
         col::BUFFERED_RECEIPT_INDICES

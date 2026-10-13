@@ -88,6 +88,11 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
+pub use pending_compile::VmGenerations;
+use pending_compile::{
+    Admission, ColdAdmission, peek_pending_compile_receipt, pop_pending_compile_receipt,
+    push_pending_compile_receipt, set_contract_warmth, warm_pending_compile_code,
+};
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
@@ -115,6 +120,7 @@ pub mod ext;
 mod function_call;
 mod global_contracts;
 pub mod metrics;
+mod pending_compile;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
@@ -196,6 +202,8 @@ pub struct ApplyState {
     /// runtime use this to pre-warm the cache for the upcoming VM, so the boundary
     /// doesn't trigger a re-compile avalanche. `None` in steady state.
     pub next_wasm_config: Option<Arc<VmConfig>>,
+    /// VM generations of this epoch and the next, for cold-code admission.
+    pub vm_generations: VmGenerations,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Cache for trie node accesses.
@@ -632,6 +640,15 @@ impl Runtime {
                     apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                 )?;
+                if ProtocolFeature::ColdContractAdmission
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    set_contract_warmth(
+                        state_update,
+                        account_id,
+                        apply_state.vm_generations.current,
+                    );
+                }
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
@@ -1430,9 +1447,27 @@ impl Runtime {
             ref mut stats,
             ref mut instant_receipts,
             ref mut receipt_to_tx,
+            ref mut cold_admission,
+            ref mut delayed_receipts,
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
+        if cold_admission.take_admitted_from_queue(receipt.receipt_id()) {
+            return self
+                .apply_action_receipt(
+                    state_update,
+                    apply_state,
+                    pipeline_manager,
+                    receipt,
+                    receipt_sink,
+                    instant_receipts,
+                    validator_proposals,
+                    stats,
+                    epoch_info_provider,
+                    receipt_to_tx,
+                )
+                .map(Some);
+        }
         match receipt.versioned_receipt() {
             VersionedReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
@@ -1490,20 +1525,23 @@ impl Runtime {
                         remove_postponed_receipt(state_update, account_id, receipt_id);
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
-                        return self
-                            .apply_action_receipt(
-                                state_update,
-                                apply_state,
-                                pipeline_manager,
-                                &ready_receipt,
-                                receipt_sink,
-                                instant_receipts,
-                                validator_proposals,
-                                stats,
-                                epoch_info_provider,
-                                receipt_to_tx,
-                            )
-                            .map(Some);
+                        let executed = self.apply_or_defer_action_receipt(
+                            state_update,
+                            apply_state,
+                            pipeline_manager,
+                            &ready_receipt,
+                            receipt_sink,
+                            instant_receipts,
+                            validator_proposals,
+                            stats,
+                            epoch_info_provider,
+                            receipt_to_tx,
+                            cold_admission,
+                            delayed_receipts,
+                        )?;
+                        if executed.is_some() {
+                            return Ok(executed);
+                        }
                     } else {
                         // There is still some pending data for the receipt, so we update the
                         // pending data count in the state.
@@ -1537,6 +1575,8 @@ impl Runtime {
                     account_id,
                     action_receipt,
                     receipt_to_tx,
+                    cold_admission,
+                    delayed_receipts,
                 )?;
 
                 if executed.is_some() {
@@ -1597,20 +1637,23 @@ impl Runtime {
 
                     // Execute the PromiseYield receipt. It will read the input data and clean it
                     // up from the state.
-                    return self
-                        .apply_action_receipt(
-                            state_update,
-                            apply_state,
-                            pipeline_manager,
-                            &yield_receipt,
-                            receipt_sink,
-                            instant_receipts,
-                            validator_proposals,
-                            stats,
-                            epoch_info_provider,
-                            receipt_to_tx,
-                        )
-                        .map(Some);
+                    let executed = self.apply_or_defer_action_receipt(
+                        state_update,
+                        apply_state,
+                        pipeline_manager,
+                        &yield_receipt,
+                        receipt_sink,
+                        instant_receipts,
+                        validator_proposals,
+                        stats,
+                        epoch_info_provider,
+                        receipt_to_tx,
+                        cold_admission,
+                        delayed_receipts,
+                    )?;
+                    if executed.is_some() {
+                        return Ok(executed);
+                    }
                 } else {
                     // If the user happens to call `promise_yield_resume` multiple times, it may so
                     // happen that multiple PromiseResume receipts are delivered. We can safely
@@ -1637,6 +1680,66 @@ impl Runtime {
         Ok(None)
     }
 
+    /// Executes an action receipt whose input data is all available, unless
+    /// cold-code admission defers it. A deferred receipt goes to the
+    /// pending-compile queue, or to the delayed-receipt queue when that is full,
+    /// and returns `None`.
+    fn apply_or_defer_action_receipt(
+        &self,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        preparation_pipeline: &ReceiptPreparationPipeline,
+        receipt: &Receipt,
+        receipt_sink: &mut ReceiptSink,
+        instant_receipts: &mut VecDeque<Receipt>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ChunkApplyStatsV1,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
+        cold_admission: &mut ColdAdmission,
+        delayed_receipts: &mut DelayedReceiptQueueWrapper<'_>,
+    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let protocol_version = apply_state.current_protocol_version;
+        if ProtocolFeature::ColdContractAdmission.enabled(protocol_version) {
+            let chain_id = epoch_info_provider.chain_id();
+            let admission = cold_admission.admit(
+                state_update,
+                receipt,
+                apply_state.vm_generations,
+                &chain_id,
+                protocol_version,
+            )?;
+            if let Admission::Defer = admission {
+                if push_pending_compile_receipt(state_update, receipt)? {
+                    warm_pending_compile_code(
+                        state_update,
+                        receipt,
+                        Arc::clone(&apply_state.config.wasm_config),
+                        apply_state.cache.as_deref(),
+                        &chain_id,
+                        protocol_version,
+                    )?;
+                } else {
+                    delayed_receipts.push(state_update, receipt, apply_state)?;
+                }
+                return Ok(None);
+            }
+        }
+        self.apply_action_receipt(
+            state_update,
+            apply_state,
+            preparation_pipeline,
+            receipt,
+            receipt_sink,
+            instant_receipts,
+            validator_proposals,
+            stats,
+            epoch_info_provider,
+            receipt_to_tx,
+        )
+        .map(Some)
+    }
+
     /// Received a new action receipt. We'll first check how many input data items
     /// were already received before and saved in the state.
     /// And if we have all input data, then we can immediately execute the receipt.
@@ -1655,6 +1758,8 @@ impl Runtime {
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
+        cold_admission: &mut ColdAdmission,
+        delayed_receipts: &mut DelayedReceiptQueueWrapper<'_>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let mut pending_data_count: u32 = 0;
         for data_id in action_receipt.input_data_ids() {
@@ -1676,20 +1781,20 @@ impl Runtime {
         if pending_data_count == 0 {
             // All input data is available. Executing the receipt. It will cleanup
             // input data from the state.
-            return self
-                .apply_action_receipt(
-                    state_update,
-                    apply_state,
-                    pipeline_manager,
-                    receipt,
-                    receipt_sink,
-                    instant_receipts,
-                    validator_proposals,
-                    stats,
-                    epoch_info_provider,
-                    receipt_to_tx,
-                )
-                .map(Some);
+            return self.apply_or_defer_action_receipt(
+                state_update,
+                apply_state,
+                pipeline_manager,
+                receipt,
+                receipt_sink,
+                instant_receipts,
+                validator_proposals,
+                stats,
+                epoch_info_provider,
+                receipt_to_tx,
+                cold_admission,
+                delayed_receipts,
+            );
         } else {
             // Not all input data is available now.
             // Save the counter for the number of pending input data items into the state.
@@ -2544,12 +2649,17 @@ impl Runtime {
             )
         };
 
+        // Cold-code admission can push a popped receipt back to the queue; pop at most
+        // the receipts that were queued when the loop started.
+        let mut delayed_receipts_left = processing_state.delayed_receipts.upper_bound_len();
         loop {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || delayed_receipts_left == 0
             {
                 break;
             }
+            delayed_receipts_left -= 1;
 
             let receipt =
                 processing_state.delayed_receipts.pop(&mut processing_state.state_update)?;
@@ -2613,6 +2723,57 @@ impl Runtime {
             processing_state.total.compute,
         );
 
+        Ok(())
+    }
+
+    /// Executes receipts from the front of the pending-compile queue while the
+    /// chunk's cold-code budget admits them.
+    #[instrument(target = "runtime", level = "debug", "process_pending_compile_receipts", skip_all)]
+    fn process_pending_compile_receipts(
+        &self,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+        compute_limit: u64,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        let protocol_version = processing_state.protocol_version;
+        if !ProtocolFeature::ColdContractAdmission.enabled(protocol_version) {
+            return Ok(());
+        }
+        let chain_id = processing_state.epoch_info_provider.chain_id();
+        loop {
+            if processing_state.total.compute >= compute_limit
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
+            {
+                break;
+            }
+            let Some(receipt) = peek_pending_compile_receipt(&mut processing_state.state_update)?
+            else {
+                break;
+            };
+            let admission = processing_state.cold_admission.admit_code(
+                &mut processing_state.state_update,
+                &receipt,
+                processing_state.apply_state.vm_generations,
+                &chain_id,
+                protocol_version,
+            )?;
+            if let Admission::Defer = admission {
+                break;
+            }
+            pop_pending_compile_receipt(&mut processing_state.state_update, receipt.receiver_id())?;
+            processing_state.cold_admission.set_admitted_from_queue(*receipt.receipt_id());
+            self.process_receipt_and_instant_receipts(
+                &receipt,
+                processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+            // The receipt body is saved like a delayed receipt's: it was stored in state.
+            processing_state
+                .processed_receipts
+                .push(ProcessedReceipt { receipt, source: ReceiptSource::Delayed });
+        }
         Ok(())
     }
 
@@ -2749,6 +2910,14 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
+
+        // Receipts waiting for their code to be admitted go first, oldest first.
+        self.process_pending_compile_receipts(
+            processing_state,
+            receipt_sink,
+            compute_limit,
+            &mut validator_proposals,
+        )?;
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
@@ -3279,6 +3448,7 @@ impl<'a> ApplyProcessingState<'a> {
             delayed_receipts,
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
+            cold_admission: ColdAdmission::default(),
         }
     }
 }
@@ -3304,6 +3474,7 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    cold_admission: ColdAdmission,
 }
 
 trait MaybeRefReceipt {

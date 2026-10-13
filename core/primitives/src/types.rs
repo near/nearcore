@@ -435,6 +435,12 @@ impl StateChanges {
                 TrieKey::PromiseYieldStatus { .. } => {}
                 TrieKey::YieldIdToDataId { .. } => {}
                 TrieKey::DataIdToYieldId { .. } => {}
+                TrieKey::ContractWarmth { .. } => {}
+                TrieKey::GlobalContractWarmth { .. } => {}
+                TrieKey::PendingCompileAccountIndices => {}
+                TrieKey::PendingCompileAccount { .. } => {}
+                TrieKey::PendingCompileReceiptIndices { .. } => {}
+                TrieKey::PendingCompileReceipt { .. } => {}
             }
         }
 

@@ -66,8 +66,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, VmGenerations, get_signer_and_authorization,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -317,9 +317,15 @@ impl NightshadeRuntime {
             self.save_receipt_to_tx && apply_reason == ApplyChunkReason::UpdateTrackedShard;
         // Detect an upcoming protocol upgrade that would invalidate the
         // compiled-contract cache, and surface the next epoch's wasm_config.
-        let next_wasm_config = self
-            .epoch_manager
-            .get_next_epoch_protocol_version_from_prev_block(prev_block_hash)
+        let next_protocol_version =
+            self.epoch_manager.get_next_epoch_protocol_version_from_prev_block(prev_block_hash);
+        let vm_generations = VmGenerations {
+            current: self.runtime_config_store.vm_generation(current_protocol_version),
+            next: self.runtime_config_store.vm_generation(
+                *next_protocol_version.as_ref().unwrap_or(&current_protocol_version),
+            ),
+        };
+        let next_wasm_config = next_protocol_version
             .ok()
             .filter(|next_pv| *next_pv != current_protocol_version)
             .and_then(|next_pv| {
@@ -341,6 +347,7 @@ impl NightshadeRuntime {
             current_protocol_version,
             config: config.clone(),
             next_wasm_config,
+            vm_generations,
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             save_receipt_to_tx,

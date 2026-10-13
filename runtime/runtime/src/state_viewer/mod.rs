@@ -463,6 +463,7 @@ impl TrieViewer {
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
             next_wasm_config: None,
+            vm_generations: Default::default(),
             cache: view_state.cache,
             is_new_chunk: false,
             save_receipt_to_tx: false,
