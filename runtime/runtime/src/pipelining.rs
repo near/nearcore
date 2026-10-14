@@ -399,6 +399,7 @@ impl ReceiptPreparationPipeline {
     ///
     /// Speculative preparation is only used for internal calls, because it
     /// charges the loading fee to a gas counter built for an internal call.
+    /// TODO(ecc): Make speculative preparation work for ECC
     pub(crate) fn get_contract(
         &self,
         receipt: &Receipt,
@@ -430,6 +431,7 @@ impl ReceiptPreparationPipeline {
         // Only internal calls consume speculative preparation, which uses the
         // gas limits of an internal call. A view or external call has its own
         // limits, which the gas counter passed in already uses.
+        // TODO(ecc): Make speculative preparation work for ECC
         // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
         let Some(task) = self.map.get(&key).filter(|t| {
