@@ -15,6 +15,8 @@ pub mod bandwidth_scheduler;
 pub mod block;
 pub mod block_body;
 pub mod block_header;
+#[cfg(test)]
+mod borsh_encoding_tests;
 pub mod challenge;
 pub mod chunk_apply_stats;
 pub mod congestion_info;
