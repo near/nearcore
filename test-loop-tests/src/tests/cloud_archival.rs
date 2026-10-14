@@ -1284,9 +1284,9 @@ fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
         "h={start} and its batch start h={batch_start} must resolve to different snapshots"
     );
     let far_root =
-        get_state_header_for_epoch(&cloud_storage, far_epoch_id, shard_id).chunk_prev_state_root();
+        get_state_header_for_epoch(&cloud_storage, far_epoch_id, shard_id).synced_state_root();
     let near_root =
-        get_state_header_for_epoch(&cloud_storage, near_epoch_id, shard_id).chunk_prev_state_root();
+        get_state_header_for_epoch(&cloud_storage, near_epoch_id, shard_id).synced_state_root();
     assert_ne!(far_root, near_root, "the two snapshots must stand at different roots");
 
     h.bootstrap_historical_reader(start, target);
