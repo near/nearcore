@@ -9,7 +9,7 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
+use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements, SpiceStateSyncData};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
@@ -580,6 +580,49 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// The uncertified chunks the block built on `prev_header` carries if it is the first block
+    /// of an epoch, `None` otherwise. See [`SpiceStateSyncData`].
+    ///
+    /// The block after genesis carries none: genesis has no uncertified chunks and no parent, and
+    /// both are known without a stored row.
+    pub fn spice_state_sync_data_for_next_block(
+        &self,
+        prev_header: &BlockHeader,
+    ) -> Result<Option<SpiceStateSyncData>, Error> {
+        if prev_header.is_genesis()
+            || !self.epoch_manager.is_next_block_epoch_start(prev_header.hash())?
+        {
+            return Ok(None);
+        }
+        let prev_uncertified_chunks = self.get_uncertified_chunks(prev_header.hash())?;
+        let prev_prev_uncertified_chunks = self.get_uncertified_chunks(prev_header.prev_hash())?;
+        Ok(Some(SpiceStateSyncData { prev_uncertified_chunks, prev_prev_uncertified_chunks }))
+    }
+
+    pub fn validate_spice_state_sync_data(&self, block: &Block) -> Result<(), Error> {
+        let prev_header = self.chain_store.get_block_header(block.header().prev_hash())?;
+        let expected = self.spice_state_sync_data_for_next_block(&prev_header)?;
+        let actual = block.spice_state_sync_data();
+        if actual == expected.as_ref() {
+            return Ok(());
+        }
+        let describe = |chunks: Option<&SpiceStateSyncData>| match chunks {
+            None => "none".to_string(),
+            Some(chunks) => {
+                format!(
+                    "{} and {} chunks",
+                    chunks.prev_uncertified_chunks.len(),
+                    chunks.prev_prev_uncertified_chunks.len()
+                )
+            }
+        };
+        Err(Error::InvalidSpiceStateSyncData(format!(
+            "expected {}, got {}",
+            describe(expected.as_ref()),
+            describe(actual),
+        )))
+    }
+
     fn validators_len(&self, epoch_id: &EpochId) -> Result<usize, InvalidSpiceCoreStatementsError> {
         self.epoch_manager
             .get_epoch_info(epoch_id)
@@ -972,6 +1015,43 @@ fn get_uncertified_chunks(
 
         Ok(uncertified_chunks)
     }
+}
+
+/// Records the uncertified chunks of the two blocks before `block`, the first block of an epoch,
+/// from the copy `block` carries; rows already present are left alone. For a node that state
+/// synced to `block` and so processed neither of them. `block` is trusted through its header,
+/// whose `block_body_hash` commits the copy.
+pub(crate) fn record_spice_state_sync_data(
+    chain_store: &ChainStoreAdapter,
+    block: &Block,
+) -> Result<(), Error> {
+    let prev_header = chain_store.get_block_header(block.header().prev_hash())?;
+    if prev_header.is_genesis() {
+        return Ok(());
+    }
+    let Some(carried) = block.spice_state_sync_data() else {
+        return Err(Error::Other(format!(
+            "block {} carries no spice state sync data",
+            block.hash()
+        )));
+    };
+    let rows = [
+        (*prev_header.hash(), &carried.prev_uncertified_chunks),
+        (*prev_header.prev_hash(), &carried.prev_prev_uncertified_chunks),
+    ];
+    let mut store_update = chain_store.store().store_update();
+    for (block_hash, uncertified_chunks) in rows {
+        if chain_store.store_ref().exists(DBCol::uncertified_chunks(), block_hash.as_ref()) {
+            continue;
+        }
+        store_update.insert_ser(
+            DBCol::uncertified_chunks(),
+            block_hash.as_ref(),
+            uncertified_chunks,
+        );
+    }
+    store_update.commit();
+    Ok(())
 }
 
 /// Uncertified chunks for block should always be saved together with the block itself for spice.

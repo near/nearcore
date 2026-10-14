@@ -44,6 +44,7 @@ fn swap_first_two_from_shard_ids(header: &mut ShardStateSyncResponseHeader) {
 }
 
 #[test]
+// Ignored, because under spice the state sync header doesn't contain receipts.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_set_state_header_rejects_swapped_from_shard_id() {
     init_test_logger();
@@ -125,6 +126,7 @@ fn point_proof_at_shard_without_a_chunk(
 }
 
 #[test]
+// Ignored, because under spice all blocks have chunks from all the shards.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_set_state_header_rejects_from_shard_id_without_a_chunk() {
     init_test_logger();
