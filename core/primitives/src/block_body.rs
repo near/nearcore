@@ -1,7 +1,7 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
 use crate::spice::chunk_endorsement::SpiceEndorsementCoreStatement;
-use crate::types::{ChunkExecutionResult, SpiceChunkId};
+use crate::types::{ChunkExecutionResult, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_crypto::vrf::{Proof, Value};
@@ -61,6 +61,20 @@ pub struct SpiceBlockBodyV3 {
     pub vrf_proof: Proof,
 
     pub core_statements: SpiceCoreStatements,
+
+    /// Set on the first block of an epoch only, other than the block after genesis; see
+    /// [`SpiceStateSyncData`].
+    pub spice_state_sync_data: Option<SpiceStateSyncData>,
+}
+
+/// What a node that state synced to an epoch's first block cannot accumulate for itself: the
+/// uncertified chunks as of that block's parent and grandparent, committed by `block_body_hash`.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+pub struct SpiceStateSyncData {
+    /// The uncertified chunks as of the block's parent.
+    pub prev_uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+    /// The uncertified chunks as of the block's grandparent.
+    pub prev_prev_uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -161,8 +175,15 @@ impl BlockBody {
         vrf_value: Value,
         vrf_proof: Proof,
         core_statements: SpiceCoreStatements,
+        spice_state_sync_data: Option<SpiceStateSyncData>,
     ) -> Self {
-        BlockBody::V3(SpiceBlockBodyV3 { chunks, vrf_value, vrf_proof, core_statements })
+        BlockBody::V3(SpiceBlockBodyV3 {
+            chunks,
+            vrf_value,
+            vrf_proof,
+            core_statements,
+            spice_state_sync_data,
+        })
     }
 
     #[inline]
@@ -206,6 +227,14 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) | BlockBody::V2(_) => SpiceCoreStatements::empty(),
             BlockBody::V3(body) => &body.core_statements,
+        }
+    }
+
+    #[inline]
+    pub fn spice_state_sync_data(&self) -> Option<&SpiceStateSyncData> {
+        match self {
+            BlockBody::V1(_) | BlockBody::V2(_) => None,
+            BlockBody::V3(body) => body.spice_state_sync_data.as_ref(),
         }
     }
 
