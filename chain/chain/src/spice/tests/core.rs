@@ -312,26 +312,6 @@ fn test_core_statements_for_next_block_contains_no_endorsements() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statements_for_next_block_contains_new_endorsements() {
-    let (mut chain, core_reader) = setup();
-    let mut core_writer_actor = core_writer_actor(&chain);
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor
-        .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
-
-    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
-    assert_eq!(core_statements.len(), 1);
-    assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statements_for_next_block_contains_no_endorsements_for_fork_block() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
@@ -358,7 +338,7 @@ fn test_core_statements_for_next_block_contains_no_endorsements_for_fork_block()
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statements_for_next_block_contains_new_endorsement() {
+fn test_core_statements_for_next_block_contains_new_endorsements_below_threshold() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -367,13 +347,25 @@ fn test_core_statements_for_next_block_contains_new_endorsement() {
 
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor
-        .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+    let validators = test_validators();
+    let endorsers_below_threshold = &validators[..2];
+    let mut endorsements = Vec::new();
+    for validator in endorsers_below_threshold {
+        let endorsement = test_chunk_endorsement(validator, &block, chunk_header);
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+        endorsements.push(endorsement_into_core_statement(endorsement));
+    }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
-    assert_eq!(core_statements.len(), 1);
-    assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
+    assert_eq!(core_statements.len(), endorsers_below_threshold.len());
+    for endorsement in &endorsements {
+        assert!(core_statements.contains(endorsement));
+    }
+    assert!(
+        core_statements.iter().all(|s| matches!(s, SpiceCoreStatement::Endorsement(_))),
+        "expected endorsements only, got {core_statements:?}"
+    );
 }
 
 #[test]
