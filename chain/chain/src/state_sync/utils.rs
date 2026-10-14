@@ -144,6 +144,58 @@ fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<bool>
     Some(every_shard_has_enough_new_chunks(&num_new_chunks))
 }
 
+/// The epoch's first block, walking back along the final chain from `last_final`, which must
+/// belong to `epoch_id`. `None` while a header on the way is missing, as happens during epoch
+/// sync where headers are saved without their predecessors.
+fn first_block_of_epoch<T: ChainStoreAccess>(
+    chain_store: &T,
+    last_final: Arc<BlockHeader>,
+    epoch_id: &EpochId,
+) -> Result<Option<Arc<BlockHeader>>, Error> {
+    let mut first = last_final;
+    loop {
+        let Some(prev) = maybe_get_block_header(chain_store, first.prev_hash())? else {
+            return Ok(None);
+        };
+        if prev.epoch_id() != epoch_id || prev.height() == chain_store.get_genesis_height() {
+            return Ok(Some(first));
+        }
+        first = prev;
+    }
+}
+
+/// Records the epoch's first block as the sync hash, once it is final.
+///
+/// The non-spice rule below waits for two new chunks in every shard, because a chunk that is
+/// missing leaves that shard's state trailing the previous epoch, so an earlier block would
+/// not be a well-defined anchor for every shard. Spice puts a chunk in every block - an empty
+/// one where a shard has nothing to include - so every shard advances at every height and
+/// there is nothing left for that rule to protect against. The epoch's first block is then the
+/// earliest well-defined anchor, and state sync no longer waits several blocks into the epoch.
+///
+/// Finality still matters: the sync hash must not move under a reorg, so the block is recorded
+/// only once `last_final_block` has reached this epoch.
+fn on_new_spice_header<T: ChainStoreAccess>(
+    chain_store: &T,
+    store_update: &mut StoreUpdate,
+    header: &BlockHeader,
+) -> Result<(), Error> {
+    let epoch_id = header.epoch_id();
+    let Some(last_final) = maybe_get_block_header(chain_store, header.last_final_block())? else {
+        return Ok(());
+    };
+    if last_final.epoch_id() != epoch_id {
+        // Finality has not reached this epoch yet, so its first block is not final.
+        return Ok(());
+    }
+    let Some(first) = first_block_of_epoch(chain_store, last_final, epoch_id)? else {
+        return Ok(());
+    };
+    store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), first.hash());
+    store_update.delete_all(DBCol::StateSyncNewChunks);
+    Ok(())
+}
+
 /// Save num new chunks info and store the state sync hash if it has been found. We store it only
 /// once it becomes final.
 /// This should only be called if DBCol::StateSyncHashes does not yet have an entry for header.epoch_id().
@@ -154,6 +206,10 @@ fn on_new_header<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
+    if header.is_spice() {
+        return on_new_spice_header(chain_store, store_update, header);
+    }
+
     let done = save_epoch_new_chunks(chain_store, store_update, header);
     if !done {
         return Ok(());
@@ -211,7 +267,8 @@ fn on_new_header<T: ChainStoreAccess>(
 ///
 /// Applies the same rule as `save_epoch_new_chunks`, counting from the epoch's first block to
 /// its last, and stops at the final head, above which a block can still be dropped. `None`
-/// while the chain cannot name the block yet.
+/// while the chain cannot name the block yet. Under spice the rule is just the epoch's first
+/// block, so the walk ends immediately.
 pub fn derive_epoch_sync_hash(
     chain_store: &ChainStoreAdapter,
     old_epoch_end: &CryptoHash,
@@ -222,6 +279,11 @@ pub fn derive_epoch_sync_hash(
     };
     let first_header = chain_store.get_block_header(&block_hash)?;
     let epoch_id = *first_header.epoch_id();
+    if first_header.is_spice() {
+        // Spice takes the epoch's first block, and `next_final_block` already held it to the
+        // final head. See `on_new_spice_header`.
+        return Ok(Some(block_hash));
+    }
     // The epoch's first block counts as none, whatever its own mask says, which is what
     // `on_new_epoch` stores for it.
     let mut num_new_chunks = vec![0u8; first_header.chunk_mask().len()];

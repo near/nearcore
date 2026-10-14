@@ -1674,9 +1674,11 @@ fn test_sync_hash_validity() {
             height += 1;
         }
 
-        // This assumes that all shards have new chunks in every block, which should be true
-        // with TestEnv::produce_block()
-        let expected_sync_height = epoch_start + 3;
+        // Spice syncs to the epoch's first block. Otherwise the sync block follows the first
+        // block with two new chunks in every shard, which with a chunk in every shard of every
+        // block, as TestEnv::produce_block() makes, is the epoch's fourth.
+        let expected_sync_height =
+            if cfg!(feature = "protocol_feature_spice") { epoch_start } else { epoch_start + 3 };
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
