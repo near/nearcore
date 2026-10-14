@@ -150,6 +150,18 @@ return acknowledgements over Tier 2, then connect back to the requester over
 Tier 3 to send the state headers and parts. State response payloads are accepted
 only on Tier 3 connections.
 
+Snapshot host advertisements also carry the host's own listening address: its
+public address as observed by its peers, or `tier3_public_addr` if configured.
+The host signs the address together with the snapshot fields, so relays cannot
+alter it. A host advertises each snapshot once, so its address stays fixed until
+its next snapshot. A host that does not know its address yet when it creates a
+snapshot does not advertise that snapshot. Advertisements keep a legacy
+signature over the snapshot fields alone, which is the only one older nodes
+verify. Older nodes drop the address when relaying, and a copy that carries it
+replaces an address-less copy of the same snapshot. Until every node accepts
+advertisements without the legacy signature, nodes drop them instead of
+relaying. State requests do not yet use these addresses.
+
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for
 non-archival nodes, as that data would be garbage collected after a few epochs

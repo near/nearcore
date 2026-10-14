@@ -8,12 +8,13 @@ use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::net::SocketAddr;
 // TODO(saketh): Consider moving other types related to state sync into this file
 // e.g. StateResponseInfo
 
 /// Specifies information about a state snapshot hosted by a network peer.
 ///
-/// A signature is included so that we know it was really published by that peer.
+/// Signatures are included so that we know it was really published by that peer.
 ///
 #[derive(
     Clone,
@@ -34,12 +35,28 @@ pub struct SnapshotHostInfo {
     pub epoch_height: EpochHeight,
     /// List of shards included in the snapshot.
     pub shards: Vec<ShardId>,
-    /// Signature on (sync_hash, epoch_height, shards)
-    pub signature: Signature,
+    /// Listening address the host advertises for itself.
+    pub addr: Option<SocketAddr>,
+    /// Signature on (sync_hash, epoch_height, shards, addr).
+    /// Missing if the info was published by an older host or relayed by an older node.
+    pub signature: Option<Signature>,
+    /// Signature on (sync_hash, epoch_height, shards), the only one older nodes verify.
+    // TODO(saketh): Stop sending it in the release after next. Nodes on this release
+    // drop infos without it, so the next release must still send it.
+    pub legacy_signature: Option<Signature>,
 }
 
 impl SnapshotHostInfo {
     fn build_hash(
+        sync_hash: &CryptoHash,
+        epoch_height: &EpochHeight,
+        shards: &Vec<ShardId>,
+        addr: &Option<SocketAddr>,
+    ) -> CryptoHash {
+        CryptoHash::hash_borsh((sync_hash, epoch_height, shards, addr))
+    }
+
+    fn build_legacy_hash(
         sync_hash: &CryptoHash,
         epoch_height: &EpochHeight,
         shards: &Vec<ShardId>,
@@ -52,17 +69,38 @@ impl SnapshotHostInfo {
         sync_hash: CryptoHash,
         epoch_height: EpochHeight,
         shards: Vec<ShardId>,
+        addr: Option<SocketAddr>,
         secret_key: &SecretKey,
     ) -> Self {
         #[cfg(not(test))]
         assert_eq!(&secret_key.public_key(), peer_id.public_key());
-        let hash = Self::build_hash(&sync_hash, &epoch_height, &shards);
-        let signature = secret_key.sign(hash.as_ref());
-        Self { peer_id, sync_hash, epoch_height, shards, signature }
+        let hash = Self::build_hash(&sync_hash, &epoch_height, &shards, &addr);
+        let legacy_hash = Self::build_legacy_hash(&sync_hash, &epoch_height, &shards);
+        Self {
+            peer_id,
+            sync_hash,
+            epoch_height,
+            shards,
+            addr,
+            signature: Some(secret_key.sign(hash.as_ref())),
+            legacy_signature: Some(secret_key.sign(legacy_hash.as_ref())),
+        }
     }
 
     pub(crate) fn hash(&self) -> CryptoHash {
-        Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards)
+        Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards, &self.addr)
+    }
+
+    pub(crate) fn legacy_hash(&self) -> CryptoHash {
+        Self::build_legacy_hash(&self.sync_hash, &self.epoch_height, &self.shards)
+    }
+
+    /// Of two infos from the same host, only the one with the greater key is kept.
+    /// A host publishes one info per snapshot, so the epoch height orders them. A copy
+    /// without `signature`, such as one relayed by an older node, never replaces a
+    /// copy of the same epoch that has it.
+    pub(crate) fn freshness(&self) -> (EpochHeight, bool) {
+        (self.epoch_height, self.signature.is_some())
     }
 
     pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
@@ -72,8 +110,21 @@ impl SnapshotHostInfo {
             return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
         }
 
-        if !self.signature.verify(self.hash().as_ref(), self.peer_id.public_key()) {
+        if self.signature.is_none() && self.legacy_signature.is_none() {
             return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+        }
+        let public_key = self.peer_id.public_key();
+        if let Some(signature) = &self.signature {
+            if !signature.verify(self.hash().as_ref(), public_key) {
+                return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+            }
+        }
+        // Older nodes ban peers that relay an info with an invalid legacy signature,
+        // so it is checked even when `signature` is valid.
+        if let Some(signature) = &self.legacy_signature {
+            if !signature.verify(self.legacy_hash().as_ref(), public_key) {
+                return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+            }
         }
 
         Ok(())

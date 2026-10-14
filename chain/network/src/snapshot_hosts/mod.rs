@@ -167,7 +167,7 @@ impl Inner {
             return false;
         }
         match self.hosts.peek(&h.peer_id) {
-            Some(old) if old.epoch_height >= h.epoch_height => false,
+            Some(old) if old.freshness() >= h.freshness() => false,
             _ => true,
         }
     }
@@ -356,7 +356,15 @@ impl SnapshotHostsCache {
         }
         let new_data = {
             let inner = self.0.lock();
-            data.into_iter().filter(|d| !d.shards.is_empty() && inner.is_new(d)).collect_vec()
+            // Older nodes can't parse a message containing an info without the legacy
+            // signature, so such infos are dropped instead of relayed to them. The next
+            // release will accept and relay them while still sending the legacy signature,
+            // and the release after that will stop sending it. They are dropped without an
+            // error so that nodes on this release don't ban peers on the next release.
+            // TODO(saketh): Accept them in the next release.
+            data.into_iter()
+                .filter(|d| !d.shards.is_empty() && d.legacy_signature.is_some() && inner.is_new(d))
+                .collect_vec()
         };
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
@@ -387,9 +395,10 @@ impl SnapshotHostsCache {
         if data.is_empty() {
             return (vec![], err);
         }
-        // Insert the successfully verified data.
+        // Insert the successfully verified data. A concurrent insert may have stored a fresher
+        // info for the same host during verification, so freshness is checked again.
         let mut inner = self.0.lock();
-        data.iter().for_each(|d| inner.insert(d));
+        let data = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
         (data, err)
     }
 
