@@ -31,6 +31,8 @@ pub enum CloudArchivalReaderError {
     Storage(#[from] StorageError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
+    #[error("state header for shard {shard_id} carries no chunk, which cloud archival needs")]
+    ChunklessStateHeader { shard_id: ShardId },
     #[error("no block below {start_height}, which must be above the first archived block")]
     NoAnchorBelow { start_height: BlockHeight },
     #[error("no state root for shard {shard_uid} under block {block_hash}")]
@@ -409,7 +411,12 @@ pub async fn find_snapshot_at_or_before(
             // `height` below that block is served by the epoch under this one.
             // TODO(cloud_archival): stop here for a shard a resharding added, which is
             // reached by walking the recorded inverse changes down instead.
-            if header.chunk_height_included() <= height {
+            // TODO(spice): a spice header carries no chunk, and its snapshot sits at the
+            // sync block itself rather than at a chunk's height_included.
+            let chunk_height_included = header
+                .chunk_height_included()
+                .ok_or(CloudArchivalReaderError::ChunklessStateHeader { shard_id })?;
+            if chunk_height_included <= height {
                 return Ok((epoch_height, epoch_id));
             }
         }
