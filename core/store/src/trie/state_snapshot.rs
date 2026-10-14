@@ -69,7 +69,9 @@ impl From<SnapshotError> for StorageError {
 
 /// Snapshot of the state at the epoch boundary.
 pub struct StateSnapshot {
-    /// The state snapshot represents the state including changes of the next block of this block.
+    /// The block the snapshot was taken at. Without spice the snapshot holds the state
+    /// including the changes of the block *after* this one; under spice it holds the state
+    /// this block's own chunks left behind.
     snapshot_hash: CryptoHash,
     /// Read-only store.
     store: TrieStoreAdapter,
@@ -103,11 +105,17 @@ impl StateSnapshot {
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                if let Some(chunk) = block.chunks().get(shard_index) {
-                    // Flat state snapshot needs to be at a height that lets it
-                    // replay the last chunk of the shard.
-                    let desired_flat_head = chunk.prev_block_hash();
-                    match flat_storage.update_flat_head(desired_flat_head) {
+                // Spice writes a shard's flat state delta under the block whose chunk
+                // produced it, and snapshots the state that block left behind, so the head
+                // is the block itself. Otherwise the snapshot needs to sit at a height that
+                // lets it replay the shard's last chunk.
+                let desired_flat_head = if block.is_spice_block() {
+                    Some(*block.hash())
+                } else {
+                    block.chunks().get(shard_index).map(|chunk| *chunk.prev_block_hash())
+                };
+                if let Some(desired_flat_head) = desired_flat_head {
+                    match flat_storage.update_flat_head(&desired_flat_head) {
                         Ok(_) => {
                             tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "successfully moved flat storage head of the snapshot");
                             included_shard_uids.push(shard_uid);
