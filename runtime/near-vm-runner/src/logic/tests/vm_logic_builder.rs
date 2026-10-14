@@ -37,8 +37,10 @@ impl VMLogicBuilder {
         // The budget is zero in configs where external contract calls are not enabled yet.
         builder.config.limit_config.max_gas_burnt_external =
             builder.config.limit_config.max_gas_burnt;
-        builder.context.execution_mode =
-            ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) };
+        builder.context.execution_mode = ExecutionMode::External {
+            gas_price: Balance::from_yoctonear(100_000_000),
+            storage_reserve: Balance::ZERO,
+        };
         // The contract pays for the gas of an external call, and nobody sends
         // it a deposit.
         builder.context.account_balance = Balance::from_near(1);

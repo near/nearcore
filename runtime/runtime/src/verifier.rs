@@ -50,6 +50,35 @@ pub fn check_storage_stake(
     account_balance: Balance,
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
+    let storage_reserve = storage_reserve(account, runtime_config)?;
+    account_balance
+        .checked_add(account.locked())
+        .ok_or_else(|| {
+            format!(
+                "Account's amount {} and locked {} overflow addition",
+                account.amount(),
+                account.locked(),
+            )
+        })
+        .map_err(StorageStakingError::StorageError)?;
+    match storage_reserve.checked_sub(account_balance) {
+        Some(lack) if !lack.is_zero() => {
+            Err(StorageStakingError::LackBalanceForStorageStaking(lack))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The part of an account's balance (not counting its locked balance) that it
+/// must keep for storage staking: the storage stake that the locked balance
+/// does not cover. Zero for a zero-balance account.
+///
+/// Returns `Err(StorageStakingError::StorageError(err))` if the account has
+/// invalid storage usage.
+pub fn storage_reserve(
+    account: &Account,
+    runtime_config: &RuntimeConfig,
+) -> Result<Balance, StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
     let required_amount = runtime_config
         .storage_amount_per_byte()
@@ -61,26 +90,10 @@ pub fn check_storage_stake(
             )
         })
         .map_err(StorageStakingError::StorageError)?;
-    let available_amount = account_balance
-        .checked_add(account.locked())
-        .ok_or_else(|| {
-            format!(
-                "Account's amount {} and locked {} overflow addition",
-                account.amount(),
-                account.locked(),
-            )
-        })
-        .map_err(StorageStakingError::StorageError)?;
-    if available_amount >= required_amount {
-        Ok(())
-    } else {
-        if is_zero_balance_account(account) {
-            return Ok(());
-        }
-        Err(StorageStakingError::LackBalanceForStorageStaking(
-            required_amount.checked_sub(available_amount).unwrap(),
-        ))
+    if is_zero_balance_account(account) {
+        return Ok(Balance::ZERO);
     }
+    Ok(required_amount.saturating_sub(account.locked()))
 }
 
 /// Zero Balance Account introduced in NEP 448 https://github.com/near/NEPs/pull/448
@@ -1679,6 +1692,50 @@ mod tests {
         } else {
             panic!("Incorrect error");
         }
+    }
+
+    /// `storage_reserve` is the storage stake that the locked balance does not
+    /// cover, and `check_storage_stake` passes exactly when the balance covers
+    /// it.
+    #[test]
+    fn test_storage_reserve() {
+        let config = RuntimeConfig::test();
+        let storage_reserve = |account: &Account| match storage_reserve(account, &config) {
+            Ok(storage_reserve) => storage_reserve,
+            Err(_) => panic!("storage reserve should be computed"),
+        };
+        let storage_usage = ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT + 1_000;
+        let required =
+            config.storage_amount_per_byte().checked_mul(u128::from(storage_usage)).unwrap();
+        let locked = Balance::from_yoctonear(1_000);
+
+        let account = Account::new(Balance::ZERO, locked, AccountContract::None, storage_usage);
+        let reserve = storage_reserve(&account);
+        assert_eq!(reserve, required.checked_sub(locked).unwrap());
+        assert!(check_storage_stake(&account, reserve, &config).is_ok());
+        let lack = check_storage_stake(
+            &account,
+            reserve.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+            &config,
+        );
+        assert!(matches!(
+            lack,
+            Err(StorageStakingError::LackBalanceForStorageStaking(lack))
+                if lack == Balance::from_yoctonear(1)
+        ));
+
+        // The locked balance covers all the storage stake.
+        let account = Account::new(Balance::ZERO, required, AccountContract::None, storage_usage);
+        assert_eq!(storage_reserve(&account), Balance::ZERO);
+
+        // A zero-balance account needs no storage stake.
+        let account = Account::new(
+            Balance::ZERO,
+            Balance::ZERO,
+            AccountContract::None,
+            ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+        );
+        assert_eq!(storage_reserve(&account), Balance::ZERO);
     }
 
     #[test]

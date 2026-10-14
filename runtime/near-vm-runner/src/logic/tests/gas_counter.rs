@@ -196,10 +196,20 @@ fn test_external_cant_attach_more_than_max_total_prepaid_gas() {
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 
-/// An external call with the given contract balance.
+/// An external call with the given contract balance and no storage reserve.
 fn external_logic_builder(balance: Balance) -> VMLogicBuilder {
+    external_logic_builder_with_storage_reserve(balance, Balance::ZERO)
+}
+
+/// An external call with the given contract balance, of which
+/// `storage_reserve` is kept for storage staking.
+fn external_logic_builder_with_storage_reserve(
+    balance: Balance,
+    storage_reserve: Balance,
+) -> VMLogicBuilder {
     let mut logic_builder = VMLogicBuilder::external();
-    logic_builder.context.execution_mode = ExecutionMode::External { gas_price: GAS_PRICE };
+    logic_builder.context.execution_mode =
+        ExecutionMode::External { gas_price: GAS_PRICE, storage_reserve };
     logic_builder.context.account_balance = balance;
     logic_builder
 }
@@ -331,36 +341,47 @@ fn test_external_promise_gas_exceeds_balance() {
 }
 
 /// Create a promise with a transfer of `amount` in an external call, after a
-/// function call promise. Returns the result of the transfer and the balance
-/// left.
-fn external_transfer_after_promise(balance: Balance, amount: u128) -> (Result<()>, Balance) {
-    let mut logic_builder = external_logic_builder(balance);
+/// function call promise. Returns the result of the transfer, the balance
+/// left to spend, and the balance after paying for gas.
+fn external_transfer_after_promise(
+    balance: Balance,
+    storage_reserve: Balance,
+    amount: u128,
+) -> (Result<()>, Balance, Balance) {
+    let mut logic_builder = external_logic_builder_with_storage_reserve(balance, storage_reserve);
     let mut logic = logic_builder.build();
     promise_create(&mut logic, b"contract.near", 0, Gas::from_teragas(100).as_gas())
         .expect("should create a promise");
     let index = promise_batch_create(&mut logic, "bob.near").expect("should create a promise");
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
     let result = logic.promise_batch_action_transfer(index, amount.ptr);
-    (result, logic.result_state().available_balance())
+    let result_state = logic.result_state();
+    (result, result_state.available_balance(), result_state.balance_after_gas())
 }
 
 /// An external call cannot spend the balance it needs to pay for the gas it
-/// used.
+/// used, nor its storage reserve.
 #[test]
-fn test_external_deposit_cannot_spend_gas_cost() {
-    let balance = Balance::from_near(1);
-    // The balance left after paying for the gas, including the transfer's own
-    // gas.
-    let (result, available_balance) = external_transfer_after_promise(balance, 0);
-    result.expect("transferring nothing should succeed");
-    let available = available_balance.as_yoctonear();
+fn test_external_deposit_cannot_spend_gas_cost_or_storage_reserve() {
+    for storage_reserve in [Balance::ZERO, Balance::from_millinear(500)] {
+        let balance = Balance::from_near(1);
+        // The balance left after paying for the gas, including the transfer's
+        // own gas.
+        let (result, available_balance, _) =
+            external_transfer_after_promise(balance, storage_reserve, 0);
+        result.expect("transferring nothing should succeed");
+        let available = available_balance.as_yoctonear();
 
-    let (result, _) = external_transfer_after_promise(balance, available + 1);
-    assert_eq!(result, Err(VMLogicError::HostError(HostError::BalanceExceeded)));
+        let (result, _, _) =
+            external_transfer_after_promise(balance, storage_reserve, available + 1);
+        assert_eq!(result, Err(VMLogicError::HostError(HostError::BalanceExceeded)));
 
-    let (result, available_balance) = external_transfer_after_promise(balance, available);
-    result.expect("transferring the available balance should succeed");
-    assert_eq!(available_balance, Balance::ZERO);
+        let (result, available_balance, balance_after_gas) =
+            external_transfer_after_promise(balance, storage_reserve, available);
+        result.expect("transferring the available balance should succeed");
+        assert_eq!(available_balance, Balance::ZERO);
+        assert_eq!(balance_after_gas, storage_reserve);
+    }
 }
 
 /// After an external call spends its balance, it cannot use more gas than the
@@ -410,7 +431,10 @@ fn test_external_no_one_yocto_exemption() {
 #[test]
 fn test_external_account_balance_excludes_gas_cost() {
     let balance = Balance::from_near(1);
-    let mut logic_builder = external_logic_builder(balance);
+    // The storage reserve is part of the balance, even though the call cannot
+    // spend it.
+    let storage_reserve = Balance::from_millinear(500);
+    let mut logic_builder = external_logic_builder_with_storage_reserve(balance, storage_reserve);
     let mut logic = logic_builder.build();
 
     promise_create(&mut logic, b"contract.near", 0, Gas::from_teragas(100).as_gas())
@@ -423,6 +447,39 @@ fn test_external_account_balance_excludes_gas_cost() {
     logic.account_balance(0).expect("account_balance should succeed");
     let got = u128::from_le_bytes(logic.internal_mem_read(0, 16).try_into().unwrap());
     assert_eq!(got, balance.checked_sub(cost).unwrap().as_yoctonear());
+}
+
+/// An external call cannot spend its storage reserve on gas, and it is still
+/// part of the balance afterwards.
+#[test]
+fn test_external_cant_spend_storage_reserve_on_gas() {
+    let affordable_gas = Gas::from_teragas(1);
+    let storage_reserve = Balance::from_near(1);
+    let affordable_cost = GAS_PRICE.checked_mul(u128::from(affordable_gas.as_gas())).unwrap();
+    let balance = storage_reserve.checked_add(affordable_cost).unwrap();
+    let mut logic_builder = external_logic_builder_with_storage_reserve(balance, storage_reserve);
+    let mut logic = logic_builder.build();
+
+    let result = logic.gas_opcodes(op_limit(affordable_gas) * 2);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasExceeded)));
+    let outcome = logic.compute_outcome();
+    assert_eq!(outcome.burnt_gas, affordable_gas);
+    assert_eq!(outcome.balance, storage_reserve);
+}
+
+/// An external call of a contract whose balance does not cover its storage
+/// reserve cannot use any gas.
+#[test]
+fn test_external_no_gas_without_balance_above_storage_reserve() {
+    let balance = Balance::from_near(1);
+    let mut logic_builder = external_logic_builder_with_storage_reserve(balance, balance);
+    let mut logic = logic_builder.build();
+
+    let result = logic.gas_opcodes(1);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasExceeded)));
+    let outcome = logic.compute_outcome();
+    assert_eq!(outcome.burnt_gas, Gas::ZERO);
+    assert_eq!(outcome.balance, balance);
 }
 
 /// In an internal call the gas comes from the prepaid gas, not from the

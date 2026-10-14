@@ -158,7 +158,9 @@ price of the call: the gas it burns, the gas attached to function calls, and
 the execution fees of all actions and receipts. The balance takes the place of
 the prepaid gas, so the call fails with `GasExceeded` once it uses more gas
 than the balance pays for, and spending the balance on deposits lowers that
-limit. A promise gets exactly the gas it was created with: unspent gas is not
+limit. The part of the balance the contract must keep for storage staking
+cannot be spent on gas or deposits, so paying for gas never leaves it short of
+storage stake. A promise gets exactly the gas it was created with: unspent gas is not
 distributed by weight, because there is no prepaid gas to distribute.
 
 ### Contract Reward

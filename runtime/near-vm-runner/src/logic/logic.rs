@@ -29,11 +29,14 @@ pub struct ExecutionResultState {
     /// and attach balance to them.
     ///
     /// In an external contract call the contract also pays for the gas it
-    /// uses. That cost is not deducted here, see [`Self::available_balance`].
+    /// uses. That cost is not deducted here, see [`Self::balance_after_gas`].
     pub(crate) current_account_balance: Balance,
     /// The gas price at which the contract pays for gas in an external
     /// contract call. `None` in other calls.
     gas_price: Option<Balance>,
+    /// The part of the balance an external contract call cannot spend, because
+    /// the contract needs it for storage staking. Zero in other calls.
+    storage_reserve: Balance,
     /// Total amount subsidized by skipping balance deduction for 1 yoctoNEAR
     /// attached deposits on zero-balance contract promise calls.
     pub(crate) subsidized_amount: Balance,
@@ -54,15 +57,18 @@ impl ExecutionResultState {
             .checked_add(context.attached_deposit)
             .expect("current_account_balance overflowed");
         let current_storage_usage = context.storage_usage;
-        let gas_price = match context.execution_mode {
-            ExecutionMode::External { gas_price } => Some(gas_price),
-            ExecutionMode::Internal | ExecutionMode::View(_) => None,
+        let (gas_price, storage_reserve) = match context.execution_mode {
+            ExecutionMode::External { gas_price, storage_reserve } => {
+                (Some(gas_price), storage_reserve)
+            }
+            ExecutionMode::Internal | ExecutionMode::View(_) => (None, Balance::ZERO),
         };
         if let Some(gas_price) = gas_price {
             // `ExecutionMode::gas_limits` already limits the prepaid gas to what
             // the contract can pay for. Make sure of it, since the gas counter
             // is built elsewhere.
-            gas_counter.lower_prepaid_gas(affordable_gas(current_account_balance, gas_price));
+            let spendable_balance = current_account_balance.saturating_sub(storage_reserve);
+            gas_counter.lower_prepaid_gas(affordable_gas(spendable_balance, gas_price));
         }
         Self {
             config,
@@ -72,6 +78,7 @@ impl ExecutionResultState {
             return_data: ReturnData::None,
             current_account_balance,
             gas_price,
+            storage_reserve,
             subsidized_amount: Balance::ZERO,
             current_storage_usage,
         }
@@ -89,24 +96,25 @@ impl ExecutionResultState {
     ///
     /// * `amount`: the amount to deduct from the current account balance.
     pub(crate) fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
-        // The balance needed to pay for the gas used so far cannot be spent.
+        // The balance needed to pay for the gas used so far, and the storage
+        // reserve, cannot be spent.
         self.available_balance().checked_sub(amount).ok_or(HostError::BalanceExceeded)?;
         self.current_account_balance =
             self.current_account_balance.checked_sub(amount).ok_or(HostError::BalanceExceeded)?;
         if let Some(gas_price) = self.gas_price {
             // The contract can now pay for less gas.
-            let prepaid_gas = affordable_gas(self.current_account_balance, gas_price);
-            self.gas_counter.lower_prepaid_gas(prepaid_gas);
+            let spendable_balance =
+                self.current_account_balance.saturating_sub(self.storage_reserve);
+            self.gas_counter.lower_prepaid_gas(affordable_gas(spendable_balance, gas_price));
         }
         Ok(())
     }
 
-    /// The balance the contract can still spend.
+    /// The balance of the contract after paying for the gas used so far.
     ///
-    /// In an external contract call this excludes the cost of the gas used so
-    /// far, which the contract pays for. Otherwise this is the current account
-    /// balance.
-    pub(crate) fn available_balance(&self) -> Balance {
+    /// In an external contract call the contract pays for the gas it uses.
+    /// Otherwise this is the current account balance.
+    pub(crate) fn balance_after_gas(&self) -> Balance {
         let Some(gas_price) = self.gas_price else {
             return self.current_account_balance;
         };
@@ -115,6 +123,13 @@ impl ExecutionResultState {
         let used_gas = u128::from(self.gas_counter.used_gas().as_gas());
         let gas_cost = gas_price.checked_mul(used_gas).unwrap_or(Balance::MAX);
         self.current_account_balance.saturating_sub(gas_cost)
+    }
+
+    /// The balance the contract can still spend: the balance after paying for
+    /// the gas used so far, minus the storage reserve of an external contract
+    /// call.
+    pub(crate) fn available_balance(&self) -> Balance {
+        self.balance_after_gas().saturating_sub(self.storage_reserve)
     }
 
     /// Checks that the current log number didn't reach the limit yet, so we can add a new message.
@@ -165,7 +180,7 @@ impl ExecutionResultState {
         );
 
         VMOutcome {
-            balance: self.available_balance(),
+            balance: self.balance_after_gas(),
             storage_usage: self.current_storage_usage,
             return_data: self.return_data,
             burnt_gas,

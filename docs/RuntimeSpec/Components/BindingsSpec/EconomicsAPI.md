@@ -25,6 +25,10 @@ The cost is taken as soon as the gas is used, and `account_balance` returns the 
 transfer cannot spend the balance needed to pay for the gas used so far, and panics with `BalanceExceeded`
 instead.
 
+An external call also cannot spend the part of the balance the contract must keep for storage staking, neither on gas
+nor on deposits: the storage stake for its storage usage before the call that the locked balance does not cover. So
+paying for gas can never leave the contract short of storage stake.
+
 An external call has no deposit. If one is called with a nonzero `attached_deposit`, it fails with
 `ProhibitedInExternalCall` before any contract code runs.
 

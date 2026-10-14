@@ -107,9 +107,17 @@ pub enum ExecutionMode {
     /// promises it creates. The balance takes the place of prepaid gas, so the
     /// call fails with `GasExceeded` if it uses more gas than the contract can
     /// pay for.
+    ///
+    /// The call cannot spend the part of the balance the contract needs to
+    /// keep for storage staking, on gas or on deposits. This way, charging the
+    /// contract for the gas of a failed call cannot leave it short of storage
+    /// stake.
     External {
         /// Gas price at which the contract pays for gas.
         gas_price: Balance,
+        /// The part of the contract's balance it must keep for storage staking
+        /// before the call.
+        storage_reserve: Balance,
     },
     /// Read-only execution of a view call. Defines the view configuration.
     /// See <https://github.com/near/NEPs/pull/18> for more details.
@@ -138,12 +146,13 @@ impl ExecutionMode {
         match self {
             Self::Internal => GasLimits { max_gas_burnt: limit_config.max_gas_burnt, prepaid_gas },
             // There is no prepaid gas in an external call; the contract pays for
-            // the gas with its balance, up to the limits set by the protocol.
-            Self::External { gas_price } => GasLimits {
+            // the gas with the balance above its storage reserve, up to the
+            // limits set by the protocol.
+            Self::External { gas_price, storage_reserve } => GasLimits {
                 max_gas_burnt: limit_config.max_gas_burnt_external,
                 prepaid_gas: min(
                     limit_config.max_total_prepaid_gas,
-                    affordable_gas(balance, *gas_price),
+                    affordable_gas(balance.saturating_sub(*storage_reserve), *gas_price),
                 ),
             },
             // There is no real prepaid gas in view mode; the per-call budget is
