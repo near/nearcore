@@ -920,3 +920,85 @@ impl Chain {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::get_chain_with_genesis;
+    use near_async::time::Clock;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+    use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
+    use near_primitives::types::EpochId;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+
+    /// Pre-validates a witness for the first chunk on top of genesis, on a chain running the given
+    /// protocol version. It is valid, except for what `new_transactions` may cause.
+    fn pre_validate_witness(
+        protocol_version: ProtocolVersion,
+        new_transactions: Vec<TransactionEnvelope>,
+    ) -> Result<PreValidationOutput, Error> {
+        let genesis = TestGenesisBuilder::new()
+            .protocol_version(protocol_version)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .build();
+        let chain = get_chain_with_genesis(Clock::real(), genesis);
+        let genesis_block = chain.genesis_block();
+        let chunk_header = ShardChunkHeader::new_dummy(
+            1,
+            ShardId::new(0),
+            *genesis_block.hash(),
+            protocol_version,
+        );
+        let applied_receipts_hash = hash(&borsh::to_vec(&Vec::<Receipt>::new()).unwrap());
+        let witness = ChunkStateWitness::new(
+            EpochId::default(),
+            chunk_header,
+            Default::default(),
+            Default::default(),
+            applied_receipts_hash,
+            vec![],
+            vec![],
+            new_transactions,
+        );
+        pre_validate_chunk_state_witness(
+            &witness,
+            chain.chain_store(),
+            genesis_block,
+            chain.epoch_manager.as_ref(),
+            chain.runtime_adapter.as_ref(),
+        )
+    }
+
+    fn test_ecc() -> TransactionEnvelope {
+        EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]).into()
+    }
+
+    #[test]
+    fn test_pre_validation_rejects_ecc_before_feature() {
+        // A chain cannot run above the binary's protocol version, so on a stable build this is
+        // `PROTOCOL_VERSION` itself.
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let protocol_version = PROTOCOL_VERSION.min(feature_version - 1);
+
+        // Without the ECC the witness is valid, so the ECC is the only possible reason to fail.
+        let result = pre_validate_witness(protocol_version, vec![]);
+        assert!(result.is_ok(), "unexpected error: {:?}", result.err());
+
+        let result = pre_validate_witness(protocol_version, vec![test_ecc()]);
+        assert!(
+            matches!(result, Err(Error::InvalidChunkStateWitness(_))),
+            "unexpected result: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_pre_validation_accepts_ecc_at_feature() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            tracing::info!("skipping: external contract calls are not enabled in this build");
+            return;
+        }
+        let result = pre_validate_witness(PROTOCOL_VERSION, vec![test_ecc()]);
+        assert!(result.is_ok(), "unexpected error: {:?}", result.err());
+    }
+}
