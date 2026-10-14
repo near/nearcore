@@ -153,7 +153,7 @@ pub enum ProtocolFeature {
     /// contract then it will automatically resolve to the new version instead.
     UpdatedEthWalletContract,
     /// External contract calls (ECC): unsigned transactions carrying no signer, public key,
-    /// nonce or signature. See <https://github.com/near/nearcore/issues/16453>.
+    /// nonce or signature. See <https://github.com/near/nearcore/issues/16423>.
     ExternalContractCalls,
 }
 
