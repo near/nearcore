@@ -1,5 +1,6 @@
 use near_primitives::transaction::TransactionEnvelope;
 
+// TODO(ecc): drop "Signed" from the name, as it holds ECCs too, and rename the `signed_txs` locals
 #[derive(Clone)]
 pub struct SignedValidPeriodTransactions {
     /// Transactions.

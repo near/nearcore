@@ -139,8 +139,10 @@ pub async fn build_streamer_message(
                 let transaction = match transaction {
                     TransactionEnvelopeView::Signed(transaction) => transaction,
                     TransactionEnvelopeView::Unsigned(ecc) => {
-                        // TODO(ecc): index ECCs once they have outcomes
-                        // Drop its outcome too, so it is not mistaken for a receipt outcome.
+                        // TODO(ecc): index ECCs once they have outcomes. Until then
+                        // `EXPERIMENTAL_indexer_block` rejects blocks with an ECC, because it
+                        // validates that the message has all the transactions of the chunk.
+                        // Drop the outcome too, so it is not mistaken for a receipt outcome.
                         outcomes.remove(&ecc.hash);
                         return None;
                     }

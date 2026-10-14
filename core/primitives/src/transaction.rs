@@ -329,9 +329,8 @@ impl ValidatedTransaction {
         signed_tx: SignedTransaction,
         protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
-            Ok(()) => {}
-            Err(err) => return Err((err, signed_tx)),
+        if let Err(err) = signed_tx.check_valid_for_config(config, protocol_version) {
+            return Err((err, signed_tx));
         }
 
         if !signed_tx
@@ -341,49 +340,6 @@ impl ValidatedTransaction {
             return Err((InvalidTxError::InvalidSignature, signed_tx));
         }
         Ok(Self(signed_tx))
-    }
-
-    /// Performs validity checks that depend on the runtime config, but does not
-    /// check the signature.
-    pub fn check_valid_for_config(
-        config: &RuntimeConfig,
-        signed_tx: &SignedTransaction,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), InvalidTxError> {
-        if !ProtocolFeature::GasKeys.enabled(protocol_version)
-            && signed_tx.transaction.gas_keys_required()
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        if signed_tx.transaction.nonce_mode() == NonceMode::Strict
-            && !ProtocolFeature::StrictNonce.enabled(protocol_version)
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        // Reject ML-DSA-65 transactions on pre-PostQuantumSignatures protocol
-        // versions. The signature/pubkey types parse via Borsh unconditionally
-        // (so pre-existing state remains readable), but the gate at this layer
-        // ensures no PQ key is ever accepted into state on an old protocol.
-        //
-        // Centralized here (rather than scattered across per-action validators)
-        // so the exhaustive `Action` match in
-        // `Action::post_quantum_signatures_required` forces every future
-        // action variant to make an explicit decision at compile time.
-        if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version)
-            && signed_tx.post_quantum_signatures_required()
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        let tx_size = signed_tx.size_for_limits(protocol_version);
-        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-        if tx_size > max_tx_size {
-            return Err(InvalidTxError::TransactionSizeExceeded {
-                size: tx_size,
-                limit: max_tx_size,
-            });
-        }
-
-        Ok(())
     }
 
     /// This method should only be used for test purposes.
@@ -520,6 +476,49 @@ impl SignedTransaction {
             || self.signature.key_type().is_post_quantum()
             || self.transaction.actions().iter().any(Action::post_quantum_signatures_required)
     }
+
+    /// Performs validity checks that depend on the runtime config, but does not
+    /// check the signature.
+    fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        if !ProtocolFeature::GasKeys.enabled(protocol_version)
+            && self.transaction.gas_keys_required()
+        {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        if self.transaction.nonce_mode() == NonceMode::Strict
+            && !ProtocolFeature::StrictNonce.enabled(protocol_version)
+        {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        // Reject ML-DSA-65 transactions on pre-PostQuantumSignatures protocol
+        // versions. The signature/pubkey types parse via Borsh unconditionally
+        // (so pre-existing state remains readable), but the gate at this layer
+        // ensures no PQ key is ever accepted into state on an old protocol.
+        //
+        // Centralized here (rather than scattered across per-action validators)
+        // so the exhaustive `Action` match in
+        // `Action::post_quantum_signatures_required` forces every future
+        // action variant to make an explicit decision at compile time.
+        if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version)
+            && self.post_quantum_signatures_required()
+        {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        let tx_size = self.size_for_limits(protocol_version);
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if tx_size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: tx_size,
+                limit: max_tx_size,
+            });
+        }
+
+        Ok(())
+    }
 }
 
 impl Hash for SignedTransaction {
@@ -560,10 +559,10 @@ impl<'de> serde::Deserialize<'de> for SignedTransaction {
     {
         let signed_tx_base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
         let signed_tx_borsh = from_base64(&signed_tx_base64).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from base64 due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
         })?;
         borsh::from_slice::<Self>(&signed_tx_borsh).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from borsh due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
         })
     }
 }
@@ -582,19 +581,19 @@ impl schemars::JsonSchema for SignedTransaction {
     }
 }
 
-/// Version tag of [`EccTransaction`] in the first byte of its borsh encoding.
-const ECC_TRANSACTION_TAG: u8 = 2;
+/// First byte of the borsh encoding of an [`EccTransaction`], which tells it apart from the
+/// signed transactions (see [`TransactionEnvelope`]).
+const ECC_ESCAPE_BYTE: u8 = 0xFF;
+
+/// Version of the borsh encoding of an [`EccTransaction`], the byte after [`ECC_ESCAPE_BYTE`].
+const ECC_VERSION: u8 = 0;
 
 /// An external contract call (ECC): a call that carries no signer, public key, nonce or
-/// signature. A clean return from the target's standardized method serves as
-/// authorization, so no contract code runs to check if this transaction is well-formed.
+/// signature. A clean return from the target's standardized method serves as authorization.
 #[derive(Eq, Debug, Clone, ProtocolSchema)]
 pub struct EccTransaction {
     /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
     /// also the receiver.
-    ///
-    /// It must stay the first field: the borsh encoding relies on it for telling this
-    /// transaction apart from the signed ones (see [`TransactionEnvelope`]).
     contract_id: AccountId,
     payload: Vec<u8>,
     hash: CryptoHash,
@@ -638,6 +637,23 @@ impl EccTransaction {
     pub fn get_size(&self) -> u64 {
         self.size
     }
+
+    /// Performs validity checks that depend on the protocol version and the runtime config.
+    pub fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        if !ProtocolFeature::ExternalContractCalls.enabled(protocol_version) {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        let size = self.get_size();
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
+        }
+        Ok(())
+    }
 }
 
 impl PartialEq for EccTransaction {
@@ -648,7 +664,8 @@ impl PartialEq for EccTransaction {
 
 impl BorshSerialize for EccTransaction {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        BorshSerialize::serialize(&ECC_TRANSACTION_TAG, writer)?;
+        BorshSerialize::serialize(&ECC_ESCAPE_BYTE, writer)?;
+        BorshSerialize::serialize(&ECC_VERSION, writer)?;
         self.contract_id.serialize(writer)?;
         self.payload.serialize(writer)
     }
@@ -656,11 +673,18 @@ impl BorshSerialize for EccTransaction {
 
 impl BorshDeserialize for EccTransaction {
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let tag = u8::deserialize_reader(reader)?;
-        if tag != ECC_TRANSACTION_TAG {
+        let escape_byte = u8::deserialize_reader(reader)?;
+        if escape_byte != ECC_ESCAPE_BYTE {
             return Err(Error::new(
                 ErrorKind::InvalidData,
-                format!("invalid transaction version tag: {tag}"),
+                format!("invalid ECC escape byte: {escape_byte}"),
+            ));
+        }
+        let version = u8::deserialize_reader(reader)?;
+        if version != ECC_VERSION {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("unsupported ECC version: {version}"),
             ));
         }
         let contract_id = AccountId::deserialize_reader(reader)?;
@@ -673,10 +697,12 @@ impl BorshDeserialize for EccTransaction {
 /// [`EccTransaction`].
 ///
 /// The borsh encoding of the signed variant is the one of [`SignedTransaction`], so existing
-/// chunks stay valid. The unsigned variant starts with the tag `2` and then the [`AccountId`]
-/// of its contract, whose nonzero length byte tells it apart from a V0 transaction (see
-/// [`Transaction`]). This is why a derived encoding, which would write a discriminant of
-/// `0` or `1` first, cannot be used.
+/// chunks stay valid. The unsigned variant starts with the escape byte `0xFF` and then the
+/// version of its encoding. No signed transaction starts with `0xFF`: a V0 transaction starts
+/// with the length of the signer's [`AccountId`], which is at most 64, and the version tags of
+/// [`Transaction`] are small numbers. So the versions of signed and unsigned transactions
+/// evolve independently. A derived encoding would write a discriminant of `0` or `1` first, so
+/// it cannot be used.
 #[derive(Eq, PartialEq, Debug, Clone, ProtocolSchema)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransactionEnvelope {
@@ -742,25 +768,16 @@ impl TransactionEnvelope {
     }
 
     /// Performs the validity checks that depend on the protocol version and the runtime
-    /// config, without checking the signature. See
-    /// [`ValidatedTransaction::check_valid_for_config`].
+    /// config, without checking the signature.
     pub fn check_valid_for_config(
         &self,
         config: &RuntimeConfig,
         protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        if let Self::Signed(tx) = self {
-            return ValidatedTransaction::check_valid_for_config(config, tx, protocol_version);
+        match self {
+            Self::Signed(tx) => tx.check_valid_for_config(config, protocol_version),
+            Self::Unsigned(tx) => tx.check_valid_for_config(config, protocol_version),
         }
-        if !ProtocolFeature::ExternalContractCalls.enabled(protocol_version) {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        let size = self.size_for_limits(protocol_version);
-        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-        if size > max_tx_size {
-            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
-        }
-        Ok(())
     }
 }
 
@@ -798,12 +815,12 @@ impl BorshSerialize for TransactionEnvelope {
 }
 
 impl BorshDeserialize for TransactionEnvelope {
-    /// Peeks at the first two bytes: `2` followed by a nonzero byte is an [`EccTransaction`],
-    /// anything else is handed to [`SignedTransaction`], which tells V0 from V1.
+    /// Peeks at the first byte: the escape byte means an [`EccTransaction`], anything else is
+    /// handed to [`SignedTransaction`], which tells V0 from V1.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let prefix = [u8::deserialize_reader(reader)?, u8::deserialize_reader(reader)?];
+        let prefix = [u8::deserialize_reader(reader)?];
         let mut reader = prefix.chain(reader);
-        if prefix[0] == ECC_TRANSACTION_TAG && prefix[1] != 0 {
+        if prefix[0] == ECC_ESCAPE_BYTE {
             return Ok(Self::Unsigned(EccTransaction::deserialize_reader(&mut reader)?));
         }
         Ok(Self::Signed(SignedTransaction::deserialize_reader(&mut reader)?))
@@ -829,10 +846,10 @@ impl<'de> serde::Deserialize<'de> for TransactionEnvelope {
     {
         let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
         let borsh = from_base64(&base64).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from base64 due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
         })?;
         borsh::from_slice::<Self>(&borsh).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from borsh due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
         })
     }
 }
@@ -1343,8 +1360,7 @@ mod tests {
         let ecc = test_ecc();
         let envelope = TransactionEnvelope::from(ecc);
         let bytes = borsh::to_vec(&envelope).unwrap();
-        // The tag, then the length byte of the contract id, which is never zero.
-        assert_eq!(&bytes[..2], &[2, "wallet.near".len() as u8]);
+        assert_eq!(&bytes[..2], &[ECC_ESCAPE_BYTE, ECC_VERSION]);
 
         let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
         assert_eq!(decoded, envelope);
@@ -1372,6 +1388,14 @@ mod tests {
         let err = TransactionEnvelope::try_from_slice(&[3, 5, 0, 0, 0, 0, 0, 0]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidData);
         assert!(err.to_string().contains("invalid transaction version tag: 3"));
+    }
+
+    #[test]
+    fn test_envelope_deserialize_unsupported_ecc_version() {
+        let err = TransactionEnvelope::try_from_slice(&[ECC_ESCAPE_BYTE, 1, 0, 0, 0, 0, 0, 0])
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("unsupported ECC version: 1"));
     }
 
     #[test]
@@ -1515,10 +1539,11 @@ mod tests {
         let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
 
         assert!(matches!(
-            ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
+            signed_tx.check_valid_for_config(&config, pre),
             Err(InvalidTxError::InvalidTransactionVersion)
         ));
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
+        signed_tx
+            .check_valid_for_config(&config, post)
             .expect("ML-DSA-65 signer accepted post-feature");
     }
 
@@ -1537,7 +1562,7 @@ mod tests {
         );
         let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
         assert!(matches!(
-            ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
+            signed_tx.check_valid_for_config(&config, pre),
             Err(InvalidTxError::InvalidTransactionVersion)
         ));
     }
@@ -1552,7 +1577,8 @@ mod tests {
             Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
         );
         let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre)
+        signed_tx
+            .check_valid_for_config(&config, pre)
             .expect("ed25519 tx unaffected by PQ gate pre-feature");
     }
 
@@ -1600,12 +1626,13 @@ mod tests {
 
         assert!(
             matches!(
-                ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
+                signed_tx.check_valid_for_config(&config, pre),
                 Err(InvalidTxError::InvalidTransactionVersion)
             ),
             "ML-DSA-65 buried inside a Delegate action must be rejected pre-feature",
         );
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
+        signed_tx
+            .check_valid_for_config(&config, post)
             .expect("same transaction must be accepted post-feature");
     }
 

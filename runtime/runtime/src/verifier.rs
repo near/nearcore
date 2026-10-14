@@ -12,7 +12,7 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
+    Action, NonceMode, SignedTransaction, Transaction, TransactionEnvelope, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
@@ -115,6 +115,24 @@ pub fn validate_transaction(
         return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
+}
+
+/// Like [`validate_transaction`], but for a transaction of either kind.
+pub fn validate_transaction_envelope(
+    config: &RuntimeConfig,
+    envelope: &TransactionEnvelope,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    match envelope {
+        TransactionEnvelope::Signed(signed_tx) => {
+            validate_transaction(config, signed_tx.clone(), current_protocol_version)
+                .map(|_| ())
+                .map_err(|(err, _)| err)
+        }
+        TransactionEnvelope::Unsigned(ecc) => {
+            ecc.check_valid_for_config(config, current_protocol_version)
+        }
+    }
 }
 
 /// Set new `signer` and `access_key` in `state_update`.

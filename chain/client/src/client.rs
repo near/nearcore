@@ -554,7 +554,7 @@ impl Client {
                     removed_hashes.push(tx.get_hash());
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                // TODO(ecc): remove ECCs from the pool once it can hold them (#16423)
+                // TODO(ecc): remove ECCs from the pool once it can hold them (#16473)
                 pool_guard.remove_transactions(
                     shard_uid,
                     transactions.iter().filter_map(TransactionEnvelope::as_signed),

@@ -12,7 +12,9 @@ use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
+use crate::verifier::{
+    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_envelope,
+};
 pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
@@ -2031,17 +2033,9 @@ impl Runtime {
                         }
                         let tx_hash = tx.hash();
                         let config = &processing_state.apply_state.config;
-                        let v = match tx {
-                            TransactionEnvelope::Signed(signed_tx) => {
-                                validate_transaction(config, signed_tx.clone(), protocol_version)
-                                    .map_err(|(err, _)| err)
-                                    .map(|_| ())
-                            }
-                            TransactionEnvelope::Unsigned(_) => {
-                                tx.check_valid_for_config(config, protocol_version)
-                            }
-                        };
-                        if let Err(err) = v {
+                        if let Err(err) =
+                            validate_transaction_envelope(config, tx, protocol_version)
+                        {
                             tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
                             *validation = Some(err);
                         }
