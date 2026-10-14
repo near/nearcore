@@ -158,17 +158,17 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
-        // Peers advertise their snapshots by the prev prev hash of the sync hash.
-        // We compute it here to pass as part of the network request.
+        // Peers advertise their snapshots by the block the snapshot was taken at, which is the
+        // prev prev block of the sync hash. We compute it here to pass as part of the request.
         // TODO(saketh): it would be nice to migrate the network layer to the same hash.
-        let prev_prev_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
+        let snapshot_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
 
         let network_request = match &key.part_or_header {
             PartOrHeader::Part { part_idx } => {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
-                    sync_prev_prev_hash: prev_prev_hash,
+                    snapshot_hash,
                     part_idx: *part_idx,
                 })
             }
@@ -176,7 +176,7 @@ impl StateSyncDownloadSourcePeer {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestHeader {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
-                    sync_prev_prev_hash: prev_prev_hash,
+                    snapshot_hash,
                 })
             }
         };
