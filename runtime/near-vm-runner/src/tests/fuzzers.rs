@@ -10,7 +10,7 @@ use near_primitives_core::types::Balance;
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
-/// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
+/// Finds a no-parameter exported function with non-empty name, something like `(func (export "entry-point"))`.
 #[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     use wasmparser_236::{Export, ExternalKind, Parser, Payload};
@@ -23,6 +23,9 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
             Ok(Payload::ExportSection(rdr)) => {
                 for export in rdr {
                     if let Ok(Export { name, kind: ExternalKind::Func, index }) = export {
+                        if name.is_empty() {
+                            continue;
+                        }
                         if let Some(&Ok(ty_index)) = fns.get(index as usize) {
                             if let Some(Ok(func_type)) = tys.get(ty_index as usize) {
                                 if func_type.params().is_empty() && func_type.results().is_empty() {
