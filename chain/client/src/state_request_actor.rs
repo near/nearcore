@@ -9,9 +9,7 @@ use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPa
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{StatePart, StatePartIndex};
-use near_primitives::state_sync::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
-};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
@@ -177,7 +175,7 @@ impl StateRequestActor {
 fn new_header_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    header: ShardStateSyncResponseHeaderV2,
+    header: ShardStateSyncResponseHeader,
 ) -> StatePartOrHeader {
     let state_response = ShardStateSyncResponse::new_from_header(Some(header));
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
@@ -243,14 +241,6 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
                 .inc();
             return Some(new_header_response_empty(shard_id, sync_hash));
         };
-        let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::warn!(target: "sync", "invalid state sync header format");
-            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
-                .with_label_values(&["header", "failed"])
-                .inc();
-            return None;
-        };
-
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
         let response = new_header_response(shard_id, sync_hash, header);
         Some(response)

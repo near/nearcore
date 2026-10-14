@@ -12,4 +12,5 @@ mod malicious_chunk_producer;
 mod pre_activation;
 mod receipt_proof_push;
 mod resharding;
+mod state_sync;
 mod utils;
