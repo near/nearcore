@@ -299,6 +299,10 @@ pub enum Error {
     /// value recomputed from the chain.
     #[error("Invalid spice_chunk_endorsement_stats: {0}")]
     InvalidSpiceChunkEndorsementStats(String),
+    /// The state sync data an epoch's first spice block carries doesn't match what is
+    /// recomputed from the chain, or is carried by a block that isn't an epoch's first.
+    #[error("Invalid spice state sync data: {0}")]
+    InvalidSpiceStateSyncData(String),
     /// `chunk_execution_root` on a spice block header doesn't match the merkle
     /// root recomputed from the block's certified chunk execution results.
     #[error("Invalid chunk_execution_root: {0}")]
@@ -400,6 +404,7 @@ impl Error {
             | Error::InvalidSpiceCoreStatements(_)
             | Error::InvalidPrevLastCertifiedBlockEpochId(_)
             | Error::InvalidSpiceChunkEndorsementStats(_)
+            | Error::InvalidSpiceStateSyncData(_)
             | Error::InvalidChunkExecutionRoot(_) => true,
         }
     }
@@ -494,6 +499,7 @@ impl Error {
                 "invalid_prev_last_certified_block_epoch_id"
             }
             Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
+            Error::InvalidSpiceStateSyncData(_) => "invalid_spice_state_sync_data",
             Error::InvalidChunkExecutionRoot(_) => "invalid_chunk_execution_root",
         }
     }

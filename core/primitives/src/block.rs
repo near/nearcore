@@ -3,8 +3,8 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
-use crate::block_body::SpiceCoreStatements;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{SpiceCoreStatements, SpiceStateSyncData};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -276,7 +276,13 @@ impl Block {
         let spice_chunk_endorsement_stats =
             spice_info.as_ref().map(|info| info.spice_chunk_endorsement_stats.clone());
         let body = if let Some(spice_info) = spice_info {
-            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
+            BlockBody::new_for_spice(
+                chunks,
+                vrf_value,
+                vrf_proof,
+                spice_info.core_statements,
+                spice_info.spice_state_sync_data,
+            )
         } else {
             BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
         };
@@ -584,6 +590,13 @@ impl Block {
         }
     }
 
+    pub fn spice_state_sync_data(&self) -> Option<&SpiceStateSyncData> {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => None,
+            Block::BlockV4(block) => block.body.spice_state_sync_data(),
+        }
+    }
+
     #[inline]
     pub fn is_spice_block(&self) -> bool {
         match self {
@@ -676,6 +689,8 @@ pub struct SpiceNewBlockProductionInfo {
     /// Accumulated per-validator endorsement stats for the epoch; non-empty
     /// only on the last block of an epoch.
     pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
+    /// Set only on the first block of an epoch; see [`SpiceStateSyncData`].
+    pub spice_state_sync_data: Option<SpiceStateSyncData>,
 }
 
 /// Distinguishes between new and old chunks.
