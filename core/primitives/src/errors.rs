@@ -1501,6 +1501,10 @@ pub enum PrepareError {
     OperandStackTooLarge = 18,
     /// Contract declares too many entries in the wasm global section.
     TooManyGlobals = 19,
+    /// Contract declares too many entries across all wasm element segments.
+    TooManyElementSegmentEntries = 20,
+    /// Contract declares too many wasm element segments.
+    TooManyElementSegments = 21,
 }
 
 /// A kind of a trap happened during execution of a binary

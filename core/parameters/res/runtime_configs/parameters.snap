@@ -264,6 +264,8 @@ max_params_per_function                                   64
 max_params_per_contract                               50_000
 max_operand_stack_bytes_per_function                   8_192
 max_globals_per_contract                              65_536
+max_element_segment_entries_per_contract              10_000
+max_element_segments_per_contract                      1_000
 fix_contract_loading_cost               false
 fix_contract_loading_error              true
 vm_kind                                 Wasmtime

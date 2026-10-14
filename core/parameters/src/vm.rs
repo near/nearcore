@@ -194,6 +194,15 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
+    /// If present, stores the maximum sum of entries across all element
+    /// segments in a contract. Repeated and overlapping entries are counted
+    /// individually.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_element_segment_entries_per_contract: Option<u64>,
+    /// If present, stores max number of element segments in a contract,
+    /// including empty segments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_element_segments_per_contract: Option<u64>,
     /// Deprecated: full account id validation is always enforced, so this is
     /// always `2`.
     #[serde(default = "default_account_id_validity_rules_version")]

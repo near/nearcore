@@ -1,1 +1,3 @@
 max_globals_per_contract: { new: 65_536 }
+max_element_segment_entries_per_contract: { new: 10_000 }
+max_element_segments_per_contract: { new: 1_000 }

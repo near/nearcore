@@ -33,7 +33,7 @@ mod tests {
     use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
     use std::borrow::Cow;
-    use wasm_encoder::{CustomSection, Encode, Section};
+    use wasm_encoder::{CustomSection, ElementSection, Elements, Encode, Module, Section};
 
     fn parse_and_prepare_wat(
         config: &Config,
@@ -398,6 +398,54 @@ mod tests {
             let wasm = near_test_contracts::contract_with_num_globals(limit as u32);
             let r = prepare_contract(&wasm, &config, kind);
             assert_matches!(r, Ok(_));
+        });
+    }
+
+    fn contract_with_empty_element_segments(num_segments: u32) -> Vec<u8> {
+        let mut module = Module::new();
+        let mut elements = ElementSection::new();
+        for _ in 0..num_segments {
+            elements.passive(Elements::Functions(Cow::Borrowed(&[])));
+        }
+        module.section(&elements);
+        module.finish()
+    }
+
+    #[test]
+    fn too_many_element_segments() {
+        with_vm_variants(|kind| {
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_element_segments_per_contract = Some(2);
+            config.limit_config.max_element_segment_entries_per_contract = None;
+
+            let wasm = contract_with_empty_element_segments(3);
+            assert_matches!(
+                prepare_contract(&wasm, &config, kind),
+                Err(PrepareError::TooManyElementSegments)
+            );
+
+            let wasm = contract_with_empty_element_segments(2);
+            assert_matches!(prepare_contract(&wasm, &config, kind), Ok(_));
+        });
+    }
+
+    #[test]
+    fn too_many_element_segment_entries() {
+        with_vm_variants(|kind| {
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_element_segments_per_contract = None;
+            config.limit_config.max_element_segment_entries_per_contract = Some(11);
+
+            // All three segments initialize the same four table slots. Count every
+            // repeated entry rather than the final number of initialized slots.
+            let wasm = near_test_contracts::fallback_elements_contract(3, 4);
+            assert_matches!(
+                prepare_contract(&wasm, &config, kind),
+                Err(PrepareError::TooManyElementSegmentEntries)
+            );
+
+            config.limit_config.max_element_segment_entries_per_contract = Some(12);
+            assert_matches!(prepare_contract(&wasm, &config, kind), Ok(_));
         });
     }
 
