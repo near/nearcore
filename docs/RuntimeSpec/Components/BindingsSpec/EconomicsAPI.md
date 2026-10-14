@@ -25,6 +25,9 @@ The cost is taken as soon as the gas is used, and `account_balance` returns the 
 transfer cannot spend the balance needed to pay for the gas used so far, and panics with `BalanceExceeded`
 instead.
 
+An external call has no deposit. If one is called with a nonzero `attached_deposit`, it fails with
+`ProhibitedInExternalCall` before any contract code runs.
+
 The following spec is the same for all functions:
 
 ```rust
@@ -38,7 +41,8 @@ attached_deposit(balance_ptr: u64)
 ###### Panics
 
 - If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If called in a view function panics with `ProhibitedInView`;
+- If `attached_deposit` is called in an external call panics with `ProhibitedInExternalCall`.
 
 ###### Current bugs
 
