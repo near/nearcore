@@ -37,9 +37,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         let epoch_manager = epoch_manager.clone();
         let mode = mode.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut ban_counter = ban_counter.write();
             match request {
                 NetworkRequests::Block { mut block } => {
@@ -94,7 +92,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                 },
                 _ => HandlerResult::Unhandled(request),
             }
-        }));
+        });
     }
 
     env.node_runner(0).run_until_head_height(25);
@@ -166,9 +164,7 @@ fn test_produce_block_with_approvals_arrived_early() {
         let client_senders = client_senders.clone();
         let block_producer_for_next_height = block_producer_for_next_height.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut approval_counter = approval_counter.write();
             match &request {
                 NetworkRequests::Block { block } => {
@@ -214,7 +210,7 @@ fn test_produce_block_with_approvals_arrived_early() {
                 }
                 _ => HandlerResult::Unhandled(request),
             }
-        }));
+        });
     }
 
     env.node_runner(0).run_until_final_head_height(block_withholding_height + 1);

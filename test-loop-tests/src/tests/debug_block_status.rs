@@ -13,8 +13,8 @@ fn test_debug_block_status_clamps_starting_height_to_header_head() {
     env.node_runner(0).run_until_new_epoch();
     let header_head = env.node(0).client().chain.header_head().unwrap().height;
 
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client_actor = env.test_loop.data.get_mut(&handle);
+    let mut node = env.node_mut(0);
+    let client_actor = node.client_actor();
 
     // Boundary values of the u64 range, not just a height one past the head.
     // Genesis height reports nothing, since the range below it is empty.

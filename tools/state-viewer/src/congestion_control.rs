@@ -3,9 +3,10 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
+    DataReceipt, Receipt, ReceiptEnum, ReceiptV0, StateStoredReceipt, StateStoredReceiptMetadata,
 };
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
@@ -13,7 +14,6 @@ use near_store::{ShardTries, ShardUId, Store, TrieUpdate};
 use nearcore::NearConfig;
 use node_runtime::bootstrap_congestion_info;
 use rand::Rng;
-use std::borrow::Cow;
 use std::path::Path;
 
 /// A set of commands for inspecting and debugging the congestion control
@@ -102,30 +102,20 @@ impl BootstrapCmd {
 
         let &prev_hash = block_header.prev_hash();
         for (shard_id, state_root) in shard_id_state_root_list {
-            Self::run_impl(
-                epoch_manager.as_ref(),
-                runtime.as_ref(),
-                prev_hash,
-                shard_id,
-                state_root,
-            );
+            Self::run_impl(runtime.as_ref(), prev_hash, shard_id, state_root);
         }
     }
 
     fn run_impl(
-        epoch_manager: &dyn EpochManagerAdapter,
         runtime: &dyn RuntimeAdapter,
         prev_hash: CryptoHash,
         shard_id: ShardId,
         state_root: StateRoot,
     ) {
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-        let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
-        let runtime_config = protocol_config.runtime_config;
         let trie = runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true).unwrap();
 
         let start_time = std::time::Instant::now();
-        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id).unwrap();
+        let congestion_info = bootstrap_congestion_info(&trie, shard_id).unwrap();
         let duration = start_time.elapsed();
 
         println!("{:?} - {:?} - {:?}", shard_id, congestion_info, duration);
@@ -160,6 +150,7 @@ impl PrepareBenchmarkCmd {
         let prev_hash = block_header.prev_hash();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let runtime_config = runtime.get_protocol_config(&epoch_id).unwrap().runtime_config;
 
         for (shard_index, &state_root) in state_roots.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
@@ -168,7 +159,7 @@ impl PrepareBenchmarkCmd {
 
             let tries = runtime.get_tries();
 
-            let state_root = self.add_receipts(tries, shard_uid, state_root);
+            let state_root = self.add_receipts(tries, shard_uid, state_root, &runtime_config);
             println!("new - {:?} - {:?}", shard_id, state_root);
         }
     }
@@ -193,6 +184,7 @@ impl PrepareBenchmarkCmd {
         tries: ShardTries,
         shard_uid: ShardUId,
         state_root: StateRoot,
+        runtime_config: &RuntimeConfig,
     ) -> StateRoot {
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         let mut trie_update = TrieUpdate::new(trie);
@@ -200,8 +192,8 @@ impl PrepareBenchmarkCmd {
 
         for _ in 0..self.receipt_count {
             let receipt = self.create_receipt();
-            let receipt = Cow::Borrowed(&receipt);
-            let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
+            let metadata = StateStoredReceiptMetadata::compute(&receipt, runtime_config).unwrap();
+            let receipt = StateStoredReceipt::new_owned(receipt, metadata);
             queue.push_back(&mut trie_update, &receipt).unwrap();
         }
 

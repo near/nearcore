@@ -1,4 +1,3 @@
-use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
@@ -287,15 +286,6 @@ impl NodeExecutionData {
         heights: &HashSet<BlockHeight>,
     ) {
         self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
-    }
-
-    pub fn register_override_handler(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        handler: NetworkRequestHandler,
-    ) {
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(handler);
     }
 }
 

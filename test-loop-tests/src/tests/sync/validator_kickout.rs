@@ -112,8 +112,7 @@ fn test_validator_kickout_after_restart() {
     let epoch_e1 = env.node(1).head().epoch_id;
 
     // Restart the killed validator in E+1 and verify near-horizon sync.
-    env.restart_node("node0_restart", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("node0_restart", killed_state);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 1);
     assert_near_horizon_sync_sequence(&sync_history.borrow());
@@ -200,8 +199,7 @@ fn test_validator_no_kickout_after_quick_restart() {
     // Remaining 3 advance 2 blocks (still early in epoch E), then restart.
     env.node_runner(1).run_for_number_of_blocks(2);
 
-    env.restart_node("node0_restart", killed_state);
-    let restarted_idx = env.node_datas.len() - 1;
+    let restarted_idx = env.restart_node("node0_restart", killed_state);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 1);
     assert_near_horizon_sync_sequence(&sync_history.borrow());

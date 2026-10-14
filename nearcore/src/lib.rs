@@ -281,6 +281,7 @@ fn spawn_spice_actors(
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        shard_tracker.clone(),
         validator_signer.clone(),
         spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),

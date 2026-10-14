@@ -53,9 +53,7 @@ fn test_congestion_control_genesis_bootstrap() {
     env.test_loop.run_for(Duration::seconds(5));
 
     for i in 0..clients.len() {
-        check_genesis_congestion_info_in_store(
-            &mut env.test_loop.data.get_mut(&env.node_datas[i].client_sender.actor_handle()).client,
-        );
+        check_genesis_congestion_info_in_store(&mut env.node_mut(i).client_actor().client);
     }
 }
 

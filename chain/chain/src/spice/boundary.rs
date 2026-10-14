@@ -1,16 +1,18 @@
 //! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
 //! are the first to be certified under spice.
 
-use near_chain_primitives::Error;
+use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
+use std::collections::HashSet;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
@@ -29,6 +31,51 @@ pub fn is_last_pre_spice_block(
     }
     let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
+}
+
+/// Whether this node applies `shard_id`'s chunk of `block` itself, so that it holds
+/// the chunk's execution result and outgoing receipts without fetching anything.
+pub fn applies_chunk_itself(
+    shard_tracker: &ShardTracker,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &BlockHeader,
+    shard_id: ShardId,
+) -> Result<bool, Error> {
+    let mode = own_apply_mode(epoch_manager, block)?;
+    Ok(shard_tracker.should_apply_chunk(mode, block.prev_hash(), shard_id))
+}
+
+/// The shards of `block`'s layout for which [`applies_chunk_itself`] holds, deciding
+/// the apply mode once for the whole block.
+pub fn shards_applied_itself(
+    shard_tracker: &ShardTracker,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &BlockHeader,
+) -> Result<HashSet<ShardId>, Error> {
+    let mode = own_apply_mode(epoch_manager, block)?;
+    let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
+    Ok(shard_layout
+        .shard_ids()
+        .filter(|shard_id| shard_tracker.should_apply_chunk(mode, block.prev_hash(), *shard_id))
+        .collect())
+}
+
+// A last pre-spice block was applied pre-spice, where a shard the node only tracks
+// next epoch is applied with the block only once caught up. Whether it was is not
+// known here, so this answers with the lower bound, `NotCaughtUp`: a caught-up node
+// then fetches what it actually holds, a wasted fetch, rather than waiting on
+// artifacts it may never have produced. Every other block is answered with
+// `IsCaughtUp`. The two differ only for a node that starts tracking a shard in the
+// first spice epoch.
+fn own_apply_mode(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &BlockHeader,
+) -> Result<ApplyChunksMode, Error> {
+    Ok(if is_last_pre_spice_block(epoch_manager, block.hash())? {
+        ApplyChunksMode::NotCaughtUp
+    } else {
+        ApplyChunksMode::IsCaughtUp
+    })
 }
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block

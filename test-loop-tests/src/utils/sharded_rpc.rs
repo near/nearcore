@@ -79,14 +79,12 @@ impl TwoShardHarness {
     /// asserting on block heights for different finality levels are meaningful.
     /// Advances a few blocks if needed. Returns `(final_height, head_height)`.
     pub(crate) fn ensure_finality_lag(&mut self) -> (BlockHeight, BlockHeight) {
-        let final_height =
-            self.env.node_for_account(&self.validator).client().chain.final_head().unwrap().height;
+        let final_height = self.env.node_for_account(&self.validator).final_head().height;
         let head_height = self.env.node_for_account(&self.validator).head().height;
         if final_height >= head_height {
             self.env.runner_for_account(&self.validator).run_for_number_of_blocks(3);
         }
-        let final_height =
-            self.env.node_for_account(&self.validator).client().chain.final_head().unwrap().height;
+        let final_height = self.env.node_for_account(&self.validator).final_head().height;
         let head_height = self.env.node_for_account(&self.validator).head().height;
         assert!(
             final_height < head_height,

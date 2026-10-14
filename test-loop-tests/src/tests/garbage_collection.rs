@@ -1,6 +1,5 @@
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -35,12 +34,10 @@ fn test_state_transition_data_gc_simple() {
         .shard_layout(shard_layout.clone())
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let client: AccountId = chunk_producer.parse().unwrap();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(vec![client.clone()])
-        .epoch_config_store(epoch_config_store)
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })
@@ -49,10 +46,7 @@ fn test_state_transition_data_gc_simple() {
     env.test_loop.run_for(Duration::seconds(20));
 
     assert_state_transition_data_is_cleared(
-        &retrieve_client_actor(&env.node_datas, &mut env.test_loop.data, &client)
-            .client
-            .chain
-            .chain_store,
+        &env.node_for_account(&client).client().chain.chain_store,
         &shard_layout.shard_ids().collect(),
     );
 }
@@ -98,9 +92,9 @@ fn test_state_transition_data_gc_when_resharding() {
         })
         .build();
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
-    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+    let client = env.node(0).client();
+    let chain_store = client.chain.chain_store.clone();
+    let epoch_manager = client.epoch_manager.clone();
 
     assert_state_transition_data_is_cleared(&chain_store, &base_shard_layout.shard_ids().collect());
 

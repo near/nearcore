@@ -17,7 +17,7 @@ fn test_hint_classifier_skips_on_both_origin_rows_present() {
         })
         .build();
 
-    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account);
 
     // Force (true, true) by writing fake receipt row at tx hash. Resolver
     // skips ambiguous candidate; scan exhausts window → `UnknownReceipt`.

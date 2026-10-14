@@ -15,7 +15,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::{CryptoHash, YieldId};
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceivedData, VersionedReceiptEnum,
+    Receipt, ReceivedData, StateStoredReceipt, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{
@@ -152,7 +152,7 @@ pub fn get_delayed_receipt_indices(
 pub fn set_delayed_receipt(
     state_update: &mut TrieUpdate,
     delayed_receipts_indices: &mut DelayedReceiptIndices,
-    receipt: &Receipt,
+    receipt: &StateStoredReceipt,
 ) {
     set(
         state_update,

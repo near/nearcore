@@ -756,31 +756,35 @@ async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
-    let chunk =
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "chunk",
+        "params": serde_json::json!({
+            "block_id": 0u64,
+            "shard_id": 0u64,
+        })
+    });
+
+    let (status, response_bytes) = client
+        .transport
+        .send_http_request(
+            "/",
+            request.to_string().as_bytes().to_vec(),
+            JSONRPC_RESPONSE_LIMIT,
+            &[],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+    let response: Value = serde_json::from_slice(&response_bytes).unwrap();
+    assert_eq!(response["error"], serde_json::json!(null));
+
+    // test_chunk_by_hash checks the fields of the chunk returned by positional params.
+    let chunk_from_positional_params =
         client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(0))).await.unwrap();
-    assert_eq!(chunk.author, "test1");
-    assert!(chunk.header.balance_burnt.is_zero());
-    assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
-    assert_eq!(chunk.header.encoded_length, 8);
-    assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-    // In spice gas_limit isn't part of the chunk.
-    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
-    }
-    assert_eq!(chunk.header.gas_used, Gas::ZERO);
-    assert_eq!(chunk.header.height_created, 0);
-    assert_eq!(chunk.header.height_included, 0);
-    assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
-    assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
-    assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
-    assert!(chunk.header.rent_paid.is_zero());
-    assert_eq!(chunk.header.shard_id, ShardId::new(0));
-    assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
-    assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
-    assert_eq!(chunk.header.validator_proposals, vec![]);
-    assert!(chunk.header.validator_reward.is_zero());
-    let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
-    assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
+    assert_eq!(response["result"], serde_json::to_value(&chunk_from_positional_params).unwrap());
 }
 
 #[tokio::test]

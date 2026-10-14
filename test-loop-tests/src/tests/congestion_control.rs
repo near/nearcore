@@ -2,7 +2,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
-use crate::utils::run_for_number_of_blocks;
 use crate::utils::transactions::make_accounts;
 use assert_matches::assert_matches;
 use core::panic;
@@ -87,17 +86,16 @@ fn slow_test_one_shard_congested() {
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
 
     // Run for `max_missed_chunks * 2` blocks to make sure shard 2 is congested
-    run_for_number_of_blocks(&mut env, &rpc_id, max_missed_chunks as usize * 2);
+    env.runner_for_account(&rpc_id).run_for_number_of_blocks(max_missed_chunks as usize * 2);
 
     // Check if shard 2 is congested
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client_actor = env.test_loop.data.get(&client_handle);
-    let head = client_actor.client.chain.get_head_block().unwrap();
+    let client = env.node(0).client();
+    let head = client.chain.get_head_block().unwrap();
     let missed_chunks = head.block_congestion_info().get(&shard2).unwrap().missed_chunks_count;
     assert!(missed_chunks >= max_missed_chunks);
 
     // Send transfer from shard 1 to shard 1 – should succeed
-    let block_time = client_actor.client.config.max_block_production_delay.get();
+    let block_time = client.config.max_block_production_delay.get();
     let tx = env.node_for_account(&rpc_id).tx_send_money(
         &shard1_acc1,
         &shard1_acc2,

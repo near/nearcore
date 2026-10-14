@@ -6,7 +6,6 @@ use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActor;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
@@ -63,11 +62,9 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         .shard_layout(ShardLayout::multi_shard(8, 3))
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(accounts)
-        .epoch_config_store(epoch_config_store)
         // With short epoch length sync hash may not be available for catchup so we track all
         // shards.
         .track_all_shards()
@@ -83,9 +80,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let handler = handler.clone();
         let rng = rng.clone();
 
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
             let mut handler = handler.write();
             let mut rng = rng.write();
 
@@ -280,7 +275,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                 _ => {}
             };
             HandlerResult::Unhandled(request)
-        }));
+        });
     }
 
     const HEIGHT_GOAL: u64 = 140;
@@ -325,8 +320,7 @@ struct NetworkHandlingData {
 
 impl NetworkHandlingData {
     fn new(env: &TestLoopEnv, validators: Vec<Vec<AccountId>>) -> Self {
-        let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-        let client = &env.test_loop.data.get(client_actor_handle).client;
+        let client = env.node(0).client();
 
         let head = client.chain.head().unwrap();
         let client_senders: HashMap<AccountId, _> = env

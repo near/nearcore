@@ -76,15 +76,15 @@ fn test_eth_implicit_account_with_missing_global_contract_does_not_halt_chain() 
             index: _
         }))
     );
-    assert_eq!(env.validator().view_account_query(&eth_account).unwrap().amount, funded_balance);
+    assert_eq!(env.validator().query_balance(&eth_account), funded_balance);
 
     // A normal transaction after the failed wallet call must execute successfully.
-    let receiver_balance = env.validator().view_account_query(&receiver).unwrap().amount;
+    let receiver_balance = env.validator().query_balance(&receiver);
     let transfer_amount = Balance::from_near(1);
     let transfer_tx = env.validator().tx_send_money(&relayer, &receiver, transfer_amount);
     env.validator_runner().run_tx(transfer_tx, Duration::seconds(5));
     assert_eq!(
-        env.validator().view_account_query(&receiver).unwrap().amount,
+        env.validator().query_balance(&receiver),
         receiver_balance.checked_add(transfer_amount).unwrap()
     );
 

@@ -25,8 +25,8 @@ fn test_debug_epoch_info_light_omits_validator_info() {
     env.node_runner(0).run_until_new_epoch();
     env.node_runner(0).run_until_new_epoch();
 
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client_actor = env.test_loop.data.get_mut(&handle);
+    let mut node = env.node_mut(0);
+    let client_actor = node.client_actor();
     let full = get_recent_epochs(client_actor, DebugStatus::EpochInfo(None));
     let lite = get_recent_epochs(client_actor, DebugStatus::EpochInfoLight(None));
 

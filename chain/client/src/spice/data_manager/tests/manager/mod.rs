@@ -1,16 +1,22 @@
 use super::*;
 use crate::spice::chunk_executor_actor::save_receipt_proof;
+use crate::spice::tests::{build_to_last_pre_spice_block, save_and_record_block};
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, FakeClock};
+use near_chain::test_utils::get_chain_with_genesis;
 use near_chain::test_utils::{get_chain_with_num_shards, process_block_sync};
 use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Tip;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::block_header::BlockHeader;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::SpiceDataPart;
+use near_primitives::test_utils::pre_spice_protocol_version;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
@@ -358,4 +364,9 @@ fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), proof);
     store_update.commit();
+}
+
+/// The ids of the receipt proofs `policies` needs from `block`.
+fn needed_receipt_ids(policies: &Policies, block: &Block) -> HashSet<DataId> {
+    policies.needed_items(block.header()).unwrap().into_iter().map(|(id, _)| id).collect()
 }

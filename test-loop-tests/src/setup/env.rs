@@ -52,11 +52,10 @@ impl TestLoopEnv {
         assert!(self.shared_state.warmup_pending.load(Ordering::Relaxed), "warmup already done");
         self.shared_state.warmup_pending.store(false, Ordering::Relaxed);
 
+        let client = self.node(0).client();
+        let max_block_production_delay = client.config.max_block_production_delay.get();
+        let genesis_height = client.chain.genesis().height();
         let client_handle = self.node_datas[0].client_sender.actor_handle();
-        let client_actor = self.test_loop.data.get(&client_handle);
-        let max_block_production_delay =
-            client_actor.client.config.max_block_production_delay.get();
-        let genesis_height = client_actor.client.chain.genesis().height();
         self.test_loop.run_until(
             |test_loop_data| {
                 let client_actor = test_loop_data.get(&client_handle);
@@ -138,20 +137,25 @@ impl TestLoopEnv {
     /// this function automatically takes care of properly redirecting all network messages to the new node.
     ///
     /// Additionally, we set the NetworkInfo for this node which is required for state sync to work.
-    pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) {
+    ///
+    /// Returns the index of the new node in `node_datas`. The stopped node keeps its own entry.
+    pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) -> usize {
         // setup_client handles adding the account_id and peer_id details to network_shared_state
         let node_data =
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
         self.node_datas.push(node_data);
+        self.node_datas.len() - 1
     }
 
     /// Function to add a new node in test loop environment. This function takes in the identifier
     /// and node_state of the new node as input.
     ///
     /// We set the NetworkInfo for this node which is required for state sync to work.
-    pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) {
+    ///
+    /// Returns the index of the new node in `node_datas`.
+    pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) -> usize {
         // Logically this function is the same as restart_node
-        self.restart_node(identifier, node_state);
+        self.restart_node(identifier, node_state)
     }
 
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {

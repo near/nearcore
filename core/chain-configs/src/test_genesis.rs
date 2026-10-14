@@ -365,6 +365,11 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, gas_price_adjustment_rate: Rational32) -> Self {
+        self.gas_price_adjustment_rate = gas_price_adjustment_rate;
+        self
+    }
+
     pub fn gas_limit_one_petagas(mut self) -> Self {
         self.gas_limit = Gas::from_teragas(1000);
         self
