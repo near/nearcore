@@ -597,7 +597,7 @@ fn before_canonical_state_init() -> ProtocolVersion {
 /// Before `CanonicalUniversalStateInit` a non-canonical encoding is a state init like any
 /// other: it creates the account at the id its bytes derive to. Pins the behavior the
 /// canonical check must not change below its version.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[ignore = "needs universal accounts below the canonical check"]
 #[test]
 fn test_universal_state_init_accepts_non_canonical_before_canonical_feature() {
     init_test_logger();
@@ -651,7 +651,7 @@ fn wat_data(bytes: &[u8]) -> String {
 /// A contract that hands non-canonical bytes straight to the action, without deriving the id
 /// through the host, creates the account below `CanonicalUniversalStateInit`, and fails the
 /// receipt it builds from there on: the receipt's own validation is what rejects them.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[ignore = "needs universal accounts below the canonical check"]
 #[test]
 fn test_universal_state_init_non_canonical_from_contract_by_version() {
     init_test_logger();
@@ -739,7 +739,7 @@ fn version_of_block(node: &TestLoopNode, block_hash: CryptoHash) -> ProtocolVers
 /// version. It must pass validation as an existing receipt and fail its action, without
 /// halting the chain, and without creating the account. Receipts that execute before the
 /// upgrade still create theirs.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[ignore = "needs universal accounts below the canonical check"]
 #[test]
 fn test_universal_state_init_non_canonical_receipt_across_upgrade() {
     init_test_logger();

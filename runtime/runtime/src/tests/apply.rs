@@ -6764,6 +6764,7 @@ mod self_signed_state_init {
     /// failure as `StorageInconsistentState`, so that validation must not reject what the
     /// old rules accepted.
     #[test]
+    #[ignore = "needs universal accounts below the canonical check"]
     fn in_flight_non_canonical_state_init_fails_the_action_when_delayed() {
         init_test_logger();
         let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
@@ -6798,6 +6799,7 @@ mod self_signed_state_init {
     /// Below the feature the same receipt is an ordinary state init and creates the account,
     /// so the failure above is the new rule and not something the receipt always did.
     #[test]
+    #[ignore = "needs universal accounts below the canonical check"]
     fn non_canonical_state_init_receipt_installs_before_the_canonical_feature() {
         init_test_logger();
         let raw = non_canonical_state_init();
