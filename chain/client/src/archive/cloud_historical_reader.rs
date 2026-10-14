@@ -179,7 +179,7 @@ async fn install_shard_state(
     let mut state_root = header.synced_state_root();
     let mut height = header
         .chunk_height_included()
-        .ok_or(CloudArchivalReaderError::ChunklessStateHeader { shard_id })?;
+        .ok_or(CloudArchivalReaderError::NoChunkInStateSyncHeader { shard_id })?;
     tracing::info!(
         target: "cloud_archival",
         %shard_uid,
