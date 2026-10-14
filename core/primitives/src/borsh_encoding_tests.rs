@@ -28,20 +28,26 @@ use crate::epoch_info::EpochInfo;
 use crate::genesis::{genesis_block, genesis_chunks};
 use crate::hash::hash;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
+    Receipt, ReceiptEnum, ReceiptV0, StateStoredReceipt, StateStoredReceiptMetadata,
 };
 use crate::shard_layout::ShardLayout;
-use crate::transaction::{
-    NonceMode, SignedTransaction, Transaction, TransactionNonce, TransactionV0, TransactionV1,
-};
+use crate::sharding::ShardChunkHeader;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use crate::test_utils::create_test_signer;
+use crate::transaction::{NonceMode, Transaction, TransactionNonce, TransactionV0, TransactionV1};
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{AccountId, Balance, Gas, ProtocolVersion, ShardId, ValidatorKickoutReason};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, Gas, ProtocolVersion, ShardId, ValidatorKickoutReason,
+};
 use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
-use crate::validator_signer::InMemoryValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use insta::assert_snapshot;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{
+    ED25519PublicKey, InMemorySigner, KeyType, ML_DSA_65_PUBLIC_KEY_LENGTH,
+    ML_DSA_65_SIGNATURE_LENGTH, MlDsa65PublicKey, PublicKey, Secp256K1PublicKey, Signature, Signer,
+};
 use near_time::Utc;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -56,14 +62,16 @@ fn hex_lines(bytes: &[u8]) -> String {
     bytes.chunks(32).map(hex::encode).collect::<Vec<_>>().join("\n")
 }
 
-/// Pins the encoding of `value` in snapshot `name`, then checks that the bytes
-/// decode back to `value` and re-encode to the same bytes.
+/// Pins the encoding of `value` in snapshot `name`, then checks that
+/// `object_length` agrees with it and that the bytes decode back to `value`
+/// and re-encode to the same bytes.
 fn assert_encoding<T>(name: &str, value: &T)
 where
     T: BorshSerialize + BorshDeserialize + PartialEq + Debug,
 {
     let bytes = borsh::to_vec(value).unwrap();
     assert_snapshot!(name, hex_lines(&bytes));
+    assert_eq!(borsh::object_length(value).unwrap(), bytes.len());
     let decoded = T::try_from_slice(&bytes).unwrap();
     assert_eq!(&decoded, value);
     assert_eq!(borsh::to_vec(&decoded).unwrap(), bytes);
@@ -74,16 +82,11 @@ fn account_id(name: &str) -> AccountId {
 }
 
 fn signer(name: &str) -> Signer {
-    InMemorySigner::from_seed(account_id(name), KeyType::ED25519, name)
+    InMemorySigner::test_signer(&account_id(name))
 }
 
 fn public_key(name: &str) -> PublicKey {
     signer(name).public_key()
-}
-
-fn sign_transaction(signer: &Signer, transaction: Transaction) -> SignedTransaction {
-    let (hash, _) = transaction.get_hash_and_size();
-    SignedTransaction::new(signer.sign(hash.as_ref()), transaction)
 }
 
 fn function_call(method_name: &str) -> FunctionCallAction {
@@ -189,6 +192,32 @@ fn all_actions() -> Vec<Action> {
 
 #[test]
 fn signed_transaction_v0() {
+    let actions = all_actions();
+    // No wildcard arm, so a new `Action` variant stops this compiling. Add it
+    // to `all_actions` and extend the range.
+    let tags: Vec<u8> = actions
+        .iter()
+        .map(|action| match action {
+            Action::CreateAccount(_) => 0,
+            Action::DeployContract(_) => 1,
+            Action::FunctionCall(_) => 2,
+            Action::Transfer(_) => 3,
+            Action::Stake(_) => 4,
+            Action::AddKey(_) => 5,
+            Action::DeleteKey(_) => 6,
+            Action::DeleteAccount(_) => 7,
+            Action::Delegate(_) => 8,
+            Action::DeployGlobalContract(_) => 9,
+            Action::UseGlobalContract(_) => 10,
+            Action::DeterministicStateInit(_) => 11,
+            Action::TransferToGasKey(_) => 12,
+            Action::WithdrawFromGasKey(_) => 13,
+            Action::DelegateV2(_) => 14,
+            Action::UniversalStateInit(_) => 15,
+        })
+        .collect();
+    assert_eq!(tags, (0..=15).collect::<Vec<_>>());
+
     let alice = signer("alice.near");
     let transaction = Transaction::V0(TransactionV0 {
         signer_id: account_id("alice.near"),
@@ -196,9 +225,9 @@ fn signed_transaction_v0() {
         nonce: 42,
         receiver_id: account_id("bob.near"),
         block_hash: hash(b"block"),
-        actions: all_actions(),
+        actions,
     });
-    assert_encoding("signed_transaction_v0", &sign_transaction(&alice, transaction));
+    assert_encoding("signed_transaction_v0", &transaction.sign(&alice));
 }
 
 #[test]
@@ -216,69 +245,114 @@ fn signed_transaction_v1() {
         ],
         nonce_mode: NonceMode::Strict,
     });
-    assert_encoding("signed_transaction_v1", &sign_transaction(&alice, transaction));
+    assert_encoding("signed_transaction_v1", &transaction.sign(&alice));
+}
+
+fn receipt(receipt_id: &[u8], receipt: ReceiptEnum) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: account_id("alice.near"),
+        receiver_id: account_id("bob.near"),
+        receipt_id: hash(receipt_id),
+        receipt,
+    })
+}
+
+fn action_receipt() -> ActionReceipt {
+    ActionReceipt {
+        signer_id: account_id("alice.near"),
+        signer_public_key: public_key("alice.near"),
+        gas_price: Balance::from_yoctonear(100_000_000),
+        output_data_receivers: vec![DataReceiver {
+            data_id: hash(b"data"),
+            receiver_id: account_id("carol.near"),
+        }],
+        input_data_ids: vec![hash(b"input")],
+        actions: vec![Action::FunctionCall(Box::new(function_call("on_transfer")))],
+    }
+}
+
+fn action_receipt_v2() -> ActionReceiptV2 {
+    let ActionReceipt {
+        signer_id,
+        signer_public_key,
+        gas_price,
+        output_data_receivers,
+        input_data_ids,
+        actions,
+    } = action_receipt();
+    ActionReceiptV2 {
+        signer_id,
+        refund_to: Some(account_id("refund.near")),
+        signer_public_key,
+        gas_price,
+        output_data_receivers,
+        input_data_ids,
+        actions,
+    }
+}
+
+fn data_receipt() -> DataReceipt {
+    DataReceipt { data_id: hash(b"data"), data: Some(b"result".to_vec()) }
 }
 
 #[test]
 fn receipts() {
-    let receipt = |receipt_id: &[u8], receipt| {
-        Receipt::V0(ReceiptV0 {
-            predecessor_id: account_id("alice.near"),
-            receiver_id: account_id("bob.near"),
-            receipt_id: hash(receipt_id),
-            receipt,
-        })
-    };
-    let output_data_receivers =
-        vec![DataReceiver { data_id: hash(b"data"), receiver_id: account_id("carol.near") }];
-    let actions = vec![Action::FunctionCall(Box::new(function_call("on_transfer")))];
     let receipts = vec![
-        receipt(
-            b"action",
-            ReceiptEnum::Action(ActionReceipt {
-                signer_id: account_id("alice.near"),
-                signer_public_key: public_key("alice.near"),
-                gas_price: Balance::from_yoctonear(100_000_000),
-                output_data_receivers: output_data_receivers.clone(),
-                input_data_ids: vec![hash(b"input")],
-                actions: actions.clone(),
-            }),
-        ),
-        receipt(
-            b"action_v2",
-            ReceiptEnum::ActionV2(ActionReceiptV2 {
-                signer_id: account_id("alice.near"),
-                refund_to: Some(account_id("refund.near")),
-                signer_public_key: public_key("alice.near"),
-                gas_price: Balance::from_yoctonear(100_000_000),
-                output_data_receivers,
-                input_data_ids: vec![hash(b"input")],
-                actions,
-            }),
-        ),
-        receipt(
-            b"data",
-            ReceiptEnum::Data(DataReceipt {
-                data_id: hash(b"data"),
-                data: Some(b"result".to_vec()),
-            }),
-        ),
+        receipt(b"action", ReceiptEnum::Action(action_receipt())),
+        receipt(b"action_v2", ReceiptEnum::ActionV2(action_receipt_v2())),
+        receipt(b"data", ReceiptEnum::Data(data_receipt())),
     ];
     assert_encoding("receipts", &receipts);
 }
 
 #[test]
-fn genesis_block_with_chunks() {
-    let height = 100;
+fn receipts_other_variants() {
+    let distribution = GlobalContractDistributionReceipt::new(
+        GlobalContractIdentifier::AccountId(account_id("wallet.near")),
+        ShardId::new(3),
+        vec![ShardId::new(1), ShardId::new(4)],
+        b"\0asm-global".to_vec().into(),
+        9,
+    );
+    let receipts = vec![
+        receipt(b"promise_yield", ReceiptEnum::PromiseYield(action_receipt())),
+        receipt(b"promise_resume", ReceiptEnum::PromiseResume(data_receipt())),
+        receipt(b"distribution", ReceiptEnum::GlobalContractDistribution(distribution)),
+        receipt(b"promise_yield_v2", ReceiptEnum::PromiseYieldV2(action_receipt_v2())),
+    ];
+    assert_encoding("receipts_other_variants", &receipts);
+}
+
+/// The form delayed and buffered receipts take in the trie.
+#[test]
+fn state_stored_receipt() {
+    let stored = StateStoredReceipt::new_owned(
+        receipt(b"delayed", ReceiptEnum::Action(action_receipt())),
+        StateStoredReceiptMetadata {
+            congestion_gas: Gas::from_teragas(300),
+            congestion_size: 1_234,
+        },
+    );
+    assert_encoding("state_stored_receipt", &stored);
+}
+
+const GENESIS_HEIGHT: BlockHeight = 100;
+
+fn genesis_chunk_headers() -> Vec<ShardChunkHeader> {
     let shard_ids = [ShardId::new(0), ShardId::new(1)];
     let chunks = genesis_chunks(
         vec![hash(b"state root")],
         vec![CongestionInfo::default(); shard_ids.len()],
         &shard_ids,
         Gas::from_teragas(1_000),
-        height,
+        GENESIS_HEIGHT,
         PINNED_PROTOCOL_VERSION,
     );
+    chunks.into_iter().map(|chunk| chunk.take_header()).collect()
+}
+
+#[test]
+fn genesis_block_with_chunks() {
     let validator_stakes = vec![
         ValidatorStake::new(
             account_id("alice.near"),
@@ -289,14 +363,26 @@ fn genesis_block_with_chunks() {
     ];
     let block = genesis_block(
         PINNED_PROTOCOL_VERSION,
-        chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
+        genesis_chunk_headers(),
         Utc::from_unix_timestamp(1_700_000_000).unwrap(),
-        height,
+        GENESIS_HEIGHT,
         Balance::from_yoctonear(100_000_000),
         Balance::from_near(1_000_000_000),
         &validator_stakes,
     );
     assert_encoding("genesis_block", &block);
+}
+
+/// Its only variant has tag 1, not 0, so this pins that `use_discriminant` is
+/// honored.
+#[test]
+fn chunk_endorsement() {
+    let endorsement = ChunkEndorsement::new(
+        EpochId(hash(b"epoch")),
+        &genesis_chunk_headers()[1],
+        &create_test_signer("alice.near"),
+    );
+    assert_encoding("chunk_endorsement", &endorsement);
 }
 
 #[test]
@@ -308,7 +394,7 @@ fn epoch_info_v5() {
         .zip(stakes)
         .map(|(name, stake)| ValidatorStake::new(account_id(name), public_key(name), stake))
         .collect();
-    // HashMap keys are inserted out of order: borsh sorts them on encoding.
+    // HashMap order is random per process. Borsh sorts the keys, so the bytes are stable.
     let validator_to_index = HashMap::from([
         (account_id("carol.near"), 2),
         (account_id("alice.near"), 0),
@@ -430,10 +516,33 @@ fn accounts_and_access_keys() {
 fn optional_signatures() {
     let parent_hash = hash(b"parent");
     let approval = |name: &str| {
-        let signer = InMemoryValidatorSigner::from_seed(account_id(name), KeyType::ED25519, name);
-        Some(Box::new(Approval::new(parent_hash, 10, 11, &signer).signature))
+        Some(Box::new(Approval::new(parent_hash, 10, 11, &create_test_signer(name)).signature))
     };
     let approvals: Vec<Option<Box<Signature>>> =
         vec![approval("alice.near"), None, approval("carol.near"), None];
     assert_encoding("optional_signatures", &approvals);
+}
+
+/// Fixed key and signature bytes. Decoding never checks that they are valid,
+/// and ML-DSA signing may be randomized. Every byte stays below 0x20, which
+/// the ed25519 signature decoder requires of the last byte.
+fn patterned(len: usize) -> Vec<u8> {
+    (0..len).map(|i| (i % 32) as u8).collect()
+}
+
+#[test]
+fn keys_and_signatures() {
+    let public_keys = vec![
+        PublicKey::ED25519(ED25519PublicKey::try_from(&patterned(32)[..]).unwrap()),
+        PublicKey::SECP256K1(Secp256K1PublicKey::try_from(&patterned(64)[..]).unwrap()),
+        PublicKey::MLDSA65(
+            MlDsa65PublicKey::try_from(&patterned(ML_DSA_65_PUBLIC_KEY_LENGTH)[..]).unwrap(),
+        ),
+    ];
+    let signatures = vec![
+        Signature::from_parts(KeyType::ED25519, &patterned(64)).unwrap(),
+        Signature::from_parts(KeyType::SECP256K1, &patterned(65)).unwrap(),
+        Signature::from_parts(KeyType::MLDSA65, &patterned(ML_DSA_65_SIGNATURE_LENGTH)).unwrap(),
+    ];
+    assert_encoding("keys_and_signatures", &(public_keys, signatures));
 }
