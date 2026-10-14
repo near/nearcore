@@ -39,8 +39,6 @@ use near_primitives::types::{Balance, ShardId};
 //   - Node survives shard schedule rotation (catchup path fires)
 //   - No panics during partial encoded chunk creation after catchup
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sync_then_shard_catchup() {
     init_test_logger();
 
@@ -112,7 +110,6 @@ fn test_sync_then_shard_catchup() {
 //   - Node advanced 3+ full epochs after sync (shard rotation happened)
 //   - No panics during catchup for newly tracked shards
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_then_shard_catchup() {
     init_test_logger();
 
@@ -120,8 +117,8 @@ fn test_near_horizon_sync_then_shard_catchup() {
     let mut env =
         TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(epoch_length).build();
 
-    // Run 1 block below the horizon boundary so the fresh node enters near-horizon.
-    env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 1);
+    // Run 2 blocks below the horizon boundary so the fresh node enters near-horizon.
+    env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 2);
 
     // Same rotating shard schedule as the far-horizon variant.
     let schedule = vec![
@@ -148,6 +145,8 @@ fn test_near_horizon_sync_then_shard_catchup() {
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+
+    env.deliver_spice_data();
 
     // Continue past 3 epoch boundaries to trigger shard schedule rotation and catchup.
     // If catchup fails for a newly tracked shard, the node would panic with

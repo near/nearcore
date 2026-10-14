@@ -164,8 +164,6 @@ fn test_near_horizon_restart_during_block_sync() {
 //   - Node survives 2 more epoch boundaries (schedule rotates to [1, 2, 3])
 //   - No IncorrectStateRoot or FlatStorage panics
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_change_tracked_shards_on_restart() {
     init_test_logger();
     let epoch_length = 10;
@@ -203,6 +201,8 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 1);
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+
+    env.deliver_spice_data();
 
     // Run past 2 more epoch boundaries so the schedule rotates through all entries,
     // including the [1, 2, 3] entry that exercises the re-track path.

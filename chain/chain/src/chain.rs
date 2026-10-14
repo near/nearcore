@@ -20,7 +20,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::core::{SpiceCoreReader, record_spice_state_sync_data};
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1665,6 +1665,14 @@ impl Chain {
             adapter.set_spice_execution_head(&execution_head)?;
             adapter.set_spice_final_execution_head(&execution_head);
             store_update.commit();
+
+            // The sync block is processed next, starting from its parent's uncertified chunks and
+            // crediting endorsement stats against its grandparent's. This node processed neither
+            // block, but the sync block, the epoch's first, carries both.
+            let sync_block = self.get_orphan(&sync_hash).ok_or_else(|| {
+                Error::Other(format!("sync block {sync_hash} is not in the orphan pool"))
+            })?;
+            record_spice_state_sync_data(&self.chain_store.store().chain_store(), &sync_block)?;
         }
 
         // State sync moves the head without processing a block, so the tracker has to be told
@@ -2613,6 +2621,7 @@ impl Chain {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
+            self.spice_core_reader.validate_spice_state_sync_data(&block)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
