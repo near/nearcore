@@ -32,7 +32,7 @@ pub enum CloudArchivalReaderError {
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
     #[error("state header for shard {shard_id} carries no chunk, which cloud archival needs")]
-    ChunklessStateHeader { shard_id: ShardId },
+    NoChunkInStateSyncHeader { shard_id: ShardId },
     #[error("no block below {start_height}, which must be above the first archived block")]
     NoAnchorBelow { start_height: BlockHeight },
     #[error("no state root for shard {shard_uid} under block {block_hash}")]
@@ -415,7 +415,7 @@ pub async fn find_snapshot_at_or_before(
             // sync block itself rather than at a chunk's height_included.
             let chunk_height_included = header
                 .chunk_height_included()
-                .ok_or(CloudArchivalReaderError::ChunklessStateHeader { shard_id })?;
+                .ok_or(CloudArchivalReaderError::NoChunkInStateSyncHeader { shard_id })?;
             if chunk_height_included <= height {
                 return Ok((epoch_height, epoch_id));
             }
