@@ -80,7 +80,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
-use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -91,7 +91,7 @@ use near_primitives::transaction::{
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex, SpiceChunkId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -100,8 +100,8 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
@@ -1658,6 +1658,15 @@ impl Chain {
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
+        if header.is_spice() {
+            let execution_head = Tip::from_header(&header);
+            let mut store_update = self.chain_store.store().store_update();
+            let mut adapter = store_update.chain_store_update();
+            adapter.set_spice_execution_head(&execution_head)?;
+            adapter.set_spice_final_execution_head(&execution_head);
+            store_update.commit();
+        }
+
         // State sync moves the head without processing a block, so the tracker has to be told
         // separately. Otherwise its window stays where the head was before the sync.
         self.blocks_delay_tracker.update_head(tip.height);
@@ -2747,7 +2756,14 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let chunk_height_included = shard_state_header.chunk_height_included();
+        if self.get_block_header(&sync_hash)?.is_spice() {
+            return self.set_spice_state_finalize(shard_id, sync_hash, shard_state_header);
+        }
+        let Some(chunk_height_included) = shard_state_header.chunk_height_included() else {
+            return Err(Error::Other(
+                "set_state_finalize failed: a non-spice header must carry a chunk".into(),
+            ));
+        };
         let mut height = chunk_height_included;
         let mut chain_update = self.chain_update();
         let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
@@ -2780,6 +2796,38 @@ impl Chain {
             flat_storage.update_flat_head(header.prev_hash()).unwrap();
         }
 
+        Ok(())
+    }
+
+    fn set_spice_state_finalize(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_state_header: ShardStateSyncResponseHeader,
+    ) -> Result<(), Error> {
+        let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
+        let Some(execution_result) = shard_state_header.spice_execution_result(&chunk_id) else {
+            return Err(Error::Other(
+                "set_state_finalize failed: a spice header must carry an execution result".into(),
+            ));
+        };
+        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.chunk_store_update().set_chunk_extra(
+            &sync_hash,
+            &shard_uid,
+            &execution_result.chunk_extra,
+        );
+        store_update.commit();
+
+        // Spice writes a shard's flat state delta under the block whose chunk produced it, so
+        // the head of the state just downloaded is the sync block itself.
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
+            flat_storage.update_flat_head(&sync_hash).unwrap();
+        }
         Ok(())
     }
 
