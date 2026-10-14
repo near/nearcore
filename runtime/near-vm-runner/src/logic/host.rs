@@ -978,13 +978,23 @@ pub fn account_locked_balance(
 ///
 /// # Errors
 ///
-/// If called as view function returns `ProhibitedInView``.
+/// If called in an external contract call returns `ProhibitedInExternalCall`. An external
+/// contract call has no deposit.
 ///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn attached_deposit(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal | ExecutionMode::View(_) => {}
+        ExecutionMode::External { .. } => {
+            return Err(HostError::ProhibitedInExternalCall {
+                method_name: "attached_deposit".to_string(),
+            }
+            .into());
+        }
+    }
     set_u128(
         &mut ctx.result_state.gas_counter,
         memory,

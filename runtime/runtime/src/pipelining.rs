@@ -344,9 +344,7 @@ impl ReceiptPreparationPipeline {
         access: AccessOptions,
         protocol_version: ProtocolVersion,
     ) -> Result<ContractPreparation, StorageError> {
-        // The balance the contract has during the call, as in `VMContext`.
-        let balance = account.amount().saturating_add(function_call.deposit);
-        let gas_counter = self.gas_counter(execution_mode, function_call.gas, balance);
+        let gas_counter = self.gas_counter(execution_mode, function_call.gas, account.amount());
         let account_contract = account.contract().into_owned();
         if !self.config.wasm_config.fix_contract_loading_cost {
             let identifier = RuntimeContractIdentifier::resolve(

@@ -79,9 +79,11 @@ impl VMContext {
     ///
     /// Meant for use in tests only.
     pub fn make_gas_counter(&self, config: &Config) -> GasCounter {
-        let balance = self.account_balance.saturating_add(self.attached_deposit);
-        let GasLimits { max_gas_burnt, prepaid_gas } =
-            self.execution_mode.gas_limits(&config.limit_config, self.prepaid_gas, balance);
+        let GasLimits { max_gas_burnt, prepaid_gas } = self.execution_mode.gas_limits(
+            &config.limit_config,
+            self.prepaid_gas,
+            self.account_balance,
+        );
         GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
@@ -125,7 +127,8 @@ impl ExecutionMode {
 
     /// The gas limits of an execution in this mode, where `prepaid_gas` is
     /// the gas attached to the function call and `balance` is the balance of
-    /// the contract, including the attached deposit.
+    /// the contract. An external call has no attached deposit, so the balance
+    /// should not include one.
     pub fn gas_limits(
         &self,
         limit_config: &LimitConfig,

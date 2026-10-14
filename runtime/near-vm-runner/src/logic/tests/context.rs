@@ -164,6 +164,7 @@ fn test_prohibited_in_external_call() {
     assert_host_error(logic.signer_account_pk(0), prohibited("signer_account_pk"));
     assert_host_error(logic.predecessor_account_id(0), prohibited("predecessor_account_id"));
     assert_host_error(logic.prepaid_gas(), prohibited("prepaid_gas"));
+    assert_host_error(logic.attached_deposit(0), prohibited("attached_deposit"));
 }
 
 #[test]
