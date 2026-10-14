@@ -724,6 +724,20 @@ impl BlockHeader {
         }
     }
 
+    pub fn set_last_final_block(&mut self, value: CryptoHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.last_final_block = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.last_final_block = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.last_final_block = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.last_final_block = value,
+        }
+    }
+
     pub fn set_block_ordinal(&mut self, value: NumBlocks) {
         match self {
             BlockHeader::BlockHeaderV1(_)
