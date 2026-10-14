@@ -238,8 +238,6 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -259,6 +257,7 @@ fn test_state_sync_simple_two_node() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .build();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
@@ -268,8 +267,6 @@ fn test_state_sync_simple_two_node() {
 // have 2 chunk producers. A single node failing to state sync won't stall the chain (the
 // other producer covers), so we explicitly verify all nodes advanced.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_five_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -289,6 +286,7 @@ fn test_state_sync_simple_five_node() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .build();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     // With 2 producers per shard, one node's sync failure doesn't stall the chain,
@@ -331,8 +329,6 @@ fn test_state_sync_chunk_extra_divergence_stops_the_node() {
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
 // at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_empty_shard() {
     init_test_logger();
     // 2 validators with 4 shards: each validator tracks 2 shards, but some shards
@@ -352,6 +348,7 @@ fn test_state_sync_empty_shard() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .build();
+    env.deliver_spice_data();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
 }
@@ -360,8 +357,6 @@ fn test_state_sync_empty_shard() {
 // all shards to have included >=2 new chunks, so missing shard 0's first chunk shifts the
 // sync hash later by one block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_first_block() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -389,6 +384,7 @@ fn test_state_sync_miss_chunks_first_block() {
             (ShardId::new(3), vec![true]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -399,8 +395,6 @@ fn test_state_sync_miss_chunks_first_block() {
 // Drop shards 0 and 1 chunks at offset 1 (second block of each epoch). Similar to
 // first_block but the miss is one block later.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_second_block() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -426,6 +420,7 @@ fn test_state_sync_miss_chunks_second_block() {
             (ShardId::new(1), vec![true, false]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -436,8 +431,6 @@ fn test_state_sync_miss_chunks_second_block() {
 // Drop shards 0 and 2 chunks at offset 2 (third block of each epoch). The sync hash is
 // shifted one block later than usual.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_third_block() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -463,6 +456,7 @@ fn test_state_sync_miss_chunks_third_block() {
             (ShardId::new(2), vec![true, true, false]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -473,8 +467,6 @@ fn test_state_sync_miss_chunks_third_block() {
 // Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
 // has missing chunks, testing that state sync handles this edge case correctly.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_block() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -501,6 +493,7 @@ fn test_state_sync_miss_chunks_sync_block() {
             (ShardId::new(1), vec![true, true, true, false]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -511,8 +504,6 @@ fn test_state_sync_miss_chunks_sync_block() {
 // Miss shard 1 at offset 3 (sync hash block) and shard 3 at offset 1. Combines an early
 // miss with a miss at the sync hash — a composite of the first_block and sync_block patterns.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_prev_block() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -538,6 +529,7 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
             (ShardId::new(3), vec![true, false, true, true]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -549,8 +541,6 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
 // up to the sync hash. Each shard reaches its "2 new chunks" threshold at a different block,
 // significantly delaying the sync hash relative to epoch start.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_before_last_chunk_included() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -578,6 +568,7 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
             (ShardId::new(3), vec![false, true, false, true, false, true]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -589,8 +580,6 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
 // shard 0: miss near sync hash    shard 1: miss at AND past sync hash
 // shard 2: interleaved early      shard 3: miss only at sync hash block
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_multiple() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -618,6 +607,7 @@ fn test_state_sync_miss_chunks_multiple() {
             (ShardId::new(3), vec![true, true, true, true, true, false]),
         ])))
         .warmup();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -630,8 +620,6 @@ fn test_state_sync_miss_chunks_multiple() {
 // while picking up shards 2 and 3 at different epochs. We verify the extra node's head
 // advances, since chain progression alone wouldn't catch a silent state sync failure on it.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_untrack_then_track() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -669,6 +657,7 @@ fn test_state_sync_untrack_then_track() {
             config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         })
         .build();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -713,8 +702,6 @@ fn test_state_sync_from_fork() {
 // the skipped block. That node must sync FROM the majority that have a different finalized
 // sync hash — the reverse direction of from_fork.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_to_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -739,6 +726,7 @@ fn test_state_sync_to_fork() {
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
+    env.deliver_spice_data();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
@@ -748,8 +736,6 @@ fn test_state_sync_to_fork() {
 // normally, but the next block is missing — finality jumps over it. Tests that sync hash
 // detection doesn't rely on seeing the sync hash as a final block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_after_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -774,6 +760,7 @@ fn test_state_sync_fork_after_sync() {
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
+    env.deliver_spice_data();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
@@ -782,8 +769,6 @@ fn test_state_sync_fork_after_sync() {
 // Skip a block ONE BEFORE the sync hash (delta=-1). The fork is right before the state
 // snapshot point, testing that sync hash selection handles a gap in its predecessor.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_before_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -808,6 +793,7 @@ fn test_state_sync_fork_before_sync() {
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
+    env.deliver_spice_data();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
@@ -884,8 +870,6 @@ fn test_state_request() {
 // State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
 // upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_protocol_upgrade() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -906,6 +890,7 @@ fn test_state_sync_protocol_upgrade() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .build();
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let version = env.node(0).protocol_version_at_head();
