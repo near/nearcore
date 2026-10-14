@@ -1402,6 +1402,24 @@ impl ChunkExecutionRoots {
         }
     }
 
+    pub fn state_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.state_root,
+        }
+    }
+
+    pub fn outcome_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.outcome_root,
+        }
+    }
+
+    pub fn outgoing_receipts_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.outgoing_receipts_root,
+        }
+    }
+
     pub fn from_execution_result(
         chunk_id: &SpiceChunkId,
         execution_result: &ChunkExecutionResult,
