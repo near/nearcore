@@ -3,14 +3,23 @@ use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
+/// The limit is in force at 87 and in nightly. 88 puts it back at its unlimited base value.
 fn limit_enabled() -> bool {
+    let config_store = RuntimeConfigStore::new(None);
+    let limit = config_store
+        .get_config(PROTOCOL_VERSION)
+        .wasm_config
+        .limit_config
+        .max_receipt_total_input_size;
     ProtocolFeature::ReceiptPromiseInputSizeLimit.enabled(PROTOCOL_VERSION)
+        && limit < u64::from(u32::MAX)
 }
 
 /// End-to-end: a contract fans out to two callee contracts that each return 2.5 MiB and a
