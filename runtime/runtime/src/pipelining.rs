@@ -340,6 +340,7 @@ impl ReceiptPreparationPipeline {
             account,
             state_update,
             function_call,
+            // TODO(ecc): Make speculative preparation work for ECC
             &ExecutionMode::Internal,
             access,
             protocol_version,
