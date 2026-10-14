@@ -126,20 +126,24 @@ impl StateSyncDownloadSourcePeerSharedState {
     }
 }
 
-/// The hash a peer's snapshot serving `sync_hash` is advertised under: the sync block's prev
-/// prev block, which is what `snapshot_hash_for_block` names for the snapshot a host takes at
-/// the sync block's prev block.
+/// The hash a peer's snapshot serving `sync_hash` is advertised under, which is what
+/// `snapshot_hash_for_block` names for the snapshot a host takes for that sync hash. Spice
+/// snapshots the state the sync block's own chunks left behind, so the snapshot sits at the sync
+/// block; otherwise the host snapshots at the sync block's prev block, keyed by its prev prev.
 fn snapshot_hash_for_sync_hash(
     store: &Store,
     sync_hash: &CryptoHash,
 ) -> Result<CryptoHash, near_chain::Error> {
-    let prev_hash = |hash: &CryptoHash| {
+    let header = |hash: &CryptoHash| {
         store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_bytes())
-            .map(|header| *header.prev_hash())
             .ok_or_else(|| near_chain::Error::DBNotFoundErr(format!("No block header {hash}")))
     };
-    prev_hash(&prev_hash(sync_hash)?)
+    let sync_header = header(sync_hash)?;
+    if sync_header.is_spice() {
+        return Ok(*sync_hash);
+    }
+    Ok(*header(sync_header.prev_hash())?.prev_hash())
 }
 
 impl StateSyncDownloadSourcePeer {
@@ -158,9 +162,10 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
-        // Peers advertise their snapshots by the block the snapshot was taken at, which is the
-        // prev prev block of the sync hash. We compute it here to pass as part of the request.
-        // TODO(saketh): it would be nice to migrate the network layer to the same hash.
+        // Peers advertise their snapshots by the block the snapshot was taken at. We compute it
+        // here to pass as part of the network request.
+        // TODO(saketh): it would be nice to migrate the network layer to the same hash. Under
+        // spice it already is the sync hash; before spice it is still the prev prev block.
         let snapshot_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
 
         let network_request = match &key.part_or_header {
@@ -402,5 +407,24 @@ mod tests {
         let (store, _) = header_chain(non_spice_protocol_version(), 1);
         let err = snapshot_hash_for_sync_hash(&store, &CryptoHash::hash_bytes(b"unknown"));
         assert!(matches!(err, Err(near_chain::Error::DBNotFoundErr(_))), "{err:?}");
+    }
+
+    #[cfg(feature = "protocol_feature_spice")]
+    #[test]
+    fn test_snapshot_hash_for_sync_hash_spice_is_sync_hash() {
+        let (store, headers) = header_chain(ProtocolFeature::Spice.protocol_version(), 4);
+        assert!(headers[4].is_spice());
+        let sync_hash = headers[4].hash();
+        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), *sync_hash);
+    }
+
+    /// Under spice the host snapshots the sync block itself.
+    #[cfg(feature = "protocol_feature_spice")]
+    #[test]
+    fn test_snapshot_hash_agrees_between_host_and_requester_spice() {
+        let (store, headers) = header_chain(ProtocolFeature::Spice.protocol_version(), 4);
+        let sync_hash = headers[4].hash();
+        let host = snapshot_hash_for_block(&headers[4]);
+        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), host);
     }
 }

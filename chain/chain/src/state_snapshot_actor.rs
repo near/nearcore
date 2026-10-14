@@ -2,6 +2,9 @@ use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSenderFrom};
+use near_chain_primitives::Error;
+use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
 };
@@ -9,7 +12,8 @@ use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
+use near_primitives::types::{BlockHeight, EpochHeight, ShardId, ShardIndex, SpiceChunkId};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{FlatStorageManager, FlatStorageReshardingStatus, FlatStorageStatus};
 use near_store::{ShardTries, StateSnapshotConfig};
 use std::sync::Arc;
@@ -22,6 +26,7 @@ pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
     tries: ShardTries,
+    chain_store: ChainStoreAdapter,
 }
 
 impl Actor for StateSnapshotActor {}
@@ -31,16 +36,30 @@ impl StateSnapshotActor {
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
+        chain_store: ChainStoreAdapter,
     ) -> Self {
-        Self { flat_storage_manager, network_adapter, tries }
+        Self { flat_storage_manager, network_adapter, tries, chain_store }
     }
+}
+
+/// A snapshot that exists on disk but is not yet announced to the network.
+///
+/// Spice commits a chunk's state root through the execution result a later block certifies,
+/// so before that happens no peer can prove the roots the snapshot serves. The host info is
+/// therefore held back until the snapshotted block's chunks are certified.
+#[derive(Debug, Clone)]
+struct PendingAdvertisement {
+    /// The block the snapshot was taken at, which under spice is the state sync hash.
+    sync_hash: CryptoHash,
+    epoch_height: EpochHeight,
+    shards: Vec<ShardId>,
 }
 
 #[derive(Debug)]
 pub struct DeleteSnapshotRequest {}
 
 pub struct CreateSnapshotRequest {
-    /// The hash the snapshot is keyed by. Currently `self.block.header().prev_hash()`.
+    /// The block the snapshot is taken at, and the hash it is keyed by.
     snapshot_hash: CryptoHash,
     /// Min height of chunk.prev_block_hash() for each chunk in `block`
     min_chunk_prev_height: BlockHeight,
@@ -48,7 +67,8 @@ pub struct CreateSnapshotRequest {
     epoch_height: EpochHeight,
     /// Shards that need to be present in the snapshot.
     shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)>,
-    /// prev block of the "sync_hash" block.
+    /// The block whose state is being snapshotted. Without spice that is the prev block of
+    /// the "sync_hash" block; under spice it is the sync block itself.
     block: Arc<Block>,
 }
 
@@ -179,18 +199,68 @@ impl StateSnapshotActor {
                     return;
                 };
 
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
-                        sync_hash: snapshot_hash,
-                        epoch_height,
-                        shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
-                    }),
-                ));
+                let pending = PendingAdvertisement {
+                    sync_hash: snapshot_hash,
+                    epoch_height,
+                    shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
+                };
+                if block.is_spice_block() {
+                    self.advertise_once_certified(pending, ctx);
+                } else {
+                    self.advertise(pending);
+                }
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
             }
         }
+    }
+
+    /// Sends the host info out, making the snapshot discoverable by syncing nodes.
+    fn advertise(&self, pending: PendingAdvertisement) {
+        let PendingAdvertisement { sync_hash, epoch_height, shards } = pending;
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
+                sync_hash,
+                epoch_height,
+                shards,
+            }),
+        ));
+    }
+
+    /// Holds the host info back until every snapshotted shard's chunk in the sync block has
+    /// been certified, then sends it. A syncing peer proves the state root against the
+    /// `chunk_execution_root` of the block that committed the execution result, so a snapshot
+    /// announced before certification could not be served.
+    fn advertise_once_certified(
+        &self,
+        pending: PendingAdvertisement,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+    ) {
+        if !self.all_shards_certified(&pending) {
+            tracing::debug!(
+                target: "state_snapshot",
+                sync_hash = ?pending.sync_hash,
+                "snapshot is not certified yet; delaying host advertisement",
+            );
+            // TODO: react to certification instead of polling for it.
+            ctx.run_later(
+                "StateSnapshotActor advertise once certified",
+                Duration::seconds(1),
+                move |act, ctx| {
+                    act.advertise_once_certified(pending, ctx);
+                },
+            );
+            return;
+        }
+        self.advertise(pending);
+    }
+
+    fn all_shards_certified(&self, pending: &PendingAdvertisement) -> bool {
+        pending.shards.iter().all(|&shard_id| {
+            let chunk_id = SpiceChunkId { block_hash: pending.sync_hash, shard_id };
+            self.chain_store.get_chunk_certifying_block(&chunk_id).is_some()
+        })
     }
 }
 
@@ -226,15 +296,77 @@ type MakeSnapshotCallback = Arc<
 
 type DeleteSnapshotCallback = Arc<dyn Fn() -> () + Send + Sync + 'static>;
 
+#[derive(Clone)]
 pub struct SnapshotCallbacks {
     pub make_snapshot_callback: MakeSnapshotCallback,
     pub delete_snapshot_callback: DeleteSnapshotCallback,
 }
 
-/// The hash a snapshot of `block`'s state is keyed by, and advertised under: the block before
-/// it. Syncing peers derive the same hash from the sync hash to find a host.
+/// Requests a snapshot of the state at `block`, if the configured cadence wants one for this
+/// epoch.
+///
+/// The caller decides *when* that state exists: without spice the block's chunks have been
+/// applied by the time it reaches the head, while under spice the chunk executor calls this
+/// once they have executed.
+pub fn request_state_snapshot(
+    snapshot_callbacks: &SnapshotCallbacks,
+    epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
+    chain_store: &ChainStoreAdapter,
+    tries: &ShardTries,
+    block: Arc<Block>,
+) -> Result<(), Error> {
+    if let StateSnapshotConfig::Disabled = tries.state_snapshot_config() {
+        return Ok(());
+    }
+    let prev_hash = *block.header().prev_hash();
+    let epoch_height = epoch_manager.get_epoch_height_from_prev_block(&prev_hash)?;
+    if epoch_height % tries.state_snapshot_config().snapshot_cadence() != 0
+        && !epoch_manager.is_resharding_epoch(block.hash())?
+    {
+        // Force the resharding epoch's snapshot even off-cadence; cloud archival requires it.
+        // A node snapshotting every epoch (cadence 1) never reaches this branch.
+        return Ok(());
+    }
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
+    let shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)> = shard_layout
+        .shard_uids()
+        .enumerate()
+        .filter(|&(_, shard_uid)| shard_tracker.cares_about_shard(&prev_hash, shard_uid.shard_id()))
+        .collect();
+    let min_chunk_prev_height = min_chunk_prev_height(chain_store, &block)?;
+    (snapshot_callbacks.make_snapshot_callback)(
+        min_chunk_prev_height,
+        epoch_height,
+        shard_indexes_and_uids,
+        block,
+    );
+    Ok(())
+}
+
+/// The oldest height any of `block`'s chunks builds on.
+fn min_chunk_prev_height(
+    chain_store: &ChainStoreAdapter,
+    block: &Block,
+) -> Result<BlockHeight, Error> {
+    let mut ret = None;
+    for chunk in block.chunks().iter() {
+        let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
+            0
+        } else {
+            chain_store.get_block_header(chunk.prev_block_hash())?.height()
+        };
+        ret = Some(ret.map_or(prev_height, |min: BlockHeight| min.min(prev_height)));
+    }
+    Ok(ret.unwrap_or(0))
+}
+
+/// The hash a snapshot of `block`'s state is keyed by, and advertised under. Spice snapshots
+/// the state `block`'s own chunks left behind, so the snapshot sits at `block`; everything else
+/// snapshots the state as of the block before it. `StateSnapshot` moves the snapshot's flat head
+/// to the same block. Syncing peers derive the same hash from the sync hash to find a host.
 pub fn snapshot_hash_for_block(block: &BlockHeader) -> CryptoHash {
-    *block.prev_hash()
+    if block.is_spice() { *block.hash() } else { *block.prev_hash() }
 }
 
 /// Sends a request to make a state snapshot.
