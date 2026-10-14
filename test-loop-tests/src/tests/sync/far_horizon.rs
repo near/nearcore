@@ -45,8 +45,6 @@ use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
 //   - New node runs for 2+ additional epochs after catch-up
 //   - Account balances match source validator
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
     init_test_logger();
 
@@ -99,8 +97,6 @@ fn test_far_horizon_full_pipeline() {
 //   - new_node1 syncs despite new_node0 lacking old headers (epoch-synced)
 //   - Account balances match source validator on both nodes
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
     init_test_logger();
 
@@ -329,8 +325,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_header_sync() {
     init_test_logger();
 
@@ -400,8 +394,6 @@ fn test_far_horizon_restart_during_header_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_state_sync() {
     init_test_logger();
 
@@ -464,8 +456,6 @@ fn test_far_horizon_restart_during_state_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
     init_test_logger();
 
@@ -609,8 +599,6 @@ fn test_far_horizon_restart_after_long_downtime() {
 //   - Account balances match source validator (including staking accounts)
 //   - Full far-horizon sync status sequence
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
     init_test_logger();
 
@@ -690,8 +678,6 @@ fn test_far_horizon_staking_state() {
 //   - Sync status sequence is correct
 //   - At least some txs were injected (counter > 0)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
     init_test_logger();
 
@@ -881,8 +867,6 @@ fn test_far_horizon_stale_sync_hash_detection() {
 //
 // The node must still reach the tip through a single uninterrupted BlockSync.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_block_sync_without_verified_peer_above_head() {
     init_test_logger();
 
@@ -917,7 +901,7 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
         .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
-    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
+    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 1);
 
     let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
     assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);

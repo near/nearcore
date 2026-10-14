@@ -101,6 +101,7 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
         .build();
 
     // Money transfers build non-trivial state needed for state sync to work.
+    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_until_head_height(far_horizon_height(EPOCH_LENGTH));
 
@@ -123,6 +124,7 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
+    env.deliver_spice_data();
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * EPOCH_LENGTH as usize);
 
     assert_gc_boundaries(&env, new_node_idx);
@@ -148,7 +150,6 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
 // Covers the regression from #2980 where state sync cleared block infos needed for
 // `gc_stop_height` computation.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_sync() {
     run_gc_after_far_horizon_sync(None);
 }
@@ -159,7 +160,6 @@ fn test_gc_boundary_after_sync() {
 // code path where `gc_stop_height` computation runs across multiple small batches —
 // the specific path that failed in #2980.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_incremental() {
     run_gc_after_far_horizon_sync(Some(2));
 }
