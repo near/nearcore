@@ -6450,6 +6450,28 @@
             ],
             "title": "MlDsaVerifyInvalidInput",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`method_name` is not allowed in external contract calls",
+            "properties": {
+              "ProhibitedInExternalCall": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ProhibitedInExternalCall"
+            ],
+            "title": "ProhibitedInExternalCall",
+            "type": "object"
           }
         ],
         "title": "HostError"
@@ -7319,6 +7341,14 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_gas_burnt_external": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",

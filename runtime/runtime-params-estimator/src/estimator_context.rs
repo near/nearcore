@@ -161,6 +161,7 @@ impl<'c> EstimatorContext<'c> {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: Gas::MAX,
+            max_gas_burnt_external: Gas::MAX,
             max_register_size: u64::MAX,
             max_number_logs: u64::MAX,
 

@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -232,6 +231,7 @@ snapshot_kind: text
     "universal_accounts": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
+      "max_gas_burnt_external": 20000000000000,
       "max_stack_height": 262144,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,

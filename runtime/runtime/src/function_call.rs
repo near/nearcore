@@ -7,7 +7,6 @@ use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -27,7 +26,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::logic::{ExecutionMode, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -80,7 +79,7 @@ pub(crate) fn action_function_call(
         function_call,
         action_hash,
         is_last_action,
-        None,
+        ExecutionMode::Internal,
     );
 
     // Witness-size tests expect garbage injection to work even when contract preparation aborts.
@@ -95,7 +94,7 @@ pub(crate) fn action_function_call(
                 code_ext,
                 gas_counter,
                 action_index,
-                false,
+                &context.execution_mode,
             );
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
 
@@ -264,7 +263,7 @@ pub(crate) fn function_call_context(
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     is_last_action: bool,
-    view_config: Option<ViewConfig>,
+    execution_mode: ExecutionMode,
 ) -> VMContext {
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -293,7 +292,7 @@ pub(crate) fn function_call_context(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config,
+        execution_mode,
         output_data_receivers,
     }
 }
@@ -401,8 +400,9 @@ pub(crate) fn execute_function_call(
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            if context.view_config.is_none() {
-                // Do not commit a potentially nondeterministic error on chain.
+            if !context.is_view() {
+                // Internal and external calls change state. Do not commit a
+                // potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");
             } else {
                 // A view call does not change state, so returning the local
@@ -415,10 +415,18 @@ pub(crate) fn execute_function_call(
         Ok(r) => r,
     };
 
-    if !context.view_config.is_some() {
-        let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
-        let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
-        outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
+    match context.execution_mode {
+        ExecutionMode::Internal => {
+            let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
+            let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
+            outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
+        }
+        // An external call has no prepaid gas to distribute: promises get
+        // exactly the gas they were created with, which the contract has
+        // already paid for. Gas weights have no effect.
+        ExecutionMode::External { .. } => {}
+        // View calls cannot create promises.
+        ExecutionMode::View(_) => {}
     }
 
     Ok(outcome)

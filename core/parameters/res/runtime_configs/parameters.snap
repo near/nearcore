@@ -222,6 +222,7 @@ wasm_bls12381_p1_decompress_element           81_000_000_000
 wasm_bls12381_p2_decompress_base              15_000_000_000
 wasm_bls12381_p2_decompress_element          165_000_000_000
 max_gas_burnt                           1_000_000_000_000_000
+max_gas_burnt_external                                     0
 max_gas_burnt_view                      1_000_000_000_000_000
 max_stack_height                                     262_144
 initial_memory_pages                                   1_024
