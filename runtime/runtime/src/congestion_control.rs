@@ -851,7 +851,7 @@ mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
     use near_parameters::RuntimeConfig;
-    use near_primitives::action::{Action, FunctionCallAction};
+    use near_primitives::action::Action;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
     use near_primitives::shard_layout::ShardUId;
@@ -905,12 +905,11 @@ mod tests {
                 gas_price: Balance::from_yoctonear(5000),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "noop".to_owned(),
-                    args: vec![0u8; 30_000],
-                    gas: Gas::from_teragas(1),
-                    deposit: Balance::ZERO,
-                }))],
+                actions: vec![Action::function_call(
+                    "noop",
+                    vec![0u8; 30_000],
+                    Gas::from_teragas(1),
+                )],
             }),
         })
     }

@@ -1447,6 +1447,26 @@ pub fn eth_implicit_test_account() -> AccountId {
     "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
 }
 
+impl Action {
+    pub fn function_call(method_name: &str, args: impl Into<Vec<u8>>, gas: Gas) -> Self {
+        Self::function_call_with_deposit(method_name, args, gas, Balance::ZERO)
+    }
+
+    pub fn function_call_with_deposit(
+        method_name: &str,
+        args: impl Into<Vec<u8>>,
+        gas: Gas,
+        deposit: Balance,
+    ) -> Self {
+        Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args.into(),
+            gas,
+            deposit,
+        }))
+    }
+}
+
 impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.

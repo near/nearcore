@@ -700,12 +700,7 @@ mod tests {
         let limit_config = test_limit_config();
         validate_actions(
             &limit_config,
-            &[Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
+            &[Action::function_call("hello", b"abc", Gas::from_gas(100))],
             &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
@@ -720,18 +715,8 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &[
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(100),
-                        deposit: Balance::ZERO,
-                    })),
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(150),
-                        deposit: Balance::ZERO,
-                    }))
+                    Action::function_call("hello", b"abc", Gas::from_gas(100)),
+                    Action::function_call("hello", b"abc", Gas::from_gas(150))
                 ],
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
@@ -752,18 +737,8 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &[
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: Balance::ZERO,
-                    })),
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: Balance::ZERO,
-                    }))
+                    Action::function_call("hello", b"abc", Gas::from_gas(u64::max_value() / 2 + 1)),
+                    Action::function_call("hello", b"abc", Gas::from_gas(u64::max_value() / 2 + 1))
                 ],
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
@@ -998,12 +973,7 @@ mod tests {
     fn test_validate_action_valid_function_call() {
         validate_action(
             &test_limit_config(),
-            &Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            })),
+            &Action::function_call("hello", b"abc", Gas::from_gas(100)),
             &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
@@ -1015,12 +985,7 @@ mod tests {
         assert_eq!(
             validate_action(
                 &test_limit_config(),
-                &Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "new".to_string(),
-                    args: vec![],
-                    gas: Gas::ZERO,
-                    deposit: Balance::ZERO,
-                })),
+                &Action::function_call("new", vec![], Gas::ZERO),
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )

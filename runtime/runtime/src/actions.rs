@@ -942,7 +942,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::action::FunctionCallAction;
+
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedDelegateActionPayload, VersionedSignedDelegateAction,
@@ -1324,14 +1324,7 @@ mod tests {
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
                     non_delegate_action(
-                        Action::FunctionCall(
-                            Box::new(FunctionCallAction {
-                                 method_name: "ft_transfer".parse().unwrap(),
-                                 args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: Gas::from_teragas(30),
-                                 deposit: Balance::from_yoctonear(1),
-                            })
-                        )
+                        Action::function_call_with_deposit("ft_transfer", vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125], Gas::from_teragas(30), Balance::from_yoctonear(1))
                     )
                 ],
                 nonce: 19000001,
@@ -1752,13 +1745,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
     }
@@ -1804,18 +1795,16 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            }))),
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                method_name: "test_method".parse().unwrap(),
-                gas: Gas::from_gas(300),
-            }))),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
         ];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1842,13 +1831,12 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1890,13 +1878,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.nonce = initial_nonce + 1;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "any_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "any_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let mut result = ActionResult::default();
         validate_delegate_action_key(
@@ -1958,13 +1945,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1993,13 +1978,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -2027,13 +2010,11 @@ mod tests {
         );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert_eq!(
             result.result,
@@ -2179,12 +2160,12 @@ mod tests {
     }
 
     fn function_call_action(method_name: &str, deposit: Balance) -> NonDelegateAction {
-        non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-            args: Vec::new(),
+        non_delegate_action(Action::function_call_with_deposit(
+            method_name,
+            Vec::new(),
+            Gas::from_gas(300),
             deposit,
-            gas: Gas::from_gas(300),
-            method_name: method_name.parse().unwrap(),
-        })))
+        ))
     }
 
     fn function_call_permission(
@@ -2323,12 +2304,7 @@ mod tests {
     fn actions_requiring_an_account() -> Vec<Action> {
         vec![
             Action::DeployContract(DeployContractAction { code: vec![] }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "foo".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(1),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("foo", vec![], Gas::from_teragas(1)),
             Action::Stake(Box::new(StakeAction {
                 stake: Balance::from_yoctonear(1),
                 public_key: public_key(),
