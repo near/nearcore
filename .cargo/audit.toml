@@ -56,4 +56,10 @@ ignore = [
     "RUSTSEC-2026-0316",
     # RUSTSEC-2026-0327: Nearcore doesn't use component-model-async, this doesn't affect us.
     "RUSTSEC-2026-0327",
+
+    # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. Reached only through
+    # serde_yaml (itself marked deprecated upstream; latest is 0.9.34+deprecated),
+    # used by near-parameters to parse trusted in-tree runtime parameter files, not
+    # untrusted input. Remove once near-parameters moves off serde_yaml (#16566).
+    "RUSTSEC-2024-0449",
 ]

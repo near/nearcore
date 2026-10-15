@@ -83,6 +83,7 @@ logger.info(f"BALANCES BEFORE {old_balances}")
 # the result of the transaction should be fetched from a node tracking the respective shard.
 # Thus, while we sent the transaction via node2, we fetch the result from node3.
 _, hash = utils.wait_for_blocks(nodes[3], count=1)
+sender_account_id = nodes[0].signer_key.account_id
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                      base58.b58decode(hash.encode('utf8')))
 result = nodes[2].send_tx(tx)
@@ -90,14 +91,15 @@ assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 tx_hash = result['result']
 
-_ = utils.wait_for_blocks(nodes[3], count=4)
-
-result = nodes[3].get_tx(tx_hash, 'test1', timeout=10)
+# FINAL waits for the refund receipt, which returns the gas bought at
+# min_gas_purchase_price.
+result = nodes[3].get_tx(tx_hash, sender_account_id, wait_until='FINAL')
 assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
 new_balances = [
-    int(nodes[3].get_account("test%s" % x)['result']['amount'])
+    int(nodes[3].get_account("test%s" % x,
+                             finality='final')['result']['amount'])
     for x in [0, 1, 2]
 ]
 logger.info(f"BALANCES AFTER {new_balances}")
