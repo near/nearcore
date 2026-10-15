@@ -5,7 +5,7 @@ use near_async::time::Clock;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::EpochId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
@@ -15,6 +15,8 @@ use near_store::{DBCol, FINAL_HEAD_KEY};
 use std::sync::Arc;
 
 const NUM_SHARDS: usize = 2;
+const EPOCH_ID_1: EpochId = EpochId(CryptoHash([1; 32]));
+const EPOCH_ID_2: EpochId = EpochId(CryptoHash([2; 32]));
 
 struct HeaderChain {
     chain: Chain,
@@ -41,13 +43,13 @@ impl HeaderChain {
         chain
     }
 
-    fn push(&mut self, epoch: &str, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
+    fn push(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
         let prev = self.headers.last().unwrap().clone();
         let mut header = BlockHeader::clone(&prev);
         header.set_prev_hash(*prev.hash());
         header.set_height(prev.height() + 1);
         header.set_prev_height(prev.height());
-        header.set_epoch_id(EpochId(hash(epoch.as_bytes())));
+        header.set_epoch_id(epoch_id);
         header.set_chunk_mask(chunk_mask.to_vec());
         // Finality two blocks behind, as doomslug reaches it with every block produced.
         let last_final = &self.headers[self.headers.len().saturating_sub(2)];
@@ -67,13 +69,13 @@ impl HeaderChain {
     }
 
     /// Appends `count` headers in `epoch` with a chunk in every shard.
-    fn push_full(&mut self, epoch: &str, count: usize) -> Vec<CryptoHash> {
-        (0..count).map(|_| self.push(epoch, [true; NUM_SHARDS])).collect()
+    fn push_full(&mut self, epoch_id: EpochId, count: usize) -> Vec<CryptoHash> {
+        (0..count).map(|_| self.push(epoch_id, [true; NUM_SHARDS])).collect()
     }
 
     /// The sync hash header processing recorded for `epoch`.
-    fn recorded_sync_hash(&self, epoch: &str) -> Option<CryptoHash> {
-        self.chain_store.get_current_epoch_sync_hash(&EpochId(hash(epoch.as_bytes())))
+    fn recorded_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
+        self.chain_store.get_current_epoch_sync_hash(epoch_id)
     }
 
     fn set_final_head(&self, block_hash: &CryptoHash) {
@@ -87,8 +89,8 @@ impl HeaderChain {
 #[test]
 fn test_derive_epoch_sync_hash_after_two_new_chunks_in_every_shard() {
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full("a", 3)[2];
-    let new_epoch = chain.push_full("b", 5);
+    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
+    let new_epoch = chain.push_full(EPOCH_ID_2, 5);
     chain.set_final_head(&new_epoch[4]);
     assert_eq!(
         derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
@@ -99,11 +101,11 @@ fn test_derive_epoch_sync_hash_after_two_new_chunks_in_every_shard() {
 #[test]
 fn test_derive_epoch_sync_hash_missing_chunk_delays_it() {
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full("a", 3)[2];
+    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
     // The epoch's first block, which counts none, then one without shard 1's chunk.
-    chain.push("b", [true, true]);
-    chain.push("b", [true, false]);
-    let rest = chain.push_full("b", 4);
+    chain.push(EPOCH_ID_2, [true, true]);
+    chain.push(EPOCH_ID_2, [true, false]);
+    let rest = chain.push_full(EPOCH_ID_2, 4);
     chain.set_final_head(&rest[3]);
     // Shard 1 reaches its second new chunk only at `rest[1]`.
     assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(rest[2]));
@@ -112,8 +114,8 @@ fn test_derive_epoch_sync_hash_missing_chunk_delays_it() {
 #[test]
 fn test_derive_epoch_sync_hash_none_above_final_head() {
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full("a", 3)[2];
-    let new_epoch = chain.push_full("b", 5);
+    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
+    let new_epoch = chain.push_full(EPOCH_ID_2, 5);
     // `new_epoch[2]` reaches the threshold, but the block after it is not final yet.
     chain.set_final_head(&new_epoch[2]);
     assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), None);
@@ -127,10 +129,10 @@ fn test_derive_epoch_sync_hash_none_above_final_head() {
 #[test]
 fn test_update_sync_hashes_records_once_final() {
     let mut chain = HeaderChain::non_spice();
-    chain.push_full("a", 3);
-    let new_epoch = chain.push_full("b", 5);
+    chain.push_full(EPOCH_ID_1, 3);
+    let new_epoch = chain.push_full(EPOCH_ID_2, 5);
     // `new_epoch[3]` is the sync block, but the last final block is still `new_epoch[2]`.
-    assert_eq!(chain.recorded_sync_hash("b"), None);
-    chain.push_full("b", 1);
-    assert_eq!(chain.recorded_sync_hash("b"), Some(new_epoch[3]));
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
+    chain.push_full(EPOCH_ID_2, 1);
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), Some(new_epoch[3]));
 }
