@@ -76,8 +76,8 @@ check-non-default:
     # storage, so it can be used with only near-store's in-memory store
     RUSTFLAGS="-D warnings" \
     cargo check -p near-runtime
-    deps="$(cargo tree -p near-runtime -e normal --target all -i rocksdb -i object_store)" \
-        && echo "$deps" && test -z "$deps"
+    deps="$(cargo tree -p near-runtime -e normal --target all --prefix none --format '{p}')" \
+        && printf '%s\n' "$deps" | awk '/^(rocksdb|object_store) v/ { print; found = 1 } END { exit found }'
 
 # check rust formatting
 check-cargo-fmt:
