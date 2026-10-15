@@ -1322,9 +1322,12 @@ mod tests {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
-                    non_delegate_action(
-                        Action::function_call_with_deposit("ft_transfer", vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125], Gas::from_teragas(30), Balance::from_yoctonear(1))
-                    )
+                    non_delegate_action(Action::function_call_with_deposit(
+                        "ft_transfer",
+                        br#"{"receiver_id":"jane.test.near","amount":"4"}"#,
+                        Gas::from_teragas(30),
+                        Balance::from_yoctonear(1),
+                    ))
                 ],
                 nonce: 19000001,
                 max_block_height: 57,
