@@ -99,17 +99,6 @@ impl CongestionControl {
         congestion_level == 1.0
     }
 
-    /// How much data another shard can send to us in the next block.
-    pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> u64 {
-        if sender_shard == ShardId::from(self.info.allowed_shard()) {
-            // The allowed shard is allowed to send more data to us.
-            self.config.outgoing_receipts_big_size_limit
-        } else {
-            // Other shards have a low standard limit.
-            self.config.outgoing_receipts_usual_size_limit
-        }
-    }
-
     /// How much gas we accept for executing new transactions going to any
     /// uncongested shards.
     pub fn process_tx_limit(&self) -> Gas {
@@ -353,10 +342,6 @@ impl CongestionInfo {
     /// of the shards from sending anything to `own_shard`. But to guarantee
     /// progress, we allow one shard to send `allowed_shard_outgoing_gas`
     /// in the next chunk.
-    ///
-    /// It is also used to determine the size limit for outgoing receipts from sender shards.
-    /// Only the allowed shard can send receipts of size `outgoing_receipts_big_size_limit`.
-    /// Other shards can only send receipts of size `outgoing_receipts_usual_size_limit`.
     pub fn finalize_allowed_shard(
         &mut self,
         own_shard: ShardId,

@@ -25,8 +25,6 @@ main_storage_proof_size_soft_limit: 4_000_000
 per_receipt_storage_proof_size_limit: 4_000_000
 combined_transactions_size_limit: 4_194_304
 new_transactions_validation_state_size_soft_limit: 572_864
-outgoing_receipts_usual_size_limit: 102_400 # 100 kiB
-outgoing_receipts_big_size_limit: 4_718_592 # 4.5 MiB
 
 # Account creation config
 min_allowed_top_level_account_length: 65
