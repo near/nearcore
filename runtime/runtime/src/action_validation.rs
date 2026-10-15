@@ -1719,27 +1719,29 @@ mod tests {
         let validate =
             |version, mode| validate_action_with_mode(&limit, &action, &receiver, version, mode);
 
-        assert_eq!(validate(canonical_version - 1, NewReceipt), Ok(()));
-        assert_eq!(validate(canonical_version - 1, ExistingReceipt), Ok(()));
+        // Below it universal accounts are not on yet.
+        let unsupported = Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "UniversalAccounts".to_owned(),
+            version: canonical_version - 1,
+        });
+        assert_eq!(validate(canonical_version - 1, NewReceipt), unsupported);
+        assert_eq!(validate(canonical_version - 1, ExistingReceipt), unsupported);
         assert_eq!(
             validate(canonical_version, NewReceipt),
             Err(ActionsValidationError::MalformedUniversalStateInit)
         );
         assert_eq!(validate(canonical_version, ExistingReceipt), Ok(()));
 
-        // Still malformed whatever the version and mode: it does not decode at all.
+        // Still malformed whatever the mode: it does not decode at all.
         let malformed = RawStateInit(vec![7, 7, 7]);
         let receiver = derive_universal_account_id(&malformed);
         let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
             state_init: malformed,
             deposit: Balance::ZERO,
         }));
-        for (version, mode) in [
-            (canonical_version - 1, NewReceipt),
-            (canonical_version - 1, ExistingReceipt),
-            (canonical_version, NewReceipt),
-            (canonical_version, ExistingReceipt),
-        ] {
+        for (version, mode) in
+            [(canonical_version, NewReceipt), (canonical_version, ExistingReceipt)]
+        {
             assert_eq!(
                 validate_action_with_mode(&limit, &action, &receiver, version, mode),
                 Err(ActionsValidationError::MalformedUniversalStateInit),
