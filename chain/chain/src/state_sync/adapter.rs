@@ -1,4 +1,5 @@
 use super::state_request_tracker::StateRequestTracker;
+use crate::state_snapshot_actor::snapshot_hash_for_block;
 use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
@@ -322,7 +323,7 @@ impl ChainStateSyncAdapter {
             .ok_or(Error::InvalidShardId(shard_id))?
             .prev_state_root();
         let prev_hash = *prev_block.hash();
-        let prev_prev_hash = *prev_block.header().prev_hash();
+        let prev_prev_hash = snapshot_hash_for_block(prev_block.header());
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &prev_hash, &state_root)
