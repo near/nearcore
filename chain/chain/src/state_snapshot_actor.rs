@@ -6,6 +6,7 @@ use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
 };
 use near_primitives::block::Block;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
@@ -231,13 +232,19 @@ pub struct SnapshotCallbacks {
     pub delete_snapshot_callback: DeleteSnapshotCallback,
 }
 
+/// The hash a snapshot of `block`'s state is keyed by, and advertised under: the block before
+/// it. Syncing peers derive the same hash from the sync hash to find a host.
+pub fn snapshot_hash_for_block(block: &BlockHeader) -> CryptoHash {
+    *block.prev_hash()
+}
+
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
     sender: StateSnapshotSenderForClient,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |min_chunk_prev_height, epoch_height, shard_indexes_and_uids, block| {
-        let prev_block_hash = *block.header().prev_hash();
+        let prev_block_hash = snapshot_hash_for_block(block.header());
         tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,

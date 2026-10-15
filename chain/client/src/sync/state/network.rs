@@ -126,6 +126,22 @@ impl StateSyncDownloadSourcePeerSharedState {
     }
 }
 
+/// The hash a peer's snapshot serving `sync_hash` is advertised under: the sync block's prev
+/// prev block, which is what `snapshot_hash_for_block` names for the snapshot a host takes at
+/// the sync block's prev block.
+fn snapshot_hash_for_sync_hash(
+    store: &Store,
+    sync_hash: &CryptoHash,
+) -> Result<CryptoHash, near_chain::Error> {
+    let prev_hash = |hash: &CryptoHash| {
+        store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_bytes())
+            .map(|header| *header.prev_hash())
+            .ok_or_else(|| near_chain::Error::DBNotFoundErr(format!("No block header {hash}")))
+    };
+    prev_hash(&prev_hash(sync_hash)?)
+}
+
 impl StateSyncDownloadSourcePeer {
     async fn try_download(
         clock: Clock,
@@ -145,18 +161,7 @@ impl StateSyncDownloadSourcePeer {
         // Peers advertise their snapshots by the prev prev hash of the sync hash.
         // We compute it here to pass as part of the network request.
         // TODO(saketh): it would be nice to migrate the network layer to the same hash.
-        let prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())
-            .ok_or_else(|| {
-                near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
-            })?
-            .prev_hash();
-        let prev_prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())
-            .ok_or_else(|| {
-                near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
-            })?
-            .prev_hash();
+        let prev_prev_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
 
         let network_request = match &key.part_or_header {
             PartOrHeader::Part { part_idx } => {
@@ -332,5 +337,70 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         })
         .instrument(tracing::debug_span!("StateSyncDownloadSourcePeer::download_shard_part"))
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snapshot_hash_for_sync_hash;
+    use near_async::time::Clock;
+    use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+    use near_chain::test_utils::get_chain_with_genesis;
+    use near_chain::{BlockHeader, ChainStoreAccess as _};
+    use near_chain_configs::test_genesis::TestGenesisBuilder;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+    use near_store::{DBCol, Store};
+
+    /// A store holding `len` headers on top of a test genesis, and the headers, genesis first.
+    fn header_chain(protocol_version: ProtocolVersion, len: usize) -> (Store, Vec<BlockHeader>) {
+        let genesis = TestGenesisBuilder::new()
+            .genesis_time_from_clock(&Clock::real())
+            .protocol_version(protocol_version)
+            .build();
+        let chain = get_chain_with_genesis(Clock::real(), genesis);
+        let store = chain.chain_store().store();
+        let mut headers = vec![chain.genesis().clone()];
+        for _ in 0..len {
+            let prev = headers.last().unwrap();
+            let mut header = prev.clone();
+            header.set_prev_hash(*prev.hash());
+            header.set_height(prev.height() + 1);
+            header.set_prev_height(prev.height());
+            header.init();
+            let mut store_update = store.store_update();
+            store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), &header);
+            store_update.commit();
+            headers.push(header);
+        }
+        (store, headers)
+    }
+
+    fn non_spice_protocol_version() -> ProtocolVersion {
+        PROTOCOL_VERSION.min(ProtocolFeature::Spice.protocol_version() - 1)
+    }
+
+    #[test]
+    fn test_snapshot_hash_for_sync_hash_is_sync_prev_prev() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 4);
+        let sync_hash = headers[4].hash();
+        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), *headers[2].hash());
+    }
+
+    /// The host snapshots the sync block's prev block and advertises it under
+    /// `snapshot_hash_for_block`; a requester has to ask for that same hash to find the host.
+    #[test]
+    fn test_snapshot_hash_agrees_between_host_and_requester() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 4);
+        let sync_hash = headers[4].hash();
+        let host = snapshot_hash_for_block(&headers[3]);
+        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), host);
+    }
+
+    #[test]
+    fn test_snapshot_hash_for_sync_hash_missing_header() {
+        let (store, _) = header_chain(non_spice_protocol_version(), 1);
+        let err = snapshot_hash_for_sync_hash(&store, &CryptoHash::hash_bytes(b"unknown"));
+        assert!(matches!(err, Err(near_chain::Error::DBNotFoundErr(_))), "{err:?}");
     }
 }
