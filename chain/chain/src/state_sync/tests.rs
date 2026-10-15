@@ -1,5 +1,5 @@
 use super::{derive_epoch_sync_hash, update_sync_hashes};
-use crate::Chain;
+use crate::ChainStore;
 use crate::test_utils::get_chain_with_genesis;
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
@@ -10,7 +10,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::EpochId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, FINAL_HEAD_KEY};
 use std::sync::Arc;
 
@@ -19,8 +18,7 @@ const EPOCH_ID_1: EpochId = EpochId(CryptoHash([1; 32]));
 const EPOCH_ID_2: EpochId = EpochId(CryptoHash([2; 32]));
 
 struct HeaderChain {
-    chain: Chain,
-    chain_store: ChainStoreAdapter,
+    chain_store: ChainStore,
     headers: Vec<Arc<BlockHeader>>,
 }
 
@@ -32,9 +30,9 @@ impl HeaderChain {
             .shard_layout(ShardLayout::multi_shard(NUM_SHARDS as u64, 1))
             .build();
         let chain = get_chain_with_genesis(Clock::real(), genesis);
-        let chain_store = chain.chain_store().store().chain_store();
+        let chain_store = chain.chain_store().clone();
         let genesis_header = chain_store.get_block_header(chain.genesis().hash()).unwrap();
-        Self { chain, chain_store, headers: vec![genesis_header] }
+        Self { chain_store, headers: vec![genesis_header] }
     }
 
     fn non_spice() -> Self {
@@ -62,7 +60,7 @@ impl HeaderChain {
         store_update.commit();
         // What header processing records for the sync hash.
         let mut store_update = self.chain_store.store().store_update();
-        update_sync_hashes(self.chain.chain_store(), &mut store_update, &header).unwrap();
+        update_sync_hashes(&self.chain_store, &mut store_update, &header).unwrap();
         store_update.commit();
         self.headers.push(Arc::new(header));
         block_hash
