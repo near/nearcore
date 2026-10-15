@@ -41,11 +41,6 @@ fn test_transfer_to_universal_account_rejected_while_banned() {
     init_test_logger();
 
     let ban_version = ProtocolFeature::RejectUniversalAccountTransfers.protocol_version();
-    // The ban has no effect when universal accounts start in the same version.
-    if ProtocolFeature::UniversalAccounts.enabled(ban_version) {
-        return;
-    }
-
     let signer = create_account_id("alice");
     let receiver = universal_account_id("banned");
     let mut env = env_at(ban_version, &signer);
