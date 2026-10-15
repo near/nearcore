@@ -3148,8 +3148,8 @@ fn resolve_promise_yield_timeouts(
             // The receipt is destined for the local shard and will be placed in the outgoing
             // receipts buffer. It is possible that there is already an outgoing receipt resolving
             // this yield if `yield_resume` was invoked by some receipt which was processed in
-            // the current chunk. The ordering will be maintained because the receipts are
-            // destined for the same shard; the timeout will be processed second and discarded.
+            // the current chunk. Their relative order doesn't matter: a timeout resume is
+            // discarded when the yield's status is `PromiseYieldStatus::ResumeInitiated`.
             receipt_sink.forward_or_buffer_receipt(
                 resume_receipt,
                 apply_state,
