@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.33"
+    "version": "1.3.34"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -5266,6 +5266,25 @@
         "required": [
           "secs",
           "nanos"
+        ],
+        "type": "object"
+      },
+      "EccTransactionView": {
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "payload": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload",
+          "hash"
         ],
         "type": "object"
       },
@@ -14379,7 +14398,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/SignedTransactionView"
+              "$ref": "#/components/schemas/TransactionEnvelopeView"
             },
             "type": "array"
           }
@@ -22986,6 +23005,17 @@
             "type": "object"
           }
         ]
+      },
+      "TransactionEnvelopeView": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/SignedTransactionView"
+          },
+          {
+            "$ref": "#/components/schemas/EccTransactionView"
+          }
+        ],
+        "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had."
       },
       "TransactionNonce": {
         "oneOf": [

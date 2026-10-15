@@ -6,7 +6,7 @@ use near_async::time::Duration;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::transaction::ExecutionStatus;
+use near_primitives::transaction::{ExecutionStatus, TransactionEnvelope};
 use near_primitives::types::Balance;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
@@ -45,11 +45,12 @@ fn delayed_receipt_example_test() {
     for tx in &txs {
         env.rpc_node().submit_tx(tx.clone());
     }
+    let expected_txs = txs.iter().cloned().map(TransactionEnvelope::from).collect_vec();
     env.rpc_runner().run_until(
         |node| {
             let head_block = node.head_block();
             let chunk = node.block_chunks(&head_block).pop().unwrap();
-            chunk.to_transactions() == &txs
+            chunk.to_transactions() == &expected_txs
         },
         Duration::seconds(2),
     );

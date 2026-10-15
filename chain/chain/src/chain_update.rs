@@ -536,7 +536,7 @@ impl<'a> ChainUpdate<'a> {
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
                 .chain_store()
-                .compute_transaction_validity(&prev_block_header, &chunk)
+                .compute_transaction_validity(&prev_block_header, chunk.to_transactions())
         } else {
             vec![true; transactions.len()]
         };
