@@ -1,13 +1,16 @@
 use super::Trie;
 use super::TrieCachingStorage;
-use crate::Mode;
 use crate::ShardTries;
-use crate::StoreConfig;
-use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
-use crate::{DBCol, NodeStorage, checkpoint_hot_storage_and_cleanup_columns, metrics};
+use crate::{DBCol, metrics};
+#[cfg(feature = "rocksdb")]
+use crate::{
+    Mode, NodeStorage, StoreConfig, adapter::StoreAdapter,
+    checkpoint_hot_storage_and_cleanup_columns,
+};
 use near_primitives::block::Block;
+#[cfg(feature = "rocksdb")]
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -194,6 +197,7 @@ pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
     DBCol::FlatStorageStatus,
 ];
 
+#[cfg(feature = "rocksdb")]
 type ShardIndexesAndUIds = Vec<(ShardIndex, ShardUId)>;
 
 impl ShardTries {
@@ -225,6 +229,7 @@ impl ShardTries {
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.
     /// If a new snapshot is created, returns the ids of the included shards.
+    #[cfg(feature = "rocksdb")]
     pub fn create_state_snapshot(
         &self,
         snapshot_hash: CryptoHash,
@@ -342,6 +347,7 @@ impl ShardTries {
 
     /// Read RocksDB for the latest available snapshot hash, if available, open base_path+snapshot_hash for the state snapshot
     /// we don't deal with multiple snapshots here because we will deal with it whenever a new snapshot is created and saved to file system
+    #[cfg(feature = "rocksdb")]
     pub fn maybe_open_state_snapshot(
         &self,
         get_shard_indexes_and_uids_fn: impl FnOnce(
