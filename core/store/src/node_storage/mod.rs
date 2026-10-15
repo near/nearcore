@@ -10,6 +10,8 @@ use crate::{StoreConfig, archive::cloud_storage::config::CloudStorageContext};
 use opener::StoreOpener;
 use std::str::FromStr;
 use std::sync::Arc;
+#[cfg(feature = "rocksdb")]
+use std::sync::LazyLock;
 
 /// Specifies temperature of a storage.
 ///
@@ -69,8 +71,7 @@ impl NodeStorage {
     /// element of the tuple while the store is open.
     #[cfg(feature = "rocksdb")]
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: std::sync::LazyLock<StoreConfig> =
-            std::sync::LazyLock::new(StoreConfig::test_config);
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
         let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
         (dir, opener)

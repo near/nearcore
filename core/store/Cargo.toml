@@ -95,6 +95,7 @@ harness = false
 default = ["rocksdb", "cloud_archive"]
 # On-disk RocksDB backend (`RocksDB`, `StoreOpener`, `NodeStorage::opener`,
 # state snapshots). Without it only the in-memory `TestDB` is available.
+# The opener also initializes cloud storage, so this enables `cloud_archive`.
 rocksdb = ["dep:rocksdb", "cloud_archive"]
 # Cloud archival storage (`archive::cloud_storage`, backed by object_store/S3/GCS).
 cloud_archive = ["dep:near-external-storage"]

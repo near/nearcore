@@ -1,4 +1,8 @@
 use super::refcount;
+#[cfg(not(feature = "rocksdb"))]
+use std::convert::Infallible;
+#[cfg(not(feature = "rocksdb"))]
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// Data returned from the database.
@@ -102,7 +106,7 @@ impl<'a> RocksSlice<'a> {
 
 /// Uninhabited stand-in so `Inner` keeps its shape without the `rocksdb` feature.
 #[cfg(not(feature = "rocksdb"))]
-struct RocksSlice<'a>(std::convert::Infallible, std::marker::PhantomData<&'a ()>);
+struct RocksSlice<'a>(Infallible, PhantomData<&'a ()>);
 
 #[cfg(not(feature = "rocksdb"))]
 impl<'a> RocksSlice<'a> {
