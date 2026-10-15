@@ -1999,6 +1999,10 @@ impl ClientActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed { epoch_height }),
         ));
+        // Until we start processing blocks, the TIER1 accounts are derived from the header head.
+        if let Err(err) = self.client.send_network_chain_info() {
+            tracing::error!(target: "client", ?err, "failed to update network chain info");
+        }
     }
 
     /// Handle the SyncRequirement::SyncNeeded.

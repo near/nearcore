@@ -2737,6 +2737,24 @@ impl Client {
         Ok(account_keys)
     }
 
+    /// The TIER1 accounts to feed to PeerManager. They normally come from the last processed
+    /// block, `head`. That is important because a validator which is still processing the final
+    /// blocks of an epoch while the header head has moved into the next one should not update
+    /// its TIER1 peerset yet.
+    ///
+    /// A node that is syncing can be many epochs behind on blocks, though, so the accounts come
+    /// from the latest header instead if it's ahead by two or more epochs.
+    fn get_network_tier1_accounts(&mut self, head: &Tip) -> Result<Arc<AccountKeys>, Error> {
+        let header_head = self.chain.header_head()?;
+        if header_head.epoch_id == head.epoch_id || header_head.epoch_id == head.next_epoch_id {
+            return self.get_tier1_accounts(head);
+        }
+        self.get_tier1_accounts(&header_head).or_else(|err| {
+            tracing::debug!(target: "client", ?err, "tier1 accounts of header head are not known yet");
+            self.get_tier1_accounts(head)
+        })
+    }
+
     /// We send the optimistic block to the chunk producers of the current and next epochs.
     pub(crate) fn get_optimistic_block_targets(
         &mut self,
@@ -2791,7 +2809,7 @@ impl Client {
             // and if the issue described above has been resolved.
             vec![]
         };
-        let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let tier1_accounts = self.get_network_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.send(SetChainInfo(ChainInfo {
             block,

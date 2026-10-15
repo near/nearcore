@@ -168,6 +168,10 @@ the first report, infos for any epoch are accepted. When it arrives, infos
 outside the window are discarded, so an info claiming a far-future epoch cannot
 hold a slot indefinitely.
 
+While the node is more than an epoch behind on blocks, the network also takes
+the set of validators from the latest header rather than from the last
+processed block, so it recognizes the current validators during state sync.
+
 State header and part requests are sent to snapshot hosts over Tier 3. The
 requester opens a Tier 3 connection to the address the host advertises and
 sends its requests over it, and the host sends the acknowledgements and the
