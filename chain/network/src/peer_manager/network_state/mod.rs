@@ -60,7 +60,7 @@ use near_primitives::network::PeerId;
 use near_primitives::state_sync::PartOrHeader;
 use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -1497,8 +1497,10 @@ impl NetworkState {
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
+            let validators: HashSet<PeerId> =
+                this.accounts_data.load().data.values().map(|d| d.peer_id.clone()).collect();
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
+            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts, &validators).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if new_data.is_empty() {

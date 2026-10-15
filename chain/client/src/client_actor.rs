@@ -1969,9 +1969,9 @@ impl ClientActor {
 
     /// Reports the epoch of the latest block header to the network once header sync has brought
     /// it within an epoch of `highest_height`, and again whenever that epoch changes. Headers
-    /// are verified, so the network can rely on this epoch to discard snapshot host infos for
-    /// past epochs. The epoch of the last processed block can't serve: on a node that is still
-    /// syncing it lags the network by many epochs.
+    /// are verified, so the network can rely on this epoch to discard snapshot host infos that
+    /// claim epochs which don't exist yet. The epoch of the last processed block can't serve:
+    /// on a node that is still syncing it lags the network by many epochs.
     fn report_header_head_epoch(&mut self, highest_height: BlockHeight) {
         let header_head = match self.client.chain.header_head() {
             Ok(header_head) => header_head,
@@ -1980,7 +1980,8 @@ impl ClientActor {
                 return;
             }
         };
-        // Within an epoch of the tip, the latest header is at most one epoch behind the network.
+        // Within an epoch of the tip, the latest header is at most one epoch behind the network,
+        // which is the slack the network allows for infos ahead of the reported epoch.
         if header_head.height.saturating_add(self.client.chain.epoch_length) < highest_height {
             return;
         }

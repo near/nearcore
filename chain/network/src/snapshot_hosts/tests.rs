@@ -60,7 +60,7 @@ async fn happy_path() {
     // initial insert
     let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1, 2, 3]), &key0));
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[2]), &key1));
-    let res = cache.insert(vec![info0.clone(), info1.clone()]).await;
+    let res = cache.insert(vec![info0.clone(), info1.clone()], &HashSet::new()).await;
     assert_eq!([&info0, &info1].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
@@ -68,7 +68,9 @@ async fn happy_path() {
     let info0new = Arc::new(make_snapshot_host_info(&peer0, 124, sid_vec(&[1, 3]), &key0));
     let info1old = Arc::new(make_snapshot_host_info(&peer1, 122, sid_vec(&[0, 1, 2, 3]), &key1));
     let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[2]), &key2));
-    let res = cache.insert(vec![info0new.clone(), info1old.clone(), info2.clone()]).await;
+    let res = cache
+        .insert(vec![info0new.clone(), info1old.clone(), info2.clone()], &HashSet::new())
+        .await;
     assert_eq!([&info0new, &info2].as_set(), unwrap(&res).as_set());
     assert_eq!(
         [&info0new, &info1, &info2].as_set(),
@@ -96,7 +98,7 @@ async fn invalid_signature() {
     let shards = sid_vec(&[0, 1, 2, 3]);
     let info0_invalid_sig = Arc::new(make_snapshot_host_info(&peer0, 1, shards.clone(), &key1));
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, shards, &key1));
-    let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()]).await;
+    let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()], &HashSet::new()).await;
     // invalid signature => InvalidSignature
     assert_eq!(
         Some(SnapshotHostInfoError::VerificationError(
@@ -143,7 +145,7 @@ async fn too_many_shards() {
     assert_eq!(info1.verify(), Err(expected_error.clone()));
 
     // Inserting should return the expected error (TooManyShards)
-    let res = cache.insert(vec![info0.clone(), info1.clone()]).await;
+    let res = cache.insert(vec![info0.clone(), info1.clone()], &HashSet::new()).await;
     assert_eq!(Some(SnapshotHostInfoError::VerificationError(expected_error)), res.1);
     // Partial update is allowed in case an error is encountered.
     // The valid info0 may or may not be processed before the invalid info1 is detected
@@ -169,7 +171,7 @@ async fn duplicate_peer_id() {
 
     let info00 = Arc::new(make_snapshot_host_info(&peer0, 1, sid_vec(&[0, 1, 2, 3]), &key0));
     let info01 = Arc::new(make_snapshot_host_info(&peer0, 2, sid_vec(&[0, 3]), &key0));
-    let res = cache.insert(vec![info00.clone(), info01.clone()]).await;
+    let res = cache.insert(vec![info00.clone(), info01.clone()], &HashSet::new()).await;
     // duplicate peer ids => DuplicatePeerId
     assert_eq!(Some(SnapshotHostInfoError::DuplicatePeerId), res.1);
     // this type of malicious behavior is detected before verification even begins;
@@ -210,13 +212,13 @@ async fn signed_info_replaces_stripped_copy() {
     let signed = Arc::new(SnapshotHostInfo::V2(signed));
 
     // A stripped copy is accepted and relayed while it is all we have.
-    let res = cache.insert(vec![stripped.clone()]).await;
+    let res = cache.insert(vec![stripped.clone()], &HashSet::new()).await;
     assert_eq!(unwrap(&res), &vec![stripped.clone()]);
     // The signed copy replaces it and is relayed once.
-    let res = cache.insert(vec![signed.clone()]).await;
+    let res = cache.insert(vec![signed.clone()], &HashSet::new()).await;
     assert_eq!(unwrap(&res), &vec![signed.clone()]);
     for info in [&stripped, &signed] {
-        let res = cache.insert(vec![info.clone()]).await;
+        let res = cache.insert(vec![info.clone()], &HashSet::new()).await;
         assert!(unwrap(&res).is_empty());
     }
     assert_eq!(cache.get_host_info(&peer), Some(signed));
@@ -234,7 +236,7 @@ async fn info_without_legacy_signature_is_dropped() {
     let info = into_v2(make_snapshot_host_info(&peer, 1, vec![ShardId::new(0)], &key));
     let info = SnapshotHostInfo::V2(SnapshotHostInfoV2 { legacy_signature: None, ..info });
     // Dropped without an error, so the sender is not banned.
-    let res = cache.insert(vec![Arc::new(info)]).await;
+    let res = cache.insert(vec![Arc::new(info)], &HashSet::new()).await;
     assert!(unwrap(&res).is_empty());
     assert_eq!(0, cache.get_hosts().len());
 }
@@ -260,7 +262,7 @@ async fn all_signatures_are_verified() {
         strip_new_fields(&bad_legacy_signature),
         SnapshotHostInfo::V2(bad_legacy_signature),
     ] {
-        let res = cache.insert(vec![Arc::new(info)]).await;
+        let res = cache.insert(vec![Arc::new(info)], &HashSet::new()).await;
         assert_eq!(
             Some(SnapshotHostInfoError::VerificationError(
                 SnapshotHostInfoVerificationError::InvalidSignature
@@ -272,7 +274,7 @@ async fn all_signatures_are_verified() {
 }
 
 #[tokio::test]
-async fn test_lru_eviction() {
+async fn test_full_cache_keeps_known_hosts() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
     let rng = &mut rng;
@@ -292,12 +294,12 @@ async fn test_lru_eviction() {
 
     // initial inserts to capacity
     let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1, 2, 3]), &key0));
-    let res = cache.insert(vec![info0.clone()]).await;
+    let res = cache.insert(vec![info0.clone()], &HashSet::new()).await;
     assert_eq!([&info0].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[2]), &key1));
-    let res = cache.insert(vec![info1.clone()]).await;
+    let res = cache.insert(vec![info1.clone()], &HashSet::new()).await;
     assert_eq!([&info1].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
@@ -307,15 +309,188 @@ async fn test_lru_eviction() {
     cache.select_host_for_header(&sync_hash, ShardId::new(2));
     assert_eq!([&peer0, &peer1].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
 
-    // insert past capacity
+    // A new host gets no slot: nothing is stored, so nothing is returned for broadcasting.
     let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[1, 3]), &key2));
-    let res = cache.insert(vec![info2.clone()]).await;
-    // check that the new data is accepted
-    assert_eq!([&info2].as_set(), unwrap(&res).as_set());
-    // check that the oldest data was evicted
-    assert_eq!([&info1, &info2].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
-    // the evicted host must not linger in the shard-specific caches either
-    assert_eq!([&peer1, &peer2].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+    let res = cache.insert(vec![info2.clone()], &HashSet::new()).await;
+    assert!(unwrap(&res).is_empty());
+    assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+    assert_eq!([&peer0, &peer1].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+
+    // A known host still renews its info in place.
+    let info1_new = Arc::new(make_snapshot_host_info(&peer1, 124, sid_vec(&[2]), &key1));
+    let res = cache.insert(vec![info1_new.clone()], &HashSet::new()).await;
+    assert_eq!([&info1_new].as_set(), unwrap(&res).as_set());
+    assert_eq!([&info0, &info1_new].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn test_infos_without_slot_are_not_verified() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let key1 = data::make_secret_key(rng);
+
+    let peer0 = PeerId::new(key0.public_key());
+    let peer1 = PeerId::new(key1.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 1, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    // info0 takes the only free slot. info1 has an invalid signature, but there is no slot
+    // left for it, so it is dropped without being verified and no error is reported.
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0]), &key0));
+    let info1_invalid_sig = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[0]), &key0));
+    let res = cache.insert(vec![info0.clone(), info1_invalid_sig], &HashSet::new()).await;
+    assert_eq!([&info0].as_set(), unwrap(&res).as_set());
+    assert_eq!([&info0].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn test_replayed_batch_is_ignored() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let config = Config { snapshot_hosts_cache_size: 2, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    // A batch with more new hosts than free slots.
+    let batch = (0..5)
+        .map(|_| {
+            let key = data::make_secret_key(rng);
+            let peer = PeerId::new(key.public_key());
+            Arc::new(make_snapshot_host_info(&peer, 123, sid_vec(&[0]), &key))
+        })
+        .collect_vec();
+
+    // Only what fits is stored, and only what is stored is returned for broadcasting.
+    let res = cache.insert(batch.clone(), &HashSet::new()).await;
+    assert_eq!(2, unwrap(&res).len());
+    assert_eq!(res.0.as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+
+    // Replaying the batch, or receiving an echo of what was broadcast, changes nothing.
+    let res = cache.insert(batch, &HashSet::new()).await;
+    assert!(unwrap(&res).is_empty());
+    assert_eq!(2, cache.get_hosts().len());
+}
+
+#[tokio::test]
+async fn test_reserved_hosts_do_not_need_free_slot() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let key1 = data::make_secret_key(rng);
+    let key2 = data::make_secret_key(rng);
+    let key3 = data::make_secret_key(rng);
+
+    let peer0 = PeerId::new(key0.public_key());
+    let peer1 = PeerId::new(key1.public_key());
+    let peer2 = PeerId::new(key2.public_key());
+    let peer3 = PeerId::new(key3.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 1, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    // info0 takes the only unreserved slot.
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0]), &key0));
+    let res = cache.insert(vec![info0.clone()], &HashSet::new()).await;
+    assert_eq!([&info0].as_set(), unwrap(&res).as_set());
+
+    // A validator's host and this node's own info are admitted all the same.
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[0]), &key1));
+    let res = cache.insert(vec![info1.clone()], &[peer1].into_iter().collect()).await;
+    assert_eq!([&info1].as_set(), unwrap(&res).as_set());
+    let my_info = Arc::new(make_snapshot_host_info(&peer3, 123, sid_vec(&[0]), &key3));
+    cache.insert_skip_verify(my_info.clone());
+
+    // They don't take unreserved slots, which stay full.
+    let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[0]), &key2));
+    let res = cache.insert(vec![info2], &HashSet::new()).await;
+    assert!(unwrap(&res).is_empty());
+    assert_eq!(
+        [&info0, &info1, &my_info].as_set(),
+        cache.get_hosts().iter().collect::<HashSet<_>>()
+    );
+}
+
+#[tokio::test]
+async fn test_discard_frees_slots() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let key1 = data::make_secret_key(rng);
+
+    let peer0 = PeerId::new(key0.public_key());
+    let peer1 = PeerId::new(key1.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 1, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new_with_epoch_retention_window(config, 1);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0]), &key0));
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 125, sid_vec(&[0]), &key1));
+    cache.insert(vec![info0], &HashSet::new()).await;
+    let res = cache.insert(vec![info1.clone()], &HashSet::new()).await;
+    assert!(unwrap(&res).is_empty());
+
+    // A host that stops publishing ages out, and its slot goes to the next new host.
+    cache.set_current_epoch_height(125);
+    let res = cache.insert(vec![info1.clone()], &HashSet::new()).await;
+    assert_eq!([&info1].as_set(), unwrap(&res).as_set());
+    assert_eq!([&info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn test_epoch_window() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let keys = (0..5).map(|_| data::make_secret_key(rng)).collect_vec();
+    let peers = keys.iter().map(|key| PeerId::new(key.public_key())).collect_vec();
+
+    let config = Config { snapshot_hosts_cache_size: 10, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new_with_epoch_retention_window(config, 1);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+    let info = |i: usize, epoch_height: EpochHeight| {
+        Arc::new(make_snapshot_host_info(&peers[i], epoch_height, sid_vec(&[0]), &keys[i]))
+    };
+
+    // Until the epoch of the latest block header is known, infos for any epoch are accepted.
+    let res = cache.insert(vec![info(0, 1000)], &HashSet::new()).await;
+    assert_eq!(1, unwrap(&res).len());
+
+    // Once it is known, infos outside the window around it are discarded...
+    cache.set_current_epoch_height(123);
+    assert!(cache.get_hosts().is_empty());
+
+    // ...and no longer accepted. The window keeps one older epoch and one newer.
+    let oldest = info(1, 122);
+    let newest = info(2, 124);
+    let res = cache
+        .insert(vec![oldest.clone(), newest.clone(), info(3, 121), info(4, 125)], &HashSet::new())
+        .await;
+    assert_eq!([&oldest, &newest].as_set(), unwrap(&res).as_set());
+
+    // Infos outside the window are dropped before their signatures are checked.
+    let too_new_invalid_sig =
+        Arc::new(make_snapshot_host_info(&peers[3], 125, sid_vec(&[0]), &keys[4]));
+    let res = cache.insert(vec![too_new_invalid_sig], &HashSet::new()).await;
+    assert!(unwrap(&res).is_empty());
 }
 
 #[tokio::test]
@@ -333,7 +508,7 @@ async fn test_update_keeps_shard_hosts() {
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
     let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1]), &key0));
-    cache.insert(vec![info0.clone()]).await;
+    cache.insert(vec![info0.clone()], &HashSet::new()).await;
     let sync_hash = CryptoHash::hash_borsh(123u64);
     cache.select_host_for_header(&sync_hash, ShardId::new(0));
     assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
@@ -341,7 +516,7 @@ async fn test_update_keeps_shard_hosts() {
     // Re-inserting the same peer displaces only its own previous entry, which is
     // not an eviction and must not drop it from the shard caches.
     let info0_new = Arc::new(make_snapshot_host_info(&peer0, 124, sid_vec(&[0, 1]), &key0));
-    cache.insert(vec![info0_new.clone()]).await;
+    cache.insert(vec![info0_new.clone()], &HashSet::new()).await;
     assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
 }
 
@@ -360,7 +535,7 @@ async fn test_discard_removes_shard_hosts() {
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
     let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1]), &key0));
-    cache.insert(vec![info0.clone()]).await;
+    cache.insert(vec![info0.clone()], &HashSet::new()).await;
     let sync_hash = CryptoHash::hash_borsh(123u64);
     cache.select_host_for_header(&sync_hash, ShardId::new(0));
     assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
@@ -506,15 +681,15 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
-            SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 2, 2),
+            SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 1, 2),
             SelectPeerAction::CheckNumberOfHosts(4),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
             SelectPeerAction::CheckNumberOfHosts(2),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(1)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(4)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(4)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
         ],
     },
     SelectPeerTest {
@@ -545,14 +720,15 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::InsertHosts(&[4, 5], FIRST_EPOCH_HEIGHT + 1, 2),
             SelectPeerAction::InsertHosts(&[5, 6], FIRST_EPOCH_HEIGHT + 2, 2),
             SelectPeerAction::CheckNumberOfHosts(7),
+            // The window is one epoch either side of the current one: 5 and 6 are too new.
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
-            SelectPeerAction::CheckNumberOfHosts(7),
-            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
             SelectPeerAction::CheckNumberOfHosts(5),
-            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
             SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
+            SelectPeerAction::CheckNumberOfHosts(1),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 3),
-            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CheckNumberOfHosts(0),
         ],
     },
 ];
@@ -576,7 +752,7 @@ async fn run_select_peer_test(
             SelectPeerAction::InsertHosts(hosts, epoch_height, expected_insert_count) => {
                 let new_hosts = make_snapshot_hosts_info(hosts, keys, *epoch_height);
                 let requested_insert_count = new_hosts.len();
-                let (res, err) = cache.insert(new_hosts).await;
+                let (res, err) = cache.insert(new_hosts, &HashSet::new()).await;
                 assert_eq!(
                     res.len(),
                     *expected_insert_count,

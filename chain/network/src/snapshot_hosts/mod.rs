@@ -3,12 +3,19 @@
 //! Each node in the network which is willing to generate and serve state snapshots
 //! publishes a SnapshotHostInfo once per epoch. The info is flooded to all nodes
 //! in the network and stored locally in this cache.
+//!
+//! The cache has a fixed number of slots. A host keeps its slot for as long as it keeps
+//! publishing. This node's own info and the infos of validators' nodes don't count
+//! toward the limit and are always admitted.
+//!
+//! Infos are kept only for epochs close to that of the latest block header, which the client
+//! reports once header sync has caught up. Until the first report arrives, infos for any
+//! epoch are accepted.
 
 use crate::concurrency;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SnapshotHostInfoVerificationError;
 use itertools::Itertools;
-use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePartIndex;
@@ -20,7 +27,6 @@ use rand::thread_rng;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -28,6 +34,11 @@ mod tests;
 
 /// The number of older epochs to retain snapshot host infos for.
 pub const STATE_SNAPSHOT_INFO_RETENTION_WINDOW: EpochHeight = 1;
+
+/// The number of epochs past that of the latest block header for which snapshot host infos
+/// are accepted. A host may reach an epoch boundary shortly before this node's latest header
+/// does, so one epoch of slack is allowed.
+pub const STATE_SNAPSHOT_INFO_MAX_EPOCHS_AHEAD: EpochHeight = 1;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
@@ -39,10 +50,7 @@ pub(crate) enum SnapshotHostInfoError {
 
 #[derive(Clone)]
 pub struct Config {
-    /// The maximum number of SnapshotHostInfos to store locally.
-    /// At present this constraint is enforced using a simple
-    /// least-recently-used cache. In the future, we may wish to
-    /// implement something more sophisticated.
+    /// The maximum number of SnapshotHostInfos to store locally, not counting validators.
     pub snapshot_hosts_cache_size: u32,
     /// The number of hosts we'll add to structures related to state part peer
     /// selection each time we need to request parts from a new peer
@@ -138,15 +146,40 @@ impl PartPeerSelector {
     }
 }
 
+/// The kind of node a SnapshotHostInfo belongs to.
+#[derive(Clone, Copy, Debug)]
+enum HostKind {
+    /// This node.
+    Own,
+    /// A validator's node.
+    Validator,
+    /// Any other node.
+    Other,
+}
+
+impl HostKind {
+    /// Whether the host takes a reserved slot, which doesn't count toward the limit.
+    fn takes_reserved_slot(self) -> bool {
+        match self {
+            HostKind::Own | HostKind::Validator => true,
+            HostKind::Other => false,
+        }
+    }
+}
+
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
-    hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
+    hosts: HashMap<PeerId, Arc<SnapshotHostInfo>>,
+    /// Hosts that occupy unreserved slots.
+    unreserved_hosts: HashSet<PeerId>,
+    /// Number of unreserved slots.
+    max_unreserved_hosts: usize,
     /// The current sync hash being actively synced by this node. Used to reset peer selectors when changed.
     /// Updated only by locally-produced sync requests.
     current_state_sync_hash: Option<CryptoHash>,
-    /// Minimum epoch height to keep in the snapshot host cache. Snapshot infos below this are discarded.
-    /// Updated based on chain head progression.
-    discard_snapshot_infos_below_epoch_height: Option<EpochHeight>,
+    /// Epoch of the latest block header, as last reported by the client. Snapshot infos for
+    /// epochs outside the window around it are discarded. None until the first report.
+    current_epoch_height: Option<EpochHeight>,
     /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
@@ -158,28 +191,47 @@ struct Inner {
 }
 
 impl Inner {
+    /// Whether infos for `epoch_height` are kept: at most `epoch_retention_window` epochs older
+    /// and STATE_SNAPSHOT_INFO_MAX_EPOCHS_AHEAD epochs newer than the latest block header.
+    fn in_epoch_window(&self, epoch_height: EpochHeight) -> bool {
+        let Some(current) = self.current_epoch_height else {
+            return true;
+        };
+        current.saturating_sub(self.epoch_retention_window) <= epoch_height
+            && epoch_height <= current.saturating_add(STATE_SNAPSHOT_INFO_MAX_EPOCHS_AHEAD)
+    }
+
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
-        // Discard snapshot infos below the epoch height threshold set by chain progression
-        if self
-            .discard_snapshot_infos_below_epoch_height
-            .is_some_and(|min_epoch| min_epoch > h.epoch_height())
-        {
+        if !self.in_epoch_window(h.epoch_height()) {
             return false;
         }
-        match self.hosts.peek(h.peer_id()) {
+        match self.hosts.get(h.peer_id()) {
             Some(old) if old.freshness() >= h.freshness() => false,
             _ => true,
         }
     }
 
-    /// Inserts d into self.data, if it's new.
+    fn free_slots(&self) -> usize {
+        self.max_unreserved_hosts.saturating_sub(self.unreserved_hosts.len())
+    }
+
+    /// Whether an info from `peer_id` can be stored.
+    fn has_slot(&self, peer_id: &PeerId, kind: HostKind) -> bool {
+        kind.takes_reserved_slot() || self.hosts.contains_key(peer_id) || self.free_slots() > 0
+    }
+
+    /// Inserts d into self.data, if it's new and there is a slot for it.
     /// It returns the newly inserted value (or None if nothing changed).
     /// The returned value should be broadcasted to the network.
-    fn try_insert(&mut self, d: Arc<SnapshotHostInfo>) -> Option<Arc<SnapshotHostInfo>> {
-        if !self.is_new(&d) {
+    fn try_insert(
+        &mut self,
+        d: Arc<SnapshotHostInfo>,
+        kind: HostKind,
+    ) -> Option<Arc<SnapshotHostInfo>> {
+        if !self.is_new(&d) || !self.has_slot(d.peer_id(), kind) {
             return None;
         }
-        self.insert(&d);
+        self.insert(&d, kind);
         Some(d)
     }
 
@@ -200,17 +252,19 @@ impl Inner {
         }
     }
 
-    /// Ingests a new SnapshotHostInfo into the cache
-    /// assumes that the SnapshotHostInfo is valid and new
-    fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
+    /// Inserts a new SnapshotHostInfo into the cache unconditionally:
+    /// assumes that the info is valid and new, and that it has a slot
+    fn insert(&mut self, d: &Arc<SnapshotHostInfo>, kind: HostKind) {
         self.add_to_shard_hosts(d.as_ref());
-        // `push` returns a different peer on eviction, or `d` itself on a
-        // same-key update; only an eviction should leave the shard caches.
-        if let Some((displaced, _)) = self.hosts.push(d.peer_id().clone(), d.clone()) {
-            if &displaced != d.peer_id() {
-                self.remove_from_shard_hosts(&displaced);
-            }
+        // Renewals are reclassified, so a host that stopped being a validator moves into an
+        // unreserved slot even if none is free. The overshoot is bounded by validator churn
+        // and only delays new hosts until enough slots free up.
+        if kind.takes_reserved_slot() {
+            self.unreserved_hosts.remove(d.peer_id());
+        } else {
+            self.unreserved_hosts.insert(d.peer_id().clone());
         }
+        self.hosts.insert(d.peer_id().clone(), d.clone());
     }
 
     /// Updates the current state sync hash. This is called when a local state sync request is initiated.
@@ -226,34 +280,33 @@ impl Inner {
         self.peer_selector.clear();
 
         // Rebuild the shard-specific caches with hosts that match the new sync hash
-        let known_hosts: Vec<_> = self.hosts.iter().map(|(_, info)| info.clone()).collect();
+        let known_hosts: Vec<_> = self.hosts.values().cloned().collect();
         for info in &known_hosts {
             self.add_to_shard_hosts(info.as_ref());
         }
     }
 
-    /// Updates the minimum epoch height to keep in the cache. This is called based on chain progression.
-    /// Discards snapshot infos that are too old.
-    fn update_discard_epoch_threshold(&mut self, epoch_height: EpochHeight) {
-        let min_epoch_to_keep = epoch_height.saturating_sub(self.epoch_retention_window);
-        if self.discard_snapshot_infos_below_epoch_height == Some(min_epoch_to_keep) {
+    /// Records the epoch of the latest block header and discards the snapshot infos that fall
+    /// outside the new epoch window.
+    fn update_current_epoch_height(&mut self, epoch_height: EpochHeight) {
+        if self.current_epoch_height == Some(epoch_height) {
             return;
         }
 
-        self.discard_snapshot_infos_below_epoch_height = Some(min_epoch_to_keep);
+        self.current_epoch_height = Some(epoch_height);
 
-        // Remove snapshot infos that are now below the retention window
-        let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
-
-        loop {
-            let Some((peer_id, info)) = self.hosts.pop_lru() else { break };
-            if info.epoch_height() >= min_epoch_to_keep {
-                new_hosts.push(peer_id, info);
-            } else {
-                self.remove_from_shard_hosts(&peer_id);
-            }
+        // Remove snapshot infos that are now outside the window, freeing their slots
+        let discarded: Vec<_> = self
+            .hosts
+            .iter()
+            .filter(|(_, info)| !self.in_epoch_window(info.epoch_height()))
+            .map(|(peer_id, _)| peer_id.clone())
+            .collect();
+        for peer_id in &discarded {
+            self.hosts.remove(peer_id);
+            self.unreserved_hosts.remove(peer_id);
+            self.remove_from_shard_hosts(peer_id);
         }
-        self.hosts = new_hosts;
     }
 
     /// Given a state header request produced by the local node,
@@ -325,11 +378,11 @@ impl SnapshotHostsCache {
         epoch_retention_window: EpochHeight,
     ) -> Self {
         Self(Mutex::new(Inner {
-            hosts: LruCache::new(
-                NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
-            ),
+            hosts: HashMap::new(),
+            unreserved_hosts: HashSet::new(),
+            max_unreserved_hosts: config.snapshot_hosts_cache_size as usize,
             current_state_sync_hash: None,
-            discard_snapshot_infos_below_epoch_height: None,
+            current_epoch_height: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
@@ -337,10 +390,11 @@ impl SnapshotHostsCache {
         }))
     }
 
-    /// Updates the minimum epoch height to keep based on chain progression.
-    /// Snapshot infos older than STATE_SNAPSHOT_INFO_RETENTION_WINDOW epochs from the given epoch height will be discarded.
+    /// Records the epoch of the latest block header, as reported by the client once header sync
+    /// has caught up. Snapshot infos more than the retention window older, or more than
+    /// STATE_SNAPSHOT_INFO_MAX_EPOCHS_AHEAD newer, are discarded and no longer accepted.
     pub fn set_current_epoch_height(&self, epoch_height: EpochHeight) {
-        self.0.lock().update_discard_epoch_threshold(epoch_height);
+        self.0.lock().update_current_epoch_height(epoch_height);
     }
 
     /// Selects new data and verifies the signatures.
@@ -349,6 +403,7 @@ impl SnapshotHostsCache {
     async fn verify(
         &self,
         data: Vec<Arc<SnapshotHostInfo>>,
+        validators: &HashSet<PeerId>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Filter out any data which is invalid, outdated or which we already have.
         if data.iter().map(|d| d.peer_id().clone()).collect::<HashSet<_>>().len() != data.len() {
@@ -362,9 +417,25 @@ impl SnapshotHostsCache {
             // and the release after that will stop sending it. They are dropped without an
             // error so that nodes on this release don't ban peers on the next release.
             // TODO(network-overhaul): Accept them in the next release.
+            //
+            // Once the free slots are spoken for, infos that would need one are dropped before
+            // their signatures are checked: they could not be stored anyway, and this makes a
+            // replayed message cost nothing to process again.
+            let mut free_slots = inner.free_slots();
             data.into_iter()
                 .filter(|d| {
                     !d.shards().is_empty() && d.legacy_signature().is_some() && inner.is_new(d)
+                })
+                .filter(|d| {
+                    // Renewals and validators don't need a free slot.
+                    if validators.contains(d.peer_id()) || inner.hosts.contains_key(d.peer_id()) {
+                        return true;
+                    }
+                    if free_slots == 0 {
+                        return false;
+                    }
+                    free_slots -= 1;
+                    true
                 })
                 .collect_vec()
         };
@@ -386,35 +457,49 @@ impl SnapshotHostsCache {
     }
 
     /// Verifies the signatures and inserts verified data to the cache.
-    /// Returns the data inserted and optionally a verification error.
+    /// Infos from `validators` take reserved slots.
+    /// Returns the data inserted, which is what should be broadcast, and optionally a
+    /// verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
         self: &Self,
         data: Vec<Arc<SnapshotHostInfo>>,
+        validators: &HashSet<PeerId>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Execute verification on the rayon threadpool.
-        let (data, err) = self.verify(data).await;
+        let (data, err) = self.verify(data, validators).await;
         if data.is_empty() {
             return (vec![], err);
         }
         // Insert the successfully verified data. A concurrent insert may have stored a fresher
-        // info for the same host during verification, so freshness is checked again.
+        // info for the same host or taken the free slots during verification, so both are
+        // checked again.
         let mut inner = self.0.lock();
-        let data = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
+        let data = data
+            .into_iter()
+            .filter_map(|d| {
+                let kind = if validators.contains(d.peer_id()) {
+                    HostKind::Validator
+                } else {
+                    HostKind::Other
+                };
+                inner.try_insert(d, kind)
+            })
+            .collect();
         (data, err)
     }
 
     /// Skips signature verification. Used only for the local node's own information.
     pub fn insert_skip_verify(self: &Self, my_info: Arc<SnapshotHostInfo>) {
-        let _ = self.0.lock().try_insert(my_info);
+        let _ = self.0.lock().try_insert(my_info, HostKind::Own);
     }
 
     pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
-        self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
+        self.0.lock().hosts.values().cloned().collect()
     }
 
     pub(crate) fn get_host_info(&self, peer_id: &PeerId) -> Option<Arc<SnapshotHostInfo>> {
-        self.0.lock().hosts.peek(peer_id).cloned()
+        self.0.lock().hosts.get(peer_id).cloned()
     }
 
     /// Given a state header request, selects a peer host to which the request should be sent.

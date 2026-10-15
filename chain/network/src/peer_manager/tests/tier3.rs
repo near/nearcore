@@ -193,8 +193,11 @@ async fn advertise_snapshot(
         }
     };
     let info = Arc::new(info);
-    let (inserted, err) =
-        pm.with_state(move |s| async move { s.snapshot_hosts.insert(vec![info]).await }).await;
+    let (inserted, err) = pm
+        .with_state(
+            move |s| async move { s.snapshot_hosts.insert(vec![info], &HashSet::new()).await },
+        )
+        .await;
     assert_eq!((inserted.len(), err), (1, None));
 }
 
