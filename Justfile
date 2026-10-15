@@ -3,7 +3,7 @@
 platform_excludes := if os() == "macos" {
     "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
 } else if os() == "windows" {
-    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+    "--exclude near-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
     ""
 }
@@ -72,11 +72,11 @@ check-non-default:
     # Ensure that near-store builds without RocksDB (in-memory store only)
     RUSTFLAGS="-D warnings" \
     cargo check -p near-store --no-default-features
-    # Ensure that node-runtime builds on its own and does not pull RocksDB or cloud
+    # Ensure that near-runtime builds on its own and does not pull RocksDB or cloud
     # storage, so it can be used with only near-store's in-memory store
     RUSTFLAGS="-D warnings" \
-    cargo check -p node-runtime
-    deps="$(cargo tree -p node-runtime -e normal --target all --prefix none --format '{p}')" \
+    cargo check -p near-runtime
+    deps="$(cargo tree -p near-runtime -e normal --target all --prefix none --format '{p}')" \
         && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
 
 # check rust formatting

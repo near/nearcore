@@ -7,10 +7,10 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
+use near_runtime::{Runtime, state_viewer::TrieViewer};
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, TrieUpdate};
-use node_runtime::{Runtime, state_viewer::TrieViewer};
 use std::collections::HashSet;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 

@@ -36,7 +36,7 @@ near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 [features]
 nightly = [
@@ -47,7 +47,7 @@ nightly = [
     "near-o11y/nightly",
     "near-parameters/nightly",
     "near-primitives/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
 ]
 
 [package.metadata.cargo-machete]
