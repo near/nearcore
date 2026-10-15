@@ -142,11 +142,16 @@ fn test_update_sync_hashes_records_once_final() {
     const EPOCH_LENGTH: usize = 10;
 
     let mut chain = HeaderChain::non_spice();
-    chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
 
     let new_epoch = chain.push_full(EPOCH_ID_2, 5);
     // `new_epoch[3]` is the sync block, but the last final block is still `new_epoch[2]`.
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
     chain.push_full(EPOCH_ID_2, 1);
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), Some(new_epoch[3]));
+    chain.set_final_head(&new_epoch[3]);
+    assert_eq!(
+        derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
+        chain.recorded_sync_hash(&EPOCH_ID_2)
+    );
 }
