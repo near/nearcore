@@ -3384,7 +3384,7 @@ pub fn promise_batch_action_universal_state_init(
 /// Charge the given terms of the `UniversalStateInit` action fee.
 ///
 /// The terms come from `near_parameters`, shared with
-/// `node_runtime::config::universal_state_init_fee`, so a contract-created
+/// `near_runtime::config::universal_state_init_fee`, so a contract-created
 /// action prepays exactly the exec fee it is charged when it runs.
 ///
 /// `pay_action_per_byte` is just "fee times count". Entries and keys are

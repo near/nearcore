@@ -13,7 +13,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{Gas, StateRoot};
-use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
+use near_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.

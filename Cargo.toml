@@ -252,6 +252,7 @@ near-primitives-core = { path = "core/primitives-core" }
 near-replay-archive-tool = { path = "tools/replay-archive" }
 near-replay-tool = { path = "tools/replay" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
+near-runtime = { path = "runtime/runtime" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" }
@@ -267,7 +268,6 @@ near-undo-block = { path = "tools/undo-block" }
 near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 nix = "0.24"
-node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
