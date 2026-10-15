@@ -15,8 +15,8 @@ use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
-    Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
+    DeployContractAction, NonceMode, SignedTransaction, StakeAction, Transaction, TransactionNonce,
+    TransactionV0, TransactionV1, TransferAction,
 };
 #[cfg(feature = "clock")]
 use crate::types::SpiceChunkEndorsementStats;
@@ -140,7 +140,7 @@ impl Transaction {
         deposit: Balance,
     ) -> Self {
         self.actions_mut().push(Action::function_call_with_deposit(
-            &method_name,
+            method_name,
             args,
             gas,
             deposit,
@@ -423,7 +423,7 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::function_call_with_deposit(&method_name, args, gas, deposit)],
+            vec![Action::function_call_with_deposit(method_name, args, gas, deposit)],
             block_hash,
         )
     }
@@ -1440,26 +1440,6 @@ pub fn near_implicit_test_account_secret() -> SecretKey {
 /// A fixed ETH-implicit account.
 pub fn eth_implicit_test_account() -> AccountId {
     "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
-}
-
-impl Action {
-    pub fn function_call(method_name: &str, args: impl Into<Vec<u8>>, gas: Gas) -> Self {
-        Self::function_call_with_deposit(method_name, args, gas, Balance::ZERO)
-    }
-
-    pub fn function_call_with_deposit(
-        method_name: &str,
-        args: impl Into<Vec<u8>>,
-        gas: Gas,
-        deposit: Balance,
-    ) -> Self {
-        Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: method_name.to_string(),
-            args: args.into(),
-            gas,
-            deposit,
-        }))
-    }
 }
 
 impl FinalExecutionOutcomeView {

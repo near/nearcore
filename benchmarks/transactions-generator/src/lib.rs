@@ -9,8 +9,7 @@ use near_network::client::{ProcessTxRequest, ProcessTxResponse, TxStatusRequest}
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
-    Action, CreateAccountAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-    TransferAction,
+    Action, CreateAccountAction, DeployContractAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{
@@ -511,12 +510,7 @@ async fn ft_contract_account_init(
 
     let init_nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
 
-    let init_action = Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "new".to_string(),
-        args: init_args,
-        gas: Gas::from_teragas(200),
-        deposit: Balance::from_yoctonear(0),
-    }));
+    let init_action = Action::function_call("new", init_args, Gas::from_teragas(200));
 
     let block_hash = TxGenerator::get_latest_block(&view_client_sender).await?.hash;
     let init_tx = SignedTransaction::from_actions(
@@ -613,12 +607,12 @@ async fn ft_contract_register_accounts(
                 }))
                 .unwrap();
 
-                let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "storage_deposit".to_string(),
+                let action = Action::function_call_with_deposit(
+                    "storage_deposit",
                     args,
-                    gas: Gas::from_teragas(30),
-                    deposit: DEPOSIT,
-                }));
+                    Gas::from_teragas(30),
+                    DEPOSIT,
+                );
 
                 let tx = SignedTransaction::from_actions(
                     nonce,
@@ -738,12 +732,12 @@ async fn ft_contract_fund_accounts(
             }))
             .unwrap();
 
-            let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ft_transfer".to_string(),
+            let action = Action::function_call_with_deposit(
+                "ft_transfer",
                 args,
-                gas: Gas::from_teragas(100),
-                deposit: Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
-            }));
+                Gas::from_teragas(100),
+                Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
+            );
 
             let tx = SignedTransaction::from_actions(
                 nonce,
@@ -1001,12 +995,12 @@ impl FungibleTokenTxSender {
         .to_string()
         .into_bytes();
 
-        let action = Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ft_transfer".to_string(),
-            args: ft_transfer_args,
-            gas: Gas::from_teragas(100),
-            deposit: Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
-        }));
+        let action = Action::function_call_with_deposit(
+            "ft_transfer",
+            ft_transfer_args,
+            Gas::from_teragas(100),
+            Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
+        );
 
         let transaction = SignedTransaction::from_actions(
             nonce,

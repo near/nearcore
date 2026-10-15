@@ -4,10 +4,8 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_parameters::ExtCosts;
 use near_parameters::vm::{Config as VMConfig, VMKind};
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
-use near_primitives::types::{Balance, Gas};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::Gas;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
@@ -322,12 +320,7 @@ pub(crate) fn fn_cost_in_contract(
 }
 
 fn function_call_action(method_name: String) -> Action {
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name,
-        args: Vec::new(),
-        gas: Gas::from_teragas(1000),
-        deposit: Balance::ZERO,
-    }))
+    Action::function_call(method_name, Vec::new(), Gas::from_teragas(1000))
 }
 
 /// Takes a list of measurements of input blocks and returns the cost for a

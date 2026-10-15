@@ -764,7 +764,7 @@ fn make_send_receipt_transaction(
     last_block_hash: CryptoHash,
 ) -> SignedTransaction {
     // The receipt sent to `receiver_account` will call the `noop` method.
-    let method_name = "noop".to_string();
+    let method_name = "noop";
 
     // Find out how large a basic receipt with empty arguments will be.
     let base_receipt_template = Receipt::V0(ReceiptV0 {
@@ -777,7 +777,7 @@ fn make_send_receipt_transaction(
             gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::function_call(&method_name, Vec::new(), Gas::ZERO)],
+            actions: vec![Action::function_call(method_name, Vec::new(), Gas::ZERO)],
         }),
     });
     let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);

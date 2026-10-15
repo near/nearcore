@@ -833,15 +833,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         }
                         sender_account_id.try_set(&transfer_operation.account)?;
                     }
-                    actions.push(
-                        near_primitives::transaction::FunctionCallAction {
-                            method_name: function_call_operation.method_name,
-                            args: function_call_operation.args,
-                            gas: function_call_operation.attached_gas,
-                            deposit: function_call_operation.attached_amount,
-                        }
-                        .into(),
-                    )
+                    actions.push(near_primitives::transaction::Action::function_call_with_deposit(
+                        function_call_operation.method_name,
+                        function_call_operation.args,
+                        function_call_operation.attached_gas,
+                        function_call_operation.attached_amount,
+                    ))
                 }
                 crate::models::OperationType::DelegateAction => {
                     let delegate_action_operation =

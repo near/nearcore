@@ -38,9 +38,8 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, EccTransaction, ExecutionMetadata, ExecutionOutcome,
-    ExecutionOutcomeWithIdAndProof, ExecutionStatus, FunctionCallAction, NonceMode,
-    PartialExecutionOutcome, PartialExecutionStatus, SignedTransaction, StakeAction,
-    TransactionEnvelope, TransferAction,
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, NonceMode, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedTransaction, StakeAction, TransactionEnvelope, TransferAction,
 };
 use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
@@ -1655,12 +1654,7 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name,
-                    args: args.into(),
-                    gas,
-                    deposit,
-                }))
+                Action::function_call_with_deposit(method_name, args, gas, deposit)
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {

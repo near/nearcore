@@ -2877,7 +2877,7 @@ fn test_storage_proof_garbage() {
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::function_call_with_deposit(
-                &format!("internal_record_storage_garbage_{garbage_size_mb}"),
+                format!("internal_record_storage_garbage_{garbage_size_mb}"),
                 vec![],
                 Gas::from_teragas(300),
                 Balance::from_yoctonear(300000000000000),

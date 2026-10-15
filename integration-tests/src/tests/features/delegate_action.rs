@@ -732,7 +732,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
     let action = Action::function_call_with_deposit(
-        &method_name,
+        method_name,
         args,
         Gas::from_teragas(20),
         Balance::from_yoctonear(1),
