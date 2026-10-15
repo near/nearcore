@@ -1,9 +1,20 @@
+#[cfg(feature = "otlp")]
+use crate::reload::LogLayer;
 use crate::reload::SimpleLogLayer;
 use crate::{OpenTelemetryLevel, log_counter};
+#[cfg(feature = "otlp")]
+use near_crypto::PublicKey;
+#[cfg(feature = "otlp")]
+use near_primitives_core::types::AccountId;
 use std::path::PathBuf;
+use tracing::Subscriber;
 use tracing::subscriber::DefaultGuard;
+#[cfg(feature = "otlp")]
+use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
+#[cfg(feature = "otlp")]
+use tracing_subscriber::reload::{Handle, Layer as ReloadLayer};
 use tracing_subscriber::{EnvFilter, Layer, fmt};
 
 /// The resource representing a registered subscriber.
@@ -49,7 +60,7 @@ pub struct Options {
     record_io_trace: Option<PathBuf>,
 }
 
-impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
+impl<S: Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
     /// Register this default subscriber globally , for all threads.
     ///
     /// Must not be called more than once. Mutually exclusive with `Self::local`.
@@ -100,7 +111,7 @@ fn add_simple_log_layer<S, W>(
     subscriber: S,
 ) -> SimpleLogLayer<S, W>
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
     W: for<'writer> fmt::MakeWriter<'writer> + 'static,
 {
     let layer = fmt::layer()
@@ -123,15 +134,15 @@ fn get_fmt_span(with_span_events: bool) -> fmt::format::FmtSpan {
 #[cfg(feature = "otlp")]
 fn add_non_blocking_log_layer<S>(
     filter: EnvFilter,
-    writer: tracing_appender::non_blocking::NonBlocking,
+    writer: NonBlocking,
     ansi: bool,
     with_span_events: bool,
     subscriber: S,
-) -> (crate::reload::LogLayer<S>, tracing_subscriber::reload::Handle<EnvFilter, S>)
+) -> (LogLayer<S>, Handle<EnvFilter, S>)
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
-    let (filter, handle) = tracing_subscriber::reload::Layer::<EnvFilter, S>::new(filter);
+    let (filter, handle) = ReloadLayer::<EnvFilter, S>::new(filter);
 
     let layer = fmt::layer()
         .with_ansi(ansi)
@@ -155,7 +166,7 @@ pub fn make_io_tracing_layer<S>(
     tracing_appender::non_blocking::WorkerGuard,
 )
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+    S: Subscriber + for<'span> LookupSpan<'span>,
 {
     use std::io::BufWriter;
     let (base_io_layer, guard) = crate::io_tracer::IoTraceLayer::new(BufWriter::new(file));
@@ -190,7 +201,7 @@ pub(crate) fn use_color_auto() -> bool {
 pub fn default_subscriber(
     env_filter: EnvFilter,
     options: &Options,
-) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
+) -> DefaultSubscriberGuard<impl Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
     let color_output = use_color_output(options);
 
     let make_writer = || {
@@ -239,9 +250,9 @@ pub async fn default_subscriber_with_opentelemetry(
     env_filter: EnvFilter,
     options: &Options,
     chain_id: String,
-    node_public_key: near_crypto::PublicKey,
-    account_id: Option<near_primitives_core::types::AccountId>,
-) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
+    node_public_key: PublicKey,
+    account_id: Option<AccountId>,
+) -> DefaultSubscriberGuard<impl Subscriber + Send + Sync> {
     use crate::opentelemetry::add_opentelemetry_layer;
     use crate::reload::{set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle};
 

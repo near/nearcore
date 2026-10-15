@@ -20,6 +20,7 @@ ahash.workspace = true
 dashmap = { workspace = true, features = ["raw-api"] }
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
+# SmallKeyVec::new_const needs this even when the OTLP dependency chain is absent.
 smallvec = { workspace = true, features = ["const_new"] }
 futures.workspace = true
 enum-map.workspace = true
