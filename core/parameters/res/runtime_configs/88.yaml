@@ -1,3 +1,7 @@
+# Universal accounts: make `0u` account ids implicit, so a transfer can create
+# the account before its state init is applied.
+universal_accounts: { old: false, new: true }
+
 # Canonical universal state init: a `UniversalStateInit` is accepted only in the
 # one encoding that its decoded value re-encodes to, so each state init has exactly
 # one account id. Turns on the check behind the status that the

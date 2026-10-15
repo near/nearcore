@@ -21,10 +21,6 @@ fix_contract_loading_error: { old: false, new: true }
 # Enable the sha3_256, sha3_384 and sha3_512 (FIPS-202) host functions.
 sha3_host_fns: { old: false, new: true }
 
-# Universal accounts: make `0u` account ids implicit, so a transfer can create
-# the account before its state init is applied.
-universal_accounts: { old: false, new: true }
-
 # Bound the number of storage entries the state-init actions in one receipt may
 # carry, in total. Each entry costs `..._state_init_per_entry` to execute
 # (200 Ggas), and that lands in the receipt's congestion gas whether or not it is
