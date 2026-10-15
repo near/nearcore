@@ -149,6 +149,12 @@ After headers are synced, the node downloads the full state snapshot at a
 sync hash (near the beginning of the most recent epoch). For each shard the
 node tracks, it downloads state parts from peers and assembles the full state.
 
+Nodes learn about snapshot hosts through gossip and keep their infos only for
+epochs at most one epoch older than the latest block header. The client reports
+that header's epoch to the network once header sync has caught up, which happens
+before state sync starts, and again whenever it changes. Until the first report,
+infos for any epoch are accepted.
+
 State header and part requests are sent to snapshot hosts over Tier 3. The
 requester opens a Tier 3 connection to the address the host advertises and
 sends its requests over it, and the host sends the acknowledgements and the

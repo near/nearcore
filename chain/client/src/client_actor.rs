@@ -67,7 +67,7 @@ use near_network::client::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
 };
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::Tip;
@@ -75,7 +75,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
@@ -324,6 +324,8 @@ pub struct ClientActor {
     sync_timer_next_attempt: near_async::time::Utc,
     sync_started: bool,
     sync_jobs_sender: SyncJobsSenderForClient,
+    /// Epoch of the latest block header, as last reported to the network.
+    reported_header_head_epoch_height: Option<EpochHeight>,
 
     /// The target block height we're waiting for during fast-forward.
     /// Some iff sandbox fast forward is in progress.
@@ -469,6 +471,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             sync_started: false,
+            reported_header_head_epoch_height: None,
             #[cfg(feature = "sandbox")]
             fastforward_target_height: None,
             shutdown_signal,
@@ -1933,6 +1936,11 @@ impl ClientActor {
             }
         };
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
+        let highest_height = match &sync {
+            SyncRequirement::SyncNeeded { highest_height, .. }
+            | SyncRequirement::AlreadyCaughtUp { highest_height, .. } => Some(*highest_height),
+            SyncRequirement::NoPeers | SyncRequirement::AdvHeaderSyncDisabled => None,
+        };
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
@@ -1953,6 +1961,43 @@ impl ClientActor {
                 self.handle_sync_needed(highest_height);
             }
         }
+
+        if let Some(highest_height) = highest_height {
+            self.report_header_head_epoch(highest_height);
+        }
+    }
+
+    /// Reports the epoch of the latest block header to the network once header sync has brought
+    /// it within an epoch of `highest_height`, and again whenever that epoch changes. Headers
+    /// are verified, so the network can rely on this epoch to discard snapshot host infos for
+    /// past epochs. The epoch of the last processed block can't serve: on a node that is still
+    /// syncing it lags the network by many epochs.
+    fn report_header_head_epoch(&mut self, highest_height: BlockHeight) {
+        let header_head = match self.client.chain.header_head() {
+            Ok(header_head) => header_head,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "failed to read header head");
+                return;
+            }
+        };
+        // Within an epoch of the tip, the latest header is at most one epoch behind the network.
+        if header_head.height.saturating_add(self.client.chain.epoch_length) < highest_height {
+            return;
+        }
+        let epoch_height = match self.client.epoch_manager.get_epoch_info(&header_head.epoch_id) {
+            Ok(epoch_info) => epoch_info.epoch_height(),
+            Err(err) => {
+                tracing::debug!(target: "sync", ?err, "epoch of header head is not known yet");
+                return;
+            }
+        };
+        if self.reported_header_head_epoch_height == Some(epoch_height) {
+            return;
+        }
+        self.reported_header_head_epoch_height = Some(epoch_height);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed { epoch_height }),
+        ));
     }
 
     /// Handle the SyncRequirement::SyncNeeded.
