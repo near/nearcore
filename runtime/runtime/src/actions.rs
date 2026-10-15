@@ -942,7 +942,6 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
-
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedDelegateActionPayload, VersionedSignedDelegateAction,

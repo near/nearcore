@@ -7,9 +7,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce};
 
 fn test_setup() -> (TestEnv, Signer) {

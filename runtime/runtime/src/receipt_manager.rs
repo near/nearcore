@@ -369,7 +369,7 @@ impl ReceiptManager {
         }
     }
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
+    /// Attach the [`FunctionCallAction`](near_primitives::action::FunctionCallAction) action to an existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
