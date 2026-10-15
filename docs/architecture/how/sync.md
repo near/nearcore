@@ -157,7 +157,9 @@ keeps publishing, and a new host is admitted only into a free slot, so a peer
 cannot push known hosts out by flooding infos signed with fresh keys. Infos
 that get no slot are dropped before their signatures are checked and are not
 forwarded. The node's own info and the infos of validators' nodes, as listed in
-their `AccountData`, take reserved slots that don't count toward the limit.
+their `AccountData`, take reserved slots that don't count toward the limit. A
+validator's node is dropped once its `AccountData` stops listing it, so each
+validator holds at most one.
 
 Infos are kept only for epochs within one epoch of the latest block header. The
 client reports that header's epoch to the network once header sync has caught

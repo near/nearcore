@@ -172,6 +172,8 @@ struct Inner {
     hosts: HashMap<PeerId, Arc<SnapshotHostInfo>>,
     /// Hosts that occupy unreserved slots.
     unreserved_hosts: HashSet<PeerId>,
+    /// Hosts that occupy the reserved slots of validators.
+    validator_hosts: HashSet<PeerId>,
     /// Number of unreserved slots.
     max_unreserved_hosts: usize,
     /// The current sync hash being actively synced by this node. Used to reset peer selectors when changed.
@@ -217,7 +219,9 @@ impl Inner {
 
     /// Whether an info from `peer_id` can be stored.
     fn has_slot(&self, peer_id: &PeerId, kind: HostKind) -> bool {
-        kind.takes_reserved_slot() || self.hosts.contains_key(peer_id) || self.free_slots() > 0
+        kind.takes_reserved_slot()
+            || self.unreserved_hosts.contains(peer_id)
+            || self.free_slots() > 0
     }
 
     /// Inserts d into self.data, if it's new and there is a slot for it.
@@ -252,19 +256,45 @@ impl Inner {
         }
     }
 
+    fn remove(&mut self, peer_id: &PeerId) {
+        self.hosts.remove(peer_id);
+        self.unreserved_hosts.remove(peer_id);
+        self.validator_hosts.remove(peer_id);
+        self.remove_from_shard_hosts(peer_id);
+    }
+
     /// Inserts a new SnapshotHostInfo into the cache unconditionally:
     /// assumes that the info is valid and new, and that it has a slot
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>, kind: HostKind) {
         self.add_to_shard_hosts(d.as_ref());
-        // Renewals are reclassified, so a host that stopped being a validator moves into an
-        // unreserved slot even if none is free. The overshoot is bounded by validator churn
-        // and only delays new hosts until enough slots free up.
-        if kind.takes_reserved_slot() {
-            self.unreserved_hosts.remove(d.peer_id());
-        } else {
-            self.unreserved_hosts.insert(d.peer_id().clone());
+        // A renewal can move a host to another kind of slot, e.g. out of an unreserved slot
+        // once its node becomes a validator's.
+        self.unreserved_hosts.remove(d.peer_id());
+        self.validator_hosts.remove(d.peer_id());
+        match kind {
+            HostKind::Own => {}
+            HostKind::Validator => {
+                self.validator_hosts.insert(d.peer_id().clone());
+            }
+            HostKind::Other => {
+                self.unreserved_hosts.insert(d.peer_id().clone());
+            }
         }
         self.hosts.insert(d.peer_id().clone(), d.clone());
+    }
+
+    /// Removes the validators' hosts whose nodes are no longer in `validators`. AccountData
+    /// names a single node per validator, so this keeps each validator to one reserved slot.
+    fn remove_unlisted_validator_hosts(&mut self, validators: &HashSet<PeerId>) {
+        let unlisted: Vec<_> = self
+            .validator_hosts
+            .iter()
+            .filter(|peer_id| !validators.contains(*peer_id))
+            .cloned()
+            .collect();
+        for peer_id in &unlisted {
+            self.remove(peer_id);
+        }
     }
 
     /// Updates the current state sync hash. This is called when a local state sync request is initiated.
@@ -303,9 +333,7 @@ impl Inner {
             .map(|(peer_id, _)| peer_id.clone())
             .collect();
         for peer_id in &discarded {
-            self.hosts.remove(peer_id);
-            self.unreserved_hosts.remove(peer_id);
-            self.remove_from_shard_hosts(peer_id);
+            self.remove(peer_id);
         }
     }
 
@@ -380,6 +408,7 @@ impl SnapshotHostsCache {
         Self(Mutex::new(Inner {
             hosts: HashMap::new(),
             unreserved_hosts: HashSet::new(),
+            validator_hosts: HashSet::new(),
             max_unreserved_hosts: config.snapshot_hosts_cache_size as usize,
             current_state_sync_hash: None,
             current_epoch_height: None,
@@ -428,7 +457,9 @@ impl SnapshotHostsCache {
                 })
                 .filter(|d| {
                     // Renewals and validators don't need a free slot.
-                    if validators.contains(d.peer_id()) || inner.hosts.contains_key(d.peer_id()) {
+                    if validators.contains(d.peer_id())
+                        || inner.unreserved_hosts.contains(d.peer_id())
+                    {
                         return true;
                     }
                     if free_slots == 0 {
@@ -473,8 +504,10 @@ impl SnapshotHostsCache {
         }
         // Insert the successfully verified data. A concurrent insert may have stored a fresher
         // info for the same host or taken the free slots during verification, so both are
-        // checked again.
+        // checked again. Unlisted validators' hosts are removed under the same lock, so that
+        // concurrent inserts carrying different nodes for one validator can't each keep theirs.
         let mut inner = self.0.lock();
+        inner.remove_unlisted_validator_hosts(validators);
         let data = data
             .into_iter()
             .filter_map(|d| {

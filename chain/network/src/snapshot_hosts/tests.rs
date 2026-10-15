@@ -6,6 +6,7 @@ use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache, p
 use crate::testonly::assert_is_superset;
 use crate::testonly::{AsSet as _, make_rng};
 use crate::types::SnapshotHostInfo;
+use futures::future::join_all;
 use itertools::Itertools;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -407,20 +408,91 @@ async fn test_reserved_hosts_do_not_need_free_slot() {
     assert_eq!([&info0].as_set(), unwrap(&res).as_set());
 
     // A validator's host and this node's own info are admitted all the same.
+    let validators: HashSet<_> = [peer1.clone()].into_iter().collect();
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[0]), &key1));
-    let res = cache.insert(vec![info1.clone()], &[peer1].into_iter().collect()).await;
+    let res = cache.insert(vec![info1.clone()], &validators).await;
     assert_eq!([&info1].as_set(), unwrap(&res).as_set());
     let my_info = Arc::new(make_snapshot_host_info(&peer3, 123, sid_vec(&[0]), &key3));
     cache.insert_skip_verify(my_info.clone());
 
     // They don't take unreserved slots, which stay full.
     let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[0]), &key2));
-    let res = cache.insert(vec![info2], &HashSet::new()).await;
+    let res = cache.insert(vec![info2], &validators).await;
     assert!(unwrap(&res).is_empty());
     assert_eq!(
         [&info0, &info1, &my_info].as_set(),
         cache.get_hosts().iter().collect::<HashSet<_>>()
     );
+}
+
+#[tokio::test]
+async fn test_validator_holds_one_reserved_slot() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let config = Config { snapshot_hosts_cache_size: 1, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    // An ordinary host takes the only unreserved slot.
+    let ordinary_key = data::make_secret_key(rng);
+    let ordinary_peer = PeerId::new(ordinary_key.public_key());
+    let ordinary =
+        Arc::new(make_snapshot_host_info(&ordinary_peer, 123, sid_vec(&[0]), &ordinary_key));
+    let res = cache.insert(vec![ordinary.clone()], &HashSet::new()).await;
+    assert_eq!([&ordinary].as_set(), unwrap(&res).as_set());
+
+    // A validator points its AccountData at one fresh node after another, and each node
+    // publishes an info while it is listed.
+    let keys = (0..16).map(|_| data::make_secret_key(rng)).collect_vec();
+    let peers = keys.iter().map(|key| PeerId::new(key.public_key())).collect_vec();
+    let infos = keys
+        .iter()
+        .zip(&peers)
+        .map(|(key, peer)| Arc::new(make_snapshot_host_info(peer, 123, sid_vec(&[0]), key)))
+        .collect_vec();
+    for (peer, info) in peers.iter().zip(&infos) {
+        let res = cache.insert(vec![info.clone()], &[peer.clone()].into_iter().collect()).await;
+        assert_eq!([info].as_set(), unwrap(&res).as_set());
+    }
+
+    // Only the listed node keeps a reserved slot. The ones before it were dropped.
+    assert_eq!([&ordinary, &infos[15]].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+
+    // A dropped node can't renew its way back in without a free slot.
+    let renewal = Arc::new(make_snapshot_host_info(&peers[1], 124, sid_vec(&[0]), &keys[1]));
+    let res = cache.insert(vec![renewal], &[peers[15].clone()].into_iter().collect()).await;
+    assert!(unwrap(&res).is_empty());
+    assert_eq!(2, cache.get_hosts().len());
+}
+
+#[tokio::test]
+async fn test_concurrent_inserts_keep_one_reserved_slot_per_validator() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let config = Config { snapshot_hosts_cache_size: 1, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+    let cache = &cache;
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    // A validator moves from node to node while inserts are in flight, and each insert carries
+    // the node that was listed when it started.
+    let keys = (0..16).map(|_| data::make_secret_key(rng)).collect_vec();
+    let inserts = keys.iter().map(|key| {
+        let peer = PeerId::new(key.public_key());
+        let info = Arc::new(make_snapshot_host_info(&peer, 123, sid_vec(&[0]), key));
+        let validators: HashSet<_> = [peer].into_iter().collect();
+        async move { cache.insert(vec![info], &validators).await }
+    });
+    join_all(inserts).await;
+
+    // However the inserts interleave, the validator ends up with one reserved slot.
+    assert_eq!(1, cache.get_hosts().len());
 }
 
 #[tokio::test]
