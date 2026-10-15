@@ -142,28 +142,32 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
-        // Peers advertise their snapshots by the prev prev hash of the sync hash.
-        // We compute it here to pass as part of the network request.
-        // TODO(saketh): it would be nice to migrate the network layer to the same hash.
-        let prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())
-            .ok_or_else(|| {
-                near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
-            })?
-            .prev_hash();
-        let prev_prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())
-            .ok_or_else(|| {
-                near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
-            })?
-            .prev_hash();
+        // Peers advertise their snapshots by the block the snapshot was taken at, which is not
+        // the sync hash. We compute it here to pass as part of the network request.
+        let sync_header =
+            store.get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes()).ok_or_else(
+                || near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash)),
+            )?;
+        // Spice snapshots the state the sync block's own chunks left behind, so the snapshot
+        // sits at the sync block; otherwise it sits at the sync block's prev prev block.
+        let snapshot_hash = if sync_header.is_spice() {
+            key.sync_hash
+        } else {
+            let prev_hash = *sync_header.prev_hash();
+            *store
+                .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())
+                .ok_or_else(|| {
+                    near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
+                })?
+                .prev_hash()
+        };
 
         let network_request = match &key.part_or_header {
             PartOrHeader::Part { part_idx } => {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
-                    sync_prev_prev_hash: prev_prev_hash,
+                    snapshot_hash,
                     part_idx: *part_idx,
                 })
             }
@@ -171,7 +175,7 @@ impl StateSyncDownloadSourcePeer {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestHeader {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
-                    sync_prev_prev_hash: prev_prev_hash,
+                    snapshot_hash,
                 })
             }
         };

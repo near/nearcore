@@ -28,7 +28,9 @@ use near_schema_checker_lib::ProtocolSchema;
 pub struct SnapshotHostInfo {
     /// Id of the node serving the snapshot
     pub peer_id: PeerId,
-    /// Hash of the snapshot's state root
+    /// The block the snapshot was taken at. Without spice that is the block before the one
+    /// before the state sync hash; under spice it is the sync hash itself. Requests carry the
+    /// same hash as `snapshot_hash` so hosts can be matched to them.
     pub sync_hash: CryptoHash,
     /// Ordinal of the epoch of the state root
     pub epoch_height: EpochHeight,
