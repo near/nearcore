@@ -1,7 +1,11 @@
 use crate::opentelemetry::get_opentelemetry_filter;
 use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
+#[cfg(feature = "otlp")]
+use opentelemetry_sdk::trace::Tracer;
 use std::sync::OnceLock;
 use tracing_appender::non_blocking::NonBlocking;
+#[cfg(feature = "otlp")]
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::Filtered;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::reload::Handle;
@@ -37,11 +41,7 @@ pub(crate) type SimpleLogLayer<Inner, W> = Layered<
 
 #[cfg(feature = "otlp")]
 pub(crate) type TracingLayer<Inner> = Layered<
-    Filtered<
-        tracing_opentelemetry::OpenTelemetryLayer<Inner, opentelemetry_sdk::trace::Tracer>,
-        reload::Layer<EnvFilter, Inner>,
-        Inner,
-    >,
+    Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<EnvFilter, Inner>, Inner>,
     Inner,
 >;
 
