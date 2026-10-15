@@ -1,6 +1,6 @@
 /// Conversion functions for messages representing crypto primitives.
+use crate::decode_budget::decode_borsh;
 use crate::network_protocol::proto;
-use borsh::BorshDeserialize as _;
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -37,7 +37,7 @@ impl From<&PublicKey> for proto::PublicKey {
 impl TryFrom<&proto::PublicKey> for PublicKey {
     type Error = ParsePublicKeyError;
     fn try_from(p: &proto::PublicKey) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&p.borsh)
+        decode_borsh(&p.borsh)
     }
 }
 
@@ -67,6 +67,6 @@ impl From<&near_crypto::Signature> for proto::Signature {
 impl TryFrom<&proto::Signature> for near_crypto::Signature {
     type Error = ParseSignatureError;
     fn try_from(x: &proto::Signature) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }

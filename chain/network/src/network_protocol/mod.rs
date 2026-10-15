@@ -40,6 +40,7 @@ mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
+use crate::decode_budget;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
@@ -70,6 +71,7 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
@@ -464,7 +466,18 @@ pub enum ParsePeerMessageError {
     ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
     ProtoConv(#[source] proto_conv::ParsePeerMessageError),
+    #[error("MemoryBudget")]
+    MemoryBudget(#[source] io::Error),
 }
+
+/// Heap budget for decoding a peer message, per byte of its encoding.
+/// Decoding a message allocates the protobuf message and the borsh values
+/// decoded from it, and neither is freed before decoding ends.
+const DECODE_BUDGET_PER_ENCODED_BYTE: usize = 8;
+
+/// Minimum heap budget for decoding a peer message, so that small messages
+/// are not limited by fixed allocation overheads.
+const MIN_DECODE_BUDGET_BYTES: usize = 16 * MIB as usize;
 
 impl PeerMessage {
     /// Serializes a message and attaches current Span's context to the message.
@@ -475,7 +488,16 @@ impl PeerMessage {
         msg.write_to_bytes().unwrap()
     }
 
+    /// Fails with [`ParsePeerMessageError::MemoryBudget`] if decoding allocates
+    /// more than the budget for a message of this size; see [`decode_budget`].
     pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+        let budget =
+            data.len().saturating_mul(DECODE_BUDGET_PER_ENCODED_BYTE).max(MIN_DECODE_BUDGET_BYTES);
+        decode_budget::with_budget(budget, || Self::deserialize_unbudgeted(data))
+            .map_err(ParsePeerMessageError::MemoryBudget)?
+    }
+
+    fn deserialize_unbudgeted(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
         let span = tracing::trace_span!(target: "network", "deserialize").entered();
         Ok({
             let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)

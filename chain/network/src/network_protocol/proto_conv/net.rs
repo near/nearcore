@@ -1,9 +1,9 @@
 /// Conversion functions for the messages representing network primitives.
 use super::*;
+use crate::decode_budget::decode_borsh;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
-use borsh::BorshDeserialize as _;
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
@@ -85,7 +85,7 @@ pub type ParsePeerInfoError = std::io::Error;
 impl TryFrom<&proto::PeerInfo> for PeerInfo {
     type Error = ParsePeerInfoError;
     fn try_from(x: &proto::PeerInfo) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }
 
@@ -102,7 +102,7 @@ impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
 impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
     type Error = ParsePartialEdgeInfoError;
     fn try_from(p: &proto::PartialEdgeInfo) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&p.borsh)
+        decode_borsh(&p.borsh)
     }
 }
 
@@ -119,7 +119,7 @@ impl From<&Edge> for proto::Edge {
 impl TryFrom<&proto::Edge> for Edge {
     type Error = ParseEdgeError;
     fn try_from(x: &proto::Edge) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }
 
@@ -136,6 +136,6 @@ impl From<&AnnounceAccount> for proto::AnnounceAccount {
 impl TryFrom<&proto::AnnounceAccount> for AnnounceAccount {
     type Error = ParseAnnounceAccountError;
     fn try_from(x: &proto::AnnounceAccount) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }

@@ -1,4 +1,5 @@
 /// Proto conversion utilities.
+use crate::decode_budget::decode_borsh;
 use borsh::BorshDeserialize;
 use protobuf::MessageField as MF;
 use std::io;
@@ -12,10 +13,10 @@ pub struct ParseVecError<E> {
 }
 
 /// Borsh-deserializes `T` from `bytes`, rejecting inputs larger than `limit`
-/// before decoding so a maliciously inflated peer payload cannot force a large
-/// allocation at decode time. Use this for any peer-supplied borsh blob whose
-/// decoded form can be much larger than its wire size; `limit` must sit above
-/// the largest legitimate encoding of `T` and well below the peer-frame cap.
+/// bytes before decoding. This caps the encoded size only: the memory the
+/// decoded value takes is bounded by the decode budget; see
+/// [`crate::decode_budget`]. `limit` must sit above the largest legitimate
+/// encoding of `T` and well below the peer-frame cap.
 /// Returns `io::Error` so it composes with the borsh-based proto decode sites.
 pub fn try_from_slice_with_limit<T: BorshDeserialize>(bytes: &[u8], limit: usize) -> io::Result<T> {
     if bytes.len() > limit {
@@ -24,7 +25,7 @@ pub fn try_from_slice_with_limit<T: BorshDeserialize>(bytes: &[u8], limit: usize
             format!("encoded size {} exceeds the limit of {limit} bytes", bytes.len()),
         ));
     }
-    T::try_from_slice(bytes)
+    decode_borsh(bytes)
 }
 
 pub fn try_from_slice<'a, X, Y: TryFrom<&'a X>>(

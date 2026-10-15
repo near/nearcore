@@ -2,12 +2,14 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
+use near_network::decode_budget::{self, BudgetedAlloc};
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, Version};
 use near_store::db::metadata::DB_VERSION;
 use nearcore::get_default_home;
 use std::env;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use tikv_jemallocator::Jemalloc;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
@@ -41,10 +43,12 @@ fn neard_version() -> Version {
 static DEFAULT_HOME: LazyLock<PathBuf> = LazyLock::new(get_default_home);
 
 // cspell:words tikv jemallocator Jemalloc
+/// Charges allocations to the memory budget of peer message decoding.
 #[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static ALLOC: BudgetedAlloc<Jemalloc> = BudgetedAlloc(Jemalloc);
 
 fn main() -> anyhow::Result<()> {
+    assert!(decode_budget::is_enforced(), "decode budget allocator is not installed");
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
         unsafe { env::set_var("RUST_BACKTRACE", "1") };

@@ -21,6 +21,7 @@ pub mod concurrency;
 pub mod config;
 pub mod config_json;
 pub mod debug;
+pub mod decode_budget;
 pub mod raw;
 pub mod routing;
 pub mod shards_manager;

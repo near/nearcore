@@ -1,5 +1,6 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
+use crate::decode_budget::decode_borsh;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
@@ -9,12 +10,10 @@ use crate::network_protocol::{
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
-use borsh::BorshDeserialize as _;
 use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::Challenge;
-use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
@@ -74,7 +73,7 @@ pub type ParseBlockHeaderError = std::io::Error;
 impl TryFrom<&proto::BlockHeader> for Arc<BlockHeader> {
     type Error = ParseBlockHeaderError;
     fn try_from(x: &proto::BlockHeader) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }
 
@@ -91,7 +90,7 @@ pub type ParseBlockError = std::io::Error;
 impl TryFrom<&proto::Block> for Arc<Block> {
     type Error = ParseBlockError;
     fn try_from(x: &proto::Block) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }
 
@@ -108,7 +107,7 @@ pub type ParseStateInfoError = std::io::Error;
 impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
     type Error = ParseStateInfoError;
     fn try_from(x: &proto::StateResponseInfo) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
+        decode_borsh(&x.borsh)
     }
 }
 
@@ -189,7 +188,7 @@ impl TryFrom<&proto::OptimisticBlock> for OptimisticBlock {
     type Error = ParseOptimisticBlockError;
     fn try_from(p_ob: &proto::OptimisticBlock) -> Result<Self, Self::Error> {
         Ok(Self {
-            inner: OptimisticBlockInner::try_from_slice(&p_ob.inner).map_err(Self::Error::Inner)?,
+            inner: decode_borsh(&p_ob.inner).map_err(Self::Error::Inner)?,
             signature: try_from_required(&p_ob.signature).map_err(Self::Error::Signature)?,
             hash: try_from_required(&p_ob.hash).map_err(Self::Error::Hash)?,
         })
@@ -493,7 +492,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(Box::new(
-                Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
+                decode_borsh(&c.borsh).map_err(Self::Error::Challenge)?,
             )),
             ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
                 try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
