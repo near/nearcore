@@ -88,10 +88,13 @@ impl HeaderChain {
 
 #[test]
 fn test_derive_epoch_sync_hash_after_two_new_chunks_in_every_shard() {
+    const EPOCH_LENGTH: usize = 10;
+
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
-    let new_epoch = chain.push_full(EPOCH_ID_2, 5);
-    chain.set_final_head(&new_epoch[4]);
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let new_epoch = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH);
+    chain.set_final_head(new_epoch.last().unwrap());
+
     assert_eq!(
         derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
         Some(new_epoch[3])
@@ -100,25 +103,33 @@ fn test_derive_epoch_sync_hash_after_two_new_chunks_in_every_shard() {
 
 #[test]
 fn test_derive_epoch_sync_hash_missing_chunk_delays_it() {
+    const EPOCH_LENGTH: usize = 10;
+
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
     // The epoch's first block, which counts none, then one without shard 1's chunk.
     chain.push(EPOCH_ID_2, [true, true]);
     chain.push(EPOCH_ID_2, [true, false]);
-    let rest = chain.push_full(EPOCH_ID_2, 4);
+    let rest = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH - 2);
     chain.set_final_head(&rest[3]);
+
     // Shard 1 reaches its second new chunk only at `rest[1]`.
     assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(rest[2]));
 }
 
 #[test]
 fn test_derive_epoch_sync_hash_none_above_final_head() {
+    const EPOCH_LENGTH: usize = 10;
+
     let mut chain = HeaderChain::non_spice();
-    let old_epoch_end = chain.push_full(EPOCH_ID_1, 3)[2];
-    let new_epoch = chain.push_full(EPOCH_ID_2, 5);
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let new_epoch = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH);
+
     // `new_epoch[2]` reaches the threshold, but the block after it is not final yet.
     chain.set_final_head(&new_epoch[2]);
     assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), None);
+
+    // now block after it is final.
     chain.set_final_head(&new_epoch[3]);
     assert_eq!(
         derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
@@ -128,8 +139,11 @@ fn test_derive_epoch_sync_hash_none_above_final_head() {
 
 #[test]
 fn test_update_sync_hashes_records_once_final() {
+    const EPOCH_LENGTH: usize = 10;
+
     let mut chain = HeaderChain::non_spice();
-    chain.push_full(EPOCH_ID_1, 3);
+    chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
+
     let new_epoch = chain.push_full(EPOCH_ID_2, 5);
     // `new_epoch[3]` is the sync block, but the last final block is still `new_epoch[2]`.
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
