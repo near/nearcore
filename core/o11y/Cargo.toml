@@ -18,10 +18,10 @@ near-primitives-core.workspace = true
 
 base64.workspace = true
 clap.workspace = true
-opentelemetry.workspace = true
-opentelemetry_sdk.workspace = true
-opentelemetry-otlp.workspace = true
-opentelemetry-semantic-conventions.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -37,6 +37,20 @@ bencher.workspace = true
 itoa.workspace = true
 
 [features]
+default = ["otlp"]
+# OTLP span exporter behind `default_subscriber_with_opentelemetry` (pulls in
+# opentelemetry_sdk and tonic/hyper). Without it the logging subscribers, metrics
+# and `OpenTelemetryLevel` are still available.
+#
+# Crates that near-runtime depends on declare near-o11y directly with
+# `default-features = false`, so embedders of near-runtime do not build the
+# exporter. Binaries that depend on near-o11y through the workspace entry keep it.
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+]
 nightly = [
     "near-fmt/nightly",
     "near-primitives-core/nightly",

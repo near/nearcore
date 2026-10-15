@@ -28,7 +28,8 @@ tracing.workspace = true
 
 near-time.workspace = true
 near-crypto.workspace = true
-near-o11y = { workspace = true, optional = true }
+# No `otlp`: see the note on near-o11y's features. Keep on one line (cargo-workspaces).
+near-o11y = { path = "../o11y", default-features = false, optional = true }
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-config-utils.workspace = true
