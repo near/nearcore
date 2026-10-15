@@ -16,14 +16,18 @@ use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
     GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetLightClientChunkExecutionProof,
-    GetLightClientExecutionOutcomeProof, GetLightClientExecutionOutcomeProofResponse,
-    GetLightClientProofError, GetLightClientStateProof, GetLightClientStateProofResponse,
-    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProcessedReceiptIds,
-    GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges,
-    GetStateChangesInBlock, GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo,
-    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
-    Status, StatusResponse, TxStatus, TxStatusError, TxStatusOutcome,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
+    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx,
+    GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered,
+    ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse,
+    TxStatus, TxStatusError, TxStatusOutcome,
+};
+#[cfg(feature = "protocol_feature_spice")]
+use near_client::{
+    GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
+    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError,
+    GetLightClientStateProof, GetLightClientStateProofResponse,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -95,12 +99,14 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, ShardId, TransactionOrReceiptId,
 };
+#[cfg(feature = "protocol_feature_spice")]
+use near_primitives::views::ChunkExecutionProofView;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    GasPriceView, LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse,
-    ReceiptView, SplitStorageInfoView, StateChangeKindView, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView, TxExecutionStatus,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, GasPriceView,
+    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
+    SplitStorageInfoView, StateChangeKindView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView, TxExecutionStatus,
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
@@ -475,14 +481,17 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
     AsyncSender<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>,
     AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
+    #[cfg(feature = "protocol_feature_spice")]
     AsyncSender<
         GetLightClientChunkExecutionProof,
         Result<ChunkExecutionProofView, GetLightClientProofError>,
     >,
+    #[cfg(feature = "protocol_feature_spice")]
     AsyncSender<
         GetLightClientExecutionOutcomeProof,
         Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError>,
     >,
+    #[cfg(feature = "protocol_feature_spice")]
     AsyncSender<
         GetLightClientStateProof,
         Result<GetLightClientStateProofResponse, GetLightClientProofError>,
@@ -815,18 +824,24 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_light_client_block_proof" => {
                 process_method_call(request, |params| self.light_client_block_proof(params)).await
             }
+            // Spice-only: these read spice DB columns, which panic without the feature.
+            #[cfg(feature = "protocol_feature_spice")]
             "EXPERIMENTAL_light_client_chunk_execution_proof" => {
                 process_method_call(request, |params| {
                     self.light_client_chunk_execution_proof(params)
                 })
                 .await
             }
+            // Spice-only: these read spice DB columns, which panic without the feature.
+            #[cfg(feature = "protocol_feature_spice")]
             "EXPERIMENTAL_light_client_execution_outcome_proof" => {
                 process_method_call(request, |params| {
                     self.light_client_execution_outcome_proof(params)
                 })
                 .await
             }
+            // Spice-only: these read spice DB columns, which panic without the feature.
+            #[cfg(feature = "protocol_feature_spice")]
             "EXPERIMENTAL_light_client_state_proof" => {
                 process_method_call(request, |params| self.light_client_state_proof(params)).await
             }
@@ -2552,6 +2567,7 @@ impl JsonRpcHandler {
         })
     }
 
+    #[cfg(feature = "protocol_feature_spice")]
     async fn light_client_chunk_execution_proof(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientChunkExecutionProofRequest,
@@ -2571,6 +2587,7 @@ impl JsonRpcHandler {
         })
     }
 
+    #[cfg(feature = "protocol_feature_spice")]
     async fn light_client_execution_outcome_proof(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionOutcomeProofRequest,
@@ -2593,6 +2610,7 @@ impl JsonRpcHandler {
         )
     }
 
+    #[cfg(feature = "protocol_feature_spice")]
     async fn light_client_state_proof(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofRequest,
