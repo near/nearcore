@@ -251,7 +251,7 @@ where
 
 /// Zero-balance account (NEP-448)
 fn is_zero_balance_account(account: &near_primitives::views::AccountView) -> bool {
-    account.storage_usage <= node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
+    account.storage_usage <= near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
 
 /// Tokens not locked due to staking (=liquid) but reserved for state.

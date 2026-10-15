@@ -25,8 +25,8 @@ use near_primitives::merkle::merklize;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::state_witness::SpiceBoundaryChunkStateWitness;
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::PartialStorage;
-use node_runtime::SignedValidPeriodTransactions;
 use tracing::Span;
 
 /// An old-chunk replay of a boundary witness, derived from an on-chain block.
