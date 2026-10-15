@@ -72,12 +72,16 @@ check-non-default:
     # Ensure that near-store builds without RocksDB and cloud archive (in-memory only)
     RUSTFLAGS="-D warnings" \
     cargo check -p near-store --no-default-features
-    # Ensure that near-runtime builds on its own and does not pull RocksDB or cloud
-    # storage, so it can be used with only near-store's in-memory store
+    # Ensure that near-o11y builds without the OTLP exporter
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-o11y --no-default-features
+    # Ensure that near-runtime builds on its own and does not pull RocksDB, cloud
+    # storage or the OTLP exporter, so it can be used with only near-store's
+    # in-memory store
     RUSTFLAGS="-D warnings" \
     cargo check -p near-runtime
     deps="$(cargo tree -p near-runtime -e normal --target all --prefix none --format '{p}')" \
-        && printf '%s\n' "$deps" | awk '/^(rocksdb|object_store) v/ { print; found = 1 } END { exit found }'
+        && printf '%s\n' "$deps" | awk '/^(rocksdb|object_store|opentelemetry-otlp|tonic) v/ { print; found = 1 } END { exit found }'
 
 # check rust formatting
 check-cargo-fmt:
