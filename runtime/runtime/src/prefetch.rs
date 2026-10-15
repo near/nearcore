@@ -659,7 +659,7 @@ mod tests {
         let make_receipt = |gas| {
             let action = Action::function_call(
                 "record_batch",
-                br#"{"steps_batch":[["user.near",100]]}"#.to_vec(),
+                br#"{"steps_batch":[["user.near",100]]}"#,
                 gas,
             );
             Receipt::from_tx(

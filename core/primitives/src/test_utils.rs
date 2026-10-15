@@ -139,12 +139,12 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name,
+        self.actions_mut().push(Action::function_call_with_deposit(
+            &method_name,
             args,
             gas,
             deposit,
-        })));
+        ));
         self
     }
 
@@ -423,12 +423,7 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                args,
-                method_name,
-                gas,
-                deposit,
-            }))],
+            vec![Action::function_call_with_deposit(&method_name, args, gas, deposit)],
             block_hash,
         )
     }

@@ -21,7 +21,7 @@ use near_primitives::test_utils::{
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+    DeployContractAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
@@ -714,12 +714,7 @@ fn meta_tx_ft_transfer() {
 
 /// Call the function "log_something" in the test contract.
 fn log_something_fn_call() -> Action {
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: TEST_METHOD.to_owned(),
-        args: vec![],
-        gas: Gas::from_teragas(30),
-        deposit: Balance::ZERO,
-    }))
+    Action::function_call(TEST_METHOD, vec![], Gas::from_teragas(30))
 }
 
 /// Construct an function call action with a FT transfer.
@@ -736,12 +731,12 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     .collect();
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
-    let action = Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name,
+    let action = Action::function_call_with_deposit(
+        &method_name,
         args,
-        gas: Gas::from_teragas(20),
-        deposit: Balance::from_yoctonear(1),
-    }));
+        Gas::from_teragas(20),
+        Balance::from_yoctonear(1),
+    );
 
     (action, num_bytes as u64)
 }
@@ -756,12 +751,12 @@ fn ft_register_action(receiver: &str) -> Action {
     )
     .bytes()
     .collect();
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "storage_deposit".to_owned(),
+    Action::function_call_with_deposit(
+        "storage_deposit",
         args,
-        gas: Gas::from_teragas(20),
-        deposit: Balance::from_near(1),
-    }))
+        Gas::from_teragas(20),
+        Balance::from_near(1),
+    )
 }
 
 /// Format a NEP-141 event for an ft transfer

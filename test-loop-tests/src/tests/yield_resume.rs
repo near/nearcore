@@ -6,7 +6,7 @@ use crate::tests::yield_timeouts::{
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::block::ChunkType;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -137,12 +137,11 @@ fn test_yield_then_resume_one_block_apart() {
     let yield_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: yield_payload.clone(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_create_return_promise",
+            yield_payload.clone(),
+            Gas::from_teragas(300),
+        )],
     );
     let yield_tx_hash = env.validator().submit_tx(yield_transaction);
 
@@ -170,12 +169,11 @@ fn test_yield_then_resume_one_block_apart() {
     let resume_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
-            args: yield_payload,
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_resume_read_data_id_from_storage",
+            yield_payload,
+            Gas::from_teragas(300),
+        )],
     );
     env.validator().submit_tx(resume_transaction);
 
@@ -217,12 +215,11 @@ fn test_yield_then_resume_same_block() {
     let yield_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: yield_payload.clone(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_create_return_promise",
+            yield_payload.clone(),
+            Gas::from_teragas(300),
+        )],
     );
     let yield_tx_hash = env.validator().submit_tx(yield_transaction);
 
@@ -230,12 +227,11 @@ fn test_yield_then_resume_same_block() {
     let resume_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
-            args: yield_payload,
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_resume_read_data_id_from_storage",
+            yield_payload,
+            Gas::from_teragas(300),
+        )],
     );
     let resume_tx_hash = env.validator().submit_tx(resume_transaction);
 
@@ -285,18 +281,16 @@ fn test_yield_then_resume_two_actions() {
         &test_account,
         &test_account,
         vec![
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_create_return_promise".to_string(),
-                args: yield_payload.clone(),
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
-                args: yield_payload,
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "call_yield_create_return_promise",
+                yield_payload.clone(),
+                Gas::from_teragas(100),
+            ),
+            Action::function_call(
+                "call_yield_resume_read_data_id_from_storage",
+                yield_payload,
+                Gas::from_teragas(100),
+            ),
         ],
     );
     env.validator_runner()
@@ -333,24 +327,17 @@ fn test_yield_then_resume_two_actions_failure() {
         &test_account,
         &test_account,
         vec![
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_create_return_promise".to_string(),
-                args: yield_payload.clone(),
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "panic_with_message".to_string(),
-                args: Vec::new(),
-                gas: Gas::from_teragas(50),
-                deposit: Balance::ZERO,
-            })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
-                args: yield_payload,
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "call_yield_create_return_promise",
+                yield_payload.clone(),
+                Gas::from_teragas(100),
+            ),
+            Action::function_call("panic_with_message", Vec::new(), Gas::from_teragas(50)),
+            Action::function_call(
+                "call_yield_resume_read_data_id_from_storage",
+                yield_payload,
+                Gas::from_teragas(100),
+            ),
         ],
     );
 

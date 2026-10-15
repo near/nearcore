@@ -5294,7 +5294,7 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
         signers[0].clone(),
         vec![Action::function_call(
             "max_self_recursion_delay",
-            0u32.to_be_bytes().to_vec(),
+            0u32.to_be_bytes(),
             Gas::from_teragas(100),
         )],
     );
@@ -5304,7 +5304,7 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
         signers[1].clone(),
         vec![Action::function_call(
             "max_self_recursion_delay",
-            0u32.to_be_bytes().to_vec(),
+            0u32.to_be_bytes(),
             Gas::from_teragas(100),
         )],
     );

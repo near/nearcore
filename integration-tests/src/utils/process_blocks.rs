@@ -5,7 +5,7 @@ use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
+use near_primitives::action::{Action, DeployContractAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -176,12 +176,11 @@ pub fn prepare_env_with_congestion(
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&data).unwrap(),
-                gas: Gas::from_gas(gas_1),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call(
+                "call_promise",
+                serde_json::to_vec(&data).unwrap(),
+                Gas::from_gas(gas_1),
+            )],
             *genesis_block.hash(),
         );
         tx_hashes.push(signed_transaction.get_hash());

@@ -41,12 +41,7 @@ fn test_setup() -> (TestEnv, Signer) {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "write_random_value".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("write_random_value", vec![], Gas::from_teragas(100))],
         ),
         ProcessTxResponse::ValidTx
     );

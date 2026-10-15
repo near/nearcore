@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidTxError, ReceiptValidationError,
     TxExecutionError,
@@ -134,12 +134,7 @@ fn test_max_receipt_size_promise_return() {
             gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "noop".into(),
-                args: vec![],
-                gas: Gas::ZERO,
-                deposit: Balance::ZERO,
-            }))],
+            actions: vec![Action::function_call("noop", vec![], Gas::ZERO)],
         }),
     });
     let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);
