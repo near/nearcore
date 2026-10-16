@@ -43,6 +43,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 
 const EPOCH_LENGTH: BlockHeightDelta = 10;
+const CERTIFICATION_LAG: u64 = 5;
 const INITIAL_USER_BALANCE: Balance = Balance::from_near(10_000);
 
 pub(crate) fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
@@ -260,6 +261,47 @@ fn test_state_sync_simple_two_node() {
     env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_state_sync_with_certification_lag() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build();
+    env.deliver_spice_data();
+    env.delay_endorsements_propagation(CERTIFICATION_LAG);
+    env.node_runner(0).run_for_number_of_blocks(60);
+
+    // The delay has to have actually bitten, or this test quietly becomes a slower copy of
+    // `test_state_sync_simple_five_node` and stops covering anything.
+    for idx in 0..env.node_datas.len() {
+        let node = env.node(idx);
+        let head = node.head().height;
+        let certified = node.last_certified_block_header().height();
+        assert!(
+            head > certified + CERTIFICATION_LAG,
+            "node {idx}: certification lag is only {} - the delay did not take, so this test \
+             is not exercising a deep ancestry walk",
+            head - certified,
+        );
+    }
     assert_shard_shuffling_happened(&env, &clients);
 }
 

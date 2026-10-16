@@ -467,6 +467,8 @@ fn build_spice_test_block(
         .unwrap();
     let prev_last_certified_block_epoch_id =
         chain.spice_core_reader.prev_last_certified_block_epoch_id(prev_hash).unwrap();
+    let spice_state_sync_data =
+        chain.spice_core_reader.spice_state_sync_data_for_next_block(prev_block.header()).unwrap();
     let epoch_sync_data_hash = epoch_manager.compute_epoch_sync_data_hash(prev_hash).unwrap();
     TestBlockBuilder::from_prev_block(
         Clock::real(),
@@ -480,6 +482,7 @@ fn build_spice_test_block(
     .spice_core_statements(spice_core_statements)
     .spice_chunk_endorsement_stats(spice_chunk_endorsement_stats)
     .prev_last_certified_block_epoch_id(prev_last_certified_block_epoch_id)
+    .spice_state_sync_data(spice_state_sync_data)
     .epoch_sync_data_hash(epoch_sync_data_hash)
     .build()
 }
