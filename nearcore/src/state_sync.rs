@@ -192,7 +192,7 @@ struct ShardDump {
 struct DumpState {
     epoch_id: EpochId,
     epoch_height: EpochHeight,
-    sync_prev_prev_hash: CryptoHash,
+    snapshot_hash: CryptoHash,
     // Contains state for each shard we need to dump. We remove shard IDs from
     // this map as we finish them.
     dump_state: HashMap<ShardId, ShardDump>,
@@ -308,7 +308,7 @@ struct PartUploader {
     chain_id: String,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
-    sync_prev_prev_hash: CryptoHash,
+    snapshot_hash: CryptoHash,
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
@@ -358,7 +358,7 @@ impl PartUploader {
                 let _permit = self.obtain_parts.acquire().await.unwrap();
                 self.runtime.obtain_state_part(
                     self.shard_id,
-                    &self.sync_prev_prev_hash,
+                    &self.snapshot_hash,
                     &self.state_root,
                     part_id,
                 )
@@ -674,7 +674,7 @@ impl StateDumper {
             .get_epoch_info(sync_header.epoch_id())
             .with_context(|| format!("Failed getting epoch info {:?}", sync_header.epoch_id()))?;
         let sync_prev_header = self.get_block_header(sync_header.prev_hash())?;
-        let sync_prev_prev_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
         let shard_ids = self
             .epoch_manager
             .shard_ids(sync_header.epoch_id())
@@ -713,7 +713,7 @@ impl StateDumper {
             DumpState {
                 epoch_id: *sync_header.epoch_id(),
                 epoch_height: epoch_info.epoch_height(),
-                sync_prev_prev_hash,
+                snapshot_hash,
                 dump_state,
                 canceled: Arc::new(AtomicBool::new(false)),
             },
@@ -765,7 +765,7 @@ impl StateDumper {
                     chain_id: self.chain_id.clone(),
                     epoch_id: dump.epoch_id,
                     epoch_height: dump.epoch_height,
-                    sync_prev_prev_hash: dump.sync_prev_prev_hash,
+                    snapshot_hash: dump.snapshot_hash,
                     shard_id: *shard_id,
                     state_root: shard_dump.state_root,
                     num_parts: shard_dump.num_parts,

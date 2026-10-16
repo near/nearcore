@@ -10,6 +10,7 @@ use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
+use near_chain::state_snapshot_actor::snapshot_hash_for_block;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1203,11 +1204,11 @@ fn slow_test_process_block_after_state_sync() {
         .unwrap();
     let state_root = header.synced_state_root();
     let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let sync_prev_prev_hash = sync_prev_header.prev_hash();
+    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+        .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
         .unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
@@ -3435,10 +3436,10 @@ mod contract_precompilation_tests {
         let state_root = state_sync_header.synced_state_root();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let sync_prev_prev_hash = sync_prev_header.prev_hash();
+        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+            .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
