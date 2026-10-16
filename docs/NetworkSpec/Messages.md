@@ -116,7 +116,7 @@ struct Edge {
     signature0: Signature,
     signature1: Signature,
     /// Info necessary to declare an edge as removed.
-    /// The bool says which party is removing the edge: false for Peer0, true for Peer1
+    /// The bool says which party is removing the edge: true for Peer0, false for Peer1.
     /// The signature from the party removing the edge.
     removal_info: Option<(bool, Signature)>,
 }
