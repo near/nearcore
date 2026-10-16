@@ -1,5 +1,4 @@
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::BufWriter;
@@ -69,30 +68,19 @@ impl LatenciesCsv {
         Ok(Self { out: BufWriter::new(f) })
     }
 
-    pub fn write(
-        &mut self,
-        peer_id: &PeerId,
-        account_id: Option<&AccountId>,
-        latency: near_time::Duration,
-    ) -> io::Result<()> {
-        let id = account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a));
+    pub fn write(&mut self, peer_id: &PeerId, latency: near_time::Duration) -> io::Result<()> {
         write!(
             self.out,
             "{:?},{},{}\n",
             chrono::offset::Utc::now(),
-            id,
+            peer_id,
             latency.whole_microseconds()
         )?;
         Ok(())
     }
 
-    pub fn write_timeout(
-        &mut self,
-        peer_id: &PeerId,
-        account_id: Option<&AccountId>,
-    ) -> io::Result<()> {
-        let id = account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a));
-        write!(self.out, "{:?},{},TIMEOUT\n", chrono::offset::Utc::now(), id)?;
+    pub fn write_timeout(&mut self, peer_id: &PeerId) -> io::Result<()> {
+        write!(self.out, "{:?},{},TIMEOUT\n", chrono::offset::Utc::now(), peer_id)?;
         Ok(())
     }
 }

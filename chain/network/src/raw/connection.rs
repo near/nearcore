@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody, TieredMessageBody,
+    Ping, Pong, RawRoutedMessage, T2MessageBody, TieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo};
@@ -12,7 +12,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use std::fmt;
@@ -76,7 +76,6 @@ impl fmt::Debug for RoutedMessage {
 // Connection::recv()
 #[derive(Clone, strum::IntoStaticStr)]
 pub enum DirectMessage {
-    AnnounceAccounts(Vec<AnnounceAccount>),
     BlockRequest(CryptoHash),
     Block(Arc<Block>),
     BlockHeadersRequest(Vec<CryptoHash>),
@@ -92,7 +91,6 @@ impl fmt::Display for DirectMessage {
 impl fmt::Debug for DirectMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AnnounceAccounts(a) => write!(f, "AnnounceAccounts({:?})", a),
             Self::BlockRequest(r) => write!(f, "BlockRequest({})", r),
             Self::Block(b) => write!(f, "Block(#{} {})", b.header().height(), b.header().hash()),
             Self::BlockHeadersRequest(r) => write!(f, "BlockHeadersRequest({:?})", r),
@@ -362,9 +360,6 @@ impl Connection {
     // Try to send a PeerMessage corresponding to the given DirectMessage
     pub async fn send_message(&mut self, msg: DirectMessage) -> io::Result<()> {
         let peer_msg = match msg {
-            DirectMessage::AnnounceAccounts(accounts) => {
-                PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges: Vec::new(), accounts })
-            }
             DirectMessage::BlockRequest(h) => PeerMessage::BlockRequest(h),
             DirectMessage::Block(b) => PeerMessage::Block(b),
             DirectMessage::BlockHeadersRequest(h) => PeerMessage::BlockHeadersRequest(h),
@@ -461,12 +456,6 @@ impl Connection {
                     if let Some(msg) = self.recv_routed_msg(&r) {
                         return Ok((Message::Routed(msg), timestamp));
                     }
-                }
-                PeerMessage::SyncRoutingTable(r) => {
-                    return Ok((
-                        Message::Direct(DirectMessage::AnnounceAccounts(r.accounts)),
-                        timestamp,
-                    ));
                 }
                 PeerMessage::BlockRequest(hash) => {
                     return Ok((Message::Direct(DirectMessage::BlockRequest(hash)), timestamp));

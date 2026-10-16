@@ -15,7 +15,6 @@ EPOCH_LENGTH = 40
 STOP_HEIGHT1 = 35
 TIMEOUT = 50
 
-config1 = {"network": {"ttl_account_id_router": {"secs": 1, "nanos": 0},}}
 nodes = start_cluster(
     2, 0, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 30],
@@ -24,7 +23,7 @@ nodes = start_cluster(
      [
          "records", 0, "Account", "account", "locked",
          "150000000000000000000000000000000"
-     ], ["total_supply", "3100000000000000000000000000000000"]], {1: config1})
+     ], ["total_supply", "3100000000000000000000000000000000"]], {})
 time.sleep(2)
 
 block = nodes[1].get_block(nodes[1].get_latest_block().height)
