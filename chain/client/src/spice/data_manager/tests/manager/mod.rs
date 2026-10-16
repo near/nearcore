@@ -29,6 +29,7 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
+mod serve;
 mod traversal;
 
 /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
@@ -130,6 +131,30 @@ impl DataPolicy for TestPolicy {
 
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.chain_policies.made_pullable_by(block)
+    }
+
+    fn names_known_shards(&self, id: &DataId) -> Result<bool, Error> {
+        self.chain_policies.names_known_shards(id)
+    }
+
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let from_shard: u64 = source.shard_id.into();
+        Ok(self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers).clone())
+    }
+
+    fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
+        let producers = self.producers(id)?;
+        Ok(self
+            .chain_policies
+            .recipients(id)?
+            .into_iter()
+            .filter(|account| !producers.contains(account))
+            .collect())
+    }
+
+    fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
+        self.chain_policies.stored_data(id)
     }
 }
 

@@ -1,5 +1,6 @@
-use super::DataId;
-use crate::spice::chunk_executor_actor::receipt_proof_exists;
+use super::DataPolicy;
+use crate::spice::chunk_executor_actor::{get_receipt_proof, receipt_proof_exists};
+use crate::spice::data_manager::{DataId, SpiceData};
 use near_chain::spice::boundary::shards_applied_itself;
 use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
@@ -7,28 +8,12 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-/// Policy to query a fetchable data type's chain-dependent properties: relevance,
-/// doneness, who holds the data, etc.
-pub(crate) trait DataPolicy {
-    /// The ids of this type that this node needs from `block`, each with its producers in
-    /// the parts' encoding order.
-    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
-    // witnesses move onto the engine (#16275).
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error>;
-
-    /// Whether the durable artifact this item exists to obtain is already in the store.
-    fn is_done(&self, id: &DataId) -> bool;
-
-    /// The ids of this type that `block` makes pullable, tracked or not.
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
-}
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
 /// the destination shard in the next block; done once the proof is persisted.
@@ -70,6 +55,10 @@ impl ReceiptProofPolicy {
             })
             .collect();
         Ok(NeededShards { sources, destinations })
+    }
+
+    fn in_layout(&self, epoch_id: &EpochId, shard_id: ShardId) -> Result<bool, Error> {
+        Ok(self.epoch_manager.get_shard_layout(epoch_id)?.shard_ids().any(|id| id == shard_id))
     }
 }
 
@@ -128,5 +117,51 @@ impl DataPolicy for ReceiptProofPolicy {
             }
         }
         Ok(ids)
+    }
+
+    /// The source shard is read against the source block's layout, the destination shard
+    /// against the next block's.
+    fn names_known_shards(&self, id: &DataId) -> Result<bool, Error> {
+        let DataId::ReceiptProof { source, to_shard } = id;
+        let header = self.chain_store.get_block_header(&source.block_hash)?;
+        let next_block_epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
+        Ok(self.in_layout(header.epoch_id(), source.shard_id)?
+            && self.in_layout(&next_block_epoch_id, *to_shard)?)
+    }
+
+    // TODO(spice-resharding): validate whether the source and destination shards are correct
+    // when resharding.
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let header = self.chain_store.get_block_header(&source.block_hash)?;
+        Ok(self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(header.epoch_id(), source.shard_id)?)
+    }
+
+    /// The destination shard's chunk producers for the next block.
+    fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
+        let DataId::ReceiptProof { source, to_shard } = id;
+        let next_block_epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
+        let producers = self.producers(id)?;
+        Ok(self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, *to_shard)?
+            .into_iter()
+            .filter(|account| !producers.contains(account))
+            .collect())
+    }
+
+    fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
+        let DataId::ReceiptProof { source, to_shard } = id;
+        get_receipt_proof(
+            self.chain_store.store_ref(),
+            &source.block_hash,
+            *to_shard,
+            source.shard_id,
+        )
+        .map(SpiceData::ReceiptProof)
     }
 }

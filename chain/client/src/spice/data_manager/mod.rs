@@ -1,20 +1,20 @@
 //! Fetch-engine state for SPICE data distribution.
 
 mod data_id;
+mod encode;
 mod fetchable;
 mod item;
 mod pending;
 mod pull;
+mod serve;
 
 pub use data_id::DataId;
-pub(crate) use fetchable::DataPolicy;
-use fetchable::ReceiptProofPolicy;
+pub(crate) use encode::{EncodedData, encode};
+pub(crate) use fetchable::{DataPolicy, Policies};
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::{Block, Error};
-use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
@@ -24,6 +24,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
 use pull::Pulls;
 pub(crate) use pull::{PullConfig, PullRequest};
+pub(crate) use serve::{Push, ServeError, Served};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
@@ -62,43 +63,6 @@ pub(crate) enum PartsOutcome {
     AlreadySettled,
     /// No item tracks the id.
     NotWanted,
-}
-
-/// The per-data-type policies, one per [`DataId`] variant.
-pub(crate) struct Policies {
-    receipt_proofs: ReceiptProofPolicy,
-}
-
-impl Policies {
-    pub(crate) fn new(
-        chain_store: ChainStoreAdapter,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
-    ) -> Self {
-        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
-    }
-
-    fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
-        match id {
-            DataId::ReceiptProof { .. } => &self.receipt_proofs,
-        }
-    }
-}
-
-/// Fans out per-block queries over every policy; dispatches per-id calls to the policy
-/// of `id`'s data type.
-impl DataPolicy for Policies {
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
-        self.receipt_proofs.needed_items(block)
-    }
-
-    fn is_done(&self, id: &DataId) -> bool {
-        self.for_id(id).is_done(id)
-    }
-
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        self.receipt_proofs.made_pullable_by(block)
-    }
 }
 
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
