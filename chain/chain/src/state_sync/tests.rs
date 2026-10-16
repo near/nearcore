@@ -41,7 +41,29 @@ impl HeaderChain {
         chain
     }
 
+    #[cfg(feature = "protocol_feature_spice")]
+    fn spice() -> Self {
+        let chain = Self::new(ProtocolFeature::Spice.protocol_version());
+        assert!(chain.headers[0].is_spice());
+        chain
+    }
+
     fn push(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
+        self.push_header(epoch_id, chunk_mask, true)
+    }
+
+    /// Appends a header the node never stored, as epoch sync leaves gaps.
+    #[cfg(feature = "protocol_feature_spice")]
+    fn push_unsaved(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
+        self.push_header(epoch_id, chunk_mask, false)
+    }
+
+    fn push_header(
+        &mut self,
+        epoch_id: EpochId,
+        chunk_mask: [bool; NUM_SHARDS],
+        save: bool,
+    ) -> CryptoHash {
         let prev = self.headers.last().unwrap().clone();
         let mut header = BlockHeader::clone(&prev);
         header.set_prev_hash(*prev.hash());
@@ -54,6 +76,10 @@ impl HeaderChain {
         header.set_last_final_block(*last_final.hash());
         header.init();
         let block_hash = *header.hash();
+        if !save {
+            self.headers.push(Arc::new(header));
+            return block_hash;
+        }
         let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::BlockHeader, block_hash.as_ref(), &header);
         store_update.set_ser(DBCol::NextBlockHashes, prev.hash().as_ref(), &block_hash);
@@ -152,4 +178,76 @@ fn test_update_sync_hashes_records_once_final() {
         derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
         chain.recorded_sync_hash(&EPOCH_ID_2)
     );
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_derive_epoch_sync_hash_spice_is_epoch_first_block() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let first = chain.push(EPOCH_ID_2, [true, false]);
+    chain.push(EPOCH_ID_2, [false, true]);
+    chain.push(EPOCH_ID_2, [true, false]);
+    chain.set_final_head(&first);
+
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(first));
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_derive_epoch_sync_hash_spice_none_before_first_block_is_final() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    chain.push_full(EPOCH_ID_2, 3);
+    chain.set_final_head(&old_epoch_end);
+
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), None);
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_update_sync_hashes_spice_records_first_block_once_final() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let first = chain.push(EPOCH_ID_2, [true, false]);
+    chain.push(EPOCH_ID_2, [false, true]);
+
+    // The last final block is still in the first epoch.
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
+    chain.push(EPOCH_ID_2, [true, false]);
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), Some(first));
+    chain.set_final_head(&first);
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(first));
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_update_sync_hashes_spice_epoch_after_genesis() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let epoch = chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
+
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_1), Some(epoch[0]));
+}
+
+/// A header missing on the way back to the epoch's first block, as epoch sync leaves, means
+/// the first block cannot be named, so nothing is recorded.
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_update_sync_hashes_spice_none_across_header_gap() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
+    chain.push_unsaved(EPOCH_ID_2, [true, true]);
+    chain.push_full(EPOCH_ID_2, EPOCH_LENGTH - 1);
+
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
 }
