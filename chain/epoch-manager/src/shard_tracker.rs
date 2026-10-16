@@ -80,22 +80,32 @@ impl ShardTracker {
         }
     }
 
+    fn shard_exists_in_epoch(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        Ok(shard_layout.shard_ids().contains(&shard_id))
+    }
+
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
-        // TODO(#13445): Add a debug assertion that shard exists in the epoch.
+        if !self.shard_exists_in_epoch(shard_id, epoch_id)? {
+            if cfg!(debug_assertions) {
+                panic!("shard {shard_id} does not exist in the shard layout of epoch {epoch_id:?}");
+            }
+
+            return Ok(false);
+        }
+
         match &self.tracked_shards_config {
             TrackedShardsConfig::NoShards => Ok(false),
             TrackedShardsConfig::AllShards => Ok(true),
             TrackedShardsConfig::Shards(tracked_shards) => {
-                // TODO(#13445): Turn the check below into a debug assert and call it earlier,
-                // for all `tracked_shards_config` variants.
-                let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                if !shard_layout.shard_ids().contains(&shard_id) {
-                    return Ok(false);
-                }
                 self.check_if_descendant_of_tracked_shard(shard_id, tracked_shards, epoch_id)
             }
             TrackedShardsConfig::Accounts(tracked_accounts) => {
@@ -118,6 +128,10 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
+        if !self.shard_exists_in_epoch(shard_id, epoch_id)? {
+            return Ok(false);
+        }
+
         // Does this node track the shard based on the TrackedShardsConfig?
         if self.tracks_shard_at_epoch(shard_id, epoch_id)? {
             return Ok(true);
@@ -148,7 +162,20 @@ impl ShardTracker {
         prev_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+        if !self.epoch_manager.will_shard_layout_change(prev_hash)? {
+            return self.tracks_shard_at_epoch(shard_id, &epoch_id);
+        }
+
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let Some(children_shard_ids) = shard_layout.get_children_shards_ids(shard_id) else {
+            return Ok(false);
+        };
+        for child_shard_id in children_shard_ids {
+            if self.tracks_shard_at_epoch(child_shard_id, &epoch_id)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn tracks_shard_prev_epoch_from_prev_block(
@@ -156,8 +183,20 @@ impl ShardTracker {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
-        let epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
-        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let prev_epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let prev_shard_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+
+        let shard_id = if shard_layout == prev_shard_layout {
+            shard_id
+        } else {
+            match shard_layout.try_get_parent_shard_id(shard_id)? {
+                Some(parent_shard_id) => parent_shard_id,
+                None => return Ok(false),
+            }
+        };
+        self.tracks_shard_at_epoch(shard_id, &prev_epoch_id)
     }
 
     /// Whether the client cares about some shard in a specific epoch.
@@ -931,13 +970,6 @@ mod tests {
                 .get_tracked_shards_for_non_validator_in_epoch(&epoch_id_after_first_resharding)
                 .unwrap(),
             vec![left_child_shard_uid],
-        );
-        // We currently return false if a ShardID is passed that does not belong to the given epoch.
-        // TODO(#13445): Turn this into an error or panic once we can guarantee that a valid ShardID is always provided.
-        assert!(
-            !tracker
-                .tracks_shard_at_epoch(ShardId::new(42), &epoch_id_after_first_resharding)
-                .unwrap()
         );
     }
 
