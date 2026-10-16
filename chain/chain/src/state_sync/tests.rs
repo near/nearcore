@@ -49,13 +49,13 @@ impl HeaderChain {
     }
 
     fn push(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
-        self.push_header(epoch, chunk_mask, /*save=*/ true)
+        self.push_header(epoch_id, chunk_mask, true)
     }
 
     /// Appends a header the node never stored, as epoch sync leaves gaps.
     #[cfg(feature = "protocol_feature_spice")]
     fn push_unsaved(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
-        self.push_header(epoch, chunk_mask, /*save=*/ false)
+        self.push_header(epoch_id, chunk_mask, false)
     }
 
     fn push_header(
@@ -218,7 +218,7 @@ fn test_update_sync_hashes_spice_records_first_block_once_final() {
     let first = chain.push(EPOCH_ID_2, [true, false]);
     chain.push(EPOCH_ID_2, [false, true]);
 
-    // The last final block is still in epoch "a".
+    // The last final block is still in the first epoch.
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
     chain.push(EPOCH_ID_2, [true, false]);
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), Some(first));
