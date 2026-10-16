@@ -180,8 +180,8 @@ fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_
     save_and_record_block(&mut chain, &certifier);
     manager.track_block(&certifier);
 
-    assert!(manager.manager.is_pullable(&canonical_id));
-    assert!(!manager.manager.is_pullable(&fork_id));
+    assert!(manager.is_pullable(&canonical_id));
+    assert!(!manager.is_pullable(&fork_id));
 }
 
 #[test]
@@ -197,49 +197,41 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
 
     let requests = wants_for(manager.on_block_processed(&certifier), &id);
-    let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-        .collect();
-    assert_eq!(requests, own_ordinal_asks);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn an_item_tracked_after_its_certifying_block_is_pulled() {
-    let (chain, blocks) = chain_with_blocks(2);
-    let id = receipt_id(&blocks[0], 0, 1);
-    let mut manager = TestManager::new(&chain);
-    manager.certify_up_to(1);
-
-    manager.track_block(&blocks[0]);
-
-    let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
-    let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
+fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let manager = TestManager::new(&chain);
+    let chunk_ids: Vec<SpiceChunkId> = (0..2)
+        .map(|shard| SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(shard) })
         .collect();
-    assert_eq!(requests, own_ordinal_asks);
+    let certifier = certifying_block(&blocks[0], &chunk_ids);
+
+    let made_pullable: HashSet<DataId> =
+        manager.manager.policies.made_pullable_by(&certifier).unwrap().into_iter().collect();
+    assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn certified_chunks_are_forgotten_at_the_final_execution_head() {
+fn expiry_drops_the_expired_items_from_every_index() {
     let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
-    manager.track_needed_proof(&blocks[0]);
+    let expired = manager.track_needed_proof(&blocks[0]);
+    let live = manager.track_needed_proof(&blocks[1]);
     manager.certify_up_to(2);
-    assert_eq!(manager.manager.certified.len(), 4);
+    manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
+    manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
     manager.set_final_execution_head(&blocks[0]);
     manager.on_block_processed(&blocks[2]);
-    assert!(manager.manager.certified.values().all(|height| *height == 2));
 
-    manager.set_final_execution_head(&blocks[1]);
-    manager.on_block_processed(&blocks[2]);
-    assert!(manager.manager.certified.is_empty());
+    manager.assert_forgotten(&expired);
+    assert!(manager.is_pullable(&live));
+    assert!(manager.manager.delivered_items.contains(&live));
 }
 
 #[test]
@@ -261,7 +253,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its
@@ -292,22 +284,20 @@ fn a_done_item_is_removed_at_the_processed_block_without_a_request() {
     let requests = manager.on_block_processed(&blocks[1]);
 
     assert_eq!(requests, vec![]);
-    assert!(!manager.is_tracking(&id));
-    assert!(!manager.manager.items_by_height.contains_key(&blocks[0].header().height()));
+    manager.assert_forgotten(&id);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn producers_are_resolved_when_the_item_is_tracked_and_never_at_the_trigger() {
-    let (chain, blocks) = chain_with_blocks(2);
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 2);
     let block = &blocks[0];
-    let mut manager = TestManager::new(&chain);
-    manager.set_extra_pairs(vec![(1, 1)]);
+    let mut manager = TestManager::applying(&chain, 2);
     let shard1_producers: Vec<AccountId> =
         (0..TOTAL_PARTS).map(|i| account(&format!("shard1-producer{i}.near"))).collect();
     manager.set_producers_for(1, shard1_producers.clone());
-    let from_shard0 = receipt_id(block, 0, 1);
-    let from_shard1 = receipt_id(block, 1, 1);
+    let from_shard0 = receipt_id(block, 0, 2);
+    let from_shard1 = receipt_id(block, 1, 2);
 
     manager.track_block(&block);
 

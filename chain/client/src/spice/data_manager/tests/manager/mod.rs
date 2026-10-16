@@ -29,11 +29,18 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
+mod traversal;
 
 /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
 /// height `i + 1`.
 fn chain_with_blocks(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
-    let mut chain = get_chain_with_num_shards(Clock::real(), 2);
+    chain_with_shards_and_blocks(2, num_blocks)
+}
+
+/// A chain with `num_shards` shards and `num_blocks` processed empty blocks; `blocks[i]` is
+/// at height `i + 1`.
+fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
+    let mut chain = get_chain_with_num_shards(Clock::real(), num_shards);
     let genesis_hash = chain.chain_store.head().unwrap().last_block_hash;
     let mut prev = chain.chain_store.get_block(&genesis_hash).unwrap();
     let mut blocks = Vec::new();
@@ -88,14 +95,12 @@ fn save_block(chain: &mut Chain, block: &Arc<Block>) {
 }
 
 /// The chain's policies with fixed producer lists in place of the chain's single
-/// chunk producer and extra receipt-proof (from, to) pairs.
+/// chunk producer.
 struct TestPolicy {
     chain_policies: Policies,
     producers: Vec<AccountId>,
     /// Producers for items from these shards, in place of `producers`.
     producers_by_from_shard: HashMap<u64, Vec<AccountId>>,
-    /// `(from_shard, to_shard)` pairs needed from every block on top of the chain's.
-    extra_pairs: Vec<(u64, u64)>,
     /// Blocks whose `needed_items` fails.
     failing_blocks: HashSet<CryptoHash>,
 }
@@ -105,13 +110,11 @@ impl DataPolicy for TestPolicy {
         if self.failing_blocks.contains(block.hash()) {
             return Err(Error::Other("no items".to_string()));
         }
-        let chain_ids = self.chain_policies.needed_items(block)?.into_iter().map(|(id, _)| id);
-        let extra_ids = self.extra_pairs.iter().map(|(from_shard, to_shard)| {
-            DataId::receipt_proof(*block.hash(), ShardId::new(*from_shard), ShardId::new(*to_shard))
-        });
-        Ok(chain_ids
-            .chain(extra_ids)
-            .map(|id| {
+        Ok(self
+            .chain_policies
+            .needed_items(block)?
+            .into_iter()
+            .map(|(id, _)| {
                 let DataId::ReceiptProof { source, .. } = &id;
                 let from_shard: u64 = source.shard_id.into();
                 let producers =
@@ -125,8 +128,8 @@ impl DataPolicy for TestPolicy {
         self.chain_policies.is_done(id)
     }
 
-    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
-        self.chain_policies.chunks_to_certify_before_pull(id)
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
+        self.chain_policies.made_pullable_by(block)
     }
 }
 
@@ -137,6 +140,15 @@ fn producers() -> Vec<AccountId> {
 
 fn ordinals(ordinals: &[u64]) -> BTreeSet<u64> {
     ordinals.iter().copied().collect()
+}
+
+/// Each producer pulled from for its own ordinal.
+fn own_ordinal_pulls() -> BTreeMap<AccountId, BTreeSet<u64>> {
+    producers()
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
+        .collect()
 }
 
 type WantsByProducer = BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>>;
@@ -161,8 +173,9 @@ fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTr
         .collect()
 }
 
-/// A manager whose policy applies shard 1 only: of a block's four proofs it needs
-/// `(0 -> 1)`, unless that proof is on disk. Nothing is certified until
+/// A manager whose node applies one shard, shard 1 unless built with `applying`: it needs
+/// the proof from every other shard into that one, unless that proof is on disk. On the
+/// two-shard chain that is `(0 -> 1)` only. Nothing is certified until
 /// `certify_up_to` says so, and nothing is finally executed until
 /// `set_final_execution_head` says so. Time stands still until `clock` is advanced.
 struct TestManager {
@@ -171,12 +184,17 @@ struct TestManager {
     store: Store,
     /// The highest height `certify_up_to` certified.
     certified_height: BlockHeight,
+    shard_ids: Vec<ShardId>,
 }
 
 impl TestManager {
     fn new(chain: &Chain) -> Self {
+        Self::applying(chain, 1)
+    }
+
+    fn applying(chain: &Chain, shard: u64) -> Self {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(1), &shard_layout);
+        let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
         let shard_tracker = ShardTracker::new(
             TrackedShardsConfig::Shards(vec![tracked]),
             chain.epoch_manager.clone(),
@@ -189,7 +207,6 @@ impl TestManager {
             chain_policies: policies,
             producers: producers(),
             producers_by_from_shard: HashMap::new(),
-            extra_pairs: Vec::new(),
             failing_blocks: HashSet::new(),
         };
         Self {
@@ -202,21 +219,22 @@ impl TestManager {
             clock: FakeClock::default(),
             store,
             certified_height: 0,
+            shard_ids: shard_layout.shard_ids().collect(),
         }
     }
 
-    /// Records a block certifying both shards' chunks of every canonical block up to
-    /// `height`, as tracking it would.
+    /// Marks the tracked items pullable as a block certifying every shard's chunks of every
+    /// canonical block up to `height` would.
     fn certify_up_to(&mut self, height: BlockHeight) {
         let chain_store = self.store.chain_store();
         let chunk_ids: Vec<SpiceChunkId> = (1..=height)
             .filter_map(|height| chain_store.get_block_hash_by_height(height).ok())
             .flat_map(|block_hash| {
-                [0, 1].map(|shard| SpiceChunkId { block_hash, shard_id: ShardId::new(shard) })
+                self.shard_ids.iter().map(move |&shard_id| SpiceChunkId { block_hash, shard_id })
             })
             .collect();
         let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
-        self.manager.record_chunks_certified_by(&certifying_block(&head, &chunk_ids)).unwrap();
+        self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids)).unwrap();
         self.certified_height = self.certified_height.max(height);
     }
 
@@ -229,11 +247,6 @@ impl TestManager {
         store_update.commit();
     }
 
-    /// The policy also needs the proofs `(from_shard -> to_shard)` in `pairs`.
-    fn set_extra_pairs(&mut self, pairs: Vec<(u64, u64)>) {
-        self.manager.policies.extra_pairs = pairs;
-    }
-
     fn set_pull_config(&mut self, config: PullConfig) {
         self.manager.pull_config = config;
     }
@@ -244,6 +257,22 @@ impl TestManager {
 
     fn is_tracking(&self, id: &DataId) -> bool {
         self.manager.is_tracking(id)
+    }
+
+    fn pulling_from(&self, id: &DataId) -> HashSet<AccountId> {
+        self.manager.pulls.pulling_from(id)
+    }
+
+    fn is_pullable(&self, id: &DataId) -> bool {
+        self.manager.pullable_items.values().any(|ids| ids.contains(id))
+    }
+
+    /// Asserts no item and no index entry is left for `id`.
+    fn assert_forgotten(&self, id: &DataId) {
+        assert!(!self.is_tracking(id));
+        assert!(!self.manager.items_by_height.values().any(|ids| ids.contains(id)));
+        assert!(!self.is_pullable(id));
+        assert!(!self.manager.delivered_items.contains(id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
@@ -295,14 +324,14 @@ impl TestManager {
         self.manager.items.get(id).unwrap_or_else(|| panic!("no item for {id:?}"))
     }
 
-    fn state(&self, id: &DataId, producer: &AccountId) -> &ProducerState {
-        let (_, state) = self
+    fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
+        let (_, bound) = self
             .item(id)
             .producers
             .iter()
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        state
+        bound.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {
@@ -311,6 +340,13 @@ impl TestManager {
             other => panic!("commitment is not tracked: {other:?}"),
         }
     }
+}
+
+/// One item from each of `blocks`, tracked and made pullable.
+fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataId> {
+    let ids = blocks.iter().map(|block| manager.track_needed_proof(block)).collect();
+    manager.certify_up_to(blocks.last().unwrap().header().height());
+    ids
 }
 
 fn receipt_id(block: &Block, from_shard: u64, to_shard: u64) -> DataId {
