@@ -111,6 +111,7 @@ protocol_feature_spice = [
     "near-epoch-manager/protocol_feature_spice",
     "near-primitives/protocol_feature_spice",
     "near-store/protocol_feature_spice",
+    "near-jsonrpc?/protocol_feature_spice",
 ]
 
 nightly = [
