@@ -105,9 +105,6 @@ impl TestLoopEnv {
                     let client =
                         &test_loop_data.get(&node_datas[producer].client_sender.actor_handle()).client;
                     let header = client.chain.get_block_header(&chunk_id.block_hash).unwrap();
-                    if !client.epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
-                        continue;
-                    }
                     // Only the chunk's validators, as the distributor would: any other node with a
                     // signer would endorse too, and every core writer rejects it as a non-validator.
                     let assignments = client
@@ -125,7 +122,7 @@ impl TestLoopEnv {
                         {
                             continue;
                         }
-                        tracing::info!(target: "test", ?chunk_id, producer, target, "delivering epoch-start witness");
+                        tracing::info!(target: "test", ?chunk_id, producer, target, "delivering witness");
                         target_data.spice_chunk_validator_sender.send(
                             SpiceChunkStateWitnessMessage { witness: witness.clone(), raw_witness_size: 0 }
                                 .span_wrap(),
