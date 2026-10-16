@@ -6,6 +6,7 @@ pub use crate::db::{
     STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use crate::db::{DBTransaction, Database, StoreStatistics, metadata};
+#[cfg(feature = "rocksdb")]
 pub use crate::node_storage::opener::{
     StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
     clear_columns,
@@ -44,7 +45,9 @@ mod utils;
 
 #[cfg(test)]
 mod tests {
-    use super::{DBCol, NodeStorage, Store};
+    #[cfg(feature = "rocksdb")]
+    use super::NodeStorage;
+    use super::{DBCol, Store};
 
     fn test_clear_column(store: Store) {
         assert_eq!(store.get(DBCol::State, &[1; 8]), None);
@@ -65,6 +68,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rocksdb")]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
         test_clear_column(opener.open().unwrap().get_hot_store());
@@ -137,6 +141,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rocksdb")]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
         test_iter_order_impl(opener.open().unwrap().get_hot_store());
