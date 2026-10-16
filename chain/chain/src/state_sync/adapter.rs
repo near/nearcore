@@ -1,5 +1,4 @@
 use super::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::snapshot_hash_for_block;
 use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
