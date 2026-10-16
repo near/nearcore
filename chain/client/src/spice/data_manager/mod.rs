@@ -1,20 +1,19 @@
-//! Fetch-engine state for SPICE data distribution.
+//! Fetch engine and serve side for SPICE data distribution.
 
 mod data_id;
-mod fetchable;
+mod encode;
 mod item;
 mod pending;
+mod policy;
 mod pull;
+mod serve;
 
 pub use data_id::DataId;
-pub(crate) use fetchable::DataPolicy;
-use fetchable::ReceiptProofPolicy;
+pub(crate) use encode::{EncodedData, encode};
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::{Block, Error};
-use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
@@ -22,8 +21,10 @@ use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
+pub(crate) use policy::{FetchPolicy, Policies, ServePolicy};
 use pull::Pulls;
 pub(crate) use pull::{PullConfig, PullRequest};
+pub(crate) use serve::{Push, ServeError, Served, SpiceDataServer};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
@@ -64,49 +65,12 @@ pub(crate) enum PartsOutcome {
     NotWanted,
 }
 
-/// The per-data-type policies, one per [`DataId`] variant.
-pub(crate) struct Policies {
-    receipt_proofs: ReceiptProofPolicy,
-}
-
-impl Policies {
-    pub(crate) fn new(
-        chain_store: ChainStoreAdapter,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
-    ) -> Self {
-        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
-    }
-
-    fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
-        match id {
-            DataId::ReceiptProof { .. } => &self.receipt_proofs,
-        }
-    }
-}
-
-/// Fans out per-block queries over every policy; dispatches per-id calls to the policy
-/// of `id`'s data type.
-impl DataPolicy for Policies {
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
-        self.receipt_proofs.needed_items(block)
-    }
-
-    fn is_done(&self, id: &DataId) -> bool {
-        self.for_id(id).is_done(id)
-    }
-
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        self.receipt_proofs.made_pullable_by(block)
-    }
-}
-
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
+pub(crate) struct SpiceDataManager<P: FetchPolicy = Policies> {
     pull_config: PullConfig,
     encoders: ReedSolomonEncoderCache,
     chain_store: ChainStoreAdapter,
@@ -129,7 +93,7 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     items_visited_by_traversal: usize,
 }
 
-impl<P: DataPolicy> SpiceDataManager<P> {
+impl<P: FetchPolicy> SpiceDataManager<P> {
     pub(crate) fn new(
         pull_config: PullConfig,
         data_parts_ratio: f64,
@@ -150,6 +114,11 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             #[cfg(test)]
             items_visited_by_traversal: 0,
         }
+    }
+
+    /// The producers of `id`, in the parts' encoding order.
+    pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        self.policies.producers(id)
     }
 
     /// Whether an item for `id` exists, in any state.

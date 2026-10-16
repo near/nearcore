@@ -1,5 +1,5 @@
 use super::item::{CodedTracker, CommitmentState, FetchItem};
-use super::{DataId, DataPolicy, SpiceDataManager};
+use super::{DataId, FetchPolicy, SpiceDataManager};
 use near_async::time::{Duration, Instant};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::AccountId;
@@ -227,7 +227,7 @@ impl FetchItem {
     }
 }
 
-impl<P: DataPolicy> SpiceDataManager<P> {
+impl<P: FetchPolicy> SpiceDataManager<P> {
     /// The requests to send at `now`, grouped by producer.
     /// Traverses the pullable items from the lowest height and picks the pulls while there are
     /// producers with free pull slots.
