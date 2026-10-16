@@ -10,7 +10,8 @@ use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use crate::spice::data_manager::DataId;
 use crate::spice::tests::{
-    build_to_last_pre_spice_block, empty_outgoing_receipt_proofs, save_and_record_block,
+    build_to_last_pre_spice_block, empty_outgoing_receipt_proofs, pre_spice_boundary_genesis,
+    save_and_record_block,
 };
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
@@ -1679,15 +1680,8 @@ fn setup_boundary_actor_with(
     let (outgoing_sc, outgoing_rc) = unbounded();
     let signer = Arc::new(create_test_signer(producers[0]));
     let shard_layout = ShardLayout::multi_shard(BOUNDARY_NUM_SHARDS, 0);
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&Clock::real())
-        .epoch_length(5)
-        .transaction_validity_period(10)
-        .protocol_version(pre_spice_protocol_version())
-        .shard_layout(shard_layout.clone())
-        .validators_spec(ValidatorsSpec::desired_roles(producers, chunk_validators_only))
-        .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
-        .build();
+    let genesis =
+        pre_spice_boundary_genesis(producers, chunk_validators_only, shard_layout.clone());
     let node_signer = node_account.map(|account| Arc::new(create_test_signer(account)));
     let mut test_actor = TestActor::new(
         genesis,
@@ -1946,25 +1940,26 @@ fn test_boundary_bootstrap_reruns_on_startup_from_head() {
     boundary.assert_receipt_proofs(|_| true);
 }
 
-/// Once the first spice block is processed the head moves on, but the spice
-/// execution head still points at the last pre-spice block until it is executed:
-/// a restart in that window re-runs the bootstrap from there.
+/// Once the first spice block is processed the head moves on, but the spice execution
+/// heads still point at pre-spice blocks until it is executed. A restart in that window
+/// re-runs the bootstrap and applies the first spice block, which no link from the
+/// pre-spice final execution head leads to.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_boundary_bootstrap_reruns_on_startup_from_execution_head() {
+fn test_boundary_bootstrap_reruns_on_startup_after_first_spice_block() {
     let mut boundary = setup_boundary_actor();
     let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
     boundary.seed_pre_spice_apply_artifacts(&shard_uids);
-    let mut store_update = boundary.test_actor.actor.chain_store.store().store_update();
-    store_update
-        .chain_store_update()
-        .set_spice_execution_head(&Tip::from_header(boundary.last_pre_spice.header()))
-        .unwrap();
-    store_update.commit();
+    let first_spice = boundary.build_first_spice_block();
+    seed_execution_heads(&boundary.test_actor.chain, &boundary.last_pre_spice, &first_spice);
+    let mut store_update = boundary.test_actor.chain.chain_store.store_update();
+    store_update.save_head(&Tip::from_header(first_spice.header())).unwrap();
+    store_update.commit().unwrap();
 
     boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
 
     boundary.assert_receipt_proofs(|_| true);
+    assert_eq!(boundary.test_actor.drain_tasks().len(), shard_uids.len());
 }
 
 /// A first spice block parked on the last pre-spice block's receipt proofs, as

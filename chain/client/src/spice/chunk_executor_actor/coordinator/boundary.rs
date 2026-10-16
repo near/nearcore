@@ -40,29 +40,4 @@ impl ChunkExecutorActor {
         self.try_progress_receiving_shards(&outgoing_proofs);
         Ok(())
     }
-
-    /// Recover after a crash around a last pre-spice block: the boundary bootstrap's
-    /// endorsement and receipt sends are not persisted, so re-run it.
-    /// A no-op when neither is a last pre-spice block. A failed candidate is logged and
-    /// does not hold back the other.
-    pub(super) fn recover_boundary_bootstrap(&mut self) -> Result<(), Error> {
-        let mut candidates = Vec::new();
-        match self.chain_store.head() {
-            Ok(head) => candidates.push(head.last_block_hash),
-            Err(Error::DBNotFoundErr(_)) => {}
-            Err(err) => return Err(err),
-        }
-        match self.chain_store.spice_execution_head() {
-            Ok(execution_head) => candidates.push(execution_head.last_block_hash),
-            Err(Error::DBNotFoundErr(_)) => {}
-            Err(err) => return Err(err),
-        }
-        candidates.dedup();
-        for block_hash in candidates {
-            if let Err(err) = self.bootstrap_last_pre_spice_block(&block_hash) {
-                tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to re-run boundary bootstrap on startup");
-            }
-        }
-        Ok(())
-    }
 }
