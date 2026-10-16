@@ -113,7 +113,7 @@ pub fn seed_execution_heads_at_activation(
 
 /// The uncertified-chunks row for the last pre-spice block `header`, one entry per
 /// shard of its layout, with every designated endorsement missing.
-fn boundary_uncertified_chunks(
+pub(crate) fn boundary_uncertified_chunks(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
