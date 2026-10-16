@@ -69,7 +69,8 @@ impl From<SnapshotError> for StorageError {
 
 /// Snapshot of the state at the epoch boundary.
 pub struct StateSnapshot {
-    /// The state snapshot represents the state including changes of the next block of this block.
+    /// The hash the snapshot is keyed by. Currently the hash of the block before the one whose
+    /// state (including that block's changes) the snapshot holds.
     snapshot_hash: CryptoHash,
     /// Read-only store.
     store: TrieStoreAdapter,
