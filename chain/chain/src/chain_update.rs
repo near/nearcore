@@ -31,9 +31,9 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId, SpiceChunkId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreUpdateAdapter;
-use node_runtime::SignedValidPeriodTransactions;
 use std::mem;
 use std::sync::Arc;
 
