@@ -1,9 +1,9 @@
 use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::AccountId;
-use near_primitives::types::{Balance, Gas};
+use near_primitives::types::Gas;
 use rand::Rng;
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
@@ -76,12 +76,7 @@ impl TransactionBuilder {
         args: Vec<u8>,
     ) -> SignedTransaction {
         let receiver = sender.clone();
-        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: method.to_string(),
-            args,
-            gas: Gas::from_teragas(1_000_000),
-            deposit: Balance::ZERO,
-        }))];
+        let actions = vec![Action::function_call(method, args, Gas::from_teragas(1_000_000))];
         self.transaction_from_actions(sender, receiver, actions)
     }
 

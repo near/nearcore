@@ -9,6 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
@@ -74,22 +75,25 @@ pub fn check_transaction_validity_period(
     validity_period_validate_is_ancestor(&base_header, prev_block_header, chain_store)
 }
 
-/// Computes, for each transaction in `chunk`, whether it is still within its
-/// validity period relative to `prev_block_header`.
+/// Computes, for each of `transactions`, whether it is still within its validity period
+/// relative to `prev_block_header`. Transactions without `block_hash` (ECC) count as valid.
 pub fn compute_transaction_validity(
     chain_store: &ChainStoreAdapter,
     transaction_validity_period: BlockHeightDelta,
     prev_block_header: &BlockHeader,
-    chunk: &ShardChunk,
+    transactions: &[TransactionEnvelope],
 ) -> Vec<bool> {
-    chunk
-        .to_transactions()
-        .into_iter()
-        .map(|signed_tx| {
+    transactions
+        .iter()
+        .map(|tx| {
+            let Some(block_hash) = tx.block_hash() else {
+                // An ECC transaction has no block hash and never expires.
+                return true;
+            };
             check_transaction_validity_period(
                 chain_store,
                 prev_block_header,
-                signed_tx.transaction.block_hash(),
+                block_hash,
                 transaction_validity_period,
             )
             .is_ok()

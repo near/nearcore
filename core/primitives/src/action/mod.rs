@@ -405,6 +405,28 @@ const _: () = assert!(
 );
 
 impl Action {
+    pub fn function_call(
+        method_name: impl Into<String>,
+        args: impl Into<Vec<u8>>,
+        gas: Gas,
+    ) -> Self {
+        Self::function_call_with_deposit(method_name, args, gas, Balance::ZERO)
+    }
+
+    pub fn function_call_with_deposit(
+        method_name: impl Into<String>,
+        args: impl Into<Vec<u8>>,
+        gas: Gas,
+        deposit: Balance,
+    ) -> Self {
+        Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: method_name.into(),
+            args: args.into(),
+            gas,
+            deposit,
+        }))
+    }
+
     /// Whether this is a delegate action (meta transaction). Delegate actions
     /// must not be nested inside one another, so this is the single predicate
     /// the nesting guard and JSON schema filter rely on. Exhaustive by design:

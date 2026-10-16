@@ -152,6 +152,9 @@ pub enum ProtocolFeature {
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
     UpdatedEthWalletContract,
+    /// External contract calls (ECC): unsigned transactions carrying no signer, public key,
+    /// nonce or signature. See <https://github.com/near/nearcore/issues/16453>.
+    ExternalContractCalls,
 }
 
 impl ProtocolFeature {
@@ -182,7 +185,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectWithdrawFromGasKeyInDelegate => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
-            ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
             ProtocolFeature::EarlyKickout => 87,
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
@@ -196,6 +198,8 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::ExternalContractCalls => 150,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

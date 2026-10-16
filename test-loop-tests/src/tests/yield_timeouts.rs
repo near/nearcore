@@ -5,7 +5,7 @@ use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnum};
@@ -235,12 +235,11 @@ fn prepare_env_with_yield(
     let yield_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: anticipated_yield_payload,
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_create_return_promise",
+            anticipated_yield_payload,
+            Gas::from_teragas(300),
+        )],
     );
     let yield_tx_hash = env.validator().submit_tx(yield_transaction);
     env.validator_runner().run_until_executed_height(yield_create_height());
@@ -274,12 +273,14 @@ fn invoke_yield_resume(
     let resume_transaction = env.validator().tx_from_actions(
         &test_account,
         &test_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_resume".to_string(),
-            args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "call_yield_resume",
+            yield_payload
+                .into_iter()
+                .chain(data_id.as_bytes().iter().cloned())
+                .collect::<Vec<u8>>(),
+            Gas::from_teragas(300),
+        )],
     );
     let tx_hash = env.validator().submit_tx(resume_transaction);
     tx_hash
@@ -296,12 +297,7 @@ fn create_congestion(env: &TestLoopEnv) {
         let signed_transaction = env.validator().tx_from_actions(
             &test_account,
             &test_account,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "epoch_height".to_string(),
-                args: vec![],
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("epoch_height", vec![], Gas::from_gas(100))],
         );
         env.validator().submit_tx(signed_transaction);
     }

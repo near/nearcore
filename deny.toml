@@ -46,6 +46,8 @@ skip = [
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
+    # borsh-derive moved to syn 3, while most crates are still on syn 2.
+    { name = "syn", version = "^2" },
     { name = "heck", version = "=0.4.0" },
 
     # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.

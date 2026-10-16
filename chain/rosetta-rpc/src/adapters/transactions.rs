@@ -6,7 +6,8 @@ use near_client::ViewClientActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
 use near_primitives::views::{
-    AccessKeyPermissionView, ExecutionOutcomeWithIdView, ExecutionStatusView, SignedTransactionView,
+    AccessKeyPermissionView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    SignedTransactionView, TransactionEnvelopeView,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -53,7 +54,11 @@ impl ExecutionToReceipts {
                     ))
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
-                transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
+                // TODO(ecc): represent ECCs in Rosetta
+                transactions.extend(chunk.transactions.into_iter().filter_map(|t| match t {
+                    TransactionEnvelopeView::Signed(t) => Some((t.hash, t)),
+                    TransactionEnvelopeView::Unsigned(_) => None,
+                }));
                 receipts
                     .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
             }

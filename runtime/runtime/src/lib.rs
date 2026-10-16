@@ -12,7 +12,9 @@ use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
+use crate::verifier::{
+    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_envelope,
+};
 pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
@@ -54,7 +56,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, LogEntry, TransferAction,
+    ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -2030,14 +2032,10 @@ impl Runtime {
                             return;
                         }
                         let tx_hash = tx.hash();
-                        let v = validate_transaction(
-                            &processing_state.apply_state.config,
-                            tx.clone(),
-                            protocol_version,
-                        )
-                        .map_err(|(err, _)| err)
-                        .map(|_| ());
-                        if let Err(err) = v {
+                        let config = &processing_state.apply_state.config;
+                        if let Err(err) =
+                            validate_transaction_envelope(config, tx, protocol_version)
+                        {
                             tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
                             *validation = Some(err);
                         }
@@ -2075,6 +2073,10 @@ impl Runtime {
                         if !non_expired {
                             return;
                         }
+                        // TODO(ecc): prefetch the contract account of ECCs
+                        let Some(tx) = tx.as_signed() else {
+                            return;
+                        };
                         let signer_id = tx.transaction.signer_id();
                         let pubkey = tx.transaction.public_key();
                         accounts.entry(signer_id).or_insert_with(|| {
@@ -2107,16 +2109,31 @@ impl Runtime {
         let skip_duplicate_txs = ProtocolFeature::UniqueChunkTransactions.enabled(protocol_version);
         let mut seen_tx_hashes = HashSet::with_capacity(num_transactions);
         let mut num_skipped_duplicate_txs = 0;
-        for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
+        for (envelope, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             // A transaction hash is its outcome id, and outcomes are committed
             // keyed by that id. Processing the same hash twice would commit two
             // conflicting outcomes under one id, so skip any repeat occurrence.
-            if skip_duplicate_txs && !seen_tx_hashes.insert(*tx.hash()) {
-                tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+            if skip_duplicate_txs && !seen_tx_hashes.insert(*envelope.hash()) {
+                tracing::debug!(
+                    tx_hash = ?envelope.hash(),
+                    "skipping duplicate transaction in chunk"
+                );
                 num_skipped_duplicate_txs += 1;
                 continue;
             }
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+            let tx = match envelope {
+                TransactionEnvelope::Signed(tx) => tx,
+                TransactionEnvelope::Unsigned(ecc) => {
+                    // TODO(ecc): execute external contract calls
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    let err =
+                        maybe_validation_error.unwrap_or(InvalidTxError::InvalidTransactionVersion);
+                    let outcome = ExecutionOutcomeWithId::failed_ecc(ecc, err);
+                    processing_state.outcomes.push(outcome);
+                    continue;
+                }
+            };
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 let outcome = ExecutionOutcomeWithId::failed(tx, err);
@@ -3148,8 +3165,8 @@ fn resolve_promise_yield_timeouts(
             // The receipt is destined for the local shard and will be placed in the outgoing
             // receipts buffer. It is possible that there is already an outgoing receipt resolving
             // this yield if `yield_resume` was invoked by some receipt which was processed in
-            // the current chunk. The ordering will be maintained because the receipts are
-            // destined for the same shard; the timeout will be processed second and discarded.
+            // the current chunk. Their relative order doesn't matter: a timeout resume is
+            // discarded when the yield's status is `PromiseYieldStatus::ResumeInitiated`.
             receipt_sink.forward_or_buffer_receipt(
                 resume_receipt,
                 apply_state,

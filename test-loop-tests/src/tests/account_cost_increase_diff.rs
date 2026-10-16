@@ -41,7 +41,7 @@ use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, TransferAction};
+use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance, Gas, Nonce, ProtocolVersion};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -612,12 +612,7 @@ fn sub_account(index: usize) -> AccountId {
 
 /// A single zero-deposit function call to `log_something` on the test contract.
 fn log_something_action() -> Action {
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "log_something".to_string(),
-        args: vec![],
-        gas: FUNCTION_CALL_GAS,
-        deposit: Balance::ZERO,
-    }))
+    Action::function_call("log_something", vec![], FUNCTION_CALL_GAS)
 }
 
 fn transfer_action() -> Action {
@@ -774,12 +769,11 @@ fn test_create_two_accounts_via_call_promise() {
                     { "batch_create": { "account_id": second.as_str() }, "id": 1 },
                     { "action_create_account": { "promise_index": 1 }, "id": 1 },
                 ]);
-                let call = Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "call_promise".to_string(),
-                    args: serde_json::to_vec(&args).unwrap(),
-                    gas: CALL_PROMISE_GAS,
-                    deposit: Balance::ZERO,
-                }));
+                let call = Action::function_call(
+                    "call_promise",
+                    serde_json::to_vec(&args).unwrap(),
+                    CALL_PROMISE_GAS,
+                );
                 ScenarioTx::new(contract(), vec![call])
             },
         },

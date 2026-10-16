@@ -52,23 +52,6 @@ impl RuntimeNode {
         Self::new_from_genesis_and_config(account_id, genesis, config)
     }
 
-    /// Same as `RuntimeNode::new`, but allows to modify the RuntimeConfig.
-    pub fn new_with_modified_config(
-        account_id: &AccountId,
-        modify_config: impl FnOnce(&mut RuntimeConfig),
-    ) -> Self {
-        let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
-        add_test_contract(&mut genesis, &alice_account());
-        add_test_contract(&mut genesis, &bob_account());
-        add_test_contract(&mut genesis, &carol_account());
-
-        let store = RuntimeConfigStore::new();
-        let mut runtime_config =
-            RuntimeConfig::clone(store.get_config(genesis.config.protocol_version));
-        modify_config(&mut runtime_config);
-        Self::new_from_genesis_and_config(account_id, genesis, runtime_config)
-    }
-
     pub fn free(account_id: &AccountId) -> Self {
         let mut genesis =
             Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);

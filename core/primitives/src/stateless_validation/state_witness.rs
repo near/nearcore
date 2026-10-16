@@ -3,7 +3,7 @@ use super::ChunkProductionKey;
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::state::PartialState;
-use crate::transaction::SignedTransaction;
+use crate::transaction::TransactionEnvelope;
 use crate::types::EpochId;
 use crate::utils::compression::CompressedData;
 use crate::version::ProtocolVersion;
@@ -154,7 +154,7 @@ pub struct ChunkStateWitnessV2 {
     pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEnvelope>,
     /// For each missing chunk after the last new chunk of the shard, we need
     /// to carry out an implicit state transition. Mostly, this is for
     /// distributing validator rewards. This list contains one for each such
@@ -163,7 +163,7 @@ pub struct ChunkStateWitnessV2 {
     /// After these are applied as well, we should arrive at the pre-state-root
     /// of the chunk that this witness is for.
     pub implicit_transitions: Vec<ChunkStateTransition>,
-    pub new_transactions: Vec<SignedTransaction>,
+    pub new_transactions: Vec<TransactionEnvelope>,
 }
 
 impl ChunkStateWitness {
@@ -173,9 +173,9 @@ impl ChunkStateWitness {
         main_state_transition: ChunkStateTransition,
         source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<TransactionEnvelope>,
         implicit_transitions: Vec<ChunkStateTransition>,
-        new_transactions: Vec<SignedTransaction>,
+        new_transactions: Vec<TransactionEnvelope>,
     ) -> Self {
         Self::V2(Box::new(ChunkStateWitnessV2 {
             epoch_id,
@@ -252,7 +252,7 @@ impl ChunkStateWitness {
         }
     }
 
-    pub fn transactions(&self) -> &Vec<SignedTransaction> {
+    pub fn transactions(&self) -> &Vec<TransactionEnvelope> {
         match self {
             ChunkStateWitness::V2(witness) => &witness.transactions,
         }
@@ -264,7 +264,7 @@ impl ChunkStateWitness {
         }
     }
 
-    pub fn new_transactions(&self) -> &Vec<SignedTransaction> {
+    pub fn new_transactions(&self) -> &Vec<TransactionEnvelope> {
         match self {
             ChunkStateWitness::V2(witness) => &witness.new_transactions,
         }
