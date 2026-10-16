@@ -904,11 +904,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
 
-    let node = RuntimeNode::new_with_modified_config(&relayer, |runtime_config| {
-        // Increase the outgoing receipts limit to allow the large receipt to be processed immediately.
-        // Without this change the receipt would be processed somewhere in the next few blocks.
-        runtime_config.congestion_control_config.outgoing_receipts_usual_size_limit = 200_000;
-    });
+    let node = RuntimeNode::new(&relayer);
 
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
