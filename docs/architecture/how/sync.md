@@ -188,6 +188,15 @@ finalization records the certified `ChunkExtra` for the sync block — which is
 what the chunk executor reads to carry on from the next block — moves the flat
 head to the sync block, and sets the spice execution heads to it.
 
+A synced node also needs the uncertified chunks the sync block starts from. Those are
+normally carried forward from the parent's, block by block, and this node processed
+neither the parent nor the grandparent. State sync therefore downloads the bodies of
+the *certification window* - back to the last block whose chunks the window's bodies
+all certify - and finalization rebuilds the grandparent's row from them, then advances
+it one block for the parent. The window is as long as certification is behind, so a
+node syncing while certification lags downloads more blocks than one syncing a healthy
+chain.
+
 The snapshot that serves all this is taken by the chunk executor, right after
 the epoch's first block has executed for every tracked shard, and is keyed by
 that block rather than by an earlier one. It is announced to the network only

@@ -20,7 +20,9 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::core::{
+    SpiceCoreReader, record_uncertified_chunks_by_advancing, record_uncertified_chunks_from_bodies,
+};
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1665,6 +1667,24 @@ impl Chain {
             adapter.set_spice_execution_head(&execution_head)?;
             adapter.set_spice_final_execution_head(&execution_head);
             store_update.commit();
+
+            // The sync block is processed next. It starts from its parent's uncertified chunks
+            // and credits its parent's endorsements against its grandparent's, and this node
+            // processed neither block. Compute them from the bodies state sync downloaded; see
+            // `get_extra_sync_block_hashes`.
+            let chain_store = self.chain_store.store().chain_store();
+            record_uncertified_chunks_from_bodies(
+                &chain_store,
+                self.epoch_manager.as_ref(),
+                prev_block.header().prev_hash(),
+            )?;
+            // The parent's row is its own parent's advanced over it, which is cheaper and says
+            // the same thing as walking the bodies a second time.
+            record_uncertified_chunks_by_advancing(
+                &chain_store,
+                self.epoch_manager.as_ref(),
+                &prev_block,
+            )?;
         }
 
         // State sync moves the head without processing a block, so the tracker has to be told
