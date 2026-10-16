@@ -1,5 +1,9 @@
 [build]
 rustflags = ["-Cforce-unwind-tables=y", "-Cforce-frame-pointers=y"]
 
+[env]
+# Keep parity with the default config so CI builds consistently.
+LZMA_API_STATIC = "1"
+
 [target.'cfg(target_arch = "x86_64")']
 rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+popcnt,+fma,+bmi1,+bmi2,+lzcnt,+movbe,+pclmulqdq", "-Cforce-unwind-tables=y", "-Cforce-frame-pointers=y"]
