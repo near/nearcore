@@ -1,0 +1,16 @@
+[package]
+name = "near-mldsa-native-sys"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "FFI bindings to the vendored mldsa-native ML-DSA-65 implementation"
+repository.workspace = true
+license = "MIT OR Apache-2.0"
+links = "near-mldsa-native"
+publish = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cc.workspace = true

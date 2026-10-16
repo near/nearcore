@@ -4,3 +4,6 @@
 *.wasm linguist-detectable=false
 *.wast linguist-detectable=false
 *.wat linguist-detectable=false
+
+# Vendored upstream mldsa-native sources; reviewed by upstream commit, not line by line.
+core/mldsa-native-sys/mldsa-native/** linguist-vendored=true -diff

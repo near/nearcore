@@ -12,7 +12,6 @@ publish = true
 workspace = true
 
 [dependencies]
-aws-lc-rs.workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
@@ -25,6 +24,7 @@ derive_more = { workspace = true, features = ["as_ref", "from", "into"] }
 ed25519-dalek = { workspace = true, features = ["hazmat"] }
 hex.workspace = true
 near-account-id.workspace = true
+near-mldsa-native-sys.workspace = true
 primitive-types.workspace = true
 secp256k1 = { workspace = true, features = ["recovery", "alloc"] }
 serde.workspace = true
