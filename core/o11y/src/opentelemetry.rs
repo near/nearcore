@@ -1,14 +1,16 @@
+#[cfg(feature = "otlp")]
 use crate::reload::TracingLayer;
+#[cfg(feature = "otlp")]
 use near_crypto::PublicKey;
+#[cfg(feature = "otlp")]
 use near_primitives_core::types::AccountId;
-use opentelemetry::KeyValue;
-use opentelemetry::trace::TracerProvider;
-use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::trace::{BatchSpanProcessor, RandomIdGenerator, Sampler, SdkTracerProvider};
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
-use tracing_subscriber::layer::SubscriberExt;
+#[cfg(feature = "otlp")]
+use tracing::Subscriber;
+use tracing_subscriber::EnvFilter;
+#[cfg(feature = "otlp")]
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{EnvFilter, Layer, reload};
+#[cfg(feature = "otlp")]
+use tracing_subscriber::reload::{Handle, Layer as ReloadLayer};
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
 #[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
@@ -24,18 +26,29 @@ pub enum OpenTelemetryLevel {
 //
 // NB: this function is `async` because `tonic` (gRPC server) requires a tokio context to
 // register timers and channels and whatnot.
+#[cfg(feature = "otlp")]
 pub(crate) async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
     chain_id: String,
     node_public_key: PublicKey,
     account_id: Option<AccountId>,
     subscriber: S,
-) -> (TracingLayer<S>, reload::Handle<EnvFilter, S>)
+) -> (TracingLayer<S>, Handle<EnvFilter, S>)
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
+    use opentelemetry::KeyValue;
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_sdk::Resource;
+    use opentelemetry_sdk::trace::{
+        BatchSpanProcessor, RandomIdGenerator, Sampler, SdkTracerProvider,
+    };
+    use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::SubscriberExt;
+
     let filter = get_opentelemetry_filter(opentelemetry_level);
-    let (filter, handle) = reload::Layer::<EnvFilter, S>::new(filter);
+    let (filter, handle) = ReloadLayer::<EnvFilter, S>::new(filter);
 
     let mut resource = vec![
         KeyValue::new("chain_id", chain_id),
