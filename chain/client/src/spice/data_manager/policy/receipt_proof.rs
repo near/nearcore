@@ -1,4 +1,4 @@
-use super::DataPolicy;
+use super::{FetchPolicy, ServePolicy};
 use crate::spice::chunk_executor_actor::{get_receipt_proof, receipt_proof_exists};
 use crate::spice::data_manager::{DataId, SpiceData};
 use near_chain::spice::boundary::shards_applied_itself;
@@ -60,6 +60,17 @@ impl ReceiptProofPolicy {
     fn in_layout(&self, epoch_id: &EpochId, shard_id: ShardId) -> Result<bool, Error> {
         Ok(self.epoch_manager.get_shard_layout(epoch_id)?.shard_ids().any(|id| id == shard_id))
     }
+
+    /// The source chunk's producers.
+    // TODO(spice-resharding): validate whether the source and destination shards are correct
+    // when resharding.
+    fn source_producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let header = self.chain_store.get_block_header(&source.block_hash)?;
+        Ok(self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(header.epoch_id(), source.shard_id)?)
+    }
 }
 
 /// The shards of a block whose receipt proofs this node needs.
@@ -70,7 +81,7 @@ struct NeededShards {
     destinations: Vec<ShardId>,
 }
 
-impl DataPolicy for ReceiptProofPolicy {
+impl FetchPolicy for ReceiptProofPolicy {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         let NeededShards { sources, destinations } = self.needed_shards(block)?;
         // TODO(spice-resharding): Handle resharding
@@ -119,6 +130,12 @@ impl DataPolicy for ReceiptProofPolicy {
         Ok(ids)
     }
 
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        self.source_producers(id)
+    }
+}
+
+impl ServePolicy for ReceiptProofPolicy {
     /// The source shard is read against the source block's layout, the destination shard
     /// against the next block's.
     fn names_known_shards(&self, id: &DataId) -> Result<bool, Error> {
@@ -130,14 +147,8 @@ impl DataPolicy for ReceiptProofPolicy {
             && self.in_layout(&next_block_epoch_id, *to_shard)?)
     }
 
-    // TODO(spice-resharding): validate whether the source and destination shards are correct
-    // when resharding.
     fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        let DataId::ReceiptProof { source, .. } = id;
-        let header = self.chain_store.get_block_header(&source.block_hash)?;
-        Ok(self
-            .epoch_manager
-            .get_epoch_chunk_producers_for_shard(header.epoch_id(), source.shard_id)?)
+        self.source_producers(id)
     }
 
     /// The destination shard's chunk producers for the next block.
@@ -145,7 +156,7 @@ impl DataPolicy for ReceiptProofPolicy {
         let DataId::ReceiptProof { source, to_shard } = id;
         let next_block_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
-        let producers = self.producers(id)?;
+        let producers = self.source_producers(id)?;
         Ok(self
             .epoch_manager
             .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, *to_shard)?

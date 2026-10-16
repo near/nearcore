@@ -8,7 +8,8 @@ use crate::spice::chunk_validator_actor::{
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
     EncodedData, PartsOutcome, PendingPartialData, Policies, PullConfig, PullRequest, Push,
-    SenderFault, ServeError, Served, SpiceData, SpiceDataManager, VerifiedCodedPart, encode,
+    SenderFault, ServeError, Served, SpiceData, SpiceDataManager, SpiceDataServer,
+    VerifiedCodedPart, encode,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -242,6 +243,8 @@ pub struct SpiceDataDistributorActor {
     /// Fetch engine for receipt proofs; witnesses stay on `waiting_on_data` until they
     /// switch over too.
     data_manager: SpiceDataManager,
+    /// Pushes and serves the receipt proofs this node produces.
+    data_server: SpiceDataServer,
 }
 
 impl near_async::messaging::Actor for SpiceDataDistributorActor {
@@ -502,9 +505,14 @@ impl SpiceDataDistributorActor {
             chain_store.clone(),
             Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
+        let data_server = SpiceDataServer::new(
+            DATA_PARTS_RATIO,
+            Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
+        );
         Self {
             clock,
             data_manager,
+            data_server,
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
             rs_encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
@@ -581,7 +589,7 @@ impl SpiceDataDistributorActor {
             return Err(Error::Other("trying to distribute data without validator_signer"));
         };
         let Push { recipients, commitment, part } =
-            self.data_manager.push(signer.validator_id(), data_id, data)?;
+            self.data_server.push(signer.validator_id(), data_id, data)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
                 partial_data: SpicePartialData::new(
@@ -1500,7 +1508,7 @@ impl SpiceDataDistributorActor {
         requester: &AccountId,
         signer: &ValidatorSigner,
     ) -> Result<(), Error> {
-        let (commitment, parts) = match self.data_manager.serve(signer.validator_id(), id, ordinals)
+        let (commitment, parts) = match self.data_server.serve(signer.validator_id(), id, ordinals)
         {
             Ok(Served::Parts { commitment, parts }) => (commitment, parts),
             Ok(Served::NotProducer) => {

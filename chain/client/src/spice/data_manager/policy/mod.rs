@@ -11,9 +11,9 @@ use receipt_proof::ReceiptProofPolicy;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Policy to query a fetchable data type's chain-dependent properties: relevance,
-/// doneness, who holds the data, etc.
-pub(crate) trait DataPolicy {
+/// A data type's chain-dependent properties for a node fetching it: relevance, doneness,
+/// who holds the data.
+pub(crate) trait FetchPolicy {
     /// The ids of this type that this node needs from `block`, each with its producers in
     /// the parts' encoding order.
     // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
@@ -26,6 +26,13 @@ pub(crate) trait DataPolicy {
     /// The ids of this type that `block` makes pullable, tracked or not.
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
 
+    /// The producers of `id`, in the parts' encoding order.
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error>;
+}
+
+/// A data type's chain-dependent properties for a node serving it: who produces and who
+/// receives the data, and where it is stored.
+pub(crate) trait ServePolicy {
     /// Whether every shard `id` names is in the layout it is read against.
     fn names_known_shards(&self, id: &DataId) -> Result<bool, Error>;
 
@@ -53,7 +60,13 @@ impl Policies {
         Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
     }
 
-    fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
+    fn fetch_policy(&self, id: &DataId) -> &dyn FetchPolicy {
+        match id {
+            DataId::ReceiptProof { .. } => &self.receipt_proofs,
+        }
+    }
+
+    fn serve_policy(&self, id: &DataId) -> &dyn ServePolicy {
         match id {
             DataId::ReceiptProof { .. } => &self.receipt_proofs,
         }
@@ -62,32 +75,39 @@ impl Policies {
 
 /// Fans out per-block queries over every policy; dispatches per-id calls to the policy
 /// of `id`'s data type.
-impl DataPolicy for Policies {
+impl FetchPolicy for Policies {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         self.receipt_proofs.needed_items(block)
     }
 
     fn is_done(&self, id: &DataId) -> bool {
-        self.for_id(id).is_done(id)
+        self.fetch_policy(id).is_done(id)
     }
 
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.receipt_proofs.made_pullable_by(block)
     }
 
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        self.fetch_policy(id).producers(id)
+    }
+}
+
+/// Dispatches every call to the policy of `id`'s data type.
+impl ServePolicy for Policies {
     fn names_known_shards(&self, id: &DataId) -> Result<bool, Error> {
-        self.for_id(id).names_known_shards(id)
+        self.serve_policy(id).names_known_shards(id)
     }
 
     fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.for_id(id).producers(id)
+        self.serve_policy(id).producers(id)
     }
 
     fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
-        self.for_id(id).recipients(id)
+        self.serve_policy(id).recipients(id)
     }
 
     fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
-        self.for_id(id).stored_data(id)
+        self.serve_policy(id).stored_data(id)
     }
 }

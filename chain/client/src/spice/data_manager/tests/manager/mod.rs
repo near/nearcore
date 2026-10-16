@@ -106,7 +106,36 @@ struct TestPolicy {
     failing_blocks: HashSet<CryptoHash>,
 }
 
-impl DataPolicy for TestPolicy {
+impl TestPolicy {
+    /// The chain's policies for a node that applies `shard`, with the fixed producers.
+    fn applying(chain: &Chain, shard: u64) -> Self {
+        let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
+        let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
+        let shard_tracker = ShardTracker::new(
+            TrackedShardsConfig::Shards(vec![tracked]),
+            chain.epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
+        );
+        Self {
+            chain_policies: Policies::new(
+                chain.chain_store.store().chain_store(),
+                chain.epoch_manager.clone(),
+                shard_tracker,
+            ),
+            producers: producers(),
+            producers_by_from_shard: HashMap::new(),
+            failing_blocks: HashSet::new(),
+        }
+    }
+
+    fn producers_of(&self, id: &DataId) -> Vec<AccountId> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let from_shard: u64 = source.shard_id.into();
+        self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers).clone()
+    }
+}
+
+impl FetchPolicy for TestPolicy {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         if self.failing_blocks.contains(block.hash()) {
             return Err(Error::Other("no items".to_string()));
@@ -116,11 +145,8 @@ impl DataPolicy for TestPolicy {
             .needed_items(block)?
             .into_iter()
             .map(|(id, _)| {
-                let DataId::ReceiptProof { source, .. } = &id;
-                let from_shard: u64 = source.shard_id.into();
-                let producers =
-                    self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers);
-                (id, producers.clone())
+                let producers = self.producers_of(&id);
+                (id, producers)
             })
             .collect())
     }
@@ -133,18 +159,22 @@ impl DataPolicy for TestPolicy {
         self.chain_policies.made_pullable_by(block)
     }
 
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        Ok(self.producers_of(id))
+    }
+}
+
+impl ServePolicy for TestPolicy {
     fn names_known_shards(&self, id: &DataId) -> Result<bool, Error> {
         self.chain_policies.names_known_shards(id)
     }
 
     fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        let DataId::ReceiptProof { source, .. } = id;
-        let from_shard: u64 = source.shard_id.into();
-        Ok(self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers).clone())
+        Ok(self.producers_of(id))
     }
 
     fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
-        let producers = self.producers(id)?;
+        let producers = self.producers_of(id);
         Ok(self
             .chain_policies
             .recipients(id)?
@@ -218,28 +248,14 @@ impl TestManager {
     }
 
     fn applying(chain: &Chain, shard: u64) -> Self {
-        let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
-        let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::Shards(vec![tracked]),
-            chain.epoch_manager.clone(),
-            MutableConfigValue::new(None, "validator_signer"),
-        );
         let store = chain.chain_store.store();
-        let policies =
-            Policies::new(store.chain_store(), chain.epoch_manager.clone(), shard_tracker);
-        let policy = TestPolicy {
-            chain_policies: policies,
-            producers: producers(),
-            producers_by_from_shard: HashMap::new(),
-            failing_blocks: HashSet::new(),
-        };
+        let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         Self {
             manager: SpiceDataManager::new(
                 PullConfig::default(),
                 DATA_PARTS_RATIO,
                 store.chain_store(),
-                policy,
+                TestPolicy::applying(chain, shard),
             ),
             clock: FakeClock::default(),
             store,
@@ -263,13 +279,8 @@ impl TestManager {
         self.certified_height = self.certified_height.max(height);
     }
 
-    /// Writes `block` to the store as the final execution head.
     fn set_final_execution_head(&self, block: &Block) {
-        let mut store_update = self.store.store_update();
-        store_update
-            .chain_store_update()
-            .set_spice_final_execution_head(&Tip::from_header(block.header()));
-        store_update.commit();
+        set_final_execution_head(&self.store, block);
     }
 
     fn set_pull_config(&mut self, config: PullConfig) {
@@ -424,6 +435,15 @@ fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
     let SpiceData::ReceiptProof(proof) = data else { panic!("not a receipt proof") };
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), proof);
+    store_update.commit();
+}
+
+/// Writes `block` to the store as the final execution head.
+fn set_final_execution_head(store: &Store, block: &Block) {
+    let mut store_update = store.store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(block.header()));
     store_update.commit();
 }
 

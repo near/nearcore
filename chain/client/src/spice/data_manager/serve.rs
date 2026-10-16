@@ -1,6 +1,7 @@
 use super::encode::{EncodedData, encode};
-use super::{DataId, DataPolicy, SpiceData, SpiceDataManager};
+use super::{DataId, Policies, ServePolicy, SpiceData};
 use near_chain::Error;
+use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::AccountId;
 use std::collections::{BTreeSet, HashSet};
@@ -34,7 +35,17 @@ pub(crate) enum ServeError {
     Chain(#[from] Error),
 }
 
-impl<P: DataPolicy> SpiceDataManager<P> {
+/// Pushes and serves the data this node produces, encoding it on each call.
+pub(crate) struct SpiceDataServer<P: ServePolicy = Policies> {
+    encoders: ReedSolomonEncoderCache,
+    policies: P,
+}
+
+impl<P: ServePolicy> SpiceDataServer<P> {
+    pub(crate) fn new(data_parts_ratio: f64, policies: P) -> Self {
+        Self { encoders: ReedSolomonEncoderCache::new(data_parts_ratio), policies }
+    }
+
     /// The push of `data`, which `me` produced as a producer of `id`.
     pub(crate) fn push(
         &mut self,
@@ -77,10 +88,5 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             encode(&self.encoders.entry(producers.len()), &data);
         let parts = parts.into_iter().filter(|part| ordinals.contains(&part.part_ord)).collect();
         Ok(Served::Parts { commitment, parts })
-    }
-
-    /// The producers of `id`, in the parts' encoding order.
-    pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.policies.producers(id)
     }
 }
