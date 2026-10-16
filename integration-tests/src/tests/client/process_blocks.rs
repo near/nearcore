@@ -10,6 +10,7 @@ use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
+use near_chain::state_snapshot_actor::snapshot_hash_for_block;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1201,13 +1202,13 @@ fn slow_test_process_block_after_state_sync() {
         .state_sync_adapter
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
-    let state_root = header.chunk_prev_state_root();
+    let state_root = header.synced_state_root();
     let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let sync_prev_prev_hash = sync_prev_header.prev_hash();
+    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+        .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
         .unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
@@ -2010,7 +2011,7 @@ fn slow_test_catchup_gas_price_change() {
                 .runtime_adapter
                 .apply_state_part(
                     shard_id,
-                    &state_sync_header.chunk_prev_state_root(),
+                    &state_sync_header.synced_state_root(),
                     StatePartId::new(part_id, num_parts),
                     &part,
                     blocks[5].header().epoch_id(),
@@ -3432,13 +3433,13 @@ mod contract_precompilation_tests {
             .state_sync_adapter
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
-        let state_root = state_sync_header.chunk_prev_state_root();
+        let state_root = state_sync_header.synced_state_root();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let sync_prev_prev_hash = sync_prev_header.prev_hash();
+        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+            .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter

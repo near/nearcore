@@ -38,7 +38,7 @@ pub(crate) async fn install_state_snapshot(
     header: &ShardStateSyncResponseHeader,
 ) -> Result<(), CloudArchivalReaderError> {
     let shard_id = shard_uid.shard_id();
-    let state_root = header.chunk_prev_state_root();
+    let state_root = header.synced_state_root();
     let num_parts = header.num_state_parts();
     for part_index in 0..num_parts {
         let part_id = StatePartId::new(part_index, num_parts);

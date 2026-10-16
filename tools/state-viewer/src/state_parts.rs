@@ -1,5 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
+use near_chain::state_snapshot_actor::snapshot_hash_for_block;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
@@ -346,7 +347,7 @@ async fn load_state_parts(
 
             let state_header =
                 chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
-            let state_root = state_header.chunk_prev_state_root();
+            let state_root = state_header.synced_state_root();
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
@@ -455,11 +456,11 @@ async fn dump_state_parts(
     };
     let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
-    let sync_prev_prev_hash = sync_prev_header.prev_hash();
+    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
 
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
-    let state_root = state_header.chunk_prev_state_root();
+    let state_root = state_header.synced_state_root();
     let num_parts = state_header.num_state_parts();
     let state_part_indices =
         get_part_indices(state_part_index_from, state_part_index_to, num_parts);
@@ -501,7 +502,7 @@ async fn dump_state_parts(
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
-                sync_prev_prev_hash,
+                &snapshot_hash,
                 &state_root,
                 StatePartId::new(part_idx, num_parts),
             )
