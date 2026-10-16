@@ -6,13 +6,13 @@ use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
+use near_primitives::action::{Action, DeployContractAction};
 use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
@@ -58,12 +58,7 @@ fn test_storage_proof_size_limit() {
     // Write 1MB values under keys 0, 1, 2, 3, ..., 23.
     // 24MB of data in total
     for idx in 0_u8..24 {
-        let action = Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "write_one_megabyte".to_string(),
-            args: vec![idx],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }));
+        let action = Action::function_call("write_one_megabyte", vec![idx], Gas::from_teragas(300));
 
         let tx = SignedTransaction::from_actions(
             nonce,
@@ -81,12 +76,8 @@ fn test_storage_proof_size_limit() {
     let after_writes_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     // read_n_megabytes reads keys between from..to, (to - from) MB of data in total.
     let mut make_read_transaction = |from: u8, to: u8| {
-        let action = Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "read_n_megabytes".to_string(),
-            args: vec![from, to],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }));
+        let action =
+            Action::function_call("read_n_megabytes", vec![from, to], Gas::from_teragas(300));
         let tx = SignedTransaction::from_actions(
             nonce,
             user_account.clone(),

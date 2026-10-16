@@ -11,9 +11,7 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::hash::CryptoHash;
@@ -96,12 +94,7 @@ fn create_tx_function_call(
     signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let action = Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "write_random_value".to_string(),
-        args: vec![],
-        gas: Gas::from_teragas(100),
-        deposit: Balance::ZERO,
-    }));
+    let action = Action::function_call("write_random_value", vec![], Gas::from_teragas(100));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash)
 }
 

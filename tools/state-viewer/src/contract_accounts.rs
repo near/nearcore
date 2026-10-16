@@ -502,7 +502,7 @@ mod tests {
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
-        ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
+        ExecutionOutcomeWithProof, ExecutionStatus, TransferAction,
     };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::Gas;
@@ -581,12 +581,7 @@ mod tests {
         let fn_call_receipt = create_receipt_with_actions(
             "alice.near",
             "bob.near",
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "foo".to_owned(),
-                args: vec![],
-                gas: Gas::from_gas(1000),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("foo", vec![], Gas::from_gas(1000))],
         );
 
         // This is the receipt spawned, with the actions triggered by the

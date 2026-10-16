@@ -7,9 +7,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce};
 
 fn test_setup() -> (TestEnv, Signer) {
@@ -41,12 +39,7 @@ fn test_setup() -> (TestEnv, Signer) {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "write_random_value".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("write_random_value", vec![], Gas::from_teragas(100))],
         ),
         ProcessTxResponse::ValidTx
     );

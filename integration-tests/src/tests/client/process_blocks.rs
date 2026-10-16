@@ -47,8 +47,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, Transaction, TransactionV0,
-    ValidatedTransaction,
+    Action, ExecutionStatus, SignedTransaction, Transaction, TransactionV0, ValidatedTransaction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
@@ -1762,12 +1761,7 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "write_block_height".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("write_block_height", vec![], Gas::from_teragas(100))],
         *last_block.hash(),
     );
     assert_eq!(
@@ -3375,12 +3369,7 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_validator_stake".to_string(),
-            args: b"test0".to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_validator_stake", b"test0", Gas::from_teragas(100))],
         *genesis_block.hash(),
     );
     assert_eq!(

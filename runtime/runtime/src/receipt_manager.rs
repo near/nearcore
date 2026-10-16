@@ -1,9 +1,8 @@
 use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    FunctionCallAction, StakeAction, TransferAction, TransferToGasKeyAction,
-    UniversalStateInitAction, UseGlobalContractAction,
+    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction, StakeAction,
+    TransferAction, TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -370,7 +369,8 @@ impl ReceiptManager {
         }
     }
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
+    /// Attach the [`FunctionCallAction`](near_primitives::action::FunctionCallAction) action to an
+    /// existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
@@ -402,13 +402,12 @@ impl ReceiptManager {
     ) -> Result<(), VMLogicError> {
         let action_index = self.append_action(
             receipt_index,
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: String::from_utf8(method_name)
-                    .map_err(|_| HostError::InvalidMethodName)?,
+            Action::function_call_with_deposit(
+                String::from_utf8(method_name).map_err(|_| HostError::InvalidMethodName)?,
                 args,
-                gas: prepaid_gas,
-                deposit: attached_deposit,
-            })),
+                prepaid_gas,
+                attached_deposit,
+            ),
         );
 
         if gas_weight.0 > 0 {

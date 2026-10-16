@@ -41,7 +41,7 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -832,12 +832,7 @@ impl TestEnv {
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::test_signer(&account);
-        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))];
+        let actions = vec![Action::function_call("main", vec![], Gas::from_teragas(300))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());
         self.execute_tx(tx).unwrap()
     }

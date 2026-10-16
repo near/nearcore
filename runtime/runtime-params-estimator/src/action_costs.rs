@@ -847,12 +847,12 @@ fn function_call_action(size: ActionSize) -> Action {
     let method_len = 4.min(total_size) as usize;
     let method_name: String = "noop".chars().take(method_len).collect();
     let arg_len = total_size as usize - method_len;
-    Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
+    Action::function_call_with_deposit(
         method_name,
-        args: vec![1u8; arg_len],
-        gas: Gas::from_teragas(3), // 3 Tgas, to allow 100 copies in the same receipt
-        deposit: Balance::from_near(1),
-    }))
+        vec![1u8; arg_len],
+        Gas::from_teragas(3), // 3 Tgas, to allow 100 copies in the same receipt
+        Balance::from_near(1),
+    )
 }
 
 pub(crate) fn empty_delegate_action(

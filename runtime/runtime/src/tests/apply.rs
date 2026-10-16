@@ -51,7 +51,7 @@ use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
     AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, EccTransaction,
     ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
+    SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
@@ -634,12 +634,8 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
     let signer = Arc::new(InMemorySigner::test_signer(&sender_id));
     (0..n)
         .map(|i| {
-            let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "foo".to_string(),
-                args: b"arg".to_vec(),
-                gas: MAX_ATTACHED_GAS,
-                deposit: deposit,
-            }))];
+            let inner_actions =
+                [Action::function_call_with_deposit("foo", b"arg", MAX_ATTACHED_GAS, deposit)];
 
             let delegate_action = DelegateAction {
                 sender_id: sender_id.clone(),
@@ -1053,12 +1049,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
 
     let gas = 2 * 10u64.pow(14);
     let gas_price = GAS_PRICE.checked_div(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
     let prepaid_exec_gas = apply_state
         .config
@@ -1155,12 +1146,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
 
     let gas = 1_000_000;
     let gas_price = GAS_PRICE.checked_div(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
     let expected_gas_burnt = apply_state
         .config
@@ -1248,12 +1234,7 @@ fn test_apply_surplus_gas_for_function_call() {
 
     let gas = 2 * 10u64.pow(14);
     let gas_price = GAS_PRICE.checked_mul(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
     let prepaid_exec_gas = apply_state
         .config
@@ -1502,23 +1483,13 @@ fn test_compute_usage_limit() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"second".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"second", sha256_cost.gas)],
     );
 
     let apply_result = runtime
@@ -1588,12 +1559,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -1676,12 +1642,7 @@ fn test_main_storage_proof_size_soft_limit() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
         )
     };
 
@@ -1765,14 +1726,7 @@ fn test_per_receipt_storage_proof_size_limit() {
         account.clone(),
         signer.clone(),
         (0..NUM_VALUES)
-            .map(|key| {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "write_one_megabyte".to_string(),
-                    args: vec![key],
-                    gas: ACTION_GAS,
-                    deposit: Balance::ZERO,
-                }))
-            })
+            .map(|key| Action::function_call("write_one_megabyte", vec![key], ACTION_GAS))
             .collect(),
     );
     let write_receipt_id = *write_receipt.receipt_id();
@@ -1809,14 +1763,7 @@ fn test_per_receipt_storage_proof_size_limit() {
         account,
         signer,
         (0..NUM_VALUES)
-            .map(|key| {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "read_n_megabytes".to_string(),
-                    args: vec![key, key + 1],
-                    gas: ACTION_GAS,
-                    deposit: Balance::ZERO,
-                }))
-            })
+            .map(|key| Action::function_call("read_n_megabytes", vec![key, key + 1], ACTION_GAS))
             .collect(),
     );
     let read_receipt_id = *read_receipt.receipt_id();
@@ -1937,12 +1884,7 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
         .chain((0..NUM_VALUES).map(|key| {
             let mut args = vec![key];
             args.extend_from_slice(&(value_size as u32).to_le_bytes());
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "write_value_of_size".to_string(),
-                args,
-                gas: ACTION_GAS,
-                deposit: Balance::ZERO,
-            }))
+            Action::function_call("write_value_of_size", args, ACTION_GAS)
         }))
         .collect(),
     );
@@ -1950,12 +1892,8 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
     assert_matches!(setup_status, ExecutionStatus::SuccessValue(_));
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
-    let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "read_values_in_key_range".to_string(),
-        args: vec![0, NUM_VALUES],
-        gas: ACTION_GAS,
-        deposit: Balance::ZERO,
-    }));
+    let read_action =
+        Action::function_call("read_values_in_key_range", vec![0, NUM_VALUES], ACTION_GAS);
     let added_keys: Vec<PublicKey> = (0..NUM_ADDED_KEYS)
         .map(|i| {
             InMemorySigner::from_seed(account.clone(), KeyType::ED25519, &format!("added{i}"))
@@ -2061,12 +1999,7 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), gas)],
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
@@ -2200,12 +2133,7 @@ fn apply_call_to_contract_missing_from_witness(
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let apply_result = runtime
         .apply(
@@ -2296,12 +2224,7 @@ fn apply_call_to_global_contract_missing_from_witness(
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
@@ -2480,12 +2403,7 @@ fn apply_call_to_missing_global_contract_for_account(
     let call_receipt = create_receipt_with_actions(
         wallet_account,
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "rlp_execute".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("rlp_execute", Vec::new(), Gas::from_teragas(300))],
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
@@ -2641,12 +2559,11 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
         create_receipt_with_actions(
             alice_account(),
             signers[0].clone(),
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_create_return_data_id".to_string(),
-                args: vec![6u8; 16],
-                gas: Gas::from_teragas(300),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call(
+                "call_yield_create_return_data_id",
+                vec![6u8; 16],
+                Gas::from_teragas(300),
+            )],
         )
     };
 
@@ -2764,12 +2681,7 @@ fn test_promise_yield_indices_absent_key_still_applies() {
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let apply_result = runtime
         .apply(
@@ -2847,14 +2759,9 @@ fn test_exclude_contract_code_from_witness() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
-                // Exercise actual loading, after `FixContractLoadingCost` it
-                // skips even metadata lookup when the loading base cannot be paid.
-                gas: Gas::from_teragas(1),
-                deposit: Balance::ZERO,
-            }))],
+            // Exercise actual loading, after `FixContractLoadingCost` it
+            // skips even metadata lookup when the loading base cannot be paid.
+            vec![Action::function_call("main", Vec::new(), Gas::from_teragas(1))],
         )
     };
 
@@ -2969,12 +2876,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: sha256_cost.gas,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
         )
     };
 
@@ -3050,12 +2952,7 @@ fn test_deploy_and_call_different_contracts() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -3069,12 +2966,7 @@ fn test_deploy_and_call_different_contracts() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3156,12 +3048,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -3175,12 +3062,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3260,12 +3142,7 @@ fn test_deploy_and_call_in_apply() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -3279,12 +3156,7 @@ fn test_deploy_and_call_in_apply() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3339,12 +3211,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -3358,12 +3225,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3413,12 +3275,7 @@ fn test_deploy_existing_contract_to_different_account() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3455,12 +3312,7 @@ fn test_deploy_existing_contract_to_different_account() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3503,12 +3355,7 @@ fn test_deploy_and_call_in_same_receipt() {
         signers[0].clone(),
         vec![
             Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT),
         ],
     );
 
@@ -3552,12 +3399,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         signers[0].clone(),
         vec![
             Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT),
         ],
     );
 
@@ -3593,12 +3435,7 @@ fn test_call_account_without_contract() {
     let receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: vec![],
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3641,12 +3478,7 @@ fn test_contract_accesses_when_validating_chunk() {
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -4255,21 +4087,19 @@ fn test_deploy_and_call_local_receipt() {
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
         CryptoHash::default(),
     );
@@ -4335,21 +4165,19 @@ fn test_deploy_and_call_local_receipts() {
         alice_account(),
         &*signers[0],
         vec![
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
         CryptoHash::default(),
     );
@@ -4435,12 +4263,11 @@ fn test_apply_v4_metadata_pads_unexecuted_actions() {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
             Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
     );
 
@@ -4676,12 +4503,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         alice_account(),
         bob_account(),
         &*alice_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "hello".to_string(),
-            args: vec![],
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("hello", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
         CryptoHash::default(),
     );
     let sample_cost = crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
@@ -4751,12 +4573,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
             alice_account(),
             receiver,
             &*alice_signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: vec![],
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
             CryptoHash::default(),
         )
     };
@@ -5475,23 +5292,21 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
     let call_alice = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "max_self_recursion_delay".to_string(),
-            args: 0u32.to_be_bytes().to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "max_self_recursion_delay",
+            0u32.to_be_bytes(),
+            Gas::from_teragas(100),
+        )],
     );
 
     let call_bob = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "max_self_recursion_delay".to_string(),
-            args: 0u32.to_be_bytes().to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "max_self_recursion_delay",
+            0u32.to_be_bytes(),
+            Gas::from_teragas(100),
+        )],
     );
 
     let apply_result = runtime
@@ -5591,12 +5406,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
         &parent_signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(10),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("main", vec![], Gas::from_teragas(10)),
         ],
     );
     let call_id = *create_and_call.receipt_id();
@@ -6027,12 +5837,11 @@ fn test_gas_key_add_key_conserves_supply() {
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&call_promise_args).unwrap(),
-                gas: MAX_ATTACHED_GAS,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "call_promise",
+                serde_json::to_vec(&call_promise_args).unwrap(),
+                MAX_ATTACHED_GAS,
+            ),
         ],
         CryptoHash::default(),
     );
@@ -6170,12 +5979,7 @@ fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
     let call_receipt = create_receipt_with_actions(
         user,
         user_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(10),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", vec![], Gas::from_teragas(10))],
     );
 
     let apply_result = runtime

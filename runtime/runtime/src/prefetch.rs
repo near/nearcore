@@ -434,7 +434,7 @@ mod tests {
     use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
-    use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives::transaction::Action;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{AccountId, Balance, Gas};
     use near_primitives::version::ProtocolFeature;
@@ -657,12 +657,11 @@ mod tests {
         prefetcher.prefetch_api.sweat_prefetch_senders = vec![account_id.clone()];
         let signer = InMemorySigner::test_signer(&account_id);
         let make_receipt = |gas| {
-            let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "record_batch".to_string(),
-                args: br#"{"steps_batch":[["user.near",100]]}"#.to_vec(),
+            let action = Action::function_call(
+                "record_batch",
+                br#"{"steps_batch":[["user.near",100]]}"#,
                 gas,
-                deposit: Balance::ZERO,
-            }));
+            );
             Receipt::from_tx(
                 CryptoHash::default(),
                 account_id.clone(),

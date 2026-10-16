@@ -20,7 +20,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::{FunctionCallAction, UniversalStateInitAction};
+use near_primitives::action::UniversalStateInitAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -2876,14 +2876,11 @@ fn test_storage_proof_garbage() {
             gas_price: env.runtime.genesis_config.min_gas_price,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::FunctionCall(
-                FunctionCallAction {
-                    method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
-                    args: vec![],
-                    gas: Gas::from_teragas(300),
-                    deposit: Balance::from_yoctonear(300000000000000),
-                }
-                .into(),
+            actions: vec![Action::function_call_with_deposit(
+                format!("internal_record_storage_garbage_{garbage_size_mb}"),
+                vec![],
+                Gas::from_teragas(300),
+                Balance::from_yoctonear(300000000000000),
             )],
         }),
     });

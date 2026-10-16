@@ -8,7 +8,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
 use near_primitives::views::{
@@ -174,12 +174,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id,
             contract_id,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: method_name.to_string(),
-                args,
-                gas,
-                deposit,
-            }))],
+            vec![Action::function_call_with_deposit(method_name, args, gas, deposit)],
         )
     }
 

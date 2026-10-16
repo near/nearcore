@@ -1180,12 +1180,12 @@ mod tests {
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "qqq".to_string(),
-                    args: vec![1, 2, 3],
-                    gas: Gas::from_gas(1_000),
-                    deposit: Balance::from_yoctonear(1_000_000),
-                })),
+                Action::function_call_with_deposit(
+                    "qqq",
+                    vec![1, 2, 3],
+                    Gas::from_gas(1_000),
+                    Balance::from_yoctonear(1_000_000),
+                ),
                 Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
@@ -1221,12 +1221,12 @@ mod tests {
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "qqq".to_string(),
-                    args: vec![1, 2, 3],
-                    gas: Gas::from_gas(1_000),
-                    deposit: Balance::from_yoctonear(1_000_000),
-                })),
+                Action::function_call_with_deposit(
+                    "qqq",
+                    vec![1, 2, 3],
+                    Gas::from_gas(1_000),
+                    Balance::from_yoctonear(1_000_000),
+                ),
                 Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),

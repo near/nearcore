@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, FunctionCallError, TxExecutionError,
 };
@@ -59,12 +59,7 @@ fn test_eth_implicit_account_with_missing_global_contract_does_not_halt_chain() 
     let call_tx = env.validator().tx_from_actions(
         &relayer,
         &eth_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "rlp_execute".into(),
-            args: b"{}".to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("rlp_execute", b"{}", Gas::from_teragas(100))],
     );
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
     assert_matches!(
