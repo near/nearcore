@@ -1312,9 +1312,10 @@ fn epoch_boundary_fork_records_canonical_first_block() {
 #[test]
 fn epoch_last_block_sibling_behind_sync_point_records() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    const EPOCH_LENGTH: u64 = BLOCK_CACHE_SIZE as u64 + 300;
-    let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
-    let last = EPOCH_LENGTH;
+    // Past the grace window so the record walks, and past the cache so the walk could evict.
+    let epoch_length = (BLOCK_CACHE_SIZE as u64).max(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) + 300;
+    let mut em = setup_default_epoch_manager(validators, epoch_length, 1, 3, 90, 60);
+    let last = epoch_length;
     let h = height_hashes(last - 1);
     record_steady_chain(&mut em, &h);
     let p = h[last as usize - 1];

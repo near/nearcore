@@ -64,7 +64,11 @@ mod validator_selection;
 mod validator_stats;
 
 const EPOCH_CACHE_SIZE: usize = 50;
+#[cfg(not(feature = "test_features"))]
 const BLOCK_CACHE_SIZE: usize = 1000;
+/// Small so tests fail when code depends on a cached entry that is not yet committed.
+#[cfg(feature = "test_features")]
+const BLOCK_CACHE_SIZE: usize = 4;
 const CHUNK_PRODUCER_BLACKLIST_CACHE_SIZE: usize = 128;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
