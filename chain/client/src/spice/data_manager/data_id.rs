@@ -33,6 +33,12 @@ impl DataId {
         &source.block_hash
     }
 
+    /// The shards the data moves between: its source and its destination.
+    pub(crate) fn shard_endpoints(&self) -> [ShardId; 2] {
+        let DataId::ReceiptProof { source, to_shard } = self;
+        [source.shard_id, *to_shard]
+    }
+
     /// Checks that decoded data is the data this id names.
     pub(crate) fn verify_data(&self, data: &SpiceData) -> Result<(), AssembledDataError> {
         let DataId::ReceiptProof { source, to_shard } = self;

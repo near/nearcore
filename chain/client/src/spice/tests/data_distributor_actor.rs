@@ -2506,6 +2506,7 @@ fn test_handling_data_request_when_not_producer() {
         recv_permit: RecvMessagePermit::none(),
     });
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(actor.malformed_data_request_count(MalformedDataRequest::NotAProducer), 1);
 }
 
 #[test]

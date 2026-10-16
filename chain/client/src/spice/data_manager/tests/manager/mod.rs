@@ -1,15 +1,12 @@
 use super::*;
-use crate::spice::chunk_executor_actor::save_receipt_proof;
 use crate::spice::tests::{build_to_last_pre_spice_block, save_and_record_block};
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, FakeClock};
 use near_chain::test_utils::get_chain_with_genesis;
-use near_chain::test_utils::{get_chain_with_num_shards, process_block_sync};
-use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
+use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::block::Tip;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::shard_layout::ShardLayout;
@@ -20,8 +17,8 @@ use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{ShardUId, Store};
+use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod batching;
@@ -29,43 +26,6 @@ mod delivery;
 mod lifecycle;
 mod recovery;
 mod retries;
-
-/// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
-/// height `i + 1`.
-fn chain_with_blocks(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
-    chain_with_shards_and_blocks(2, num_blocks)
-}
-
-/// A chain with `num_shards` shards and `num_blocks` processed empty blocks; `blocks[i]` is
-/// at height `i + 1`.
-fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
-    let mut chain = get_chain_with_num_shards(Clock::real(), num_shards);
-    let genesis_hash = chain.chain_store.head().unwrap().last_block_hash;
-    let mut prev = chain.chain_store.get_block(&genesis_hash).unwrap();
-    let mut blocks = Vec::new();
-    for _ in 0..num_blocks {
-        let block = process_block_at(&mut chain, &prev, prev.header().height() + 1);
-        blocks.push(block.clone());
-        prev = block;
-    }
-    (chain, blocks)
-}
-
-/// Builds and processes a block on top of `prev` at `height`; the chain keeps it
-/// whether or not it becomes the head.
-fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
-    let signer = Arc::new(create_test_signer("test1"));
-    let block =
-        TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build();
-    process_block_sync(
-        chain,
-        block.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-    block
-}
 
 /// A block on `prev` whose core statements certify `chunk_ids`. Not validated or processed.
 fn certifying_block(prev: &Block, chunk_ids: &[SpiceChunkId]) -> Arc<Block> {
@@ -96,7 +56,7 @@ fn save_block(chain: &mut Chain, block: &Arc<Block>) {
 /// The chain's policies with fixed producer lists in place of the chain's single
 /// chunk producer.
 struct TestPolicy {
-    chain_policies: Policies,
+    chain_policies: FetchPolicies,
     producers: Vec<AccountId>,
     /// Producers for items from these shards, in place of `producers`.
     producers_by_from_shard: HashMap<u64, Vec<AccountId>>,
@@ -104,7 +64,25 @@ struct TestPolicy {
     failing_blocks: HashSet<CryptoHash>,
 }
 
-impl DataPolicy for TestPolicy {
+impl TestPolicy {
+    /// The chain's policies for a node that applies `shard`, with the fixed producers.
+    fn applying(chain: &Chain, shard: u64) -> Self {
+        Self {
+            chain_policies: chain_fetch_policies(chain, shard),
+            producers: producers(),
+            producers_by_from_shard: HashMap::new(),
+            failing_blocks: HashSet::new(),
+        }
+    }
+
+    fn producers_of(&self, id: &DataId) -> Vec<AccountId> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let from_shard: u64 = source.shard_id.into();
+        self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers).clone()
+    }
+}
+
+impl FetchPolicy for TestPolicy {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         if self.failing_blocks.contains(block.hash()) {
             return Err(Error::Other("no items".to_string()));
@@ -114,11 +92,8 @@ impl DataPolicy for TestPolicy {
             .needed_items(block)?
             .into_iter()
             .map(|(id, _)| {
-                let DataId::ReceiptProof { source, .. } = &id;
-                let from_shard: u64 = source.shard_id.into();
-                let producers =
-                    self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers);
-                (id, producers.clone())
+                let producers = self.producers_of(&id);
+                (id, producers)
             })
             .collect())
     }
@@ -130,15 +105,10 @@ impl DataPolicy for TestPolicy {
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.chain_policies.made_pullable_by(block)
     }
-}
 
-/// The producers of every item here; one per part.
-fn producers() -> Vec<AccountId> {
-    (0..TOTAL_PARTS).map(|i| account(&format!("producer{i}.near"))).collect()
-}
-
-fn ordinals(ordinals: &[u64]) -> BTreeSet<u64> {
-    ordinals.iter().copied().collect()
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        Ok(self.producers_of(id))
+    }
 }
 
 /// Each producer pulled from for its own ordinal.
@@ -196,28 +166,14 @@ impl TestManager {
     }
 
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
-        let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
-        let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::Shards(vec![tracked]),
-            chain.epoch_manager.clone(),
-            MutableConfigValue::new(None, "validator_signer"),
-        );
         let store = chain.chain_store.store();
-        let policies =
-            Policies::new(store.chain_store(), chain.epoch_manager.clone(), shard_tracker);
-        let policy = TestPolicy {
-            chain_policies: policies,
-            producers: producers(),
-            producers_by_from_shard: HashMap::new(),
-            failing_blocks: HashSet::new(),
-        };
+        let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         Self {
             manager: SpiceDataManager::new(
                 pull_config,
                 DATA_PARTS_RATIO,
                 store.chain_store(),
-                policy,
+                TestPolicy::applying(chain, shard),
             ),
             clock: FakeClock::default(),
             store,
@@ -241,13 +197,8 @@ impl TestManager {
         self.certified_height = self.certified_height.max(height);
     }
 
-    /// Writes `block` to the store as the final execution head.
     fn set_final_execution_head(&self, block: &Block) {
-        let mut store_update = self.store.store_update();
-        store_update
-            .chain_store_update()
-            .set_spice_final_execution_head(&Tip::from_header(block.header()));
-        store_update.commit();
+        set_final_execution_head(&self.store, block);
     }
 
     /// Writes `block` to the store as the consensus final head.
@@ -356,20 +307,6 @@ fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataI
     ids
 }
 
-fn receipt_id(block: &Block, from_shard: u64, to_shard: u64) -> DataId {
-    DataId::receipt_proof(*block.hash(), ShardId::new(from_shard), ShardId::new(to_shard))
-}
-
-/// Encodes `data` into wire parts under its commitment.
-fn encode_to_wire(
-    encoder: &Arc<ReedSolomonEncoder>,
-    data: &SpiceData,
-) -> (SpiceDataCommitment, Vec<SpiceDataPart>) {
-    let (parts, encoded_length) = encoder.encode(data);
-    let parts: Vec<Box<[u8]>> = parts.into_iter().map(Option::unwrap).collect();
-    wire_parts(parts, encoded_length as u64, hash(&borsh::to_vec(data).unwrap()))
-}
-
 /// Well-formed wire parts under a commitment whose bytes decode to nothing.
 fn encode_garbage_to_wire(encoded_length: usize) -> (SpiceDataCommitment, Vec<SpiceDataPart>) {
     let part_length = reed_solomon_part_length(encoded_length, DATA_PARTS);
@@ -377,39 +314,7 @@ fn encode_garbage_to_wire(encoded_length: usize) -> (SpiceDataCommitment, Vec<Sp
     wire_parts(parts, encoded_length as u64, CryptoHash::default())
 }
 
-fn wire_parts(
-    parts: Vec<Box<[u8]>>,
-    encoded_length: u64,
-    data_hash: CryptoHash,
-) -> (SpiceDataCommitment, Vec<SpiceDataPart>) {
-    let (root, proofs) = merklize(&parts);
-    let commitment = SpiceDataCommitment { hash: data_hash, root, encoded_length };
-    let parts = parts
-        .into_iter()
-        .zip(proofs)
-        .enumerate()
-        .map(|(ordinal, (part, merkle_proof))| SpiceDataPart {
-            part_ord: ordinal as u64,
-            part,
-            merkle_proof,
-        })
-        .collect();
-    (commitment, parts)
-}
-
-/// The wire parts with the given ordinals.
-fn parts_with_ordinals(parts: &[SpiceDataPart], ordinals: &[u64]) -> Vec<SpiceDataPart> {
-    parts.iter().filter(|part| ordinals.contains(&part.part_ord)).cloned().collect()
-}
-
-fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
-    let SpiceData::ReceiptProof(proof) = data else { panic!("not a receipt proof") };
-    let mut store_update = chain.chain_store.store().store_update();
-    save_receipt_proof(&mut store_update, block.hash(), proof);
-    store_update.commit();
-}
-
 /// The ids of the receipt proofs `policies` needs from `block`.
-fn needed_receipt_ids(policies: &Policies, block: &Block) -> HashSet<DataId> {
+fn needed_receipt_ids(policies: &FetchPolicies, block: &Block) -> HashSet<DataId> {
     policies.needed_items(block.header()).unwrap().into_iter().map(|(id, _)| id).collect()
 }
