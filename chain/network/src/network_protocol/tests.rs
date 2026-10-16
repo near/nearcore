@@ -470,6 +470,46 @@ mod versioned_witness_tests {
 }
 
 #[test]
+fn snapshot_host_info_signed_address() {
+    use crate::network_protocol::SnapshotHostInfoVerificationError;
+    use crate::network_protocol::proto;
+    use crate::network_protocol::state_sync::SnapshotHostInfo;
+    use protobuf::MessageField;
+
+    let mut rng = make_rng(2847510394);
+    let signer = data::make_secret_key(&mut rng);
+    let info = SnapshotHostInfo::new(
+        PeerId::new(signer.public_key()),
+        CryptoHash::default(),
+        1,
+        vec![ShardId::new(0)],
+        Some("192.0.2.1:24567".parse().unwrap()),
+        &signer,
+    );
+    info.verify().unwrap();
+    assert_eq!(SnapshotHostInfo::try_from(&proto::SnapshotHostInfo::from(&info)).unwrap(), info);
+
+    // Relays can't change the address.
+    let tampered =
+        SnapshotHostInfo { addr: Some("192.0.2.2:24567".parse().unwrap()), ..info.clone() };
+    assert_eq!(tampered.verify(), Err(SnapshotHostInfoVerificationError::InvalidSignature));
+
+    // Older nodes relay only the fields they know, and the result still verifies.
+    let mut stripped = proto::SnapshotHostInfo::from(&info);
+    stripped.addr = MessageField::none();
+    stripped.signature = MessageField::none();
+    let stripped = SnapshotHostInfo::try_from(&stripped).unwrap();
+    stripped.verify().unwrap();
+    let want = SnapshotHostInfo { addr: None, signature: None, ..info.clone() };
+    assert_eq!(stripped, want);
+
+    // An address without the signature covering it is dropped while parsing.
+    let mut unsigned = proto::SnapshotHostInfo::from(&info);
+    unsigned.signature = MessageField::none();
+    assert_eq!(SnapshotHostInfo::try_from(&unsigned).unwrap(), want);
+}
+
+#[test]
 fn snapshot_host_info_too_many_shards() {
     use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
     use crate::network_protocol::proto;
@@ -481,7 +521,7 @@ fn snapshot_host_info_too_many_shards() {
     // send-side debug_assert. We then set `shards` on the proto directly.
     let signer = data::make_secret_key(&mut rng);
     let peer_id = PeerId::new(signer.public_key());
-    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], &signer);
+    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], None, &signer);
     let base = proto::SnapshotHostInfo::from(&info);
 
     // len == cap: must succeed.

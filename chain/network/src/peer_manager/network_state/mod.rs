@@ -1385,7 +1385,7 @@ impl NetworkState {
     }
 
     /// Broadcast snapshot hosts to a single peer via its gossip demux.
-    /// Deduplicates by peer_id, keeping the highest epoch_height.
+    /// Deduplicates by peer_id, keeping the freshest info.
     async fn gossip_snapshot_hosts_to_peer(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -1401,8 +1401,7 @@ impl NetworkState {
                     let res = ds.iter().map(|_| ()).collect();
                     let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
                     for d in ds.into_iter().flatten() {
-                        if sum.get(&d.peer_id).map_or(true, |old| old.epoch_height < d.epoch_height)
-                        {
+                        if sum.get(&d.peer_id).map_or(true, |old| old.freshness() < d.freshness()) {
                             sum.insert(d.peer_id.clone(), d);
                         }
                     }

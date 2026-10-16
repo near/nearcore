@@ -120,8 +120,12 @@ pub enum ParseSnapshotHostInfoError {
     PeerId(ParseRequiredError<ParsePublicKeyError>),
     #[error("sync_hash {0}")]
     SyncHash(ParseRequiredError<ParseCryptoHashError>),
+    #[error("addr {0}")]
+    Addr(ParseSocketAddrError),
     #[error("signature {0}")]
-    Signature(ParseRequiredError<ParseSignatureError>),
+    Signature(ParseSignatureError),
+    #[error("legacy_signature {0}")]
+    LegacySignature(ParseSignatureError),
     #[error("shards: {count} > {max} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)")]
     TooManyShards { count: usize, max: usize },
 }
@@ -133,7 +137,9 @@ impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
             sync_hash: MF::some((&x.sync_hash).into()),
             epoch_height: x.epoch_height,
             shards: x.shards.clone().into_iter().map(Into::into).collect(),
-            signature: MF::some((&x.signature).into()),
+            legacy_signature: MF::from_option(x.legacy_signature.as_ref().map(Into::into)),
+            addr: MF::from_option(x.addr.as_ref().map(Into::into)),
+            signature: MF::from_option(x.signature.as_ref().map(Into::into)),
             ..Default::default()
         }
     }
@@ -152,12 +158,22 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
                 max: MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
             });
         }
+        let signature = try_from_optional(&x.signature).map_err(Self::Error::Signature)?;
+        // Only `signature` covers the address, so without it the address is dropped rather
+        // than stored or relayed.
+        let addr = match signature {
+            Some(_) => try_from_optional(&x.addr).map_err(Self::Error::Addr)?,
+            None => None,
+        };
         Ok(Self {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
             epoch_height: x.epoch_height,
             shards: x.shards.clone().into_iter().map(Into::into).collect(),
-            signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
+            addr,
+            signature,
+            legacy_signature: try_from_optional(&x.legacy_signature)
+                .map_err(Self::Error::LegacySignature)?,
         })
     }
 }
