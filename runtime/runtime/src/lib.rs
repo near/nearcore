@@ -111,6 +111,7 @@ pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
+mod contract_preparation;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
@@ -692,7 +693,6 @@ impl Runtime {
                     account_contract,
                     &state_update,
                     function_call,
-                    None,
                     AccessOptions::DEFAULT,
                     apply_state.current_protocol_version,
                 )?;
