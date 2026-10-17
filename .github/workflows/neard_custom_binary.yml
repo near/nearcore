@@ -17,6 +17,7 @@ on:
           - nightly-release
           - assertions-release
           - test-features-release
+          - adversarial-release
         required: true
       with-debug-info:
         default: false

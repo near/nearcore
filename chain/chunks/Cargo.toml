@@ -49,4 +49,6 @@ nightly = [
     "near-store/nightly",
 ]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
-test_features = []
+# Fault-injection hooks only. Keeps the build close to release. See `near-client/adversarial`.
+adversarial = []
+test_features = ["adversarial"]

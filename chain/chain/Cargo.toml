@@ -64,7 +64,10 @@ assert_matches.workspace = true
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
+# Fault-injection hooks only. Keeps the build close to release. See `near-client/adversarial`.
+adversarial = []
 test_features = [
+    "adversarial",
     "near-vm-runner/test_features",
     "near-primitives/test_features",
     "near-store/test_features",

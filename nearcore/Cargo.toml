@@ -95,7 +95,10 @@ harness = false
 [features]
 default = ["json_rpc", "rosetta_rpc"]
 
+# Fault-injection hooks only. See `near-client/adversarial`.
+adversarial = ["near-client/adversarial", "near-jsonrpc?/adversarial"]
 test_features = [
+    "adversarial",
     "near-client/test_features",
     "near-network/test_features",
     "near-store/test_features",

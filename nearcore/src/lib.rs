@@ -829,7 +829,7 @@ pub async fn start_with_config_and_synchronization_impl(
             rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
             block_notification_watch_receiver,
-            #[cfg(feature = "test_features")]
+            #[cfg(feature = "adversarial")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
             sharded_rpc_pool,

@@ -84,7 +84,7 @@ impl NeardCmd {
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
 
-        #[cfg(feature = "test_features")]
+        #[cfg(feature = "adversarial")]
         {
             tracing::error!(
                 "this is a node compiled with adversarial behaviors, do not use in production"
