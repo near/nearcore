@@ -4,7 +4,7 @@ use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_n
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -27,19 +27,11 @@ fn slow_test_sync_from_genesis() {
 
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .validators_spec(validators_spec)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .genesis_height(10000)
+        .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
 
     let first_epoch_tracked_shards = env
@@ -77,20 +69,12 @@ fn slow_test_validator_restart_under_cross_shard_load() {
 
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .shard_layout(ShardLayout::multi_shard(4, 3))
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .gc_num_epochs_to_keep(20)
         .build();
 
