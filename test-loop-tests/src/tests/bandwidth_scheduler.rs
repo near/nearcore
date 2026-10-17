@@ -146,18 +146,12 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // TODO(bandwidth_scheduler) - add support for missing block probability?
 
     // Build TestLoop
-    let validators_spec = ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]))
+        .add_user_accounts(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(vec![node_account])
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))

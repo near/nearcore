@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients_with_rpc};
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
@@ -50,20 +49,14 @@ fn test_spice_garbage_collection_witnesses() {
 
     let num_producers = 2;
     let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-
     let epoch_length = 5;
     let shard_layout = ShardLayout::multi_shard(2, 0);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, num_validators)
         .shard_layout(shard_layout.clone())
         .epoch_length(epoch_length)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
+        .enable_rpc()
         .gc_num_epochs_to_keep(1)
-        .clients(clients)
         .delay_warmup()
         .build();
 

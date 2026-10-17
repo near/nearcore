@@ -515,15 +515,12 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
             }
         })
         .collect();
-    let validators_spec = ValidatorsSpec::raw(validators, 4, 4, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    // The default epoch config leaves all kickout thresholds at 0 (no standard kickout).
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard(2, 1))
-        .validators_spec(validators_spec)
+        .validators_spec(ValidatorsSpec::raw(validators, 4, 4, 0))
         .build();
-    // `from_genesis` leaves all kickout thresholds at 0 (no standard kickout).
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     let source_em = env.node(0).client().epoch_manager.clone();
 

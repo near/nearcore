@@ -54,15 +54,14 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: TESTING_INIT_STAKE,
     }];
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
-        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .add_non_validator_client(&accounts[1])
+        .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(Rational32::new(0, 1))
+        .delay_warmup()
         .build();
-
-    let mut env =
-        TestLoopBuilder::new().genesis(genesis).clients(accounts.clone()).delay_warmup().build();
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
@@ -228,16 +227,13 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
-        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .add_non_validator_client(&accounts[2])
+        .add_non_validator_client(&accounts[3])
+        .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(Rational32::new(0, 1))
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(accounts.clone())
         .track_all_shards()
         .delay_warmup()
         .build();
