@@ -902,23 +902,17 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    // Deliberately no `kickouts_standard_80_percent()`: the default epoch config leaves the
+    // end-of-epoch thresholds at 0, so the stopped target survives each boundary and keeps missing
+    // chunks.
+    // With standard kickout on it would be removed after the first epoch, leaving nobody to
+    // rebuild the blacklist. The mid-epoch math ignores those thresholds anyway.
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(3), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    // Deliberately no `kickouts_standard_80_percent()`: `from_genesis` leaves the end-of-epoch
-    // thresholds at 0, so the stopped target survives each boundary and keeps missing chunks.
-    // With standard kickout on it would be removed after the first epoch, leaving nobody to
-    // rebuild the blacklist. The mid-epoch math ignores those thresholds anyway.
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     // Create nontrivial user state before the multi-epoch scenario.

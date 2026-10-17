@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
@@ -136,26 +136,19 @@ fn setup(
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .genesis_height(10000)
-        .build();
     // TODO(spice): Spice execution-certification does not yet support shuffling chunk-producer
     // shard assignment across epoch boundaries: after the first boundary the prev
     // block's execution results never get certified (MissingExecutionResults for
     // all shards) and the chunk executor wedges.
     let shuffle_shard_assignment = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
-        .build_store_for_genesis_protocol_version();
-
     let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_non_validator_client(rpc_id)
+        .add_user_accounts(accounts, Balance::from_near(1_000_000))
+        .genesis_height(10000)
+        .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
         .build();
     (env, rpc_id.clone())
 }
