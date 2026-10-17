@@ -745,7 +745,13 @@ pub enum Cost {
     ContractCompileBytesV2,
     /// Compile a contract at the maximum block limit (10 functions with 4999 blocks).
     AdversarialCompileMaxBlocks,
-    /// Invocation cost with 100k zero-initialized globals.
+    /// Raw precompilation cost of an empty Wasm module.
+    ContractCompileEmpty,
+    /// Raw precompilation cost of a module with only an empty exported main.
+    ContractCompileMinimal,
+    /// Raw precompilation cost with configurable constant-initialized globals.
+    AdversarialCompileManyGlobals,
+    /// Invocation cost with configurable globals (default: 50k zero-initialized globals).
     /// Exposes unbounded per-call Wasmtime global re-initialization not covered by gas.
     AdversarialLoadManyGlobals,
     /// Invocation cost with 50k active data segments.
@@ -754,6 +760,12 @@ pub enum Cost {
     /// Invocation cost with 10k active element segments.
     /// Exposes unbounded per-call table-initialization work not covered by gas.
     AdversarialLoadManyElementSegments,
+    /// Precompilation of 100 segments with 1,000 `ref.func` expressions.
+    /// Circumvents Wasmtime's precomputed table initialization and forces the
+    /// fallback implementation.
+    AdversarialCompileFallbackElements,
+    /// Cached invocation of the same fallback element-initialization workload.
+    AdversarialLoadFallbackElements,
     /// Wasm instruction cost for float ops, including NaN Canonicalization cost.
     OpFloat,
     /// Wasm instruction cost for integer ops.
