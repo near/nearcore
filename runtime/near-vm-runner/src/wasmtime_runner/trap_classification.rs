@@ -1,3 +1,5 @@
+use super::super::is_version_specific_unreachable_trap;
+use super::wasmtime;
 use wasmtime::Trap;
 
 /// Mirror of [`wasmtime::Trap`] that we own, so we can match exhaustively.
@@ -31,6 +33,9 @@ pub(crate) enum TrapClassification {
 
 impl From<Trap> for TrapClassification {
     fn from(trap: Trap) -> Self {
+        if is_version_specific_unreachable_trap(trap) {
+            return Self::Unreachable { trap };
+        }
         match trap {
             Trap::StackOverflow => Self::StackOverflow,
             Trap::MemoryOutOfBounds => Self::MemoryOutOfBounds,

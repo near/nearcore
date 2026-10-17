@@ -248,7 +248,13 @@ impl VMKindExt for VMKind {
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(feature = "wasmtime_vm")]
-            Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
+            Self::Wasmtime => {
+                if config.wasmtime_48 {
+                    Some(Box::new(crate::wasmtime_48_runner::WasmtimeVM::new(config)))
+                } else {
+                    Some(Box::new(crate::wasmtime_45_runner::WasmtimeVM::new(config)))
+                }
+            }
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => {
                 let _ = config;
