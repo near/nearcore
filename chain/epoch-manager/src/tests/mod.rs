@@ -6,9 +6,9 @@ mod random_epochs;
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
-    DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
-    epoch_info, epoch_info_with_num_seats, hash_range, record_block,
-    record_block_with_final_block_hash, record_block_with_version, record_blocks,
+    DEFAULT_TOTAL_SUPPLY, block_info, block_info_with_final_and_mask, change_stake,
+    default_reward_calculator, epoch_config, epoch_info, epoch_info_with_num_seats, hash_range,
+    record_block, record_block_with_final_block_hash, record_block_with_version, record_blocks,
     record_with_block_info, reward, setup_default_epoch_manager,
     setup_default_epoch_manager_at_version, setup_epoch_manager, stake,
 };
@@ -1865,6 +1865,41 @@ fn test_compare_epoch_id() {
     assert_eq!(epoch_manager.compare_epoch_id(&epoch_id3, &epoch_id1), Ok(Ordering::Greater));
     let random_epoch_id = EpochId(hash(&[100]));
     assert!(epoch_manager.compare_epoch_id(&epoch_id3, &random_epoch_id).is_err());
+}
+
+#[test]
+fn test_epoch_start_of_dropped_record_is_not_visible() {
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators = vec![("test1".parse().unwrap(), amount_staked)];
+    let epoch_length = 5;
+    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 1, 90, 60);
+    let last_height_of_first_epoch = epoch_length as usize;
+    let first_height_of_next_epoch = last_height_of_first_epoch + 1;
+    let last_final_height = last_height_of_first_epoch - 1;
+    let h = hash_range(first_height_of_next_epoch + 1);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    for height in 1..=last_height_of_first_epoch {
+        record_block(&mut epoch_manager, h[height - 1], h[height], height as u64, vec![]);
+    }
+    let next_epoch_id = epoch_manager.get_next_epoch_id(&h[last_height_of_first_epoch]).unwrap();
+    let all_chunks_produced = vec![true];
+    let first_block_of_next_epoch = block_info_with_final_and_mask(
+        &epoch_manager,
+        h[last_height_of_first_epoch],
+        h[first_height_of_next_epoch],
+        first_height_of_next_epoch as u64,
+        h[last_final_height],
+        last_final_height as u64,
+        all_chunks_produced,
+        PROTOCOL_VERSION,
+    );
+    let dropped_store_update =
+        epoch_manager.record_block_info(first_block_of_next_epoch, [0; 32]).unwrap();
+    drop(dropped_store_update);
+    assert!(matches!(
+        epoch_manager.get_epoch_start_from_epoch_id(&next_epoch_id),
+        Err(EpochError::EpochOutOfBounds(_))
+    ));
 }
 
 #[test]
