@@ -23,26 +23,6 @@ pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_chunk_cache_hits",
-        "Chunk cache hits",
-        &["shard_id", "is_view"],
-    )
-    .unwrap()
-});
-
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_chunk_cache_misses",
-        "Chunk cache misses",
-        &["shard_id", "is_view"],
-    )
-    .unwrap()
-});
-
 pub static SHARD_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_hits",
@@ -72,12 +52,6 @@ pub static SHARD_CACHE_TOO_LARGE: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static SHARD_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_shard_cache_size", "Shard cache size", &["shard_id", "is_view"])
-        .unwrap()
-});
-
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
         .unwrap()
 });
 
