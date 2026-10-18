@@ -757,18 +757,6 @@ impl ChainStore {
         key
     }
 
-    /// Retrieves STATE_SYNC_DUMP for the given shard.
-    /// TODO(store): What is this doing here? Cleanup
-    pub fn get_state_sync_dump_progress(
-        &self,
-        shard_id: ShardId,
-    ) -> Result<StateSyncDumpProgress, Error> {
-        self.store
-            .store()
-            .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id))
-            .ok_or_else(|| Error::DBNotFoundErr(format!("STATE_SYNC_DUMP:{}", shard_id)))
-    }
-
     /// For each value stored, this returns an (EpochId, bool), where the bool tells whether it's finished
     /// because those are the only fields we really care about.
     pub fn iter_state_sync_dump_progress<'a>(
