@@ -43,22 +43,6 @@ impl VMKind {
     }
 }
 
-// Only kept for `VMConfigView` compatibility: contract storage reads always go
-// through flat storage since the `FlatStorageReads` protocol feature. The doc
-// comment below is the OpenAPI description of this type, so it is left as is.
-/// This enum represents if a storage_get call will be performed through flat storage or trie
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum StorageGetMode {
-    FlatStorage,
-    Trie,
-}
-
-/// The only value `LimitConfig::account_id_validity_rules_version` takes.
-fn default_account_id_validity_rules_version() -> u64 {
-    2
-}
-
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -194,10 +178,6 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
-    /// Deprecated: full account id validation is always enforced, so this is
-    /// always `2`.
-    #[serde(default = "default_account_id_validity_rules_version")]
-    pub account_id_validity_rules_version: u64,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.

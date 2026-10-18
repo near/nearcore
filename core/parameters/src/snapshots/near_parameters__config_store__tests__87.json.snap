@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -175,8 +174,6 @@ snapshot_kind: text
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
       "validator_total_stake_base": 911834726400,
-      "contract_compile_base": 0,
-      "contract_compile_bytes": 0,
       "alt_bn128_g1_multiexp_base": 713000000000,
       "alt_bn128_g1_multiexp_element": 320000000000,
       "alt_bn128_g1_sum_base": 3000000000,
@@ -214,9 +211,6 @@ snapshot_kind: text
     "linear_op_base_cost": 26328192,
     "linear_op_unit_cost": 822756,
     "vm_kind": "<REDACTED>",
-    "discard_custom_sections": true,
-    "global_contract_host_fns": true,
-    "reftypes_bulk_memory": true,
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
@@ -225,10 +219,7 @@ snapshot_kind: text
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": false,
-    "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
-    "implicit_account_creation": true,
-    "eth_implicit_accounts": true,
     "universal_accounts": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
@@ -270,7 +261,6 @@ snapshot_kind: text
       "max_blocks_per_function": 5000,
       "max_blocks_per_contract": 50000,
       "max_types_per_contract": 1024,
-      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000

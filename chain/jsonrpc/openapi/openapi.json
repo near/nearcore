@@ -6897,12 +6897,6 @@
           "bls12381_pairing_element": {
             "$ref": "#/components/schemas/NearGas"
           },
-          "contract_compile_base": {
-            "$ref": "#/components/schemas/NearGas"
-          },
-          "contract_compile_bytes": {
-            "$ref": "#/components/schemas/NearGas"
-          },
           "contract_loading_base": {
             "allOf": [
               {
@@ -12143,13 +12137,6 @@
       "LimitConfig": {
         "description": "Describes limits for VM and Runtime.\nTODO #4139: consider switching to strongly-typed wrappers instead of raw quantities",
         "properties": {
-          "account_id_validity_rules_version": {
-            "default": 2,
-            "description": "Deprecated: full account id validation is always enforced, so this is\nalways `2`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "initial_memory_pages": {
             "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
             "format": "uint32",
@@ -22128,14 +22115,6 @@
           }
         ]
       },
-      "StorageGetMode": {
-        "description": "This enum represents if a storage_get call will be performed through flat storage or trie",
-        "enum": [
-          "FlatStorage",
-          "Trie"
-        ],
-        "type": "string"
-      },
       "StorageUsageConfigView": {
         "description": "Describes cost of storage per block",
         "properties": {
@@ -22642,14 +22621,6 @@
             "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
             "type": "boolean"
           },
-          "discard_custom_sections": {
-            "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
-            "type": "boolean"
-          },
-          "eth_implicit_accounts": {
-            "description": "Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.",
-            "type": "boolean"
-          },
           "ext_costs": {
             "allOf": [
               {
@@ -22666,19 +22637,11 @@
             "description": "See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).",
             "type": "boolean"
           },
-          "global_contract_host_fns": {
-            "description": "Deprecated: the global contract host functions are always enabled, so this is\nalways `true`.",
-            "type": "boolean"
-          },
           "grow_mem_cost": {
             "description": "Gas cost of a growing memory by single page.",
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
-          },
-          "implicit_account_creation": {
-            "description": "Deprecated",
-            "type": "boolean"
           },
           "limit_config": {
             "allOf": [
@@ -22712,10 +22675,6 @@
             "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
             "type": "boolean"
           },
-          "reftypes_bulk_memory": {
-            "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
-            "type": "boolean"
-          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",
@@ -22725,14 +22684,6 @@
           "sha3_host_fns": {
             "description": "See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).",
             "type": "boolean"
-          },
-          "storage_get_mode": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/StorageGetMode"
-              }
-            ],
-            "description": "Deprecated: contract storage is always read through flat storage, so this is\nalways `FlatStorage`."
           },
           "universal_accounts": {
             "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",
