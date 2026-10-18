@@ -32,10 +32,6 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot;
 
-/// Time limit per state dump iteration.
-/// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
-
 // TODO: could refactor this further and just have one "Dumper" struct here
 pub struct StateSyncDumper {
     pub clock: Clock,
