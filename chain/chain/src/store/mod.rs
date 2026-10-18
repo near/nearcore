@@ -1719,12 +1719,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    pub fn reset_tail(&mut self) {
-        self.tail = None;
-        self.chunk_tail = None;
-        self.fork_tail = None;
-    }
-
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
