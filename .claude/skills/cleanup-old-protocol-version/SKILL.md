@@ -61,27 +61,33 @@ No approval needed — proceed to Step 2.
 
 ## 2. Remove deprecated `ProtocolFeature` variants
 
-For each `F` in `deprecated_features`:
+In the templates below, `<F>` is the placeholder for the current feature
+name — substitute the actual variant (e.g. `ImplicitAccountCreation`) when
+running the greps and edits.
 
-1. **Remove `F` from the `ProtocolFeature` enum** in `core/primitives-core/src/version.rs`.
-2. **Remove `F`'s arm** from the `protocol_version()` match. If `F` was in a
+For each `<F>` in `deprecated_features`:
+
+1. **In `core/primitives-core/src/version.rs`, remove both `<F>`'s enum
+   variant and its arm in the `protocol_version()` match** in the same
+   edit — removing one without the other won't compile. If `<F>` shared a
    grouped `|` arm, drop just that line; if it was the only variant for
    its version, drop the whole arm.
-3. **Inline every call site**:
-   - `grep -rn "ProtocolFeature::F\b"` across the workspace.
-   - `F.enabled(v)` and `ProtocolFeature::F.enabled(v)` → `true`. Collapse
-     the surrounding `if` / `match` / boolean expression: keep the taken
-     branch, drop the dead one. `!F.enabled(v)` → `false`, drop the dead
-     branch. For `let x = F.enabled(v);` with `x` used downstream, propagate
-     the constant and remove the binding when it's no longer referenced.
-   - Other uses of `ProtocolFeature::F` as a value (e.g. inserted into a
-     set, printed in a log) → remove the use. If removing it leaves an
+2. **Inline every call site**:
+   - `grep -rn "ProtocolFeature::<F>\b"` across the workspace.
+   - `<F>.enabled(v)` and `ProtocolFeature::<F>.enabled(v)` → `true`.
+     Collapse the surrounding `if` / `match` / boolean expression: keep
+     the taken branch, drop the dead one. `!<F>.enabled(v)` → `false`,
+     drop the dead branch. For `let x = <F>.enabled(v);` with `x` used
+     downstream, propagate the constant and remove the binding when it's
+     no longer referenced.
+   - Other uses of `ProtocolFeature::<F>` as a value (e.g. inserted into
+     a set, printed in a log) → remove the use. If removing it leaves an
      empty collection or dead loop, drop that too.
-4. **Clean up TODOs** anywhere in the codebase that reference `F` or its
-   protocol version as the gating condition for removal (grep for
-   `TODO.*F\b`, `TODO.*protocol version.*F`'s version). Resolve them now.
-5. **Sweep for dead code and unused data structures** (see "Dead-code
-   sweep" below). Collapsing branches in Step 2.3 commonly orphans whole
+3. **Clean up TODOs** anywhere in the codebase that reference `<F>` or
+   its protocol version as the gating condition for removal (grep for
+   `TODO.*<F>\b`, `TODO.*protocol version.*<F>'s version`). Resolve them now.
+4. **Sweep for dead code and unused data structures** (see "Dead-code
+   sweep" below). Collapsing branches above commonly orphans whole
    structs, enum variants, trait impls, helper fns, or crate-boundary
    types — remove them.
 
@@ -126,14 +132,16 @@ Then classify `P` as either **overridden later** (its name appears in some
      ([zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110)) —
      do not keep the field as `/// Deprecated` with a hardcoded value.
      Also delete the field from `chain/jsonrpc/openapi/openapi.json` and
-     `chain/jsonrpc/openapi/openrpc.json`, and bump the API version in both
-     (and in `chain/jsonrpc/openapi/src/main.rs`) — see #16454 for the
-     diff shape.
+     `chain/jsonrpc/openapi/openrpc.json`, and bump the hardcoded version
+     string in all three places — the `"version"` field at the top of
+     each `.json` and the `version: "x.y.z".to_string(),` literal in
+     `chain/jsonrpc/openapi/src/main.rs` (patch component). See #16454
+     for the diff shape.
   3. **Replace every usage** across the codebase with the hardcoded value
      and collapse dead branches, same as Step 2.3.
-  4. Also remove the entry from `parameters.yaml`,
-     `parameters_testnet.yaml`, and `parameters.snap` — now that `P` is
-     gone from the enum, there's no reader for the base value either.
+  4. Also remove the entry from `parameters.yaml`, `parameters.snap`, and
+     `parameters_testnet.yaml` if it exists — now that `P` is gone from
+     the enum, there's no reader for the base value either.
   5. **Sweep for dead code and unused data structures** (see "Dead-code
      sweep" below) — once the parameter is gone and its guards are
      collapsed, config structs, helper fns and signature arguments often
@@ -166,20 +174,23 @@ Beyond the parameters inlined in Step 3, `parameters.yaml` may still carry
 flags whose only false→true transition belonged to a now-removed
 `ProtocolFeature` or to a yaml that's being deleted. Find them:
 
-- `grep -n "false$\|true$" core/parameters/res/runtime_configs/parameters.yaml`
-  for boolean baselines.
+- `grep -nE ": (true|false)\s*(#.*)?$" core/parameters/res/runtime_configs/parameters.yaml`
+  for boolean baselines (the pattern tolerates trailing whitespace and
+  inline comments; avoids matching the many non-boolean lines that happen
+  to end in a word).
 - For each such flag `P`:
   - If `P` is read via `params.get(Parameter::P)` and the only call site is
     a check that always holds now (because the gating feature is gone),
     inline `P` to its post-bump value.
-  - Remove `P` from `parameters.yaml` and `parameters_testnet.yaml`, from
-    `parameters.snap`, from the `Parameter` enum, from
-    `parameter_table.rs`, from `vm::Config`, and from `VMConfigView`
+  - Remove `P` from `parameters.yaml`, from `parameters.snap`, from
+    `parameters_testnet.yaml` if it exists, from the `Parameter` enum,
+    from `parameter_table.rs`, from `vm::Config`, and from `VMConfigView`
     entirely (both `From` impls) — plus the field in `openapi.json` /
-    `openrpc.json` and the API version bump. Backward-incompatibility is
-    accepted; do not keep a deprecated hardcoded field. (This is a change
-    from the older #16454 shape, which did keep the field; follow the
-    issue's updated guidance instead.)
+    `openrpc.json` and the hardcoded version string bump in both `.json`
+    files and `chain/jsonrpc/openapi/src/main.rs`.
+    Backward-incompatibility is accepted; do not keep a deprecated
+    hardcoded field. (This is a change from the older #16454 shape, which
+    did keep the field; follow the issue's updated guidance instead.)
   - Collapse all call sites; delete now-unused arguments to helper
     functions (see `transfer_exec_fee` in #16454).
   - **Sweep for dead code and unused data structures** (see "Dead-code
@@ -205,7 +216,7 @@ This step is often a no-op after Step 3; skip it if nothing qualifies.
 ## 7. Open the single PR
 
 Stage every change from Steps 2–6 and invoke the `pr` skill with
-`type: chore, project: runtime, title: bump MIN_SUPPORTED_PROTOCOL_VERSION to <new_min>`.
+`type: chore, project: runtime, title: cleanup for MIN_SUPPORTED_PROTOCOL_VERSION bump to <new_min>`.
 
 PR body should:
 
