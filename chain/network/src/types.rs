@@ -14,7 +14,6 @@ pub use crate::network_protocol::{
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice::data_distribution::SpiceDataRequest;
-pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
