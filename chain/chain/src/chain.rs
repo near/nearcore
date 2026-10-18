@@ -3142,13 +3142,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_transaction_execution_result(
-        &self,
-        id: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        Ok(self.chain_store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
-    }
-
     /// Returns execution status based on the list of currently existing outcomes
     fn get_execution_status(
         &self,
