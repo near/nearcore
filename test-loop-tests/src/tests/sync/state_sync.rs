@@ -196,7 +196,9 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                 }
 
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                for height in (genesis_height + 1)..=head.height {
+                // GC keeps the height index below the tail but deletes the `BlockInfo`.
+                let first_height = (genesis_height + 1).max(chain.tail());
+                for height in first_height..=head.height {
                     let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
                     if epoch_manager.get_epoch_id(&hash).unwrap() != *new_epoch {
                         continue;
