@@ -2,7 +2,6 @@ use crate::stateless_validation::contracts_cache_contains_contract;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
-use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
 };
@@ -273,11 +272,6 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract code response");
         }
     }
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct SpiceChunkValidatorWitnessSender {
-    pub chunk_state_witness: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
 }
 
 impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidatorActor {
