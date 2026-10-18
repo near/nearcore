@@ -2,7 +2,7 @@ mod sticky_resharding;
 
 use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::{ShardInfo, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
     AccountId, Balance, EpochId, NumShards, ProtocolVersion, ShardId, ShardIndex,
     validator_stake::ValidatorStake,
@@ -464,19 +464,6 @@ pub fn account_id_to_shard_id(
 ) -> Result<ShardId, EpochError> {
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
     Ok(shard_layout.account_id_to_shard_id(account_id))
-}
-
-/// Which shard the account belongs to in the given epoch.
-pub fn account_id_to_shard_info(
-    epoch_manager: &dyn EpochManagerAdapter,
-    account_id: &AccountId,
-    epoch_id: &EpochId,
-) -> Result<ShardInfo, EpochError> {
-    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-    let shard_id = shard_layout.account_id_to_shard_id(account_id);
-    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    let shard_index = shard_layout.get_shard_index(shard_id)?;
-    Ok(ShardInfo { shard_index, shard_uid })
 }
 
 /// Converts `ShardId` (index of shard in the *current* layout) to
