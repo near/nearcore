@@ -38,8 +38,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
     // split the clients into producers, validators, and rpc nodes
-    let tmp = clients.clone();
-    let (producers, tmp) = tmp.split_at(num_producers);
+    let (producers, tmp) = clients.split_at(num_producers);
     let (validators, tmp) = tmp.split_at(num_validators);
     let (rpcs, tmp) = tmp.split_at(num_rpc);
     assert!(tmp.is_empty());
@@ -49,20 +48,19 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
     let [rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, initial_balance)
-        .genesis_height(10000)
-        .build();
-
     // Sanity-check: the active threshold is large enough that
     // `num_missed_chunks` consecutive misses won't mark the shard stuck.
     let max_missed = RuntimeConfig::test().congestion_control_config.max_congestion_missed_chunks;
     assert!(num_missed_chunks < max_missed as usize);
 
-    let env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
+    let env = TestLoopBuilder::new()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_non_validator_client(rpc_id)
+        .add_user_accounts(&accounts, initial_balance)
+        .genesis_height(10000)
+        .build();
 
     // account4 lives in the second shard (boundary "account3" separates 0–2 from 4+).
     let shard_layout = &env.shared_state.genesis.config.shard_layout;

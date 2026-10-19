@@ -42,6 +42,7 @@ pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     setup_config: SetupConfig,
     epoch_config_store: Option<EpochConfigStore>,
+    shuffle_shard_assignment_for_chunk_producers: bool,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -93,6 +94,7 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
+            shuffle_shard_assignment_for_chunk_producers: false,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -352,6 +354,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub(crate) fn shuffle_shard_assignment_for_chunk_producers(mut self, shuffle: bool) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = shuffle;
+        self
+    }
+
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
         self.runtime_config_store = Some(runtime_config_store);
         self
@@ -461,10 +468,20 @@ impl TestLoopBuilder {
     }
 
     fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
-        if self.epoch_config_store.is_none() {
-            self.epoch_config_store =
-                Some(TestEpochConfigBuilder::build_store_from_genesis(genesis));
+        if self.epoch_config_store.is_some() {
+            assert!(
+                !self.shuffle_shard_assignment_for_chunk_producers,
+                "shuffle_shard_assignment_for_chunk_producers cannot be used with epoch_config_store"
+            );
+            return;
         }
+        self.epoch_config_store = Some(
+            TestEpochConfigBuilder::from_genesis(genesis)
+                .shuffle_shard_assignment_for_chunk_producers(
+                    self.shuffle_shard_assignment_for_chunk_producers,
+                )
+                .build_store_for_genesis_protocol_version(),
+        );
     }
 
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {

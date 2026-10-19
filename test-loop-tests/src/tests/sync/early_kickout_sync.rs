@@ -32,7 +32,6 @@ use crate::utils::account::{create_account_id, create_validators_spec, validator
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use borsh::BorshDeserialize;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -202,19 +201,12 @@ fn slow_test_early_kickout_state_sync_shuffling() {
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
@@ -264,20 +256,13 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     let validators_spec = create_validators_spec(4, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .protocol_version(genesis_protocol_version)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     // No `execute_money_transfers`: it would push the head past the epoch sync horizon,

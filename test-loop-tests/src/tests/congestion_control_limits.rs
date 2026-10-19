@@ -51,24 +51,18 @@ fn setup_congestion_env() -> TestLoopEnv {
     let parent: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
     let test0: AccountId = "test0".parse().unwrap();
 
-    let validators_spec = ValidatorsSpec::desired_roles(&[ACCOUNT_PARENT_ID], &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(10)
-        .transaction_validity_period(20)
-        .shard_layout(ShardLayout::multi_shard(4, 3))
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&[parent.clone(), test0], Balance::from_near(1_000_000_000))
-        .build();
-
     let mut config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
     set_wasm_cost(&mut config);
     set_default_congestion_control(&mut config);
     let runtime_config_store = RuntimeConfigStore::with_one_config(config);
 
     TestLoopBuilder::new()
-        .genesis(genesis)
+        .epoch_length(10)
+        .transaction_validity_period(20)
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .validators_spec(ValidatorsSpec::desired_roles(&[ACCOUNT_PARENT_ID], &[]))
+        .add_user_accounts([&parent, &test0], Balance::from_near(1_000_000_000))
         .runtime_config_store(runtime_config_store)
-        .clients(vec![parent])
         .track_all_shards()
         .build()
 }
