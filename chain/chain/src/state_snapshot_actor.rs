@@ -207,11 +207,6 @@ impl HandlerWithContext<CreateSnapshotRequest> for StateSnapshotActor {
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct StateSnapshotSenderForStateSnapshot {
-    create_snapshot: Sender<CreateSnapshotRequest>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForClient {
     delete_snapshot: Sender<DeleteSnapshotRequest>,
     create_snapshot: Sender<CreateSnapshotRequest>,

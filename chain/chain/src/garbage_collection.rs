@@ -728,10 +728,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             }
 
-            // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
             // However, if node crashes while State Syncing, it may never clear
-            // downloaded State parts in `clear_downloaded_parts`.
+            // downloaded State parts.
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) =
                 self.chain_store().get_state_header(shard_id, block_hash)

@@ -25,7 +25,6 @@ pub mod raw;
 pub mod routing;
 pub mod shards_manager;
 pub mod spice;
-pub mod state_sync;
 pub mod state_witness;
 pub mod tcp;
 pub mod test_utils;
