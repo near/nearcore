@@ -1228,7 +1228,8 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
     let (start, target) = (12, 18);
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     let own_snapshot_height = get_state_header_for_epoch(&cloud_storage, start_epoch_id, shard_id)
-        .chunk_height_included();
+        .chunk_height_included()
+        .expect("cloud archival headers carry a chunk");
     assert!(
         own_snapshot_height > start,
         "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
@@ -1505,7 +1506,9 @@ fn test_cloud_archival_anchor_below_sync_prev() {
         (shard_missing_early_chunks, snapshot_height),
     ];
     let reconstruction_start_of = |shard_id| {
-        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id).chunk_height_included()
+        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id)
+            .chunk_height_included()
+            .expect("cloud archival headers carry a chunk")
     };
     let has_chunk_at = |height, shard_id| {
         cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().new_chunk().is_some()

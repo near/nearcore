@@ -604,6 +604,15 @@ impl Block {
         self.header().hash()
     }
 
+    /// The block's versioned body, which only `BlockV4` carries. Spice blocks are V4, so
+    /// this is `Some` for every block whose body holds spice core statements.
+    pub fn body(&self) -> Option<&BlockBody> {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => None,
+            Block::BlockV4(block) => Some(&block.body),
+        }
+    }
+
     pub fn compute_block_body_hash(&self) -> Option<CryptoHash> {
         match self {
             Block::BlockV1(_) => None,
