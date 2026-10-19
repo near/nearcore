@@ -23,6 +23,10 @@ use std::sync::{Arc, Weak};
 #[cfg(test)]
 mod tests;
 
+/// Maximum number of inbound Tier3 connections a node accepts from peers requesting state
+/// from it. Connections from hosts answering our own state requests are not limited.
+pub(crate) const MAX_INBOUND_TIER3_CONNECTIONS: usize = 64;
+
 impl tcp::Tier {
     /// Checks if the given message type is allowed on a connection of the given Tier.
     /// TIER1 is reserved exclusively for BFT consensus messages.
@@ -36,7 +40,10 @@ impl tcp::Tier {
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
             PeerMessage::Disconnect(..) => true,
-            PeerMessage::VersionedStateResponse(_) => self == tcp::Tier::T3,
+            PeerMessage::StateRequestHeader(..)
+            | PeerMessage::StateRequestPart(..)
+            | PeerMessage::StateRequestAck(_)
+            | PeerMessage::VersionedStateResponse(_) => self == tcp::Tier::T3,
             PeerMessage::OptimisticBlock(..) => true,
             PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
@@ -107,6 +114,10 @@ pub(crate) struct Connection {
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Whether this is an inbound Tier3 connection from a peer requesting state from us,
+    /// rather than from a host answering our own state requests. The pool accepts at most
+    /// MAX_INBOUND_TIER3_CONNECTIONS such connections.
+    pub tier3_requester: bool,
     /// Time where the connection was established.
     pub established_time: time::Instant,
 
@@ -241,6 +252,8 @@ pub(crate) enum PoolError {
     UnexpectedLoopConnection,
     #[error("OutboundHandshakePermit dropped before calling Pool.insert_ready()")]
     PermitDropped,
+    #[error("too many tier3 connections from peers requesting state")]
+    TooManyTier3Requesters,
 }
 
 impl Pool {
@@ -297,6 +310,12 @@ impl Pool {
                         return Err(PoolError::PermitDropped);
                     }
                 }
+            }
+            if peer.tier3_requester
+                && pool.ready.values().filter(|conn| conn.tier3_requester).count()
+                    >= MAX_INBOUND_TIER3_CONNECTIONS
+            {
+                return Err(PoolError::TooManyTier3Requesters);
             }
             if pool.ready.insert(id.clone(), peer.clone()).is_some() {
                 return Err(PoolError::AlreadyConnected);

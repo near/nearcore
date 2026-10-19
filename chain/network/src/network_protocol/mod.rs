@@ -446,6 +446,11 @@ pub enum PeerMessage {
     Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
+    // State requests sent over a TIER3 connection opened by the requester.
+    // The host sends the ack and the response over the same connection.
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, StatePartIndex),
+    StateRequestAck(StateRequestAck),
     VersionedStateResponse(StateResponseInfo),
 
     EpochSyncRequest,
@@ -504,6 +509,9 @@ impl PeerMessage {
         match self {
             PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::StateRequestHeader(_, _)
+            | PeerMessage::StateRequestPart(_, _, _)
+            | PeerMessage::StateRequestAck(_)
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::Tier1Handshake(_)
             | PeerMessage::Tier2Handshake(_)

@@ -6,3 +6,4 @@ mod routing;
 mod snapshot_hosts;
 mod tier1;
 mod tier2;
+mod tier3;

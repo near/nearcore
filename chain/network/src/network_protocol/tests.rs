@@ -9,6 +9,7 @@ use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
 use near_primitives::network::PeerId;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use rand::Rng as _;
 
 #[test]
@@ -162,6 +163,14 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
         PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
+        PeerMessage::StateRequestHeader(ShardId::new(1), *chain.blocks[5].hash()),
+        PeerMessage::StateRequestPart(ShardId::new(1), *chain.blocks[5].hash(), 7),
+        PeerMessage::StateRequestAck(StateRequestAck {
+            shard_id: ShardId::new(1),
+            sync_hash: *chain.blocks[5].hash(),
+            part_or_header: PartOrHeader::Part { part_idx: 7 },
+            body: StateRequestAckBody::WillRespond,
+        }),
     ];
 
     // Check that serialize;deserialize = 1

@@ -4,8 +4,12 @@ use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::AnnounceAccountRequest;
 use crate::client::ClientSenderForNetwork;
+use crate::client::StatePartOrHeader;
+use crate::client::StateRequestPart;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
+use crate::network_protocol::StateResponseInfo;
+use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -20,16 +24,18 @@ use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
+use crate::types::StateRequestSenderForNetwork;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
 };
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
-    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
+    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV2};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -602,15 +608,30 @@ pub(crate) async fn start(
         Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
     });
 
+    // Answers state part requests with an empty part. State header requests fail.
+    let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
+    state_request_sender.state_request_part =
+        AsyncSender::from_fn(|StateRequestPart { shard_id, sync_hash, part_idx }| {
+            let state_response = ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                header: None,
+                part: Some((part_idx, vec![])),
+            });
+            Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
+                StateResponseInfoV2 { shard_id, sync_hash, state_response },
+            )))))
+        });
+
     let actor_system = ActorSystem::new();
+    // Requests which PeerManagerActor sends to itself, such as Tier3Request.
+    let peer_manager_sender = LateBoundSender::new();
     let (actor, tcp) = PeerManagerActor::spawn(
         clock,
         actor_system.clone(),
         store,
         cfg.clone(),
         client_sender,
-        noop().into_multi_sender(),
-        noop().into_multi_sender(),
+        state_request_sender,
+        peer_manager_sender.as_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
@@ -618,6 +639,7 @@ pub(crate) async fn start(
         genesis_id,
     )
     .unwrap();
+    peer_manager_sender.bind(actor.clone());
     let actor = AutoStopActor(actor);
     let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
     // Wait for the server to start.

@@ -672,6 +672,13 @@ impl PeerActor {
             archival: handshake.sender_chain_info.archival,
             last_block: Default::default(),
             peer_type: self.peer_type,
+            // Inbound Tier3 connections come from peers requesting state from us, or from hosts
+            // answering our own state requests. The pending request isn't removed, so that the
+            // host can connect again if the first connection was closed (e.g. idle) before a
+            // later response was ready.
+            tier3_requester: tier == tcp::Tier::T3
+                && self.peer_type == PeerType::Inbound
+                && !self.network_state.pending_tier3_requests.contains_key(&peer_info.id),
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS
                 .new_point(&metrics::Connection { tier, type_: self.peer_type }),
