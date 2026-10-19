@@ -197,12 +197,7 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
 
     let requests = wants_for(manager.on_block_processed(&certifier), &id);
-    let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-        .collect();
-    assert_eq!(requests, own_ordinal_asks);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]
@@ -258,7 +253,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its
