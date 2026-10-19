@@ -6,6 +6,7 @@ use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
+use near_async::messaging::IntoSender as _;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
@@ -20,11 +21,13 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::PeerManagerAdapter;
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
+};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::{NumBlocks, ShardId};
+use near_primitives::types::{NumBlocks, ShardId, SpiceChunkId};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -50,6 +53,8 @@ pub struct ChunkExecutorActor {
     /// Used to snapshot the state left behind by an epoch's first block, which is what state
     /// sync hands out for that epoch. `None` when the node makes no snapshots.
     snapshot_callbacks: Option<SnapshotCallbacks>,
+    /// The last snapshot this node has announced.
+    advertised_snapshot: Option<CryptoHash>,
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
@@ -126,6 +131,7 @@ impl ChunkExecutorActor {
             core_writer_sender,
             config,
             snapshot_callbacks,
+            advertised_snapshot: None,
         }
     }
 
@@ -363,6 +369,55 @@ impl ChunkExecutorActor {
         for executor in self.per_shard_executors.values_mut() {
             executor.prune_unverified_receipts_below_final_head()?;
         }
+
+        if let Err(err) = self.advertise_snapshot_if_certified() {
+            tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to announce the state snapshot");
+        }
+
+        Ok(())
+    }
+
+    /// Announces the snapshot this node holds once the block it sits at has its chunks certified.
+    fn advertise_snapshot_if_certified(&mut self) -> Result<(), Error> {
+        let Some((sync_hash, shard_uids)) =
+            self.runtime_adapter.get_tries().state_snapshot_hash_and_shards()
+        else {
+            return Ok(());
+        };
+
+        if self.advertised_snapshot == Some(sync_hash) {
+            // No need to re-advertise the snapshot.
+            return Ok(());
+        }
+
+        let header = self.chain_store.get_block_header(&sync_hash)?;
+        if !header.is_spice() {
+            // Without spice the snapshot is announced as soon as it is taken.
+            return Ok(());
+        }
+
+        if !shard_uids.iter().all(|shard_uid| {
+            let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id: shard_uid.shard_id() };
+            self.chain_store.get_chunk_certifying_block(&chunk_id).is_some()
+        }) {
+            // The block is not fully certified yet.
+            return Ok(());
+        }
+
+        let epoch_height =
+            self.epoch_manager.get_epoch_height_from_prev_block(header.prev_hash())?;
+        self.network_adapter.clone().into_sender().send(
+            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+                SnapshotHostEvent::SnapshotCreated {
+                    sync_hash,
+                    epoch_height,
+                    shards: shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
+                },
+            )),
+        );
+        self.advertised_snapshot = Some(sync_hash);
+        tracing::info!(target: "state_snapshot", %sync_hash, "announced the state snapshot");
+
         Ok(())
     }
 
@@ -372,7 +427,7 @@ impl ChunkExecutorActor {
     /// State sync for an epoch hands out the state as of that epoch's first block, which under
     /// spice exists only once that block's chunks have executed - which is now, for every shard
     /// this node tracks. The snapshot is created here and announced to the network later, once
-    /// the chunks are certified; see `StateSnapshotActor::advertise_once_certified`.
+    /// the chunks are certified; see `advertise_snapshot_if_certified`.
     fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
         if !self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {

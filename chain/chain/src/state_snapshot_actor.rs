@@ -12,7 +12,7 @@ use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, EpochHeight, ShardId, ShardIndex, SpiceChunkId};
+use near_primitives::types::{BlockHeight, EpochHeight, ShardId, ShardIndex};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{FlatStorageManager, FlatStorageReshardingStatus, FlatStorageStatus};
 use near_store::{ShardTries, StateSnapshotConfig};
@@ -26,7 +26,6 @@ pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
     tries: ShardTries,
-    chain_store: ChainStoreAdapter,
 }
 
 impl Actor for StateSnapshotActor {}
@@ -36,9 +35,8 @@ impl StateSnapshotActor {
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
-        chain_store: ChainStoreAdapter,
     ) -> Self {
-        Self { flat_storage_manager, network_adapter, tries, chain_store }
+        Self { flat_storage_manager, network_adapter, tries }
     }
 }
 
@@ -205,10 +203,11 @@ impl StateSnapshotActor {
                     shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
                 };
                 if block.is_spice_block() {
-                    self.advertise_once_certified(pending, ctx);
-                } else {
-                    self.advertise(pending);
+                    // Under spice the chunk executor announces it instead, once the block's
+                    // chunks are certified.
+                    return;
                 }
+                self.advertise(pending);
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
@@ -226,41 +225,6 @@ impl StateSnapshotActor {
                 shards,
             }),
         ));
-    }
-
-    /// Holds the host info back until every snapshotted shard's chunk in the sync block has
-    /// been certified, then sends it. A syncing peer proves the state root against the
-    /// `chunk_execution_root` of the block that committed the execution result, so a snapshot
-    /// announced before certification could not be served.
-    fn advertise_once_certified(
-        &self,
-        pending: PendingAdvertisement,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        if !self.all_shards_certified(&pending) {
-            tracing::debug!(
-                target: "state_snapshot",
-                sync_hash = ?pending.sync_hash,
-                "snapshot is not certified yet; delaying host advertisement",
-            );
-            // TODO: react to certification instead of polling for it.
-            ctx.run_later(
-                "StateSnapshotActor advertise once certified",
-                Duration::seconds(1),
-                move |act, ctx| {
-                    act.advertise_once_certified(pending, ctx);
-                },
-            );
-            return;
-        }
-        self.advertise(pending);
-    }
-
-    fn all_shards_certified(&self, pending: &PendingAdvertisement) -> bool {
-        pending.shards.iter().all(|&shard_id| {
-            let chunk_id = SpiceChunkId { block_hash: pending.sync_hash, shard_id };
-            self.chain_store.get_chunk_certifying_block(&chunk_id).is_some()
-        })
     }
 }
 

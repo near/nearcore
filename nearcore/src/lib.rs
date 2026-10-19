@@ -584,7 +584,6 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
-        runtime.store().chain_store(),
     );
     let state_snapshot_addr = actor_system.spawn_tokio_actor(state_snapshot_actor);
     state_snapshot_sender.bind(state_snapshot_addr.clone());

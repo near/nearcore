@@ -227,6 +227,80 @@ impl ShardTries {
             .map_err(SnapshotError::Storage)
     }
 
+    /// Makes a snapshot of the current state of the DB, if one is not already available.
+    /// If a new snapshot is created, returns the ids of the included shards.
+    pub fn create_state_snapshot(
+        &self,
+        snapshot_hash: CryptoHash,
+        shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
+        block: &Block,
+    ) -> Result<Option<Vec<ShardUId>>, anyhow::Error> {
+        metrics::HAS_STATE_SNAPSHOT.set(0);
+        // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "create_state_snapshot", ?snapshot_hash)
+                .entered();
+        let _timer = metrics::CREATE_STATE_SNAPSHOT_ELAPSED.start_timer();
+
+        // Checking if state snapshots are enabled is already done on actor level, hence the warning
+        let Some(state_snapshots_dir) = self.state_snapshots_dir() else {
+            tracing::warn!(target: "state_snapshot", "state snapshots are disabled");
+            return Ok(None);
+        };
+
+        // `write()` lock is held for the whole duration of this function.
+        let mut state_snapshot_lock = self.state_snapshot().write();
+        let db_snapshot_hash = self.store().get_state_snapshot_hash();
+        if let Some(state_snapshot) = &*state_snapshot_lock {
+            // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and snapshot_hash are the same
+            if db_snapshot_hash.is_ok_and(|hash| hash == snapshot_hash)
+                && state_snapshot.snapshot_hash == snapshot_hash
+            {
+                tracing::warn!(target: "state_snapshot", ?snapshot_hash, "requested a state snapshot but that is already available");
+                return Ok(None);
+            }
+            tracing::error!(target: "state_snapshot", ?snapshot_hash, ?state_snapshot.snapshot_hash, "requested a state snapshot but that is already available with a different hash");
+        }
+
+        let storage = checkpoint_hot_storage_and_cleanup_columns(
+            &self.store().store(),
+            &Self::get_state_snapshot_base_dir(&snapshot_hash, state_snapshots_dir),
+            // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
+            // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
+            Some(STATE_SNAPSHOT_COLUMNS),
+        )?;
+        let store = storage.get_hot_store().trie_store();
+        // It is fine to create a separate FlatStorageManager, because
+        // it is used only for reading flat storage in the snapshot a
+        // doesn't introduce memory overhead.
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
+        *state_snapshot_lock = Some(StateSnapshot::new(
+            store,
+            snapshot_hash,
+            flat_storage_manager,
+            shard_indexes_and_uids,
+            Some(block),
+        ));
+
+        let mut store_update = self.store_update();
+        store_update.set_state_snapshot_hash(Some(snapshot_hash));
+        store_update.commit();
+
+        metrics::HAS_STATE_SNAPSHOT.set(1);
+        tracing::info!(target: "state_snapshot", ?snapshot_hash, "made a checkpoint");
+        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
+    }
+
+    /// The block the current snapshot sits at and the shards it covers, if one exists.
+    ///
+    /// Read back rather than remembered, so a node that restarts between taking a snapshot and
+    /// announcing it can still work out what it holds.
+    pub fn state_snapshot_hash_and_shards(&self) -> Option<(CryptoHash, Vec<ShardUId>)> {
+        let guard = self.state_snapshot().try_read()?;
+        let snapshot = guard.as_ref()?;
+        Some((snapshot.snapshot_hash, snapshot.get_included_shard_uids()))
+    }
+
     /// Deletes all snapshots and unset the STATE_SNAPSHOT_KEY.
     pub fn delete_state_snapshot(&self) {
         let _span =

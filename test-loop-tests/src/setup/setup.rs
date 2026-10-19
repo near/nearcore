@@ -140,7 +140,6 @@ pub fn setup_client(
         runtime_adapter.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime_adapter.get_tries(),
-        runtime_adapter.store().chain_store(),
     );
 
     let delete_snapshot_callback =
