@@ -193,22 +193,22 @@ pub(crate) static VALIDATORS_CHUNKS_EXPECTED_BY_SHARD: LazyLock<IntGaugeVec> =
         .unwrap()
     });
 
-pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD: LazyLock<IntGaugeVec> =
+pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED: LazyLock<IntGaugeVec> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
-            "near_validators_chunk_endorsements_produced_by_shard",
-            "Number of chunk endorsements produced by a chunk validator (currently calculated solely based on chunk production)",
-            &["account_id", "shard_id"],
+            "near_validators_chunk_endorsements_produced",
+            "Number of chunk endorsements produced by a chunk validator",
+            &["account_id"],
         )
         .unwrap()
     });
 
-pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD: LazyLock<IntGaugeVec> =
+pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED: LazyLock<IntGaugeVec> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
-            "near_validators_chunk_endorsements_expected_by_shard",
-            "Number of chunk endorsements expected to be produced by a chunk validator (currently calculated solely based on chunk production)",
-            &["account_id", "shard_id"],
+            "near_validators_chunk_endorsements_expected",
+            "Number of chunk endorsements expected to be produced by a chunk validator",
+            &["account_id"],
         )
         .unwrap()
     });

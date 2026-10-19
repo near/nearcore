@@ -288,34 +288,44 @@ struct SampleEpoch<'a> {
     shard_layout: &'a ShardLayout,
 }
 
-/// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
+/// Per-shard chunk-producer blacklist from the aggregator's chunk production stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
 ///   - produced * 100 < expected * 80                     (production ratio < 80%)
 /// Safety valve: if blacklisting would remove every distinct producer on a shard,
 /// exactly one least-bad producer (highest produced/expected ratio) is kept eligible.
 pub fn compute_chunk_producer_blacklist(
-    shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    chunk_production: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     epoch_info: &EpochInfo,
     shard_layout: &ShardLayout,
 ) -> ChunkProducerBlacklist {
     let mut blacklist = HashMap::new();
     let mut shard_stats = HashMap::new();
-    for (shard_id, validators) in shard_tracker {
+    for (shard_id, validators) in chunk_production {
         let Ok(shard_index) = shard_layout.get_shard_index(*shard_id) else { continue };
         let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
             continue;
         };
-        // distinct chunk producers for this shard. shard_tracker also holds endorsement-only
-        // entries (chunk validators that never produced); they must not be blacklist candidates
-        // or skew the safety-valve denominator.
+        // distinct chunk producers for this shard. Every entry comes from this settlement, since
+        // both chunk producer samplers draw from it.
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
-            if !producers.contains(&validator_id) {
+            let in_settlement = producers.contains(&validator_id);
+            debug_assert!(
+                in_settlement,
+                "chunk producer {validator_id} is not in the settlement of shard {shard_id}"
+            );
+            if !in_settlement {
+                tracing::error!(
+                    target: "epoch_manager",
+                    %shard_id,
+                    validator_id,
+                    "chunk production entry outside the shard settlement, skipping"
+                );
                 continue;
             }
-            let (produced, expected) = (stats.produced(), stats.expected());
+            let (produced, expected) = (stats.produced, stats.expected);
             let missed = expected.saturating_sub(produced);
             // u128 keeps the ratio comparison overflow-proof.
             if missed >= early_kickout_min_misses()
@@ -331,7 +341,7 @@ pub fn compute_chunk_producer_blacklist(
         }
         // Safety valve: never blacklist every distinct producer on a shard. When all of
         // them are candidates, keep exactly one eligible = LEAST-BAD (highest
-        // produced/expected). Pick over `blacklisted` (a subset of shard_tracker, so stats
+        // produced/expected). Pick over `blacklisted` (a subset of chunk_production, so stats
         // exist) — NEVER index `producers`. Deterministic TOTAL order (consensus-critical,
         // identical on every node, never HashSet iteration order):
         let kept = if blacklisted.len() == producers.len() {
@@ -339,8 +349,8 @@ pub fn compute_chunk_producer_blacklist(
                 .iter()
                 .max_by(|a, b| {
                     let (sa, sb) = (&validators[*a], &validators[*b]);
-                    let (pa, ea) = (sa.produced() as u128, sa.expected() as u128);
-                    let (pb, eb) = (sb.produced() as u128, sb.expected() as u128);
+                    let (pa, ea) = (sa.produced as u128, sa.expected as u128);
+                    let (pb, eb) = (sb.produced as u128, sb.expected as u128);
                     (pa * eb)
                         .cmp(&(pb * ea)) // higher produced/expected ratio (integer cross-mult, no float)
                         .then(eb.cmp(&ea)) // tiebreak: fewer expected
@@ -659,7 +669,8 @@ impl EpochManager {
     /// # Parameters
     /// epoch_info
     /// block_validator_tracker
-    /// chunk_validator_tracker
+    /// chunk_production_tracker
+    /// chunk_endorsement_tracker
     ///
     /// slashed: set of slashed validators
     /// prev_validator_kickout: previously kicked out
@@ -678,7 +689,8 @@ impl EpochManager {
         config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        chunk_production_tracker: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        chunk_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
@@ -698,18 +710,18 @@ impl EpochManager {
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
             let mut chunk_stats = ChunkStats::default();
-            for (_, tracker) in chunk_stats_tracker {
+            for tracker in chunk_production_tracker.values() {
                 if let Some(stat) = tracker.get(&(i as u64)) {
-                    *chunk_stats.expected_mut() += stat.expected();
-                    *chunk_stats.produced_mut() += stat.produced();
-                    chunk_stats.endorsement_stats_mut().produced +=
-                        stat.endorsement_stats().produced;
-                    chunk_stats.endorsement_stats_mut().expected +=
-                        stat.endorsement_stats().expected;
+                    *chunk_stats.expected_mut() += stat.expected;
+                    *chunk_stats.produced_mut() += stat.produced;
                 }
             }
-            // On spice epochs endorsements are not embedded per-shard, so the
-            // per-shard tracker above is empty; the endorsement stats come from
+            if let Some(stat) = chunk_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
+            }
+            // On spice epochs endorsements are not embedded in blocks, so the
+            // endorsement tracker above is empty; the endorsement stats come from
             // the epoch's last block header instead.
             if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
                 chunk_stats.endorsement_stats_mut().produced += stat.produced;
@@ -829,7 +841,8 @@ impl EpochManager {
 
         let EpochInfoAggregator {
             block_tracker: block_validator_tracker,
-            shard_tracker: chunk_validator_tracker,
+            chunk_production: chunk_production_tracker,
+            chunk_endorsement: chunk_endorsement_tracker,
             all_proposals,
             version_tracker,
             ..
@@ -946,7 +959,8 @@ impl EpochManager {
             &config,
             &epoch_info,
             &block_validator_tracker,
-            &chunk_validator_tracker,
+            &chunk_production_tracker,
+            &chunk_endorsement_tracker,
             &spice_endorsement_tracker,
             prev_validator_kickout,
         );
@@ -956,8 +970,9 @@ impl EpochManager {
             ?proposals,
             ?validator_kickout,
             ?block_validator_tracker,
-            ?chunk_validator_tracker,
-            "all proposals, kickouts, block tracker, shard tracker"
+            ?chunk_production_tracker,
+            ?chunk_endorsement_tracker,
+            "all proposals, kickouts, block tracker, chunk production and endorsement trackers"
         );
 
         Ok(EpochSummary {
@@ -1738,8 +1753,6 @@ impl EpochManager {
                             .cloned()
                             .collect::<Vec<ShardId>>();
                         shards_produced.sort();
-                        // TODO: Compute the set of shards validated.
-                        let shards_endorsed = vec![];
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
@@ -1761,11 +1774,7 @@ impl EpochManager {
                                 .chunk_stats
                                 .endorsement_stats()
                                 .expected,
-                            // Same TODO as above for `num_produced_chunks_per_shard`
-                            num_produced_endorsements_per_shard: vec![0; shards_endorsed.len()],
-                            num_expected_endorsements_per_shard: vec![0; shards_endorsed.len()],
                             shards_produced,
-                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1783,51 +1792,33 @@ impl EpochManager {
                     .validators_iter()
                     .enumerate()
                     .map(|(validator_id, info)| {
+                        let validator_id = validator_id as u64;
                         let block_stats = aggregator
                             .block_tracker
-                            .get(&(validator_id as u64))
+                            .get(&validator_id)
                             .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
-                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkStats> =
+                        let mut chunks_stats_by_shard: HashMap<ShardId, ValidatorStats> =
                             HashMap::new();
                         let mut chunk_stats = ChunkStats::default();
-                        for (shard, tracker) in &aggregator.shard_tracker {
-                            if let Some(stats) = tracker.get(&(validator_id as u64)) {
-                                let produced = stats.produced();
-                                let expected = stats.expected();
-                                let endorsement_stats = stats.endorsement_stats();
-
-                                *chunk_stats.produced_mut() += produced;
-                                *chunk_stats.expected_mut() += expected;
-                                chunk_stats.endorsement_stats_mut().produced +=
-                                    endorsement_stats.produced;
-                                chunk_stats.endorsement_stats_mut().expected +=
-                                    endorsement_stats.expected;
-
-                                let shard_stats = chunks_stats_by_shard.entry(*shard).or_default();
-                                *shard_stats.produced_mut() += produced;
-                                *shard_stats.expected_mut() += expected;
-                                shard_stats.endorsement_stats_mut().produced +=
-                                    endorsement_stats.produced;
-                                shard_stats.endorsement_stats_mut().expected +=
-                                    endorsement_stats.expected;
+                        for (shard, tracker) in &aggregator.chunk_production {
+                            if let Some(stats) = tracker.get(&validator_id) {
+                                *chunk_stats.produced_mut() += stats.produced;
+                                *chunk_stats.expected_mut() += stats.expected;
+                                chunks_stats_by_shard.insert(*shard, stats.clone());
                             }
+                        }
+                        if let Some(stats) = aggregator.chunk_endorsement.get(&validator_id) {
+                            chunk_stats.endorsement_stats_mut().produced += stats.produced;
+                            chunk_stats.endorsement_stats_mut().expected += stats.expected;
                         }
                         // Collect the shards for which the validator was *expected* to produce at least one chunk.
                         let mut shards_produced = chunks_stats_by_shard
                             .iter()
-                            .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(*shard))
+                            .filter_map(|(shard, stats)| (stats.expected > 0).then_some(*shard))
                             .collect_vec();
                         shards_produced.sort();
-                        // Collect the shards for which the validator was *expected* to validate at least one chunk.
-                        let mut shards_endorsed = chunks_stats_by_shard
-                            .iter()
-                            .filter_map(|(shard, stats)| {
-                                (stats.endorsement_stats().expected > 0).then_some(*shard)
-                            })
-                            .collect_vec();
-                        shards_endorsed.sort();
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
@@ -1843,7 +1834,7 @@ impl EpochManager {
                                 .map(|shard| {
                                     chunks_stats_by_shard
                                         .get(shard)
-                                        .map_or(0, |stats| stats.produced())
+                                        .map_or(0, |stats| stats.produced)
                                 })
                                 .collect(),
                             num_expected_chunks_per_shard: shards_produced
@@ -1851,29 +1842,12 @@ impl EpochManager {
                                 .map(|shard| {
                                     chunks_stats_by_shard
                                         .get(shard)
-                                        .map_or(0, |stats| stats.expected())
+                                        .map_or(0, |stats| stats.expected)
                                 })
                                 .collect(),
                             num_produced_endorsements: chunk_stats.endorsement_stats().produced,
                             num_expected_endorsements: chunk_stats.endorsement_stats().expected,
-                            num_produced_endorsements_per_shard: shards_endorsed
-                                .iter()
-                                .map(|shard| {
-                                    chunks_stats_by_shard
-                                        .get(shard)
-                                        .map_or(0, |stats| stats.endorsement_stats().produced)
-                                })
-                                .collect(),
-                            num_expected_endorsements_per_shard: shards_endorsed
-                                .iter()
-                                .map(|shard| {
-                                    chunks_stats_by_shard
-                                        .get(shard)
-                                        .map_or(0, |stats| stats.endorsement_stats().expected)
-                                })
-                                .collect(),
                             shards_produced,
-                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -2447,7 +2421,7 @@ impl EpochManager {
                 "the aggregator of basis {final_hash} must be in the anchor's epoch"
             );
             Ok(Arc::new(compute_chunk_producer_blacklist(
-                &aggregator.shard_tracker,
+                &aggregator.chunk_production,
                 epoch.epoch_info,
                 epoch.shard_layout,
             )))

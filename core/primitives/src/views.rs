@@ -2733,15 +2733,6 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_endorsements: NumBlocks,
     #[serde(default)]
     pub num_expected_endorsements: NumBlocks,
-    #[serde(default)]
-    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
-    /// Number of chunks this validator was expected to validate and endorse in each shard.
-    /// Each entry in the array corresponds to the shard in the `shards_endorsed` array.
-    #[serde(default)]
-    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
-    /// Shards this validator is assigned to as chunk validator in the current epoch.
-    #[serde(default)]
-    pub shards_endorsed: Vec<ShardId>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]

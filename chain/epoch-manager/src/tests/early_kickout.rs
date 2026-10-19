@@ -28,7 +28,7 @@ use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndor
 use near_primitives::types::EpochId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, ChunkStats, ProtocolVersion, ShardId, ValidatorId,
+    AccountId, Balance, ProtocolVersion, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -97,22 +97,22 @@ fn shard_stats_projection(
         .collect()
 }
 
-/// Convenience: builds a `shard_tracker` with a single shard from `(validator_id,
+/// Convenience: builds a `chunk_production` map with a single shard from `(validator_id,
 /// produced, expected)` triples.
 fn tracker(
     shard_id: ShardId,
     stats: &[(ValidatorId, u64, u64)],
-) -> HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> {
-    let inner: HashMap<ValidatorId, ChunkStats> = stats
+) -> HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> {
+    let inner: HashMap<ValidatorId, ValidatorStats> = stats
         .iter()
-        .map(|&(id, produced, expected)| (id, ChunkStats::new_with_production(produced, expected)))
+        .map(|&(id, produced, expected)| (id, ValidatorStats { produced, expected }))
         .collect();
     HashMap::from([(shard_id, inner)])
 }
 
 /// Runs the math, returns the applied blacklist map.
 fn blacklist(
-    st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    st: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     epoch_info: &EpochInfo,
     layout: &ShardLayout,
 ) -> HashMap<ShardId, HashSet<ValidatorId>> {
@@ -122,7 +122,7 @@ fn blacklist(
 /// On an all-bad shard the keep-one valve leaves exactly one survivor. Returns the
 /// id of that survivor (the least-bad producer that keeps its slot).
 fn kept_survivor(
-    st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    st: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     epoch_info: &EpochInfo,
     layout: &ShardLayout,
     shard_id: ShardId,
@@ -204,24 +204,7 @@ fn blacklist_at_min_misses_boundary() {
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
-// 7. endorsement-only entries are ignored; producers judged on production only.
-#[test]
-fn blacklist_ignores_endorsement_only_entries() {
-    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
-    let mut inner = HashMap::new();
-    // (a) endorser-only validator NOT in settlement (id 3): high endorsement, zero
-    // production. Must never be a candidate.
-    inner.insert(3, ChunkStats::new(0, 0, 1000, 1000));
-    // (b) settlement producer (id 0) with high endorsement but failing production.
-    inner.insert(0, ChunkStats::new(0, 200, 1000, 1000));
-    inner.insert(1, ChunkStats::new_with_production(100, 100));
-    inner.insert(2, ChunkStats::new_with_production(100, 100));
-    let st = HashMap::from([(shard_id, inner)]);
-    let bl = blacklist(&st, &epoch_info, &layout);
-    assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
-}
-
-// 8. all producers above threshold -> empty map.
+// 7. all producers above threshold -> empty map.
 #[test]
 fn blacklist_empty_when_healthy() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(3);
@@ -230,7 +213,7 @@ fn blacklist_empty_when_healthy() {
     assert!(bl.is_empty());
 }
 
-// 9. two shards, independent blacklists.
+// 8. two shards, independent blacklists.
 #[test]
 fn blacklist_multi_shard_independent() {
     let num_producers = 3u64;
@@ -252,17 +235,17 @@ fn blacklist_multi_shard_independent() {
     st.insert(
         shard_ids[0],
         HashMap::from([
-            (0u64, ChunkStats::new_with_production(0, 100)),
-            (1, ChunkStats::new_with_production(100, 100)),
-            (2, ChunkStats::new_with_production(100, 100)),
+            (0u64, ValidatorStats { produced: 0, expected: 100 }),
+            (1, ValidatorStats { produced: 100, expected: 100 }),
+            (2, ValidatorStats { produced: 100, expected: 100 }),
         ]),
     );
     st.insert(
         shard_ids[1],
         HashMap::from([
-            (0u64, ChunkStats::new_with_production(100, 100)),
-            (1, ChunkStats::new_with_production(100, 100)),
-            (2, ChunkStats::new_with_production(100, 100)),
+            (0u64, ValidatorStats { produced: 100, expected: 100 }),
+            (1, ValidatorStats { produced: 100, expected: 100 }),
+            (2, ValidatorStats { produced: 100, expected: 100 }),
         ]),
     );
     let bl = blacklist(&st, &epoch_info, &shard_layout);
@@ -372,37 +355,6 @@ fn blacklist_dedups_duplicate_settlement_entries() {
     assert_eq!(stats.raw_candidate_count, 2, "duplicate id must not inflate the candidate count");
     assert!(stats.safety_valve_fired(), "two distinct all-bad producers must trip the valve");
     assert_eq!(res.blacklist[&shard_id].len(), 1, "keep-one must leave exactly one survivor");
-}
-
-// Endorsement-only entries stay out of BOTH the safety-valve denominator and the kept set.
-// Two all-bad producers trip the valve; an endorsement-only validator (id 2, not in the
-// settlement) is neither counted nor kept. Existing test 7 covers endorsement-only exclusion
-// from candidacy, but not this all-bad-shard interaction.
-#[test]
-fn blacklist_valve_ignores_endorsement_only_entry() {
-    // Three real epoch validators, but only 0 and 1 settled as producers: id 2 is a genuine
-    // validator that is endorsement-only on this shard, not an unknown tracker entry.
-    let layout = ShardLayout::single_shard();
-    let shard_id = layout.shard_ids().next().unwrap();
-    let epoch_info = epoch_info_for_layout(&layout, vec![vec![0, 1]], 3);
-    let mut inner = HashMap::new();
-    inner.insert(0, ChunkStats::new_with_production(0, 100));
-    inner.insert(1, ChunkStats::new_with_production(0, 100));
-    // Endorsement-only, not in the settlement: high endorsement, zero production.
-    inner.insert(2, ChunkStats::new(0, 0, 1000, 1000));
-    let st = HashMap::from([(shard_id, inner)]);
-    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
-    let stats = &res.shard_stats[&shard_id];
-    assert_eq!(stats.raw_candidate_count, 2, "endorsement-only id must not be a candidate");
-    assert!(stats.safety_valve_fired());
-    // Deterministic: the two all-bad candidates tie on every level down to lower-id, which
-    // keeps 0 — strictly stronger than only asserting the endorsement-only id is not kept.
-    assert_eq!(stats.kept, Some(0), "equal all-bad candidates must resolve to the lower id");
-    assert_eq!(
-        res.blacklist[&shard_id],
-        HashSet::from([1]),
-        "exactly the non-kept all-bad producer is blacklisted; endorsement-only id stays out",
-    );
 }
 
 // u128 keeps both the ratio comparison and the safety-valve cross-multiply overflow-proof.
@@ -526,7 +478,7 @@ fn drive_targeted_misses(
     h
 }
 
-// 10. pre-activation protocol + miss-heavy stats -> accessor returns empty (gate proves
+// 9. pre-activation protocol + miss-heavy stats -> accessor returns empty (gate proves
 //     no production leak). Drives the same 1200 blocks as the enabled-path test below, so
 //     the stats would blacklist the target if the version gate were removed; a shorter run
 //     would stay inside the 1000-block grace and pass either way.
@@ -653,10 +605,10 @@ fn early_kickout_attribution_does_not_flap() {
     // Snapshot validator 0's and the replacement's stats at the blacklist point.
     let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
     let stats = |agg: &EpochInfoAggregator, id: ValidatorId| {
-        agg.shard_tracker
+        agg.chunk_production
             .get(&shard_id)
             .and_then(|m| m.get(&id))
-            .map(|s| (s.produced(), s.expected()))
+            .map(|s| (s.produced, s.expected))
     };
     let before_0 = stats(&agg_before, 0).expect("validator 0 should have stats");
     let before_1 = stats(&agg_before, 1).expect("replacement should have stats");
@@ -694,7 +646,7 @@ fn early_kickout_attribution_does_not_flap() {
     );
 }
 
-// 11. epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
+// 10. epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
 //     seeder), so the boundary anchor (last block of epoch 0) still carries epoch 0's
 //     miss-heavy blacklist. The reset lands on the first epoch-1 anchor: its own epoch flips
 //     while its last-final block (the aggregator basis) still sits in epoch 0, so the
@@ -1592,7 +1544,7 @@ fn drive_all_chunks_missed(handle: &EpochManagerHandle, count: u64) -> Vec<Crypt
     h
 }
 
-// 12. an all-bad shard fires the safety valve on the SEEDER (the
+// 11. an all-bad shard fires the safety valve on the SEEDER (the
 //     production write path that runs once per recorded block), so the
 //     `safety_valve_fired` counter increments as blocks are recorded. The accessor
 //     then applies keep-one, keeping exactly one of the two producers eligible.
@@ -2045,8 +1997,8 @@ fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-// 13. Resolving mixed parent/child shard ids against the layout the blacklist is computed
-//     for. One `shard_tracker` carrying ids from both layouts is fed to each layout: every
+// 12. Resolving mixed parent/child shard ids against the layout the blacklist is computed
+//     for. One `chunk_production` map carrying ids from both layouts is fed to each layout: every
 //     valid shard keeps its own-settlement candidate, ids with no shard index there are
 //     dropped. Distinct per-shard settlements make it discriminating — an identical `0..n`
 //     settlement everywhere would hide a valid shard resolved to a wrong-but-in-range index.
@@ -2082,7 +2034,7 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
 
 /// One reshard mapping check for a `parent`/`child` layout pair (the caller pins the
 /// concrete shard ids first). Derives the retired parent, survivor and children by set
-/// difference, feeds one shared `shard_tracker` to both layouts, and asserts that each
+/// difference, feeds one shared `chunk_production` map to both layouts, and asserts that each
 /// keeps its valid shards' candidates and drops the ids foreign to it.
 fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
     let parent_ids: Vec<ShardId> = parent.shard_ids().collect();
@@ -2168,13 +2120,13 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
     // One tracker carrying every shard id from both layouts. 0/100 clears both gates
     // (100 missed, 0% ratio); the healthy id is 100/100. One candidate per shard, so the
     // keep-one valve never fires (`kept == None`).
-    let candidate_shard = |shard: ShardId| -> HashMap<ValidatorId, ChunkStats> {
+    let candidate_shard = |shard: ShardId| -> HashMap<ValidatorId, ValidatorStats> {
         HashMap::from([
-            (bad_producer(shard), ChunkStats::new_with_production(0, 100)),
-            (HEALTHY, ChunkStats::new_with_production(100, 100)),
+            (bad_producer(shard), ValidatorStats { produced: 0, expected: 100 }),
+            (HEALTHY, ValidatorStats { produced: 100, expected: 100 }),
         ])
     };
-    let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> =
+    let st: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> =
         all_shards.iter().map(|&shard| (shard, candidate_shard(shard))).collect();
 
     // Parent layout: shards 1 and 0 resolve, the two child ids are foreign and dropped.
@@ -2323,8 +2275,10 @@ impl ForkFixture {
             .read()
             .get_epoch_info_aggregator_upto_last(&basis)
             .ok()
-            .and_then(|agg| agg.shard_tracker.get(&shard_id).and_then(|m| m.get(&target).cloned()))
-            .map(|s| (s.produced(), s.expected()))
+            .and_then(|agg| {
+                agg.chunk_production.get(&shard_id).and_then(|m| m.get(&target).cloned())
+            })
+            .map(|s| (s.produced, s.expected))
             .unwrap_or((0, 0));
         let blacklist = self.handle.get_chunk_producer_blacklist(&prev).unwrap();
         panic!(
@@ -2379,10 +2333,10 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // the merged stats are nonzero would pass even without the merge, since the suffix can
     // itself contain producer-0 stats.
     let stats = |agg: &EpochInfoAggregator, id: ValidatorId| -> (u64, u64) {
-        agg.shard_tracker
+        agg.chunk_production
             .get(&shard_id)
             .and_then(|m| m.get(&id))
-            .map_or((0, 0), |s| (s.produced(), s.expected()))
+            .map_or((0, 0), |s| (s.produced, s.expected))
     };
     let prefix = handle.read().epoch_info_aggregator.clone();
     let (suffix, full_info) = handle
@@ -2508,7 +2462,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "after the sibling takeover the canonical basis must walk from the epoch start",
     );
     let full_bl =
-        compute_chunk_producer_blacklist(&full_walk.shard_tracker, epoch_info.as_ref(), layout);
+        compute_chunk_producer_blacklist(&full_walk.chunk_production, epoch_info.as_ref(), layout);
     assert_eq!(full_bl.blacklist, canonical_bl, "the full walk must match the memoized blacklist");
 
     // Phase 8: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
