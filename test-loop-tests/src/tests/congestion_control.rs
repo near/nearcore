@@ -122,8 +122,7 @@ fn setup(
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
-    let tmp = clients.clone();
-    let (producers, tmp) = tmp.split_at(NUM_PRODUCERS);
+    let (producers, tmp) = clients.split_at(NUM_PRODUCERS);
     let (validators, tmp) = tmp.split_at(NUM_VALIDATORS);
     let (rpcs, tmp) = tmp.split_at(NUM_RPC);
     assert!(tmp.is_empty());

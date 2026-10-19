@@ -38,8 +38,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
     // split the clients into producers, validators, and rpc nodes
-    let tmp = clients.clone();
-    let (producers, tmp) = tmp.split_at(num_producers);
+    let (producers, tmp) = clients.split_at(num_producers);
     let (validators, tmp) = tmp.split_at(num_validators);
     let (rpcs, tmp) = tmp.split_at(num_rpc);
     assert!(tmp.is_empty());
