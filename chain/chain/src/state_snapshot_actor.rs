@@ -357,7 +357,7 @@ fn min_chunk_prev_height(
 }
 
 /// The hash a snapshot of `block`'s state is keyed by, and advertised under. Spice snapshots
-/// the state `block`'s own chunks left behind, so the snapshot sits at `block`; everything else
+/// the state `block`'s own chunks left behind, so the snapshot sits at `block`; non-spice
 /// snapshots the state as of the block before it. `StateSnapshot` moves the snapshot's flat head
 /// to the same block. Syncing peers derive the same hash from the sync hash to find a host.
 pub fn snapshot_hash_for_block(block: &BlockHeader) -> CryptoHash {
