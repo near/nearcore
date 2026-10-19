@@ -194,6 +194,16 @@ that block rather than by an earlier one. It is announced to the network only
 once the block's chunks are certified, since before that no peer could prove
 the roots it serves.
 
+After the download the node processes the sync block as a child of its
+parent, which it stores but does not process. Processing builds the sync
+block's uncertified chunks from its parent's and credits its endorsement stats
+against its grandparent's, and the node has neither: they are accumulated block
+by block rather than read off any one block. The epoch's first block therefore
+carries both in its body (`SpiceEpochStartUncertifiedChunks`): its producer
+fills them in, every validator checks them against its own, and
+`block_body_hash` commits them, so the synced node records them from the sync
+block before processing it.
+
 #### Step 4: block sync
 
 The final step downloads and applies blocks from the sync point to the network
