@@ -1,10 +1,10 @@
-//! An external contract call has no deposit, so the VM fails one that carries
-//! a deposit.
+//! An external contract call has no deposit: `attached_deposit` returns zero,
+//! and the VM fails a call that carries a deposit.
 
-use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::{ExecutionMode, VMContext};
+use crate::logic::{ReturnData, VMOutcome};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
@@ -15,10 +15,19 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Run an external call of an empty contract method with the given attached
-/// deposit.
+/// Run an external call, with the given attached deposit, of a contract method
+/// that returns the result of the `attached_deposit` host function.
 fn run_external_call(attached_deposit: Balance) -> VMOutcome {
-    let code = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
+    let code = wat::parse_str(
+        r#"(module
+            (import "env" "attached_deposit" (func $attached_deposit (param i64)))
+            (import "env" "value_return" (func $value_return (param i64 i64)))
+            (memory (export "memory") 1)
+            (func (export "main")
+                (call $attached_deposit (i64.const 0))
+                (call $value_return (i64.const 16) (i64.const 0))))"#,
+    )
+    .unwrap();
     let store = RuntimeConfigStore::new();
     let mut config =
         near_parameters::vm::Config::clone(&store.get_config(PROTOCOL_VERSION).wasm_config);
@@ -67,16 +76,12 @@ fn run_external_call(attached_deposit: Balance) -> VMOutcome {
 fn external_call_without_deposit_succeeds() {
     let outcome = run_external_call(Balance::ZERO);
     assert_eq!(outcome.aborted, None);
+    assert_eq!(outcome.return_data, ReturnData::Value(0u128.to_le_bytes().to_vec()));
 }
 
 #[test]
 fn external_call_with_deposit_fails() {
     let outcome = run_external_call(Balance::from_yoctonear(1));
     let err = outcome.aborted.expect("an external call with a deposit should fail");
-    assert_eq!(
-        err,
-        FunctionCallError::HostError(HostError::ProhibitedInExternalCall {
-            method_name: "attached_deposit".to_string(),
-        })
-    );
+    assert_eq!(err, FunctionCallError::HostError(HostError::DepositInExternalCall));
 }

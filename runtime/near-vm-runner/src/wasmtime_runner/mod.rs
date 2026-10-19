@@ -1053,9 +1053,7 @@ enum PreparationResult {
 /// because of a mistake in its entry point.
 fn check_external_call_deposit(context: &VMContext) -> Result<(), FunctionCallError> {
     if context.is_external() && !context.attached_deposit.is_zero() {
-        let error =
-            HostError::ProhibitedInExternalCall { method_name: "attached_deposit".to_string() };
-        return Err(FunctionCallError::HostError(error));
+        return Err(FunctionCallError::HostError(HostError::DepositInExternalCall));
     }
     Ok(())
 }

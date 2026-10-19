@@ -6406,6 +6406,11 @@
             ],
             "title": "ProhibitedInExternalCall",
             "type": "object"
+          },
+          {
+            "const": "DepositInExternalCall",
+            "description": "An external contract call has an attached deposit, which it cannot have",
+            "type": "string"
           }
         ],
         "title": "HostError"

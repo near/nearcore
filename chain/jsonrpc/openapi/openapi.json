@@ -9028,6 +9028,13 @@
               "ProhibitedInExternalCall"
             ],
             "type": "object"
+          },
+          {
+            "description": "An external contract call has an attached deposit, which it cannot have",
+            "enum": [
+              "DepositInExternalCall"
+            ],
+            "type": "string"
           }
         ]
       },
