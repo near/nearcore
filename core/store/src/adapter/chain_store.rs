@@ -97,12 +97,26 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// The chain final head. It is guaranteed to be monotonically increasing.
+    /// The chain final head, as established by block processing. It is monotonically
+    /// increasing, with the exception of state sync resetting it back to genesis.
     pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
             self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
             "FINAL HEAD",
         )
+    }
+
+    /// Tip of the last final block as the head's header records it, or [`Self::final_head`]
+    /// while the head records none, as genesis and the first blocks after it do.
+    ///
+    /// Derived from headers, so the block body may not be present.
+    pub fn last_final_block_tip(&self) -> Result<Arc<Tip>, Error> {
+        let last_final_block = *self.head_header()?.last_final_block();
+        if last_final_block == CryptoHash::default() {
+            return self.final_head();
+        }
+        let last_final_header = self.get_block_header(&last_final_block)?;
+        Ok(Arc::new(Tip::from_header(last_final_header.as_ref())))
     }
 
     pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {

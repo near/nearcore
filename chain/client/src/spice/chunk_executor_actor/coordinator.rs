@@ -405,13 +405,13 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
             return;
         }
         if !spice_enabled_at_head_on_startup(&self.chain_store) {
-            // No spice execution heads exist yet, but a last pre-spice block past the final
-            // head needs its boundary bootstrap re-run: its sends are not persisted.
-            let result = match self.chain_store.final_head() {
-                Ok(final_head) => self.process_all_ready_blocks_from(&final_head),
-                Err(Error::DBNotFoundErr(_)) => Ok(()),
-                Err(err) => Err(err),
-            };
+            // The head is still pre-spice, so startup does not resume from the spice execution
+            // heads. A last pre-spice block past the last final block still needs its boundary
+            // bootstrap re-run: its sends are not persisted.
+            let result = self
+                .chain_store
+                .last_final_block_tip()
+                .and_then(|start| self.process_all_ready_blocks_from(&start));
             if let Err(err) = result {
                 tracing::error!(
                     target: "chunk_executor",

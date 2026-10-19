@@ -1814,14 +1814,12 @@ impl SpiceDataDistributorActor {
     }
 
     /// Startup counterpart of [`Self::start_waiting_on_missing_data`] for a pre-spice head,
-    /// where no spice final execution head exists yet. A fork past the final head may already
-    /// hold a last pre-spice block, or even a spice block.
+    /// walking up from the last final block rather than the spice final execution head. A
+    /// fork past the last final block may already hold a last pre-spice block, or even a
+    /// spice block.
     fn start_waiting_on_boundary_data(&mut self) -> Result<(), Error> {
-        match self.chain_store.final_head() {
-            Ok(final_head) => self.start_waiting_on_data_for_descendants(&final_head),
-            Err(near_chain::Error::DBNotFoundErr(_)) => Ok(()),
-            Err(err) => Err(err.into()),
-        }
+        let start = self.chain_store.last_final_block_tip()?;
+        self.start_waiting_on_data_for_descendants(&start)
     }
 
     fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
