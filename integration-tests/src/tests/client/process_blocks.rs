@@ -1678,7 +1678,11 @@ fn test_sync_hash_validity() {
         // block with two new chunks in every shard, which with a chunk in every shard of every
         // block, as TestEnv::produce_block() makes, is the epoch's fourth.
         let expected_sync_height =
-            if cfg!(feature = "protocol_feature_spice") { epoch_start } else { epoch_start + 3 };
+            if ProtocolFeature::Spice.enabled(genesis.config.protocol_version) {
+                epoch_start
+            } else {
+                epoch_start + 3
+            };
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();

@@ -49,21 +49,6 @@ impl HeaderChain {
     }
 
     fn push(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
-        self.push_header(epoch_id, chunk_mask, true)
-    }
-
-    /// Appends a header the node never stored, as epoch sync leaves gaps.
-    #[cfg(feature = "protocol_feature_spice")]
-    fn push_unsaved(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
-        self.push_header(epoch_id, chunk_mask, false)
-    }
-
-    fn push_header(
-        &mut self,
-        epoch_id: EpochId,
-        chunk_mask: [bool; NUM_SHARDS],
-        save: bool,
-    ) -> CryptoHash {
         let prev = self.headers.last().unwrap().clone();
         let mut header = BlockHeader::clone(&prev);
         header.set_prev_hash(*prev.hash());
@@ -76,10 +61,6 @@ impl HeaderChain {
         header.set_last_final_block(*last_final.hash());
         header.init();
         let block_hash = *header.hash();
-        if !save {
-            self.headers.push(Arc::new(header));
-            return block_hash;
-        }
         let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::BlockHeader, block_hash.as_ref(), &header);
         store_update.set_ser(DBCol::NextBlockHashes, prev.hash().as_ref(), &block_hash);
@@ -235,19 +216,4 @@ fn test_update_sync_hashes_spice_epoch_after_genesis() {
     let epoch = chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
 
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_1), Some(epoch[0]));
-}
-
-/// A header missing on the way back to the epoch's first block, as epoch sync leaves, means
-/// the first block cannot be named, so nothing is recorded.
-#[cfg(feature = "protocol_feature_spice")]
-#[test]
-fn test_update_sync_hashes_spice_none_across_header_gap() {
-    const EPOCH_LENGTH: usize = 10;
-
-    let mut chain = HeaderChain::spice();
-    chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
-    chain.push_unsaved(EPOCH_ID_2, [true, true]);
-    chain.push_full(EPOCH_ID_2, EPOCH_LENGTH - 1);
-
-    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
 }
