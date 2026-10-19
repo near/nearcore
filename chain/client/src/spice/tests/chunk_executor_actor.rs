@@ -10,8 +10,8 @@ use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use crate::spice::data_manager::DataId;
 use crate::spice::tests::{
-    build_to_last_pre_spice_block, empty_outgoing_receipt_proofs, pre_spice_boundary_genesis,
-    save_and_record_block,
+    build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
+    pre_spice_boundary_genesis, save_and_record_block,
 };
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
@@ -22,7 +22,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
-use near_chain::spice::boundary::seed_execution_heads_at_activation;
+use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -1702,14 +1702,14 @@ struct BoundarySends {
 }
 
 impl BoundaryActor {
-    /// Writes what this node's pre-spice apply of the last pre-spice block left
-    /// behind for each of `shard_uids`: outgoing receipts and a chunk extra. A shard
+    /// Writes what this node's pre-spice apply of the last pre-spice block `block_hash`
+    /// left behind for each of `shard_uids`: outgoing receipts and a chunk extra. A shard
     /// left out cannot be synthesized.
-    fn seed_pre_spice_apply_artifacts(&mut self, shard_uids: &[ShardUId]) {
+    fn seed_pre_spice_apply_artifacts(&mut self, block_hash: CryptoHash, shard_uids: &[ShardUId]) {
         let mut store_update = self.test_actor.chain.chain_store.store_update();
         for shard_uid in shard_uids {
             store_update.save_outgoing_receipt(
-                self.last_pre_spice.hash(),
+                &block_hash,
                 shard_uid.shard_id(),
                 vec![Receipt::new_balance_refund(
                     &self.signer.validator_id().clone(),
@@ -1717,7 +1717,7 @@ impl BoundaryActor {
                 )],
             );
             store_update.save_chunk_extra(
-                self.last_pre_spice.hash(),
+                &block_hash,
                 shard_uid,
                 ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(
                     shard_uid.shard_id().to_string().as_bytes(),
@@ -1850,7 +1850,7 @@ impl BoundaryActor {
     /// is an epoch validator.
     fn bootstrap_and_assert_sends(&mut self, node_account: &AccountId, witness_recorded: bool) {
         let shard_uids: Vec<ShardUId> = self.shard_layout.shard_uids().collect();
-        self.seed_pre_spice_apply_artifacts(&shard_uids);
+        self.seed_pre_spice_apply_artifacts(*self.last_pre_spice.hash(), &shard_uids);
         self.test_actor.actor.handle_processed_block(self.last_pre_spice.hash()).unwrap();
 
         let mut sends = self.drain_sends();
@@ -1872,26 +1872,21 @@ impl BoundaryActor {
             );
         }
         assert!(sends.is_empty(), "sends for unknown shards: {sends:?}");
-        self.assert_receipt_proofs(|_| true);
+        self.assert_receipt_proofs(*self.last_pre_spice.hash(), |_| true);
     }
 
     /// Asserts that exactly the shards `produced` accepts persisted their receipt
-    /// proofs at the last pre-spice block.
-    fn assert_receipt_proofs(&self, produced: impl Fn(ShardUId) -> bool) {
+    /// proofs at the last pre-spice block `block_hash`.
+    fn assert_receipt_proofs(&self, block_hash: CryptoHash, produced: impl Fn(ShardUId) -> bool) {
         let store = self.test_actor.actor.chain_store.store();
         for shard_uid in self.shard_layout.shard_uids() {
             let from_shard_id = shard_uid.shard_id();
             let expected = produced(shard_uid);
             for to_shard_id in self.shard_layout.shard_ids() {
                 assert_eq!(
-                    receipt_proof_exists(
-                        &store,
-                        self.last_pre_spice.hash(),
-                        to_shard_id,
-                        from_shard_id
-                    ),
+                    receipt_proof_exists(&store, &block_hash, to_shard_id, from_shard_id),
                     expected,
-                    "receipt proof {from_shard_id} -> {to_shard_id} at the last pre-spice block",
+                    "receipt proof {from_shard_id} -> {to_shard_id} at last pre-spice block {block_hash}",
                 );
             }
         }
@@ -1909,7 +1904,7 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
     let broken_shard_uid = shard_uids[1];
     let synthesizable: Vec<ShardUId> =
         shard_uids.iter().copied().filter(|shard_uid| *shard_uid != broken_shard_uid).collect();
-    boundary.seed_pre_spice_apply_artifacts(&synthesizable);
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &synthesizable);
 
     let result = boundary.test_actor.actor.handle_processed_block(boundary.last_pre_spice.hash());
     assert!(
@@ -1920,7 +1915,9 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
 
     // Each synthesizable shard still produced and persisted its receipt proofs,
     // whichever order the coordinator visited the executors in.
-    boundary.assert_receipt_proofs(|shard_uid| shard_uid != broken_shard_uid);
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |shard_uid| {
+        shard_uid != broken_shard_uid
+    });
 }
 
 /// The bootstrap's sends are not persisted, so a restart that finds the last
@@ -1930,26 +1927,56 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
 fn test_boundary_bootstrap_reruns_on_startup_from_head() {
     let mut boundary = setup_boundary_actor();
     let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
-    boundary.seed_pre_spice_apply_artifacts(&shard_uids);
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
     let mut store_update = boundary.test_actor.chain.chain_store.store_update();
     store_update.save_head(&Tip::from_header(boundary.last_pre_spice.header())).unwrap();
     store_update.commit().unwrap();
 
     boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
 
-    boundary.assert_receipt_proofs(|_| true);
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
+}
+
+/// With a pre-spice head on startup, the bootstrap re-runs for every last pre-spice block
+/// past the final head, not only the head's. Here the head is a height-skipping sibling of
+/// another last pre-spice block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_reruns_on_startup_from_forks() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    let chain = &mut boundary.test_actor.chain;
+    let fork_point = chain.get_block(boundary.last_pre_spice.header().prev_hash()).unwrap();
+    let sibling = build_pre_spice_block(
+        chain,
+        &fork_point,
+        boundary.last_pre_spice.header().height().checked_add(1).unwrap(),
+        &boundary.signer,
+    );
+    assert!(is_last_pre_spice_block(chain.epoch_manager.as_ref(), sibling.hash()).unwrap());
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_head(&Tip::from_header(sibling.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(fork_point.header())).unwrap();
+    store_update.commit().unwrap();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
+    boundary.seed_pre_spice_apply_artifacts(*sibling.hash(), &shard_uids);
+
+    boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
+    boundary.assert_receipt_proofs(*sibling.hash(), |_| true);
 }
 
 /// Once the first spice block is processed the head moves on, but the spice execution
 /// heads still point at pre-spice blocks until it is executed. A restart in that window
-/// re-runs the bootstrap and applies the first spice block, which no link from the
-/// pre-spice final execution head leads to.
+/// re-runs the bootstrap and applies the first spice block, although `all_next_block_hashes`
+/// has no entry from the pre-spice final execution head to the last pre-spice block.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_boundary_bootstrap_reruns_on_startup_after_first_spice_block() {
     let mut boundary = setup_boundary_actor();
     let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
-    boundary.seed_pre_spice_apply_artifacts(&shard_uids);
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
     let first_spice = boundary.build_first_spice_block();
     seed_execution_heads(&boundary.test_actor.chain, &boundary.last_pre_spice, &first_spice);
     let mut store_update = boundary.test_actor.chain.chain_store.store_update();
@@ -1958,7 +1985,7 @@ fn test_boundary_bootstrap_reruns_on_startup_after_first_spice_block() {
 
     boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
 
-    boundary.assert_receipt_proofs(|_| true);
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
     assert_eq!(boundary.test_actor.drain_tasks().len(), shard_uids.len());
 }
 
@@ -1970,7 +1997,7 @@ fn test_boundary_bootstrap_reruns_on_startup_after_first_spice_block() {
 fn test_boundary_bootstrap_wakes_parked_first_spice_block() {
     let mut boundary = setup_boundary_actor();
     let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
-    boundary.seed_pre_spice_apply_artifacts(&shard_uids);
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
     let first_spice = boundary.build_first_spice_block();
     seed_execution_heads(&boundary.test_actor.chain, &boundary.last_pre_spice, &first_spice);
 

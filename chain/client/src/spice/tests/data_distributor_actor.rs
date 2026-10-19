@@ -81,12 +81,12 @@ use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{DBCol, ShardUId};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
@@ -1645,22 +1645,6 @@ fn test_requesting_witnesses_from_forks_on_start() {
     )
 }
 
-/// A pre-spice chain built up to its last pre-spice block, which it returns along with the
-/// block producer's signer and a chunk validator that applies no shard itself.
-fn setup_boundary_chain() -> (Chain, Arc<ValidatorSigner>, AccountId, Arc<Block>) {
-    init_test_logger();
-    let signer = Arc::new(create_test_signer("test-producer-0"));
-    let validator = AccountId::from_str("test-validator-0").unwrap();
-    let genesis = pre_spice_boundary_genesis(
-        &["test-producer-0"],
-        &["test-validator-0"],
-        ShardLayout::multi_shard(2, 0),
-    );
-    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
-    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
-    (chain, signer, validator, last_pre_spice)
-}
-
 fn save_heads(chain: &mut Chain, head: &Block, final_head: &Block) {
     let mut store_update = chain.mut_chain_store().store_update();
     store_update.save_head(&Tip::from_header(head.header())).unwrap();
@@ -1693,7 +1677,17 @@ fn witnesses_requested_on_start(chain: &Chain, validator: &AccountId) -> HashSet
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_requesting_boundary_witnesses_from_forks_on_start() {
-    let (mut chain, signer, validator, last_pre_spice) = setup_boundary_chain();
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
     let fork_point = chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
     let sibling = build_pre_spice_block(
         &mut chain,
@@ -1710,13 +1704,57 @@ fn test_requesting_boundary_witnesses_from_forks_on_start() {
     );
 }
 
+/// A last pre-spice block whose body cannot be read must not stop the node waiting on the
+/// witnesses of the other last pre-spice blocks on startup.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_requesting_boundary_witnesses_skips_a_block_it_cannot_read_on_start() {
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+    let fork_point = chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
+    let sibling = build_pre_spice_block(
+        &mut chain,
+        &fork_point,
+        last_pre_spice.header().height().checked_add(1).unwrap(),
+        &signer,
+    );
+    save_heads(&mut chain, &sibling, &fork_point);
+    // The walk reaches the lower last pre-spice block first; drop its body, keeping its
+    // header, so that waiting on its data fails.
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update.delete(DBCol::Block, last_pre_spice.hash().as_ref());
+    store_update.commit();
+    assert!(chain.get_block(last_pre_spice.hash()).is_err());
+
+    assert_eq!(witnesses_requested_on_start(&chain, &validator), HashSet::from([*sibling.hash()]));
+}
+
 /// Activation seeds the spice final execution head to a pre-spice block, and
 /// `all_next_block_hashes` links no pre-spice block to its children. On startup the node
 /// must still reach the last pre-spice block, and the spice block past it.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_requesting_boundary_witnesses_from_pre_spice_final_execution_head_on_start() {
-    let (mut chain, signer, validator, last_pre_spice) = setup_boundary_chain();
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
     let epoch_manager = chain.epoch_manager.clone();
     let first_spice = TestBlockBuilder::from_prev_block(Clock::real(), &last_pre_spice, signer)
         .chunks(get_fake_next_block_chunk_headers(&last_pre_spice, epoch_manager.as_ref()))

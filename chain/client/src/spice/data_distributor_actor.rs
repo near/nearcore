@@ -1831,17 +1831,29 @@ impl SpiceDataDistributorActor {
     /// from `start`.
     fn start_waiting_on_data_for_descendants(&mut self, start: &Tip) -> Result<(), Error> {
         for block_hash in self.chain_store.get_processed_descendants(start)? {
-            if !is_spice_or_last_pre_spice_block(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                &block_hash,
-            )? {
-                continue;
+            // A single bad block must not abort startup recovery for the whole chain; log and
+            // continue. Witness data arriving for the block later re-drives waiting on it.
+            if let Err(err) = self.start_waiting_on_data_for_processed_block(&block_hash) {
+                tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to start waiting on data during startup recovery; skipping");
             }
-            self.start_waiting_on_data(&block_hash)?;
-            let block = self.chain_store.get_block(&block_hash)?;
-            self.data_manager.track_block(&block)?;
         }
+        Ok(())
+    }
+
+    fn start_waiting_on_data_for_processed_block(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        if !is_spice_or_last_pre_spice_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            block_hash,
+        )? {
+            return Ok(());
+        }
+        self.start_waiting_on_data(block_hash)?;
+        let block = self.chain_store.get_block(block_hash)?;
+        self.data_manager.track_block(&block)?;
         Ok(())
     }
 }
