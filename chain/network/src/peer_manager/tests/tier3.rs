@@ -257,7 +257,7 @@ async fn part_request_answered_over_tier3() {
 
 // Verify that a host acks over the Tier3 connection a request which it fails to answer.
 #[tokio::test]
-async fn failed_request_acked_over_tier3() {
+async fn failed_request_acknowledged_over_tier3() {
     init_test_logger();
     let mut rng = make_rng(921853243);
     let rng = &mut rng;
