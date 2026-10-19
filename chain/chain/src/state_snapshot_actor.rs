@@ -40,11 +40,11 @@ impl StateSnapshotActor {
 pub struct DeleteSnapshotRequest {}
 
 pub struct CreateSnapshotRequest {
-    /// equal to self.block.header().prev_hash()
-    prev_block_hash: CryptoHash,
+    /// The hash the snapshot is keyed by. Currently `self.block.header().prev_hash()`.
+    snapshot_hash: CryptoHash,
     /// Min height of chunk.prev_block_hash() for each chunk in `block`
     min_chunk_prev_height: BlockHeight,
-    /// epoch height associated with prev_block_hash
+    /// epoch height associated with the block being snapshotted
     epoch_height: EpochHeight,
     /// Shards that need to be present in the snapshot.
     shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)>,
@@ -56,7 +56,7 @@ impl std::fmt::Debug for CreateSnapshotRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateSnapshotRequest")
             .field("block_hash", self.block.hash())
-            .field("prev_block_hash", &self.prev_block_hash)
+            .field("snapshot_hash", &self.snapshot_hash)
             .field("min_chunk_prev_height", &self.min_chunk_prev_height)
             .field("epoch_height", &self.epoch_height)
             .field(
@@ -134,7 +134,7 @@ impl StateSnapshotActor {
             return;
         }
         if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
-            if last_requested_hash != msg.prev_block_hash {
+            if last_requested_hash != msg.snapshot_hash {
                 tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "skipping state snapshot in favor of more recent request");
                 return;
             }
@@ -146,7 +146,7 @@ impl StateSnapshotActor {
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {
-            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
+            tracing::debug!(target: "state_snapshot", snapshot_hash = ?&msg.snapshot_hash, "postpone create snapshot request");
             ctx.run_later(
                 "ReshardingActor FlatStorageSplitShard",
                 Duration::seconds(1),
@@ -157,9 +157,9 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
+        tracing::debug!(target: "state_snapshot", snapshot_hash = ?&msg.snapshot_hash, "handle create snapshot request");
         let CreateSnapshotRequest {
-            prev_block_hash,
+            snapshot_hash,
             epoch_height,
             shard_indexes_and_uids,
             block,
@@ -167,13 +167,12 @@ impl StateSnapshotActor {
         } = msg;
 
         self.tries.delete_state_snapshot();
-        let res =
-            self.tries.create_state_snapshot(prev_block_hash, &shard_indexes_and_uids, &block);
+        let res = self.tries.create_state_snapshot(snapshot_hash, &shard_indexes_and_uids, &block);
 
         // Unlocking flat state head can be done asynchronously in state_snapshot_actor.
         // The next flat storage update will bring flat storage to latest head.
         // TODO(resharding): this can actually be called sooner, just after the rocksdb checkpoint is made.
-        self.flat_storage_manager.snapshot_taken(&prev_block_hash);
+        self.flat_storage_manager.snapshot_taken(&snapshot_hash);
         match res {
             Ok(res_shard_uids) => {
                 let Some(res_shard_uids) = res_shard_uids else {
@@ -182,7 +181,7 @@ impl StateSnapshotActor {
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
-                        sync_hash: prev_block_hash,
+                        sync_hash: snapshot_hash,
                         epoch_height,
                         shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
                     }),
@@ -244,18 +243,18 @@ pub fn get_make_snapshot_callback(
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |min_chunk_prev_height, epoch_height, shard_indexes_and_uids, block| {
-        let prev_block_hash = snapshot_hash_for_block(block.header());
+        let snapshot_hash = snapshot_hash_for_block(block.header());
         tracing::info!(
             target: "state_snapshot",
-            ?prev_block_hash,
+            ?snapshot_hash,
             ?shard_indexes_and_uids,
             "make_snapshot_callback sends `CreateSnapshotRequest` to state_snapshot_addr");
         // We need to stop flat head updates synchronously in the client thread.
-        // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
-        // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
-        flat_storage_manager.want_snapshot(prev_block_hash, min_chunk_prev_height);
+        // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond snapshot_hash
+        // This also prevents post-resharding flat storage catchup from advancing past `snapshot_hash`
+        flat_storage_manager.want_snapshot(snapshot_hash, min_chunk_prev_height);
         let create_snapshot_request = CreateSnapshotRequest {
-            prev_block_hash,
+            snapshot_hash,
             min_chunk_prev_height,
             epoch_height,
             shard_indexes_and_uids,

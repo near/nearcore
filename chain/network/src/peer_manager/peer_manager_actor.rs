@@ -848,7 +848,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, sync_prev_prev_hash } => {
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, snapshot_hash } => {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
                 let Some(addr) = *self.state.my_public_addr.read() else {
@@ -857,10 +857,8 @@ impl PeerManagerActor {
 
                 // Select a peer which has advertised availability of the desired
                 // state snapshot.
-                let Some(peer_id) = self
-                    .state
-                    .snapshot_hosts
-                    .select_host_for_header(&sync_prev_prev_hash, shard_id)
+                let Some(peer_id) =
+                    self.state.snapshot_hosts.select_host_for_header(&snapshot_hash, shard_id)
                 else {
                     tracing::debug!(target: "network", %shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
@@ -892,12 +890,7 @@ impl PeerManagerActor {
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
-            NetworkRequests::StateRequestPart {
-                shard_id,
-                sync_hash,
-                sync_prev_prev_hash,
-                part_idx,
-            } => {
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx } => {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
                 let Some(addr) = *self.state.my_public_addr.read() else {
@@ -907,7 +900,7 @@ impl PeerManagerActor {
                 // Select a peer which has advertised availability of the desired
                 // state snapshot.
                 let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
-                    &sync_prev_prev_hash,
+                    &snapshot_hash,
                     shard_id,
                     part_idx,
                 ) else {
