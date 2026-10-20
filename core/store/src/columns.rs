@@ -420,6 +420,12 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     ChunkProducers,
+    /// Epoch statistics up to and including the given block: the parent's row plus this
+    /// block, or this block alone at an epoch start. Written together with the block's
+    /// `BlockInfo`.
+    /// - *Rows*: BlockHash
+    /// - *Content type*: `near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator`
+    EpochInfoAggregators,
 }
 
 /// Defines different logical parts of a db key.
@@ -684,6 +690,8 @@ impl DBCol {
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks
             => false,
+            // Read only near the head; the epoch's summary is stored in EpochValidatorInfo.
+            DBCol::EpochInfoAggregators => false,
             DBCol::ChunkProducers => true,
         }
     }
@@ -781,6 +789,8 @@ impl DBCol {
             // once A falls below the GC boundary, far below the near-head consensus read
             // horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
             DBCol::ChunkProducers => GcPolicy::Delete,
+            // GC'd with its block, like ChunkProducers.
+            DBCol::EpochInfoAggregators => GcPolicy::Delete,
         }
     }
 
@@ -886,6 +896,7 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::SpiceInvalidChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::EpochInfoAggregators => &[DBKeyType::BlockHash],
         }
     }
 

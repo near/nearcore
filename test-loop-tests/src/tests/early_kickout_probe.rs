@@ -250,7 +250,7 @@ pub(crate) fn walk_anchor_rows(
                         // Classify the accessor's `MissingBlock` instead of loosely counting
                         // it. It hides two shapes: the anchor's own `BlockInfo` is missing
                         // (proof-omitted header — the resolver fails on the same read), or
-                        // only the blacklist basis is missing (the aggregator walk from the
+                        // only the blacklist basis is missing (the aggregator row of the
                         // anchor's last-final block — the resolver still consumes the row).
                         let resolver_result = epoch_manager
                             .get_chunk_producer_info_from_prev_block(&prev_hash, shard_id);

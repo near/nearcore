@@ -1,6 +1,6 @@
+use super::AGGREGATOR_KEY;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -83,10 +83,10 @@ pub(super) fn migrate_52_to_53(hot_store: &Store) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::AGGREGATOR_KEY;
     use super::{EpochInfoAggregatorV52, migrate_52_to_53};
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
-    use near_primitives::epoch_manager::AGGREGATOR_KEY;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{Balance, ChunkStats, EpochId, ShardId, ValidatorStats};

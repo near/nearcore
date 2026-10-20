@@ -15,8 +15,6 @@ use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
-
 /// Configuration for dynamic resharding feature
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DynamicReshardingConfig {

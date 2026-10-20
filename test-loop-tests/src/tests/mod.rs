@@ -37,6 +37,7 @@ mod early_kickout_e2e;
 mod early_kickout_probe;
 mod early_kickout_withheld_block;
 mod early_prepare_transactions;
+mod epoch_info_aggregator_migration;
 mod eth_implicit_missing_global_contract;
 mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;

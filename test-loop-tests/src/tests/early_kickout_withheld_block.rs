@@ -1,7 +1,7 @@
-//! A withheld block arrives after its canonical sibling and moves the aggregator past the
-//! sibling's last-final block. Every node must still accept the sibling's child, whose basis is
-//! then behind the aggregator sync point. Seeding the child must not evict its own uncommitted
-//! `BlockInfo`.
+//! A withheld block arrives after its canonical sibling and moves the final head past the
+//! sibling's last-final block. Every node must still accept the sibling's child, whose
+//! last-final block is then below the final head. Seeding the child must not evict its own
+//! uncommitted `BlockInfo`.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;

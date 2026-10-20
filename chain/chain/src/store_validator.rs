@@ -9,7 +9,6 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
@@ -296,12 +295,10 @@ impl StoreValidator {
                     );
                 }
                 DBCol::EpochInfo => {
-                    if key_ref != AGGREGATOR_KEY {
-                        let epoch_id = EpochId::try_from_slice(key_ref)?;
-                        let epoch_info = EpochInfo::try_from_slice(value_ref)?;
-                        // Epoch should exist
-                        self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
-                    }
+                    let epoch_id = EpochId::try_from_slice(key_ref)?;
+                    let epoch_info = EpochInfo::try_from_slice(value_ref)?;
+                    // Epoch should exist
+                    self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                 }
                 DBCol::ProcessedReceiptIds => {
                     let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;

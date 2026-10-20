@@ -36,7 +36,6 @@ use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
@@ -1061,37 +1060,6 @@ fn record_steady_chain(em: &mut EpochManager, h: &[CryptoHash]) {
     }
 }
 
-#[test]
-fn seed_walk_skipped_during_in_grace_stall() {
-    fn stall_walk(count: u64) -> usize {
-        let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-        let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-        let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
-        record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
-        let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-        for height in 1..=count {
-            record_block_with_final(
-                &mut em,
-                h[(height - 1) as usize],
-                h[height as usize],
-                height,
-                h[0],
-                0,
-            );
-        }
-        em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before
-    }
-
-    for count in [40u64, 120] {
-        let walked = stall_walk(count);
-        assert_eq!(
-            walked, 0,
-            "a {count}-block stall must not walk at all: the pinned genesis basis is inside the \
-             start-of-epoch grace"
-        );
-    }
-}
-
 fn assert_seeded_row_is_canonical(
     em: &EpochManager,
     anchor: CryptoHash,
@@ -1129,18 +1097,9 @@ fn seed_skips_fork_basis_behind_newer_final() {
     let h = height_hashes(TIP);
     record_steady_chain(&mut em, &h);
 
-    // The basis must precede the sync point: equality already skips the walk.
     let basis = TIP - 3;
     let fork = hash(b"fork sibling of the tip");
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     record_block_with_final(&mut em, h[(TIP - 1) as usize], fork, TIP, h[basis as usize], basis);
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    assert_eq!(
-        walked, 0,
-        "the fork record must not walk: its basis does not advance `largest_final_height` (no \
-         incremental aggregator update) and the basis is inside the start-of-epoch grace, so \
-         the seeder returns before its walk. Pre-hoist this walked ~{basis} iterations"
-    );
 
     let epoch_id = em.get_epoch_id(&fork).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
@@ -1172,12 +1131,6 @@ fn record_fork_basis_behind_newer_final(order: ForkOrder) {
 
     let record_basis_behind_newer_final =
         |em: &mut EpochManager, prev: CryptoHash, cur: CryptoHash, height: u64| {
-            assert_eq!(
-                em.epoch_info_aggregator.last_block_hash,
-                h[TIP as usize - 1],
-                "the orphan must have moved the sync point past the canonical basis"
-            );
-            let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
             let block_info = block_info_with_final_and_mask(
                 em,
                 prev,
@@ -1194,8 +1147,6 @@ fn record_fork_basis_behind_newer_final(order: ForkOrder) {
                 em.is_next_block_epoch_start(&cur).is_ok(),
                 "the uncommitted BlockInfo must stay readable"
             );
-            let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-            assert_eq!(walked, 0, "the basis was computed for the tip, so it must not be walked");
             uncommitted.commit();
         };
 
@@ -1236,10 +1187,8 @@ fn epoch_boundary_fork_records_canonical_first_block() {
 
     let x = hash(b"late sibling opening epoch 1");
     record_block_with_final(&mut em, p, x, last + 1, h[last as usize - 1], last - 1);
-    assert_eq!(em.epoch_info_aggregator.last_block_hash, h[last as usize - 1]);
 
     let b = hash(b"canonical block opening epoch 1");
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     let block_info = block_info_with_final_and_mask(
         &em,
         p,
@@ -1253,11 +1202,9 @@ fn epoch_boundary_fork_records_canonical_first_block() {
     let _uncommitted = em
         .record_block_info(block_info, [0; 32])
         .expect("the canonical first block of the epoch must record");
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
     let block_info = em.get_block_info(&b).expect("the uncommitted BlockInfo must stay readable");
     assert_eq!(*block_info.epoch_first_block(), b);
     assert_ne!(block_info.epoch_id(), em.get_block_info(&p).unwrap().epoch_id());
-    assert_eq!(walked, 0, "a basis in the previous epoch must not be walked");
 }
 
 // Same-height siblings require equivocation. Recording the second sibling finalizes
@@ -1278,12 +1225,10 @@ fn epoch_last_block_sibling_basis_behind_newer_final_records() {
     assert!(em.is_next_block_epoch_start(&x).unwrap(), "x must be the last block of epoch 0");
     let x_child = hash(b"first block of epoch 1");
     record_block_with_final(&mut em, x, x_child, last + 1, p, last - 1);
-    assert_eq!(em.epoch_info_aggregator.last_block_hash, p);
 
     let b = hash(b"sibling last block of epoch 0");
     // A cold memo forces the blacklist computation inside the record.
     em.chunk_producer_blacklists.lock().clear();
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     let block_info = block_info_with_final_and_mask(
         &em,
         p,
@@ -1296,45 +1241,7 @@ fn epoch_last_block_sibling_basis_behind_newer_final_records() {
     );
     let _uncommitted =
         em.record_block_info(block_info, [0; 32]).expect("the sibling last block must record");
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
     assert!(em.is_next_block_epoch_start(&b).unwrap(), "b must be the last block of epoch 0");
-    // Finalization reads the uncommitted `b` after the walk.
-    assert!(walked > BLOCK_CACHE_SIZE, "the seeding walk must outrun the cache, walked {walked}");
-}
-
-// Exercise the full epoch walk directly; cached blacklists bypass it in the fork tests.
-#[test]
-fn aggregator_walk_leaves_block_info_cache_alone() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    const TIP: u64 = BLOCK_CACHE_SIZE as u64 + 200;
-    let h = height_hashes(TIP);
-    record_steady_chain(&mut em, &h);
-    let pending = hash(b"recorded, not committed");
-    let block_info = block_info_with_final_and_mask(
-        &em,
-        h[TIP as usize],
-        pending,
-        TIP + 1,
-        h[TIP as usize - 1],
-        TIP - 1,
-        vec![true],
-        PROTOCOL_VERSION,
-    );
-    let _uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-    assert_eq!(em.epoch_info_aggregator.last_block_hash, h[TIP as usize - 1]);
-
-    let cached = |em: &EpochManager| -> Vec<CryptoHash> {
-        em.blocks_info.lock().iter().map(|(hash, _)| *hash).collect()
-    };
-    let cached_before = cached(&em);
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-    em.get_epoch_info_aggregator_upto_last(&h[TIP as usize - 2]).unwrap();
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-
-    assert!(walked > BLOCK_CACHE_SIZE, "the walk must outrun the cache, walked {walked}");
-    assert_eq!(cached(&em), cached_before, "the walk must not insert, evict or reorder entries");
-    assert!(em.get_block_info(&pending).is_ok());
 }
 
 #[test]
@@ -1369,10 +1276,7 @@ fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash])
     let (basis, basis_height) = (h[tip as usize - 2], tip - 2);
     record_block_with_final(em, h[tip as usize], canonical, tip + 2, basis, basis_height);
     record_block_with_final(em, h[tip as usize], orphan, tip + 1, h[tip as usize - 1], tip - 1);
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     record_block_with_final(em, canonical, child, tip + 3, basis, basis_height);
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    assert_eq!(walked, 0, "the child's basis was computed for the tip and must not be walked");
     child
 }
 
@@ -1410,10 +1314,6 @@ fn memoized_blacklist_matches_restarted_manager() {
         vec![],
     )
     .unwrap();
-    assert_ne!(
-        restarted.epoch_info_aggregator.last_block_hash, em.epoch_info_aggregator.last_block_hash,
-        "the restarted manager must recompute along a different walk"
-    );
     assert!(restarted.chunk_producer_blacklists.is_empty());
     let recomputed = restarted.chunk_producer_blacklist_at_anchor(&anchor, &epoch).unwrap();
     assert_eq!(recomputed.blacklist, memoized.blacklist);
@@ -1802,7 +1702,8 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
         fx.third_last,
         prev,
         vec![],
-        vec![true],
+        // A missed chunk, consistent with the empty endorsement bitmap.
+        vec![false],
         DEFAULT_TOTAL_SUPPLY,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -1905,7 +1806,8 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
             CryptoHash::default(),
             genesis,
             vec![],
-            vec![true],
+            // A missed chunk, so the empty endorsement bitmap is consistent.
+            vec![false],
             DEFAULT_TOTAL_SUPPLY,
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
@@ -2265,15 +2167,7 @@ impl ForkFixture {
         if done(&self.handle, prev) {
             return (prev, height);
         }
-        let (basis, watermark, cache) = {
-            let read = self.handle.read();
-            let info = read.get_block_info(&prev).unwrap();
-            (
-                *info.last_final_block_hash(),
-                read.largest_final_height,
-                read.epoch_info_aggregator.last_block_hash,
-            )
-        };
+        let basis = *self.handle.read().get_block_info(&prev).unwrap().last_final_block_hash();
         let shard_id = self.shard_id;
         let target_stats = self
             .handle
@@ -2288,8 +2182,8 @@ impl ForkFixture {
         let blacklist = self.handle.get_chunk_producer_blacklist(&prev).unwrap();
         panic!(
             "phase {phase:?}: cap {cap} exceeded on branch {branch} at height {height}; anchor \
-             {prev} basis {basis} cache {cache} watermark {watermark}; target {target} produced \
-             {} expected {} missed {}; blacklist {blacklist:?}",
+             {prev} basis {basis}; target {target} produced {} expected {} missed {}; blacklist \
+             {blacklist:?}",
             target_stats.0,
             target_stats.1,
             target_stats.1.saturating_sub(target_stats.0),
@@ -2298,10 +2192,8 @@ impl ForkFixture {
 }
 
 // Two sibling forks off a shared prefix starve different producers, and the
-// accessor (keyed on the anchor hash) resolves each fork to its own blacklist. Asserts the
-// aggregator exit directly via `aggregate_epoch_info_upto`'s `full_info` flag rather than
-// inferring it from blacklist equality. Also pins the strict `>` watermark gate at a
-// final-height tie and the persisted rows under the inherited {0, 1} blacklist.
+// accessor (keyed on the anchor hash) resolves each fork to its own blacklist. Also pins
+// the persisted rows under the inherited {0, 1} blacklist.
 //
 // Thresholds are lowered (10 misses past a 20-block grace) for speed; real thresholds stay
 // covered by the canonical tests.
@@ -2315,8 +2207,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         (&fx.handle, &fx.epoch_info, &fx.layout, fx.shard_id);
 
     // Phase 1: shared prefix on branch 0, starving producer 0, until the accessor is
-    // exactly {0}. The fork point is this prefix tip — at or above the cached last-final
-    // block, so both forks descend from the cached position (linear seed walks).
+    // exactly {0}.
     let only_0 = HashMap::from([(shard_id, HashSet::from([0]))]);
     let (fork_point, fork_point_height) =
         fx.drive_until(fx.genesis, 0, 0, 0, 256, "shared prefix -> {0}", |h, tip| {
@@ -2330,38 +2221,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let sibling_first = fx.fork_step(fork_point, 2, first_height, 1);
     assert_ne!(canonical_first, sibling_first, "sibling branches must have distinct hashes");
 
-    // Phase 3: aggregating to the first sibling block (not the accessor's basis for that
-    // anchor, which is its last-final block) reaches the same-epoch cached-prefix sync point,
-    // so `full_info` is false and the caller merges the cached prefix. Pin that the merge
-    // actually ran: the merged producer-0 stats must equal cached-prefix + suffix exactly, and
-    // the cached prefix must carry a real contribution (`expected > 0`). Asserting only that
-    // the merged stats are nonzero would pass even without the merge, since the suffix can
-    // itself contain producer-0 stats.
-    let stats = |agg: &EpochInfoAggregator, id: ValidatorId| -> (u64, u64) {
-        agg.chunk_production
-            .get(&shard_id)
-            .and_then(|m| m.get(&id))
-            .map_or((0, 0), |s| (s.produced, s.expected))
-    };
-    let prefix = handle.read().epoch_info_aggregator.clone();
-    let (suffix, full_info) = handle
-        .read()
-        .aggregate_epoch_info_upto(&sibling_first)
-        .unwrap()
-        .expect("first sibling block differs from the cache position");
-    assert!(!full_info, "first sibling block must hit the same-epoch cached-prefix exit");
-    let merged = handle.read().get_epoch_info_aggregator_upto_last(&sibling_first).unwrap();
-    let (prefix_0, suffix_0, merged_0) = (stats(&prefix, 0), stats(&suffix, 0), stats(&merged, 0));
-    assert!(prefix_0.1 > 0, "cached prefix must carry producer 0's common-prefix stats");
-    assert_eq!(
-        merged_0,
-        (prefix_0.0 + suffix_0.0, prefix_0.1 + suffix_0.1),
-        "merged stats must be cached-prefix + suffix (proves merge_prefix ran)",
-    );
-
-    // Phase 4: extend the canonical branch until its anchor's last-final block is
-    // canonical-only (past the shared prefix), then snapshot the finality watermark and the
-    // cache position (the canonical anchor's last-final block).
+    // Phase 3: extend the canonical branch until its anchor's last-final block is
+    // canonical-only (past the shared prefix), then snapshot its final height.
     let (canonical_tip, _) = fx.drive_until(
         canonical_first,
         first_height,
@@ -2371,71 +2232,22 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "canonical last-final becomes canonical-only",
         |h, tip| h.read().get_block_info(&tip).unwrap().last_finalized_height() > fork_point_height,
     );
-    let (canonical_watermark, canonical_cache) = {
-        let read = handle.read();
-        let canonical_final = *read.get_block_info(&canonical_tip).unwrap().last_final_block_hash();
-        let cache = read.epoch_info_aggregator.last_block_hash;
-        assert_eq!(
-            cache, canonical_final,
-            "the cache must sit on the canonical anchor's last-final block",
-        );
-        (read.largest_final_height, cache)
-    };
+    let canonical_final_height =
+        handle.read().get_block_info(&canonical_tip).unwrap().last_finalized_height();
 
-    // Phase 5: drive the sibling to exact final-height equality with the canonical watermark.
-    // The cache-replacement gate on `largest_final_height` is a strict `>`: at a tie the
-    // sibling must not move the watermark or the cached aggregator (a `>=` would flap the
-    // cache by arrival order). Rows are still seeded for these blocks; only the cache state
-    // must stay put.
-    let (sibling_tie, tie_height) = fx.drive_until(
+    // Phase 4: extend the sibling, starving producer 1, until its final height overtakes the
+    // canonical branch and its blacklist is exactly {0, 1}.
+    let (sibling_tip, sibling_height) = fx.drive_until(
         sibling_first,
         first_height,
         2,
         1,
         256,
-        "sibling final height ties the canonical watermark",
-        |h, tip| {
-            h.read().get_block_info(&tip).unwrap().last_finalized_height() == canonical_watermark
-        },
-    );
-    let (tie_final_hash, watermark_at_tie, cache_at_tie) = {
-        let read = handle.read();
-        (
-            *read.get_block_info(&sibling_tie).unwrap().last_final_block_hash(),
-            read.largest_final_height,
-            read.epoch_info_aggregator.last_block_hash,
-        )
-    };
-    assert_ne!(
-        tie_final_hash, canonical_cache,
-        "the tie must be a genuinely different sibling final block",
-    );
-    assert_eq!(watermark_at_tie, canonical_watermark, "a tie must not move the watermark");
-    assert_eq!(cache_at_tie, canonical_cache, "a tie must not replace the cached aggregator");
-
-    // Phase 6: extend the sibling, starving producer 1, until it overtakes the canonical
-    // watermark, the aggregator cache has moved onto the sibling (its `last_block_hash` is the
-    // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
-    // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
-    // genuinely overtakes; passing it replaces the cache with a fresh walk onto the sibling.
-    let (sibling_tip, sibling_height) = fx.drive_until(
-        sibling_tie,
-        tie_height,
-        2,
-        1,
-        256,
         "sibling overtakes and blacklist becomes {0,1}",
         |h, tip| {
-            let (final_hash, final_height, cache) = {
-                let read = h.read();
-                let info = read.get_block_info(&tip).unwrap();
-                (
-                    *info.last_final_block_hash(),
-                    info.last_finalized_height(),
-                    read.epoch_info_aggregator.last_block_hash,
-                )
-            };
-            if final_height <= canonical_watermark || cache != final_hash {
+            if h.read().get_block_info(&tip).unwrap().last_finalized_height()
+                <= canonical_final_height
+            {
                 return false;
             }
             h.get_chunk_producer_blacklist(&tip).unwrap().get(&shard_id)
@@ -2444,11 +2256,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     assert_ne!(canonical_tip, sibling_tip, "forks must have distinct anchor hashes");
 
-    // Phase 7: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
-    // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
-    // cache sits on the sibling, so the walk cannot reach the cached sync point and instead
-    // walks the canonical chain from the epoch start. That full walk must reproduce the
-    // memoized {0}.
+    // Phase 5: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
+    // {0}, and the stored row of its last-final basis reproduces it.
     let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
     assert_eq!(
         canonical_bl,
@@ -2457,20 +2266,12 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     let canonical_basis =
         *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
-    let (full_walk, canonical_full_info) = handle
-        .read()
-        .aggregate_epoch_info_upto(&canonical_basis)
-        .unwrap()
-        .expect("canonical basis differs from the sibling cache position");
-    assert!(
-        canonical_full_info,
-        "after the sibling takeover the canonical basis must walk from the epoch start",
-    );
-    let full_bl =
-        compute_chunk_producer_blacklist(&full_walk.chunk_production, epoch_info.as_ref(), layout);
-    assert_eq!(full_bl.blacklist, canonical_bl, "the full walk must match the memoized blacklist");
+    let basis_row = handle.read().get_epoch_info_aggregator_upto_last(&canonical_basis).unwrap();
+    let row_bl =
+        compute_chunk_producer_blacklist(&basis_row.chunk_production, epoch_info.as_ref(), layout);
+    assert_eq!(row_bl.blacklist, canonical_bl, "the basis row must match the memoized blacklist");
 
-    // Phase 8: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
+    // Phase 6: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
     // one survivor left).
     let sibling_bl = handle.get_chunk_producer_blacklist(&sibling_tip).unwrap();
     assert_eq!(
@@ -2479,7 +2280,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "sibling must resolve to its own blacklist, isolated from the canonical branch",
     );
 
-    // Phase 9: the persisted rows carry the full {0, 1} blacklist. `stored == 2` alone cannot
+    // Phase 7: the persisted rows carry the full {0, 1} blacklist. `stored == 2` alone cannot
     // prove that: the blacklist-aware sampler redistributes rather than retrying the plain
     // pick, so a seeder that lost one entry could still store 2 at many heights. So assert
     // `stored == 2` at every scanned anchor, and keep scanning until heights were seen where
@@ -2533,19 +2334,14 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
             tip = fx.fork_step(tip, 2, height, 1);
         }
     }
-    let (basis, basis_height, cache, watermark) = {
+    let (basis, basis_height) = {
         let read = handle.read();
         let info = read.get_block_info(&tip).unwrap();
-        (
-            *info.last_final_block_hash(),
-            info.last_finalized_height(),
-            read.epoch_info_aggregator.last_block_hash,
-            read.largest_final_height,
-        )
+        (*info.last_final_block_hash(), info.last_finalized_height())
     };
     panic!(
         "no discriminating rows within {SCAN_CAP} blocks: tip {tip} at height {height}, basis \
-         {basis} (height {basis_height}), cache {cache}, watermark {watermark}; witnesses \
+         {basis} (height {basis_height}); witnesses \
          no_blacklist={saw_no_blacklist} missing_inherited={saw_missing_inherited} \
          missing_branch_local={saw_missing_branch_local}",
     );
