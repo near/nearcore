@@ -5,7 +5,6 @@ use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
@@ -204,7 +203,7 @@ fn get_epoch_ids(
     }
 }
 
-// Iterates over the DBCol::EpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
+// Iterates over the DBCol::EpochInfo column and returns deserialized EpochId
 // for EpochInfos that satisfy the given predicate.
 pub(crate) fn iterate_and_filter(
     store: Store,
@@ -213,15 +212,11 @@ pub(crate) fn iterate_and_filter(
     store
         .iter(DBCol::EpochInfo)
         .filter_map(|(key, value)| {
-            if key.as_ref() == AGGREGATOR_KEY {
-                None
+            let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+            if predicate(epoch_info) {
+                Some(EpochId::try_from_slice(key.as_ref()).unwrap())
             } else {
-                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                if predicate(epoch_info) {
-                    Some(EpochId::try_from_slice(key.as_ref()).unwrap())
-                } else {
-                    None
-                }
+                None
             }
         })
         .collect()

@@ -13,7 +13,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
@@ -164,9 +163,11 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&chunk_extra))
             }
             EntityQuery::EpochInfoAggregator(()) => {
-                let aggregator = store
-                    .get_ser::<EpochInfoAggregator>(DBCol::EpochInfo, AGGREGATOR_KEY)
-                    .ok_or_else(|| anyhow!("Aggregator not found"))?;
+                let final_head = store.chain_store().final_head()?;
+                let aggregator =
+                    store.epoch_store().get_epoch_info_aggregator::<EpochInfoAggregator>(
+                        &final_head.last_block_hash,
+                    )?;
                 Ok(serialize_entity(&aggregator))
             }
             EntityQuery::EpochInfoByEpochId { epoch_id } => {
