@@ -3050,80 +3050,6 @@
         "title": "ChunkDistributionUris",
         "type": "object"
       },
-      "ChunkExecutionProofView": {
-        "description": "Proof that a chunk's certified execution roots are committed by a spice block\nthat a light client can trust via its `light_client_head`.\n\n`roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;\n`certifying_block_proof` places the certifying block into the head's block merkle tree.",
-        "properties": {
-          "certifying_block_header_lite": {
-            "$ref": "#/components/schemas/LightClientBlockLiteView"
-          },
-          "certifying_block_proof": {
-            "items": {
-              "$ref": "#/components/schemas/MerklePathItem"
-            },
-            "type": "array"
-          },
-          "roots": {
-            "$ref": "#/components/schemas/ChunkExecutionRoots"
-          },
-          "roots_proof": {
-            "items": {
-              "$ref": "#/components/schemas/MerklePathItem"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "roots",
-          "roots_proof",
-          "certifying_block_header_lite",
-          "certifying_block_proof"
-        ],
-        "title": "ChunkExecutionProofView",
-        "type": "object"
-      },
-      "ChunkExecutionRoots": {
-        "description": "Merkle leaf committing to a single chunk's certified execution roots.\nThe `chunk_execution_root` in a spice block header is the merkle root over\nthese leaves, sorted by `chunk_id`.",
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "V1": {
-                "$ref": "#/components/schemas/ChunkExecutionRootsV1"
-              }
-            },
-            "required": [
-              "V1"
-            ],
-            "title": "V1",
-            "type": "object"
-          }
-        ],
-        "title": "ChunkExecutionRoots"
-      },
-      "ChunkExecutionRootsV1": {
-        "properties": {
-          "chunk_id": {
-            "$ref": "#/components/schemas/SpiceChunkId"
-          },
-          "outcome_root": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "outgoing_receipts_root": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "state_root": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        "required": [
-          "chunk_id",
-          "state_root",
-          "outcome_root",
-          "outgoing_receipts_root"
-        ],
-        "title": "ChunkExecutionRootsV1",
-        "type": "object"
-      },
       "ChunkHeaderView": {
         "description": "Contains main info about the chunk.",
         "properties": {
@@ -3429,18 +3355,6 @@
               }
             ],
             "description": "The minimum amount of gas in a chunk spent on converting new transactions\nto receipts, as long as the receiving shard is not congested.\n\nSee [`CongestionControlConfig`] for more details."
-          },
-          "outgoing_receipts_big_size_limit": {
-            "description": "Large size limit for outgoing receipts to a shard, used when it's safe\nto send a lot of receipts without making the state witness too large.\nIt limits the total sum of outgoing receipts, not individual receipts.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "outgoing_receipts_usual_size_limit": {
-            "description": "The standard size limit for outgoing receipts aimed at a single shard.\nThis limit is pretty small to keep the size of source_receipt_proofs under control.\nIt limits the total sum of outgoing receipts, not individual receipts.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
           },
           "reject_tx_congestion_threshold": {
             "description": "How much congestion a shard can tolerate before it stops all shards from\naccepting new transactions with the receiver set to the congested shard.",
@@ -4011,6 +3925,26 @@
           "nanos"
         ],
         "title": "DurationAsStdSchemaProvider",
+        "type": "object"
+      },
+      "EccTransactionView": {
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "payload": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload",
+          "hash"
+        ],
+        "title": "EccTransactionView",
         "type": "object"
       },
       "EpochId": {
@@ -6450,6 +6384,33 @@
             ],
             "title": "MlDsaVerifyInvalidInput",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`method_name` is not allowed in external contract calls",
+            "properties": {
+              "ProhibitedInExternalCall": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ProhibitedInExternalCall"
+            ],
+            "title": "ProhibitedInExternalCall",
+            "type": "object"
+          },
+          {
+            "const": "DepositInExternalCall",
+            "description": "An external contract call has an attached deposit, which it cannot have",
+            "type": "string"
           }
         ],
         "title": "HostError"
@@ -7319,6 +7280,14 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_gas_burnt_external": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
@@ -8787,7 +8756,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/SignedTransactionView"
+              "$ref": "#/components/schemas/TransactionEnvelopeView"
             },
             "type": "array"
           }
@@ -9276,17 +9245,6 @@
               "null"
             ]
           },
-          "ttl_account_id_router": {
-            "description": "Time to persist Accounts Id in the router without removing them.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
           "tx_routing_height_horizon": {
             "description": "If the node is not a chunk producer within that many blocks, then route\nto upcoming chunk producers.",
             "format": "uint64",
@@ -9498,106 +9456,6 @@
         "title": "RpcLightClientBlockProofResponse",
         "type": "object"
       },
-      "RpcLightClientChunkExecutionProofRequest": {
-        "properties": {
-          "chunk_id": {
-            "$ref": "#/components/schemas/SpiceChunkId"
-          },
-          "light_client_head": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        "required": [
-          "chunk_id",
-          "light_client_head"
-        ],
-        "title": "RpcLightClientChunkExecutionProofRequest",
-        "type": "object"
-      },
-      "RpcLightClientChunkExecutionProofResponse": {
-        "properties": {
-          "chunk_execution_proof": {
-            "$ref": "#/components/schemas/ChunkExecutionProofView"
-          }
-        },
-        "required": [
-          "chunk_execution_proof"
-        ],
-        "title": "RpcLightClientChunkExecutionProofResponse",
-        "type": "object"
-      },
-      "RpcLightClientExecutionOutcomeProofRequest": {
-        "oneOf": [
-          {
-            "properties": {
-              "light_client_head": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "sender_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "transaction_hash": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "type": {
-                "const": "transaction",
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "transaction_hash",
-              "sender_id",
-              "light_client_head"
-            ],
-            "title": "Transaction",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "light_client_head": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "receipt_id": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "receiver_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "type": {
-                "const": "receipt",
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "receipt_id",
-              "receiver_id",
-              "light_client_head"
-            ],
-            "title": "Receipt",
-            "type": "object"
-          }
-        ],
-        "title": "RpcLightClientExecutionOutcomeProofRequest",
-        "type": "object"
-      },
-      "RpcLightClientExecutionOutcomeProofResponse": {
-        "properties": {
-          "chunk_execution_proof": {
-            "$ref": "#/components/schemas/ChunkExecutionProofView"
-          },
-          "outcome_proof": {
-            "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
-          }
-        },
-        "required": [
-          "chunk_execution_proof",
-          "outcome_proof"
-        ],
-        "title": "RpcLightClientExecutionOutcomeProofResponse",
-        "type": "object"
-      },
       "RpcLightClientExecutionProofRequest": {
         "oneOf": [
           {
@@ -9740,42 +9598,6 @@
           }
         },
         "title": "RpcLightClientNextBlockResponse",
-        "type": "object"
-      },
-      "RpcLightClientStateProofRequest": {
-        "properties": {
-          "chunk_id": {
-            "$ref": "#/components/schemas/SpiceChunkId"
-          },
-          "light_client_head": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "target": {
-            "$ref": "#/components/schemas/StateProofTarget"
-          }
-        },
-        "required": [
-          "chunk_id",
-          "target",
-          "light_client_head"
-        ],
-        "title": "RpcLightClientStateProofRequest",
-        "type": "object"
-      },
-      "RpcLightClientStateProofResponse": {
-        "properties": {
-          "chunk_execution_proof": {
-            "$ref": "#/components/schemas/ChunkExecutionProofView"
-          },
-          "state_proof": {
-            "$ref": "#/components/schemas/StateProofView"
-          }
-        },
-        "required": [
-          "chunk_execution_proof",
-          "state_proof"
-        ],
-        "title": "RpcLightClientStateProofResponse",
         "type": "object"
       },
       "RpcMaintenanceWindowsRequest": {
@@ -11998,23 +11820,6 @@
         "title": "SpiceChunkEndorsementStats",
         "type": "object"
       },
-      "SpiceChunkId": {
-        "description": "In spice missing chunks and equivalent to empty chunks so block hash and shard id always\nuniquely identifies chunks.",
-        "properties": {
-          "block_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "shard_id": {
-            "$ref": "#/components/schemas/ShardId"
-          }
-        },
-        "required": [
-          "block_hash",
-          "shard_id"
-        ],
-        "title": "SpiceChunkId",
-        "type": "object"
-      },
       "StakeAction": {
         "description": "An action which stakes signer_id tokens and setup's validator public key",
         "properties": {
@@ -12804,114 +12609,6 @@
         "title": "StateItem",
         "type": "object"
       },
-      "StateProofTarget": {
-        "description": "Which piece of a shard's state a light-client state proof targets.\n\nAn account that runs a global contract has no local code, so `LocalContractCode` is\nabsent for it. `Account::contract()` says which case applies.",
-        "oneOf": [
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "target_type": {
-                "const": "account",
-                "type": "string"
-              }
-            },
-            "required": [
-              "target_type",
-              "account_id"
-            ],
-            "title": "Account",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "target_type": {
-                "const": "local_contract_code",
-                "type": "string"
-              }
-            },
-            "required": [
-              "target_type",
-              "account_id"
-            ],
-            "title": "LocalContractCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "key": {
-                "$ref": "#/components/schemas/StoreKey"
-              },
-              "target_type": {
-                "const": "contract_data",
-                "type": "string"
-              }
-            },
-            "required": [
-              "target_type",
-              "account_id",
-              "key"
-            ],
-            "title": "ContractData",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "target_type": {
-                "const": "access_key",
-                "type": "string"
-              }
-            },
-            "required": [
-              "target_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "AccessKey",
-            "type": "object"
-          }
-        ],
-        "title": "StateProofTarget"
-      },
-      "StateProofView": {
-        "description": "A value read from a shard's state, with the trie nodes that prove it against the\nchunk's `state_root`. An absent `value` is proved the same way.",
-        "properties": {
-          "nodes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "value": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StoreValue"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "nodes"
-        ],
-        "title": "StateProofView",
-        "type": "object"
-      },
       "StateSyncConfig": {
         "properties": {
           "concurrency": {
@@ -13277,6 +12974,18 @@
           }
         ],
         "title": "TrackedShardsConfig"
+      },
+      "TransactionEnvelopeView": {
+        "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SignedTransactionView"
+          },
+          {
+            "$ref": "#/components/schemas/EccTransactionView"
+          }
+        ],
+        "title": "TransactionEnvelopeView"
       },
       "TransactionNonce": {
         "oneOf": [
@@ -15078,146 +14787,6 @@
         }
       },
       "summary": "Returns block proof for light clients",
-      "tags": [
-        {
-          "name": "light_client"
-        },
-        {
-          "name": "experimental"
-        }
-      ]
-    },
-    {
-      "name": "EXPERIMENTAL_light_client_chunk_execution_proof",
-      "paramStructure": "by-name",
-      "params": [
-        {
-          "name": "chunk_id",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/SpiceChunkId"
-          }
-        },
-        {
-          "name": "light_client_head",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/RpcLightClientChunkExecutionProofResponse"
-        }
-      },
-      "summary": "Returns a proof of a chunk's certified execution roots for light clients",
-      "tags": [
-        {
-          "name": "light_client"
-        },
-        {
-          "name": "experimental"
-        }
-      ]
-    },
-    {
-      "name": "EXPERIMENTAL_light_client_execution_outcome_proof",
-      "paramStructure": "by-name",
-      "params": [
-        {
-          "name": "light_client_head",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        {
-          "name": "receipt_id",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        {
-          "name": "receiver_id",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/AccountId"
-          }
-        },
-        {
-          "name": "sender_id",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/AccountId"
-          }
-        },
-        {
-          "name": "transaction_hash",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        {
-          "name": "type",
-          "required": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/RpcLightClientExecutionOutcomeProofResponse"
-        }
-      },
-      "summary": "Returns an execution outcome and its proof against the chunk's certified outcome root",
-      "tags": [
-        {
-          "name": "light_client"
-        },
-        {
-          "name": "experimental"
-        }
-      ]
-    },
-    {
-      "name": "EXPERIMENTAL_light_client_state_proof",
-      "paramStructure": "by-name",
-      "params": [
-        {
-          "name": "chunk_id",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/SpiceChunkId"
-          }
-        },
-        {
-          "name": "light_client_head",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/CryptoHash"
-          }
-        },
-        {
-          "name": "target",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/StateProofTarget"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/RpcLightClientStateProofResponse"
-        }
-      },
-      "summary": "Returns a state value and its trie proof against the chunk's certified state root",
       "tags": [
         {
           "name": "light_client"

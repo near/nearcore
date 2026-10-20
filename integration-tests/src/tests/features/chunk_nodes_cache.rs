@@ -9,10 +9,8 @@ use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::encode;
-use near_primitives::transaction::{
-    Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,
-};
-use near_primitives::types::{Balance, BlockHeightDelta, Gas};
+use near_primitives::transaction::{Action, ExecutionMetadata, SignedTransaction};
+use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
@@ -37,18 +35,8 @@ fn process_transaction(
         "test0".parse().unwrap(),
         signer,
         vec![
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                args: encode(&[0u64, 10u64]),
-                method_name: "write_key_value".to_string(),
-                gas: Gas::from_gas(gas),
-                deposit: Balance::ZERO,
-            })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                args: encode(&[1u64, 20u64]),
-                method_name: "write_key_value".to_string(),
-                gas: Gas::from_gas(gas),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("write_key_value", encode(&[0u64, 10u64]), Gas::from_gas(gas)),
+            Action::function_call("write_key_value", encode(&[1u64, 20u64]), Gas::from_gas(gas)),
         ],
         last_block_hash,
     );

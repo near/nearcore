@@ -1,8 +1,9 @@
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::{Config, VMContext};
+use crate::logic::{Config, ExecutionMode, VMContext};
 use crate::tests::test_vm_config;
 pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{Balance, Gas};
 
 pub(super) struct VMLogicBuilder {
@@ -27,8 +28,21 @@ impl VMLogicBuilder {
     pub fn view() -> Self {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
-        builder.context.view_config =
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
+        builder.context.execution_mode = ExecutionMode::View(ViewConfig { max_gas_burnt });
+        builder
+    }
+
+    pub fn external() -> Self {
+        let mut builder = Self::default();
+        // The budget is zero in configs where external contract calls are not enabled yet.
+        builder.config.limit_config.max_gas_burnt_external =
+            builder.config.limit_config.max_gas_burnt;
+        builder.context.execution_mode =
+            ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) };
+        // The contract pays for the gas of an external call, and nobody sends
+        // it a deposit.
+        builder.context.account_balance = Balance::from_near(1);
+        builder.context.attached_deposit = Balance::ZERO;
         builder
     }
 
@@ -74,7 +88,7 @@ fn get_context() -> VMContext {
         attached_deposit: Balance::from_yoctonear(10),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     }
 }

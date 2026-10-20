@@ -51,9 +51,3 @@ pub fn validators_spec_clients(spec: &ValidatorsSpec) -> Vec<AccountId> {
     }
     clients
 }
-
-pub fn validators_spec_clients_with_rpc(spec: &ValidatorsSpec) -> Vec<AccountId> {
-    let mut clients = validators_spec_clients(spec);
-    clients.push(rpc_account_id());
-    clients
-}

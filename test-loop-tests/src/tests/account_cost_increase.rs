@@ -5,8 +5,8 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountType;
 use near_primitives::action::{
-    CreateAccountAction, DeterministicStateInitAction, FunctionCallAction,
-    GlobalContractDeployMode, GlobalContractIdentifier, TransferAction, UseGlobalContractAction,
+    CreateAccountAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, TransferAction, UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -230,9 +230,9 @@ fn test_create_account_cost() {
     let create_three_tx = env.rpc_node().tx_from_actions(
         &signer,
         &global_contract_account,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_promise".to_string(),
-            args: serde_json::to_vec(&serde_json::json!([
+        vec![Action::function_call(
+            "call_promise",
+            serde_json::to_vec(&serde_json::json!([
                 { "batch_create": { "account_id": "a.global_contract" }, "id": 0 },
                 { "action_create_account": { "promise_index": 0 }, "id": 0 },
                 { "batch_create": { "account_id": "b.global_contract" }, "id": 1 },
@@ -241,9 +241,8 @@ fn test_create_account_cost() {
                 { "action_create_account": { "promise_index": 2 }, "id": 2 },
             ]))
             .unwrap(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+            Gas::from_teragas(300),
+        )],
     );
     let create_three_tx_cost = measure_transaction_cost(&mut env, create_three_tx);
     assert!(create_three_tx_cost > account_creation_charge.checked_mul(3).unwrap());
@@ -257,12 +256,7 @@ fn test_create_account_cost() {
             Action::UseGlobalContract(Box::new(UseGlobalContractAction {
                 contract_identifier: GlobalContractIdentifier::AccountId(global_contract_account),
             })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "panic_with_message".to_string(),
-                args: Vec::new(),
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("panic_with_message", Vec::new(), Gas::from_teragas(100)),
         ],
     );
     let create_fail_tx_cost =

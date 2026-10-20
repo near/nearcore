@@ -8,6 +8,10 @@ use crate::spice::data_distributor_actor::{
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, validate_wants,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, PullConfig, SenderFault};
+use crate::spice::tests::{
+    build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
+    save_and_record_block,
+};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::Actor;
@@ -20,6 +24,7 @@ use near_chain::spice::activation::SpiceMessageKind;
 use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers, is_fallback_only_chunk,
 };
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
@@ -77,11 +82,11 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_store::ShardUId;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{DBCol, ShardUId};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
@@ -1640,6 +1645,137 @@ fn test_requesting_witnesses_from_forks_on_start() {
     )
 }
 
+fn save_heads(chain: &mut Chain, head: &Block, final_head: &Block) {
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_head(&Tip::from_header(head.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(final_head.header())).unwrap();
+    store_update.commit().unwrap();
+}
+
+/// The blocks `validator` requests witnesses of when its distributor starts on `chain`.
+fn witnesses_requested_on_start(chain: &Chain, validator: &AccountId) -> HashSet<CryptoHash> {
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, chain, validator);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    drain_outgoing_data_requests(&mut outgoing_rc)
+        .into_iter()
+        .filter_map(|(data_id, requester)| {
+            assert_eq!(&requester, validator);
+            let SpiceDataIdentifier::Witness { block_hash, shard_id: _ } = data_id else {
+                return None;
+            };
+            Some(block_hash)
+        })
+        .collect()
+}
+
+/// With a pre-spice head on startup, the node waits on the boundary witnesses of every
+/// last pre-spice block past the final head, not only the head's. Here the head is a
+/// height-skipping sibling of another last pre-spice block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_requesting_boundary_witnesses_from_forks_on_start() {
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+    let fork_point = chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
+    let sibling = build_pre_spice_block(
+        &mut chain,
+        &fork_point,
+        last_pre_spice.header().height() + 1,
+        &signer,
+    );
+    assert!(is_last_pre_spice_block(chain.epoch_manager.as_ref(), sibling.hash()).unwrap());
+    save_heads(&mut chain, &sibling, &fork_point);
+
+    assert_eq!(
+        witnesses_requested_on_start(&chain, &validator),
+        HashSet::from([*last_pre_spice.hash(), *sibling.hash()])
+    );
+}
+
+/// A last pre-spice block whose body cannot be read must not stop the node waiting on the
+/// witnesses of the other last pre-spice blocks on startup.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_requesting_boundary_witnesses_skips_a_block_it_cannot_read_on_start() {
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+    let fork_point = chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
+    let sibling = build_pre_spice_block(
+        &mut chain,
+        &fork_point,
+        last_pre_spice.header().height().checked_add(1).unwrap(),
+        &signer,
+    );
+    save_heads(&mut chain, &sibling, &fork_point);
+    // The walk reaches the lower last pre-spice block first; drop its body, keeping its
+    // header, so that waiting on its data fails.
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update.delete(DBCol::Block, last_pre_spice.hash().as_ref());
+    store_update.commit();
+    assert!(chain.get_block(last_pre_spice.hash()).is_err());
+
+    assert_eq!(witnesses_requested_on_start(&chain, &validator), HashSet::from([*sibling.hash()]));
+}
+
+/// Activation seeds the spice final execution head to a pre-spice block, and
+/// `all_next_block_hashes` links no pre-spice block to its children. On startup the node
+/// must still reach the last pre-spice block, and the spice block past it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_requesting_boundary_witnesses_from_pre_spice_final_execution_head_on_start() {
+    init_test_logger();
+    let signer = Arc::new(create_test_signer("test-producer-0"));
+    // A chunk validator that applies no shard itself, so it requests every witness.
+    let validator = AccountId::from_str("test-validator-0").unwrap();
+    let genesis = pre_spice_boundary_genesis(
+        &["test-producer-0"],
+        &["test-validator-0"],
+        ShardLayout::multi_shard(2, 0),
+    );
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+    let epoch_manager = chain.epoch_manager.clone();
+    let first_spice = TestBlockBuilder::from_prev_block(Clock::real(), &last_pre_spice, signer)
+        .chunks(get_fake_next_block_chunk_headers(&last_pre_spice, epoch_manager.as_ref()))
+        .epoch_id(epoch_manager.get_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap())
+        .next_epoch_id(
+            epoch_manager.get_next_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap(),
+        )
+        .protocol_version(ProtocolFeature::Spice.protocol_version())
+        .build();
+    assert!(first_spice.is_spice_block());
+    save_and_record_block(&mut chain, &first_spice);
+    let final_execution_head = chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
+    save_heads(&mut chain, &first_spice, &final_execution_head);
+    save_final_execution_head(&chain, &final_execution_head);
+
+    assert_eq!(
+        witnesses_requested_on_start(&chain, &validator),
+        HashSet::from([*last_pre_spice.hash(), *first_spice.hash()])
+    );
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_requesting_witnesses_we_already_endorsed_on_start() {
@@ -1762,11 +1898,11 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 }
 
-/// Certifications recorded by the startup walk persist: a block certifying the source
-/// chunk is on disk before startup, and a later block that certifies nothing pulls the proof.
+/// The source chunk was certified before startup; after the restart, a block that certifies
+/// nothing pulls the proof from its producers.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_startup_restores_certifications_so_a_later_block_pulls_the_proof() {
+fn test_a_proof_certified_before_startup_is_pulled_after_it() {
     let (genesis, mut chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
         genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();

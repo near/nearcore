@@ -15,8 +15,7 @@ use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-    TransferAction,
+    Action, AddKeyAction, DeployContractAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{Balance, Gas};
 use near_primitives::utils::derive_eth_implicit_account_id;
@@ -388,12 +387,7 @@ pub fn create_rlp_execute_tx(
     .into_bytes();
 
     // Construct Near transaction to `rlp_execute` method
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "rlp_execute".into(),
-        args,
-        gas: Gas::from_teragas(300),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("rlp_execute", args, Gas::from_teragas(300))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;
     let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
     SignedTransaction::from_actions(

@@ -84,7 +84,9 @@ use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithIdAndProof, SignedTransaction, TransactionEnvelope,
+};
 #[cfg(feature = "test_features")]
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2868,17 +2870,6 @@ impl Chain {
         }
     }
 
-    pub fn clear_downloaded_parts(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-    ) -> Result<(), Error> {
-        let mut chain_store_update = self.mut_chain_store().store_update();
-        chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
-        chain_store_update.commit()
-    }
-
     /// Drop all downloaded or generated state parts and headers.
     pub fn clear_all_downloaded_parts(&mut self) {
         tracing::debug!(target: "state_sync", "clear old state parts");
@@ -2975,7 +2966,7 @@ impl Chain {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
-        self.chain_store().compute_transaction_validity(prev_block_header, chunk)
+        self.chain_store().compute_transaction_validity(prev_block_header, chunk.to_transactions())
     }
 
     pub fn transaction_validity_check<'a>(
@@ -3140,13 +3131,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_transaction_execution_result(
-        &self,
-        id: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        Ok(self.chain_store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
-    }
-
     /// Returns execution status based on the list of currently existing outcomes
     fn get_execution_status(
         &self,
@@ -3219,7 +3203,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
+        let transaction = signed_transaction_view(transaction)?;
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -3258,7 +3242,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
+        let transaction = signed_transaction_view(transaction)?;
 
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
@@ -3730,7 +3714,7 @@ impl Chain {
         shard_uid: ShardUId,
         cached_shard_update_key: CachedShardUpdateKey,
         chunk_headers: &Chunks,
-        chunk_transactions: &[SignedTransaction],
+        chunk_transactions: &[TransactionEnvelope],
     ) -> Option<PostStateReadyCallback> {
         let Some(sender) = &self.on_post_state_ready_sender else {
             return None;
@@ -4323,6 +4307,20 @@ impl Chain {
     pub fn patch_state_in_progress(&self) -> bool {
         self.sandbox_patches.in_progress()
     }
+}
+
+/// The view of a transaction looked up from the store by its hash.
+fn signed_transaction_view(
+    transaction: Arc<TransactionEnvelope>,
+) -> Result<SignedTransactionView, Error> {
+    // TODO(ecc): show ECCs in tx status once they have execution outcomes
+    let transaction_hash = transaction.get_hash();
+    let signed_tx = Arc::unwrap_or_clone(transaction).into_signed().ok_or_else(|| {
+        Error::Other(format!(
+            "transaction {transaction_hash} is an external contract call, which has no execution result yet"
+        ))
+    })?;
+    Ok(signed_tx.into())
 }
 
 #[instrument(

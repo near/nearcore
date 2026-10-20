@@ -12,7 +12,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
@@ -97,12 +97,26 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// The chain final head. It is guaranteed to be monotonically increasing.
+    /// The chain final head, as established by block processing. It is monotonically
+    /// increasing, with the exception of state sync resetting it back to genesis.
     pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
             self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
             "FINAL HEAD",
         )
+    }
+
+    /// Tip of the last final block as the head's header records it, or [`Self::final_head`]
+    /// while the head records none, as genesis and the first blocks after it do.
+    ///
+    /// Derived from headers, so the block body may not be present.
+    pub fn last_final_block_tip(&self) -> Result<Arc<Tip>, Error> {
+        let last_final_block = *self.head_header()?.last_final_block();
+        if last_final_block == CryptoHash::default() {
+            return self.final_head();
+        }
+        let last_final_header = self.get_block_header(&last_final_block)?;
+        Ok(Arc::new(Tip::from_header(last_final_header.as_ref())))
     }
 
     pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
@@ -282,7 +296,7 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::receipt_proofs(), &key)
     }
 
-    pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         self.store.get_ser(DBCol::Transactions, tx_hash.as_ref())
     }
 
@@ -371,6 +385,27 @@ impl ChainStoreAdapter {
             DBCol::chunk_certifying_block(),
             &get_block_shard_id(&chunk_id.block_hash, chunk_id.shard_id),
         )
+    }
+
+    /// Hashes of every processed block descending from `start`, `start` excluded, in
+    /// increasing height order.
+    pub fn get_processed_descendants(&self, start: &Tip) -> Result<Vec<CryptoHash>, Error> {
+        let head_height = self.head()?.height;
+        let mut descendants = HashSet::from([start.last_block_hash]);
+        let mut ordered = Vec::new();
+        for height in start.height + 1..=head_height {
+            let mut block_hashes: Vec<CryptoHash> =
+                self.get_all_block_hashes_by_height(height).values().flatten().copied().collect();
+            block_hashes.sort();
+            for block_hash in block_hashes {
+                let header = self.get_block_header(&block_hash)?;
+                if descendants.contains(header.prev_hash()) {
+                    descendants.insert(block_hash);
+                    ordered.push(block_hash);
+                }
+            }
+        }
+        Ok(ordered)
     }
 
     /// Returns a vector of all known processed next block hashes.

@@ -12,7 +12,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
@@ -210,7 +210,7 @@ fn format_key_and_value<'a>(
             let value = store.get(db_col, key).unwrap();
             (
                 Box::new(CryptoHash::try_from(key).unwrap()),
-                Box::new(SignedTransaction::try_from_slice(&value).unwrap()),
+                Box::new(TransactionEnvelope::try_from_slice(&value).unwrap()),
             )
         }
         DBCol::TrieChanges => (

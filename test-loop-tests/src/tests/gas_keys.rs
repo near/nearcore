@@ -14,8 +14,7 @@ use near_primitives::errors::{
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    Action, ExecutionOutcome, FunctionCallAction, SignedTransaction, TransactionNonce,
-    TransferAction,
+    Action, ExecutionOutcome, SignedTransaction, TransactionNonce, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -363,12 +362,12 @@ fn test_gas_key_refund() {
         sender.clone(),
         receiver.clone(),
         &gas_key_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "nonexistent_method".to_string(),
-            args: vec![],
-            gas: prepaid_gas,
-            deposit: deposit_amount,
-        }))],
+        vec![Action::function_call_with_deposit(
+            "nonexistent_method",
+            vec![],
+            prepaid_gas,
+            deposit_amount,
+        )],
         block_hash,
     );
     let outcome = env.rpc_runner().execute_tx(gas_key_tx, Duration::seconds(5)).unwrap();
@@ -566,12 +565,11 @@ impl HostFunctionTestSetup {
             self.account.clone(),
             self.account.clone(),
             &create_user_test_signer(&self.account),
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&input).unwrap(),
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call(
+                "call_promise",
+                serde_json::to_vec(&input).unwrap(),
+                Gas::from_teragas(100),
+            )],
             block_hash,
         );
         let tx_hash = tx.get_hash();
@@ -673,12 +671,7 @@ fn test_gas_key_transfer_host_function() {
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: method_name.to_string(),
-            args: input_data,
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(method_name, input_data, Gas::from_teragas(100))],
         block_hash,
     );
     let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
@@ -861,12 +854,7 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_promise".to_string(),
-            args: input_data,
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("call_promise", input_data, Gas::from_teragas(100))],
         block_hash,
     );
     let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();

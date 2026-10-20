@@ -12,7 +12,7 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
+    Action, NonceMode, SignedTransaction, Transaction, TransactionEnvelope, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
@@ -115,6 +115,24 @@ pub fn validate_transaction(
         return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
+}
+
+/// Like [`validate_transaction`], but for a transaction of either kind.
+pub fn validate_transaction_envelope(
+    config: &RuntimeConfig,
+    envelope: &TransactionEnvelope,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    match envelope {
+        TransactionEnvelope::Signed(signed_tx) => {
+            validate_transaction(config, signed_tx.clone(), current_protocol_version)
+                .map(|_| ())
+                .map_err(|(err, _)| err)
+        }
+        TransactionEnvelope::Unsigned(ecc) => {
+            ecc.check_valid_for_config(config, current_protocol_version)
+        }
+    }
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
@@ -899,8 +917,7 @@ mod tests {
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        AddKeyAction, CreateAccountAction, DeployContractAction, FunctionCallAction,
-        TransactionNonce, TransferAction,
+        AddKeyAction, CreateAccountAction, DeployContractAction, TransactionNonce, TransferAction,
     };
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NonceIndex, StateChangeCause,
@@ -1436,12 +1453,7 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "hello".to_string(),
-                    args: b"abc".to_vec(),
-                    gas: Gas::from_gas(200),
-                    deposit: Balance::ZERO,
-                }))],
+                vec![Action::function_call("hello", b"abc", Gas::from_gas(200))],
                 CryptoHash::default(),
             ),
             InvalidTxError::ActionsValidation(ActionsValidationError::TotalPrepaidGasExceeded {
@@ -1647,12 +1659,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(300),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", b"abc", Gas::from_gas(300))],
             CryptoHash::default(),
         );
 
@@ -1789,12 +1796,7 @@ mod tests {
             bob_account(),
             &*signer,
             vec![
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "hello".to_string(),
-                    args: b"abc".to_vec(),
-                    gas: Gas::from_gas(100),
-                    deposit: Balance::ZERO,
-                })),
+                Action::function_call("hello", b"abc", Gas::from_gas(100)),
                 Action::CreateAccount(CreateAccountAction {}),
             ],
             CryptoHash::default(),
@@ -1869,12 +1871,7 @@ mod tests {
             alice_account(),
             eve_dot_alice_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", b"abc", Gas::from_gas(100))],
             CryptoHash::default(),
         );
 
@@ -1917,12 +1914,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", b"abc", Gas::from_gas(100))],
             CryptoHash::default(),
         );
 
@@ -1964,12 +1956,12 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::from_yoctonear(100),
-            }))],
+            vec![Action::function_call_with_deposit(
+                "hello",
+                b"abc",
+                Gas::from_gas(100),
+                Balance::from_yoctonear(100),
+            )],
             CryptoHash::default(),
         );
 
@@ -2013,12 +2005,12 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::from_yoctonear(1),
-            }))],
+            vec![Action::function_call_with_deposit(
+                "hello",
+                b"abc",
+                Gas::from_gas(100),
+                Balance::from_yoctonear(1),
+            )],
             CryptoHash::default(),
         );
 
@@ -2042,12 +2034,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", b"abc", Gas::from_gas(100))],
             CryptoHash::default(),
         );
 
@@ -2247,12 +2234,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "do_something".to_string(),
-                args: vec![],
-                gas: Gas::from_gigagas(10),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("do_something", vec![], Gas::from_gigagas(10))],
             CryptoHash::default(),
         );
 

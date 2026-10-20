@@ -121,7 +121,6 @@ fn is_spice_request(request: &NetworkRequests) -> bool {
         | NetworkRequests::StateRequestPart { .. }
         | NetworkRequests::StateRequestAck { .. }
         | NetworkRequests::BanPeer { .. }
-        | NetworkRequests::AnnounceAccount { .. }
         | NetworkRequests::SnapshotHostEvent { .. }
         | NetworkRequests::PartialEncodedChunkRequest { .. }
         | NetworkRequests::PartialEncodedChunkResponse { .. }

@@ -232,6 +232,7 @@ snapshot_kind: text
     "universal_accounts": false,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
+      "max_gas_burnt_external": 0,
       "max_stack_height": 262144,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
@@ -289,9 +290,7 @@ snapshot_kind: text
     "allowed_shard_outgoing_gas": 1000000000000000,
     "max_tx_gas": 500000000000000,
     "min_tx_gas": 20000000000000,
-    "reject_tx_congestion_threshold": 0.8,
-    "outgoing_receipts_usual_size_limit": 102400,
-    "outgoing_receipts_big_size_limit": 4718592
+    "reject_tx_congestion_threshold": 0.8
   },
   "witness_config": {
     "main_storage_proof_size_soft_limit": 4000000,

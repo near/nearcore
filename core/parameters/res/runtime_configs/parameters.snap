@@ -12,8 +12,6 @@ main_storage_proof_size_soft_limit                 4_000_000
 per_receipt_storage_proof_size_limit               4_000_000
 new_transactions_validation_state_size_soft_limit             572_864
 combined_transactions_size_limit                   4_194_304
-outgoing_receipts_usual_size_limit                   102_400
-outgoing_receipts_big_size_limit                   4_718_592
 min_allowed_top_level_account_length                      65
 registrar_account_id                    registrar
 storage_amount_per_byte                 10000000000000000000 yN
@@ -222,6 +220,7 @@ wasm_bls12381_p1_decompress_element           81_000_000_000
 wasm_bls12381_p2_decompress_base              15_000_000_000
 wasm_bls12381_p2_decompress_element          165_000_000_000
 max_gas_burnt                           1_000_000_000_000_000
+max_gas_burnt_external                                     0
 max_gas_burnt_view                      1_000_000_000_000_000
 max_stack_height                                     262_144
 initial_memory_pages                                   1_024

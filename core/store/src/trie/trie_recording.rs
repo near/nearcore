@@ -16,8 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub struct TrieRecorder {
     recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount, AHashRandomState>,
     size: crossbeam::utils::CachePadded<AtomicUsize>,
-    /// Size of the recorded state proof plus some additional size added to cover removals and
-    /// contract code.
+    /// Size of the recorded state proof plus some additional size added to cover removals.
     ///
     /// An upper-bound estimation of the true recorded size after finalization. See
     /// https://github.com/near/nearcore/issues/10890 and
@@ -27,8 +26,6 @@ pub struct TrieRecorder {
     ///
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: crossbeam::utils::CachePadded<AtomicUsize>,
-    /// Counts the total size of the contract codes read while recording.
-    code_len_counter: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Limit on the maximum size of the state proof that can be recorded.
     ///
     /// This may get set to u64::MAX to effectively impose no useful limit.
@@ -57,7 +54,6 @@ pub struct TrieRecorderStats {
     pub items_count: usize,
     pub total_size: usize,
     pub removal_counter: usize,
-    pub code_len_counter: usize,
     pub trie_column_sizes: Vec<TrieColumnSize>,
 }
 
@@ -90,7 +86,6 @@ impl TrieRecorder {
             size: Default::default(),
             upper_bound_size: Default::default(),
             removal_counter: Default::default(),
-            code_len_counter: Default::default(),
             codes_to_record: dashmap::DashSet::with_capacity_and_hasher(
                 128,
                 AHashRandomState::new(),
@@ -143,19 +138,6 @@ impl TrieRecorder {
         // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
         // this if there was an overflow.
         self.removal_counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_code_len(&self, code_len: usize) {
-        // NB: this isn't necessarily super well-formed as it is possible for reads of
-        // `code_len_counter` to observe and act on overflow-wrapped `code_len` before this
-        // `checked_add` gets an opportunity to notice the overflow and panic.
-        //
-        // We hope that this is is small enough window to make it a non-concern, esp. given that
-        // this overflow shouldn't be occurring in any practical situation anyway.
-        self.upper_bound_size.fetch_add(code_len, Ordering::Release).checked_add(code_len).unwrap();
-        // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
-        // this.
-        self.code_len_counter.fetch_add(code_len, Ordering::Relaxed);
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
@@ -220,7 +202,6 @@ impl TrieRecorder {
             items_count: self.recorded.len(),
             total_size: self.size.load(Ordering::Relaxed),
             removal_counter: self.removal_counter.load(Ordering::Relaxed),
-            code_len_counter: self.code_len_counter.load(Ordering::Relaxed),
             trie_column_sizes,
         }
     }

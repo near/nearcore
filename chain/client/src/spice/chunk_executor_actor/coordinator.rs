@@ -12,7 +12,7 @@ use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::update_shard::ShardUpdateResult;
 use near_chain::{ChainGenesis, Error};
 use near_chain_configs::MutableValidatorSigner;
@@ -27,7 +27,7 @@ use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -369,24 +369,24 @@ impl ChunkExecutorActor {
     }
 
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
-        let start_block = self.chain_store.spice_final_execution_head()?.last_block_hash;
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        self.process_all_ready_blocks_from(&final_execution_head)
+    }
 
-        // Park every block above the final execution head into its tracked shards'
-        // executors and try to drain. A freshly-started node catches up from disk;
-        // blocks not yet ready stay parked and are re-driven by apply-done fanout,
-        // incoming receipts, and chunk execution result endorsements.
-        let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block).into();
-        while let Some(block_hash) = next_block_hashes.pop_front() {
+    /// Park every block descending from `start` into its tracked shards' executors and try
+    /// to drain, re-running the boundary bootstrap of any last pre-spice block among them.
+    /// A freshly-started node catches up from disk; blocks not yet ready stay parked and are
+    /// re-driven by apply-done fanout, incoming receipts, and chunk execution result
+    /// endorsements.
+    fn process_all_ready_blocks_from(&mut self, start: &Tip) -> Result<(), Error> {
+        for block_hash in self.chain_store.get_processed_descendants(start)? {
             // A single bad block must not abort startup recovery for the whole chain;
             // log and continue. Normal runtime triggers (incoming receipts, chunk execution result
             // endorsements, apply-done fanout) re-drive it later.
             if let Err(err) = self.handle_processed_block(&block_hash) {
                 tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to process block during startup recovery; skipping");
             }
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
-
         Ok(())
     }
 
@@ -404,18 +404,21 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        // The head can be a last pre-spice block, which is still pre-spice, so this
-        // must run before the spice-at-head gate below.
-        if let Err(err) = self.recover_boundary_bootstrap() {
-            tracing::error!(
-                target: "chunk_executor",
-                ?err,
-                "failed to re-run boundary bootstrap on startup",
-            );
-        }
-        // Both recovery steps below read the spice execution heads, which only
-        // exist once spice is active
         if !spice_enabled_at_head_on_startup(&self.chain_store) {
+            // The head is still pre-spice, so startup does not resume from the spice execution
+            // heads. A last pre-spice block past the last final block still needs its boundary
+            // bootstrap re-run: its sends are not persisted.
+            let result = self
+                .chain_store
+                .last_final_block_tip()
+                .and_then(|start| self.process_all_ready_blocks_from(&start));
+            if let Err(err) = result {
+                tracing::error!(
+                    target: "chunk_executor",
+                    ?err,
+                    "failed to re-run boundary bootstrap on startup",
+                );
+            }
             return;
         }
         // Recover after a crash between apply-commit and finalize: walk forward

@@ -37,27 +37,18 @@ const MAX_ROUTED_MESSAGE_SIZE_BYTES: usize = 64 * MIB as usize;
 pub enum ParseRoutingTableUpdateError {
     #[error("edges {0}")]
     Edges(ParseVecError<ParseEdgeError>),
-    #[error("accounts {0}")]
-    Accounts(ParseVecError<ParseAnnounceAccountError>),
 }
 
 impl From<&RoutingTableUpdate> for proto::RoutingTableUpdate {
     fn from(x: &RoutingTableUpdate) -> Self {
-        Self {
-            edges: x.edges.iter().map(Into::into).collect(),
-            accounts: x.accounts.iter().map(Into::into).collect(),
-            ..Default::default()
-        }
+        Self { edges: x.edges.iter().map(Into::into).collect(), ..Default::default() }
     }
 }
 
 impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
     type Error = ParseRoutingTableUpdateError;
     fn try_from(x: &proto::RoutingTableUpdate) -> Result<Self, Self::Error> {
-        Ok(Self {
-            edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
-            accounts: try_from_slice(&x.accounts).map_err(Self::Error::Accounts)?,
-        })
+        Ok(Self { edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)? })
     }
 }
 
@@ -436,7 +427,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     edges: vec![
                         try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
                     ],
-                    accounts: vec![],
                 })
             }
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {

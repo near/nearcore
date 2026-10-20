@@ -59,7 +59,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
 
-pub mod append_only_map;
 pub mod config;
 #[cfg(test)]
 mod config_duration_test;

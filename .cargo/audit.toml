@@ -35,16 +35,6 @@ ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
-    # RUSTSEC-2026-0222: Wasmtime can only be affected when the embedder mixes
-    # objects from one Engine into a Store belonging to another Engine. Nearcore
-    # never mixes Engine-owned objects.
-    "RUSTSEC-2026-0222",
-
-    # RUSTSEC-2026-0269: the sandbox escape is in Wasmtime's WASI filesystem
-    # implementation. Nearcore uses Wasmtime to execute contracts with its own
-    # host functions and does not enable or link Wasmtime's WASI support.
-    "RUSTSEC-2026-0269",
-
     # RUSTSEC-2026-0253: lru `pop()` leaves dangling list pointers if the key's
     # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped. The
     # copy left is lru 0.7.8 under reed-solomon-erasure, which requires `^0.7.8`
@@ -52,14 +42,63 @@ ignore = [
     # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
     # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
     "RUSTSEC-2026-0253",
+
+    # Wasmtime advisories.
+    #
+    # Nearcore is pinned to wasmtime 45.0.0 (see root Cargo.toml) with only the
+    # `cranelift` and `winch` features. Clearing these advisories requires a
+    # major wasmtime bump (fixes land in 48.x / 49.x), which is a protocol
+    # change for us: the compiled contract artifacts and gas accounting depend
+    # on the embedded wasmtime version, so the upgrade needs a dedicated
+    # migration effort. Until that happens we ignore each advisory individually
+    # after confirming the vulnerable code path is not reachable from how
+    # nearcore embeds wasmtime.
+    #
+    # RUSTSEC-2026-0222: only affects embedders that mix objects from one
+    # Engine into a Store belonging to another Engine. Nearcore never mixes
+    # Engine-owned objects.
+    "RUSTSEC-2026-0222",
+    # RUSTSEC-2026-0269: sandbox escape in Wasmtime's WASI filesystem
+    # implementation. Nearcore uses Wasmtime to execute contracts with its own
+    # host functions and does not enable or link Wasmtime's WASI support.
+    "RUSTSEC-2026-0269",
     # RUSTSEC-2026-0316: Nearcore doesn't use fuel limits, this doesn't affect us.
     "RUSTSEC-2026-0316",
     # RUSTSEC-2026-0327: Nearcore doesn't use component-model-async, this doesn't affect us.
     "RUSTSEC-2026-0327",
+    # RUSTSEC-2026-0359: stack overflow in Wasmtime's type-registry drop path,
+    # triggered by a long chain of recursively-referencing types. Only reachable
+    # with the GC or function-references proposals (or component types); nearcore
+    # disables both (`GC = false`, `FUNCTION_REFERENCES = false` in
+    # `runtime/near-vm-runner/src/features.rs`) and does not use the component
+    # model, so registered core-wasm func types are flat.
+    "RUSTSEC-2026-0359",
+    # RUSTSEC-2026-0362: async-entrypoint enforcement bug. The advisory
+    # explicitly states embedders that don't use async at all are unaffected;
+    # nearcore uses only sync Wasmtime APIs.
+    "RUSTSEC-2026-0362",
+    # RUSTSEC-2026-0363: unbounded per-instance component-model handle table.
+    # Nearcore builds Wasmtime without the component model, so the handle-table
+    # code path isn't compiled in.
+    "RUSTSEC-2026-0363",
 
     # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. Reached only through
     # serde_yaml (itself marked deprecated upstream; latest is 0.9.34+deprecated),
     # used by near-parameters to parse trusted in-tree runtime parameter files, not
     # untrusted input. Remove once near-parameters moves off serde_yaml (#16566).
     "RUSTSEC-2024-0449",
+
+    # RUSTSEC-2026-0367 / RUSTSEC-2026-0368 / RUSTSEC-2026-0369: `zip` crate
+    # ZipArchive::extract vulnerabilities (SUID/SGID preservation, symlink
+    # target escape, Unix permissions applied through symlinks). Fixed in
+    # zip >= 9.0.0. Reached only via utoipa-swagger-ui 9.0.2 (used by
+    # near-rosetta-rpc to serve the Swagger UI at /swagger-ui). The `vendored`
+    # feature uses `zip` only at build time to unpack a trusted Swagger-UI
+    # release archive shipped with the crate into OUT_DIR -- no runtime
+    # extraction of attacker-controlled zips. Latest published
+    # utoipa-swagger-ui 10.0.1 still pins zip = "8.6"; remove these once
+    # upstream releases a version with zip >= 9.0.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]

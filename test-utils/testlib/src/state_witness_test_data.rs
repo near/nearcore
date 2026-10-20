@@ -12,7 +12,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
 };
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::EpochId;
 use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -127,7 +127,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
                 amount,
                 CryptoHash::hash_bytes(&format!("batch_{}_tx_{}", batch_num, i).as_bytes()),
             );
-            transactions.push(tx);
+            transactions.push(TransactionEnvelope::from(tx));
         }
 
         // Apply transactions with recording enabled to capture state witness

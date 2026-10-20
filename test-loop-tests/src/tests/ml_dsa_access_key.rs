@@ -10,7 +10,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermi
 use near_primitives::action::{AddKeyAction, DeleteKeyAction};
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::gas::Gas;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, TransferAction};
+use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::{AccessKeyPermissionView, FinalExecutionStatus};
 
@@ -147,12 +147,7 @@ fn test_ml_dsa_65_function_call_key() {
         user.clone(),
         user.clone(),
         &pq_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", vec![], Gas::from_teragas(100))],
         block_hash,
     );
     let outcome = env.rpc_runner().execute_tx(allowed_call, Duration::seconds(5)).unwrap();
@@ -167,12 +162,7 @@ fn test_ml_dsa_65_function_call_key() {
         user.clone(),
         user,
         &pq_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "loop_forever".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("loop_forever", vec![], Gas::from_teragas(100))],
         block_hash,
     );
     let err = env.rpc_runner().execute_tx(disallowed_call, Duration::seconds(5)).unwrap_err();

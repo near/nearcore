@@ -1633,6 +1633,10 @@ pub enum HostError {
     /// otherwise well-sized inputs return 0 from the host function instead of
     /// aborting.
     MlDsaVerifyInvalidInput { msg: String } = 34,
+    /// `method_name` is not allowed in external contract calls
+    ProhibitedInExternalCall { method_name: String } = 35,
+    /// An external contract call has an attached deposit, which it cannot have
+    DepositInExternalCall = 36,
 }
 
 #[derive(

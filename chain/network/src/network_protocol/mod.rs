@@ -54,7 +54,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
@@ -333,20 +333,11 @@ impl SignedOwnedAccount {
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
-    pub accounts: Vec<AnnounceAccount>,
 }
 
 impl RoutingTableUpdate {
     pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new() }
-    }
-
-    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts }
-    }
-
-    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts }
+        Self { edges }
     }
 }
 
@@ -590,10 +581,6 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-    pub fn is_t1(&self) -> bool {
-        matches!(self, TieredMessageBody::T1(_))
-    }
-
     pub fn variant(&self) -> &'static str {
         match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),

@@ -14,7 +14,7 @@ pub mod types;
 pub(crate) mod utils;
 pub(crate) mod vmstate;
 
-pub use context::VMContext;
+pub use context::{ExecutionMode, GasLimits, VMContext};
 pub use dependencies::{External, MemSlice, StorageAccessTracker, ValuePtr};
 pub use errors::{HostError, VMLogicError};
 pub use gas_counter::{

@@ -963,8 +963,6 @@ async fn repeated_data_in_sync_routing_table() {
 
     let mut edges_got = HashSet::new();
     let mut edges_want = HashSet::new();
-    let mut accounts_got = HashSet::new();
-    let mut accounts_want = HashSet::new();
     edges_want.insert(peer.edge.clone().unwrap());
 
     // Gradually increment the amount of data in the system and then broadcast it.
@@ -975,14 +973,9 @@ async fn repeated_data_in_sync_routing_table() {
         // It is important because the first SyncRoutingTable contains snapshot of all data known to
         // the node (not just the diff), so we expect incremental behavior only after the first
         // SyncRoutingTable.
-        while edges_got != edges_want || accounts_got != accounts_want {
+        while edges_got != edges_want {
             match peer.events.recv().await {
                 Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncRoutingTable(got)) => {
-                    for a in got.accounts {
-                        assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
-                        assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
-                        accounts_got.insert(a);
-                    }
                     for e in got.edges {
                         // TODO(gprusak): Currently there is a race condition between
                         // initial full sync and broadcasting the new connection edge,
@@ -1006,11 +999,9 @@ async fn repeated_data_in_sync_routing_table() {
             &key,
             Edge::create_fresh_nonce(&clock.clock()),
         ));
-        accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: edges_want.iter().cloned().collect(),
-            accounts: accounts_want.iter().cloned().collect(),
         }))
         .await;
     }
@@ -1125,39 +1116,6 @@ async fn fix_local_edges() {
     tracing::info!(target:"test", "checking the consistency");
     pm.check_consistency().await;
     drop(conn);
-}
-
-#[tokio::test]
-async fn do_not_block_announce_account_broadcast() {
-    abort_on_panic();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let db0 = TestDB::new();
-    let db1 = TestDB::new();
-    let aa = data::make_announce_account(rng);
-
-    tracing::info!(target:"test", "spawn 2 nodes and announce the account");
-    let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm1.announce_account(aa.clone()).await;
-    assert_eq!(&aa.peer_id, &pm0.wait_for_account_owner(&aa.account_id).await);
-    drop(pm0);
-    drop(pm1);
-
-    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account");
-    // Even though the account was previously announced (pm0 and pm1 have it in DB),
-    // the nodes should allow to let the broadcast through.
-    let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), db1, chain.make_config(rng), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm1.announce_account(aa.clone()).await;
-    assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
 }
 
 /// Check that two archival nodes keep connected after network rebalance. Nodes 0 and 1 are archival nodes, others aren't.
@@ -1333,11 +1291,8 @@ async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
             data::make_edge(&k1, &k2, 1)
         })
         .collect();
-    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-        edges: fake_edges.clone(),
-        accounts: vec![],
-    }))
-    .await;
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges: fake_edges.clone() }))
+        .await;
 
     // Send a valid small update afterwards.
     let valid_key = data::make_secret_key(rng);
@@ -1348,7 +1303,6 @@ async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
     );
     peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
         edges: vec![valid_edge.clone()],
-        accounts: vec![],
     }))
     .await;
 
@@ -1371,55 +1325,6 @@ async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
         })
         .await;
     assert!(!has_fake, "oversized edges should not have been added");
-}
-
-/// Oversized SyncRoutingTable should drop edges but still process accounts
-/// in the same message.
-#[tokio::test]
-async fn oversized_sync_routing_table_still_processes_accounts() {
-    abort_on_panic();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    // Set a small ingress cap for testing.
-    let mut cfg0 = chain.make_config(rng);
-    cfg0.routing_graph_max_edges_per_message = 5;
-    let mut pm = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
-    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain: chain.clone() };
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
-        .await
-        .unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
-    peer.complete_handshake().await;
-
-    let peer_id = peer.cfg.id();
-    pm.wait_for_routing_table(&[(peer_id.clone(), vec![peer_id.clone()])]).await;
-
-    // Send an oversized SyncRoutingTable that also contains an account announcement.
-    let fake_edges: Vec<Edge> = (0..10)
-        .map(|_| {
-            let k1 = data::make_secret_key(rng);
-            let k2 = data::make_secret_key(rng);
-            data::make_edge(&k1, &k2, 1)
-        })
-        .collect();
-    let account = data::make_announce_account(rng);
-    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-        edges: fake_edges,
-        accounts: vec![account.clone()],
-    }))
-    .await;
-
-    // The account should still be processed even though edges were dropped.
-    pm.events
-        .recv_until(|ev| match ev {
-            Event::AccountsAdded(accounts) if accounts.contains(&account) => Some(()),
-            _ => None,
-        })
-        .await;
 }
 
 #[tokio::test]

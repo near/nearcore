@@ -32,9 +32,7 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{
-    DeployContractAction, FunctionCallAction, SignedTransaction, TransferAction,
-};
+use near_primitives::transaction::{DeployContractAction, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
@@ -756,12 +754,7 @@ fn test_universal_state_init_then_function_call() {
                 state_init: state_init.to_raw(),
                 deposit: Balance::from_near(1),
             })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_owned(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("log_something", vec![], Gas::from_teragas(100)),
         ],
         env.block_hash(),
     );
@@ -807,12 +800,7 @@ fn test_uninitialized_account_rejects_actions_needing_state() {
         Action::DeployContract(DeployContractAction {
             code: near_test_contracts::trivial_contract().to_vec(),
         }),
-        Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_owned(),
-            args: vec![],
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        })),
+        Action::function_call("log_something", vec![], Gas::from_teragas(100)),
     ];
 
     for action in actions {
@@ -982,12 +970,7 @@ fn test_relayer_transfer_then_init_then_call() {
                 state_init: state_init.to_raw(),
                 deposit: Balance::ZERO,
             })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_owned(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("log_something", vec![], Gas::from_teragas(100)),
         ],
         env.block_hash(),
     );
@@ -1035,12 +1018,7 @@ fn test_relayer_creates_funds_and_calls_in_one_tx() {
                 state_init: state_init.to_raw(),
                 deposit: Balance::ZERO,
             })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_owned(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("log_something", vec![], Gas::from_teragas(100)),
         ],
         env.block_hash(),
     );
@@ -1092,12 +1070,7 @@ fn test_relayer_init_funds_then_calls_in_one_tx() {
                 deposit: Balance::ZERO,
             })),
             Action::Transfer(TransferAction { deposit: funded }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_owned(),
-                args: vec![],
-                gas: Gas::from_teragas(100),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("log_something", vec![], Gas::from_teragas(100)),
         ],
         env.block_hash(),
     );
