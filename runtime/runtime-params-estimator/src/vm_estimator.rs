@@ -6,7 +6,7 @@ use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
-use near_vm_runner::logic::VMContext;
+use near_vm_runner::logic::{ExecutionMode, VMContext};
 use near_vm_runner::{
     ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
     NoContractRuntimeCache,
@@ -38,7 +38,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(1_000_000),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     }
 }

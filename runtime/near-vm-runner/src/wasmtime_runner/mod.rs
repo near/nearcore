@@ -1048,6 +1048,16 @@ enum PreparationResult {
     Ready(ReadyContract),
 }
 
+/// An external contract call has no caller to send a deposit. Fail one that
+/// has a deposit before running any code, rather than create or lose tokens
+/// because of a mistake in its entry point.
+fn check_external_call_deposit(context: &VMContext) -> Result<(), FunctionCallError> {
+    if context.is_external() && !context.attached_deposit.is_zero() {
+        return Err(FunctionCallError::HostError(HostError::DepositInExternalCall));
+    }
+    Ok(())
+}
+
 /// How running the contract's entry point ended, before it is turned into a [`VMOutcome`].
 ///
 /// Building a [`VMOutcome`] consumes the [`ExecutionResultState`], which lives inside the [`Ctx`]
@@ -1087,6 +1097,12 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
+        // Reuse the abort path below rather than build another `VMOutcome` in
+        // this function, whose stack frame is already large.
+        let result = match check_external_call_deposit(context) {
+            Ok(()) => result,
+            Err(error) => PreparationResult::OutcomeAbort(error),
+        };
         let ReadyContract { pre, memory, remaining_gas, start, method, num_tables, concurrency } =
             match result {
                 PreparationResult::Ready(r) => r,
