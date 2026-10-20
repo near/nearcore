@@ -1,12 +1,10 @@
 pub(super) mod opener;
 
+use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
-use crate::{Store, StoreConfig};
-use opener::StoreOpener;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 /// Specifies temperature of a storage.
 ///
@@ -44,49 +42,6 @@ pub struct NodeStorage {
 }
 
 impl NodeStorage {
-    /// Initializes a new opener with given home directory and hot, cold,
-    /// and cloud store config.
-    pub fn opener<'a>(
-        home_dir: &std::path::Path,
-        store_config: &'a StoreConfig,
-        cold_store_config: Option<&'a StoreConfig>,
-        cloud_storage_context: Option<CloudStorageContext>,
-    ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_context)
-    }
-
-    /// Initializes an opener for a new temporary test store.
-    ///
-    /// As per the name, this is meant for tests only.  The created store will
-    /// use test configuration (which may differ slightly from default config).
-    /// The function **panics** if a temporary directory cannot be created.
-    ///
-    /// Note that the caller must hold the temporary directory returned as first
-    /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
-        let dir = tempfile::tempdir().unwrap();
-        let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
-        (dir, opener)
-    }
-
-    /// Constructs new object backed by given database.
-    fn from_rocksdb(
-        hot_storage: crate::db::RocksDB,
-        cold_storage: Option<crate::db::RocksDB>,
-    ) -> Self {
-        let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
-
-        let cold_db = if let Some(cold_storage) = cold_storage {
-            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
-        } else {
-            None
-        };
-
-        Self { hot_storage, cold_storage: cold_db, cloud_storage: None }
-    }
-
     /// Constructs new object backed by given database.
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
