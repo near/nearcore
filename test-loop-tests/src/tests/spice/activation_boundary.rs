@@ -13,6 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::pre_spice_protocol_version;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, Gas, ShardId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
@@ -60,9 +61,9 @@ fn build_pre_spice_chain_voting_for_spice() -> TestLoopEnv {
 fn test_protocol_upgrade_to_spice() {
     init_test_logger();
     let mut env = build_pre_spice_chain_voting_for_spice().warmup();
-    let first_spice = send_transfers_until_first_spice_block(&mut env);
-    let last_pre_spice = prev_block(&env, &first_spice);
-    let before_last_pre_spice = prev_block(&env, &last_pre_spice);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let last_pre_spice = &trickle.last_pre_spice;
+    let before_last_pre_spice = prev_block(&env, last_pre_spice);
     // The boundary replay must price gas with the prev block's `next_gas_price`, as the
     // pre-spice apply did. If it equals the block's own, a replay using the block's own
     // would still certify.
@@ -72,11 +73,9 @@ fn test_protocol_upgrade_to_spice() {
         "gas price must move at the boundary to catch a replay priced with the block's own",
     );
 
-    run_two_more_spice_epochs(&mut env);
-
-    assert_boundary_crossed_without_missing_chunks(&env, &last_pre_spice);
-    assert_supply_subtracts_certified_burn_once(&env, &last_pre_spice);
-    assert_boundary_results_validated(&env, &last_pre_spice);
+    assert_boundary_crossed_without_missing_chunks(&env, last_pre_spice);
+    assert_supply_subtracts_certified_burn_once(&env, last_pre_spice);
+    assert_boundary_results_validated(&env, last_pre_spice);
 }
 
 /// The upgrade with every chunk missing at the last pre-spice block.
@@ -90,15 +89,13 @@ fn test_protocol_upgrade_to_spice_missing_chunks_at_boundary() {
             HashMap::from([(0, -1..0), (1, -1..0)]),
         ))
         .warmup();
-    let first_spice = send_transfers_until_first_spice_block(&mut env);
-    let last_pre_spice = prev_block(&env, &first_spice);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let last_pre_spice = &trickle.last_pre_spice;
     assert_eq!(last_pre_spice.header().chunk_mask(), &[false, false]);
 
-    run_two_more_spice_epochs(&mut env);
-
-    assert_boundary_crossed_without_missing_chunks(&env, &last_pre_spice);
-    assert_supply_subtracts_certified_burn_once(&env, &last_pre_spice);
-    assert_boundary_results_validated(&env, &last_pre_spice);
+    assert_boundary_crossed_without_missing_chunks(&env, last_pre_spice);
+    assert_supply_subtracts_certified_burn_once(&env, last_pre_spice);
+    assert_boundary_results_validated(&env, last_pre_spice);
 }
 
 /// The upgrade with staggered gaps straddling the anchor: one shard's chunk missing at
@@ -113,17 +110,15 @@ fn test_protocol_upgrade_to_spice_staggered_missing_chunks_at_boundary() {
             HashMap::from([(0, -1..0), (1, -2..0)]),
         ))
         .warmup();
-    let first_spice = send_transfers_until_first_spice_block(&mut env);
-    let last_pre_spice = prev_block(&env, &first_spice);
-    let before_last_pre_spice = prev_block(&env, &last_pre_spice);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let last_pre_spice = &trickle.last_pre_spice;
+    let before_last_pre_spice = prev_block(&env, last_pre_spice);
     assert_eq!(last_pre_spice.header().chunk_mask(), &[false, false]);
     assert_eq!(before_last_pre_spice.header().chunk_mask(), &[true, false]);
 
-    run_two_more_spice_epochs(&mut env);
-
-    assert_boundary_crossed_without_missing_chunks(&env, &last_pre_spice);
-    assert_supply_subtracts_certified_burn_once(&env, &last_pre_spice);
-    assert_boundary_results_validated(&env, &last_pre_spice);
+    assert_boundary_crossed_without_missing_chunks(&env, last_pre_spice);
+    assert_supply_subtracts_certified_burn_once(&env, last_pre_spice);
+    assert_boundary_results_validated(&env, last_pre_spice);
 }
 
 /// The upgrade with endorsements delayed, so the boundary results stay pending for a few
@@ -134,55 +129,124 @@ fn test_protocol_upgrade_to_spice_with_execution_delay() {
     init_test_logger();
     let mut env = build_pre_spice_chain_voting_for_spice().warmup();
     env.delay_endorsements_propagation(3);
-    let first_spice = send_transfers_until_first_spice_block(&mut env);
-    let last_pre_spice = prev_block(&env, &first_spice);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let last_pre_spice = &trickle.last_pre_spice;
 
-    run_two_more_spice_epochs(&mut env);
-
-    assert_boundary_crossed_without_missing_chunks(&env, &last_pre_spice);
-    let certifying_height = assert_supply_subtracts_certified_burn_once(&env, &last_pre_spice);
+    assert_boundary_crossed_without_missing_chunks(&env, last_pre_spice);
+    let certifying_height = assert_supply_subtracts_certified_burn_once(&env, last_pre_spice);
     assert!(
         certifying_height > last_pre_spice.header().height() + 1,
         "the delay must leave the boundary results pending for at least one block",
     );
-    assert_boundary_results_validated(&env, &last_pre_spice);
+    assert_boundary_results_validated(&env, last_pre_spice);
 }
 
-/// Trickles a transfer every block, so the blocks around the boundary burn gas, until the
-/// head is a spice block. Returns the first spice block.
-fn send_transfers_until_first_spice_block(env: &mut TestLoopEnv) -> Arc<Block> {
-    let user = create_account_id("user");
+/// The deposit each trickled transfer carries.
+const TRICKLE_AMOUNT: Balance = Balance::from_yoctonear(1);
+
+/// What [`cross_boundary_with_transfer_trickle`] observed.
+struct BoundaryTrickle {
+    last_pre_spice: Arc<Block>,
+    head_height: BlockHeight,
+    initial_receiver_balance: Balance,
+    /// Inclusion height per submitted transfer; each was included exactly once.
+    inclusion_heights: HashMap<CryptoHash, BlockHeight>,
+}
+
+impl BoundaryTrickle {
+    /// A transfer included at the last pre-spice block, so its receipt is in flight
+    /// across the boundary.
+    fn transfer_in_flight_at_boundary(&self) -> CryptoHash {
+        let boundary_height = self.last_pre_spice.header().height();
+        *self
+            .inclusion_heights
+            .iter()
+            .find(|(_, height)| **height == boundary_height)
+            .map(|(tx_hash, _)| tx_hash)
+            .expect("some transfer must be included at the last pre-spice block")
+    }
+}
+
+/// Submits a cross-shard "user" -> "receiver" transfer of [`TRICKLE_AMOUNT`] every block,
+/// so the blocks around the boundary burn gas, until the head is a spice block. Then runs
+/// two more spice epochs and lets certification catch up to the head: an epoch cannot end
+/// before its first block certifies, so the first transition out of the first spice epoch
+/// proves the boundary certified, and the second leaves blocks past the certifying one
+/// for the supply walk.
+fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickle {
+    let sender = create_account_id("user");
     let receiver = create_account_id("receiver");
+    {
+        let node = env.rpc_node();
+        let shard_layout =
+            node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+        assert_ne!(
+            shard_layout.account_id_to_shard_id(&sender),
+            shard_layout.account_id_to_shard_id(&receiver),
+            "the transfers must cross shards",
+        );
+    }
+    let initial_receiver_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+
+    let mut submitted = Vec::new();
+    let mut first_spice = None;
     for _ in 0..10 * EPOCH_LENGTH {
-        let tx = env.rpc_node().tx_send_money(&user, &receiver, Balance::from_yoctonear(1));
-        env.rpc_node().submit_tx(tx);
+        let tx = env.rpc_node().tx_send_money(&sender, &receiver, TRICKLE_AMOUNT);
+        submitted.push(env.rpc_node().submit_tx(tx));
         env.rpc_runner().run_for_number_of_blocks(1);
         let head_block = env.rpc_node().head_block();
         if head_block.is_spice_block() {
-            assert!(
-                !prev_block(env, &head_block).is_spice_block(),
-                "the head must be the first spice block",
-            );
-            return head_block;
+            first_spice = Some(head_block);
+            break;
         }
     }
-    panic!("chain never crossed the activation boundary");
+    let first_spice = first_spice.expect("chain never crossed the activation boundary");
+    let last_pre_spice = prev_block(env, &first_spice);
+    assert!(!last_pre_spice.is_spice_block(), "the head must be the first spice block");
+
+    for _ in 0..2 {
+        env.rpc_runner().run_until_new_epoch();
+    }
+    let head_height = env.rpc_node().head().height;
+    env.rpc_runner().run_until_certified(head_height);
+
+    // Scan every block's new chunks for the submitted transactions.
+    let node = env.rpc_node();
+    let submitted: HashSet<CryptoHash> = submitted.into_iter().collect();
+    let mut multi_inclusions: HashMap<CryptoHash, Vec<BlockHeight>> = HashMap::new();
+    let genesis_height = node.client().chain.chain_store.get_genesis_height();
+    for height in genesis_height + 1..=head_height {
+        let Ok(block_hash) = node.client().chain.chain_store.get_block_hash_by_height(height)
+        else {
+            continue;
+        };
+        let block = node.client().chain.get_block(&block_hash).unwrap();
+        for chunk_header in block.chunks().iter() {
+            if !chunk_header.is_new_chunk() {
+                continue;
+            }
+            let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+            for tx in chunk.to_transactions() {
+                if submitted.contains(&tx.get_hash()) {
+                    multi_inclusions.entry(tx.get_hash()).or_default().push(height);
+                }
+            }
+        }
+    }
+    let mut inclusion_heights = HashMap::new();
+    for (tx_hash, heights) in multi_inclusions {
+        assert_eq!(heights.len(), 1, "transaction {tx_hash} included more than once: {heights:?}");
+        inclusion_heights.insert(tx_hash, heights[0]);
+    }
+    assert_eq!(inclusion_heights.len(), submitted.len(), "every transfer must be included");
+    BoundaryTrickle { last_pre_spice, head_height, initial_receiver_balance, inclusion_heights }
 }
 
 fn prev_block(env: &TestLoopEnv, block: &Block) -> Arc<Block> {
     env.rpc_node().block(*block.header().prev_hash())
 }
 
-/// An epoch cannot end before its first block certifies, so the first transition out of
-/// the first spice epoch proves the boundary certified. The second leaves blocks past the
-/// certifying one for the supply walk.
-fn run_two_more_spice_epochs(env: &mut TestLoopEnv) {
-    for _ in 0..2 {
-        env.rpc_runner().run_until_new_epoch();
-    }
-}
-
-/// The blocks above `height` on the rpc node's chain, oldest first, up to the head.
+/// The blocks above `height` on `node`'s chain, oldest first, up to the head.
 fn blocks_after(node: &TestLoopNode<'_>, height: BlockHeight) -> Vec<Arc<Block>> {
     let mut blocks = Vec::new();
     let mut block = node.head_block();
@@ -230,7 +294,8 @@ fn assert_boundary_crossed_without_missing_chunks(env: &TestLoopEnv, last_pre_sp
 ///
 /// The expected burn comes from the core statements alone, independent of the production
 /// code: a block certifies in the block whose core statements carry its last missing
-/// shard's result. Inflation is zero, so there is no minting term.
+/// shard's result. Inflation is zero, so there is no minting term. Assumes the shard
+/// layout does not change from the last pre-spice block to the head.
 fn assert_supply_subtracts_certified_burn_once(
     env: &TestLoopEnv,
     last_pre_spice: &Block,
@@ -446,5 +511,82 @@ fn run_restart_across_boundary(kill_at: impl Fn(&TestLoopNode<'_>) -> bool) {
                 .is_ok_and(|head| head.height > last_pre_spice_height)
         },
         Duration::seconds(60),
+    );
+}
+
+/// A cross-shard transfer in flight at the boundary: a transaction included in a
+/// pre-spice chunk whose receipt executes in the first spice epoch.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_receipt_in_flight() {
+    init_test_logger();
+    let mut env = build_pre_spice_chain_voting_for_spice().warmup();
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    // Panics unless a transfer was included at the last pre-spice block: the receipt
+    // whose exactly-once execution this test is about.
+    trickle.transfer_in_flight_at_boundary();
+
+    // Exactly-once execution: the receiver gained exactly one deposit per transfer.
+    let receiver = create_account_id("receiver");
+    let final_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+    let expected = TRICKLE_AMOUNT.checked_mul(trickle.inclusion_heights.len() as u128).unwrap();
+    assert_eq!(
+        final_balance.checked_sub(trickle.initial_receiver_balance).unwrap(),
+        expected,
+        "every in-flight deposit must land exactly once",
+    );
+}
+
+/// View queries addressed at blocks on both sides of the boundary, on a node that
+/// crossed it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_view_queries() {
+    init_test_logger();
+    let mut env = build_pre_spice_chain_voting_for_spice().warmup();
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let receiver = create_account_id("receiver");
+    let boundary_height = trickle.last_pre_spice.header().height();
+
+    // The receiver's balance as of block at height h: the deposit of a transfer
+    // included at height i rides a cross-shard receipt applied at i + 1, so it is
+    // visible exactly from state at h >= i + 1.
+    let node = env.rpc_node();
+    for queried_height in [
+        boundary_height - 2,
+        boundary_height - 1,
+        boundary_height,
+        boundary_height + 1,
+        boundary_height + 2,
+        trickle.head_height - 1,
+    ] {
+        let block_hash =
+            node.client().chain.chain_store.get_block_hash_by_height(queried_height).unwrap();
+        let balance = node.view_account_balance_at(block_hash, &receiver).unwrap_or_else(|err| {
+            panic!("view query at height {queried_height} must work: {err:?}")
+        });
+        let executed_deposits =
+            trickle.inclusion_heights.values().filter(|height| **height < queried_height).count();
+        assert_eq!(
+            balance.checked_sub(trickle.initial_receiver_balance).unwrap(),
+            TRICKLE_AMOUNT.checked_mul(executed_deposits as u128).unwrap(),
+            "balance as of height {queried_height} must reflect exactly the receipts \
+             executed by then",
+        );
+    }
+
+    // An outcome pair spanning the boundary: the transaction's outcome sits in a
+    // pre-spice block, its receipt's outcome in a spice block.
+    let boundary_tx = trickle.transfer_in_flight_at_boundary();
+    let tx_outcome = node.execution_outcome_with_proof(boundary_tx);
+    let receipt_id = node.tx_receipt_id(boundary_tx);
+    let receipt_outcome = node.execution_outcome_with_proof(receipt_id);
+    let outcome_height = |outcome: &ExecutionOutcomeWithIdAndProof| {
+        node.client().chain.get_block_header(&outcome.block_hash).unwrap().height()
+    };
+    assert_eq!(outcome_height(&tx_outcome), boundary_height);
+    assert!(
+        outcome_height(&receipt_outcome) > boundary_height,
+        "the boundary transaction's receipt must have executed under spice",
     );
 }

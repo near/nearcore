@@ -191,8 +191,7 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
-// In a spice build `PROTOCOL_VERSION` and the versions just below it all have spice
-// enabled, so every epoch here is a spice epoch. The mainnet-derived epoch config
+// The mainnet-derived epoch config
 // rotates the producers' shard assignments at each epoch boundary, so rotated-in
 // producers must state sync, which spice does not support yet: a spice chain stores no
 // incoming receipts, so the state sync header cannot be built and the sync never
