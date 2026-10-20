@@ -55,8 +55,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
+    Action, ECC_METHOD_NAME, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
+    ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -686,6 +686,18 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
+                // The ECC method only runs in an external call (which must not be executed
+                // through `apply_action`) or in a view call.
+                if ProtocolFeature::ExternalContractCalls
+                    .enabled(apply_state.current_protocol_version)
+                    && function_call.method_name == ECC_METHOD_NAME
+                {
+                    result.result = Err(ActionErrorKind::ReservedMethodName {
+                        method_name: function_call.method_name.clone(),
+                    }
+                    .into());
+                    return Ok(result);
+                }
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
