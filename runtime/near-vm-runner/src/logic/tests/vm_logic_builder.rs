@@ -1,7 +1,7 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::{Config, VMContext};
 use crate::tests::test_vm_config;
-pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
+pub(super) use crate::wasmtime_48_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
 

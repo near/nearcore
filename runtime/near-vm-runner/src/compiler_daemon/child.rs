@@ -12,10 +12,10 @@
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{
     COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    DaemonStatus, WorkerConfig, read_frame, write_compile_response, write_frame,
+    DaemonStatus, WasmtimeVersion, WorkerConfig, read_frame, write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
-use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
+use crate::{wasmtime_45_runner, wasmtime_48_runner};
 use std::collections::{HashMap, hash_map};
 use std::env;
 use std::fmt::Display;
@@ -23,6 +23,17 @@ use std::io::Write;
 use std::process::exit;
 #[cfg(feature = "test_features")]
 use std::thread::park;
+
+/// Lazy populated cache of wasmtime engines.
+///
+/// A child process handles all available wasmtime versions, populated lazily.
+/// It must also be able to handle a change in memory pages, hence a map (memory
+/// pages -> engine) per version.
+#[derive(Default)]
+struct CompilerEngines {
+    v45: HashMap<u32, wasmtime_45::Engine>,
+    v48: HashMap<u32, wasmtime_48::Engine>,
+}
 
 /// Entry point for the dedicated compiler daemon binary.
 pub fn daemon_main() -> ! {
@@ -51,11 +62,16 @@ pub fn daemon_main() -> ! {
     {
         report_startup_error(&mut writer, format!("failed to create compiler thread pool: {err}"));
     }
-    let compiler_compatibility_hash = compiler_compatibility_hash().unwrap_or_else(|err| {
-        abort_worker(format!("failed to create compatibility engine: {err}"))
-    });
+    let compiler_compatibility_hashes = [
+        wasmtime_45_runner::compiler_compatibility_hash().unwrap_or_else(|err| {
+            abort_worker(format!("failed to create Wasmtime 45 compatibility engine: {err}"))
+        }),
+        wasmtime_48_runner::compiler_compatibility_hash().unwrap_or_else(|err| {
+            abort_worker(format!("failed to create Wasmtime 48 compatibility engine: {err}"))
+        }),
+    ];
     let startup = DaemonStartup::Ready(DaemonStatus {
-        compiler_compatibility_hash,
+        compiler_compatibility_hashes,
         isolation: sandbox_status.isolation_status(),
         worker_config,
     });
@@ -65,7 +81,7 @@ pub fn daemon_main() -> ! {
 
     let stdin = std::io::stdin();
     let mut reader = stdin.lock();
-    let mut engines: HashMap<u32, wasmtime::Engine> = HashMap::new();
+    let mut engines = CompilerEngines::default();
 
     loop {
         let frame = match read_frame(&mut reader) {
@@ -119,7 +135,7 @@ fn report_startup_error(writer: &mut impl Write, err: String) -> ! {
 }
 
 fn handle_request(
-    engines: &mut HashMap<u32, wasmtime::Engine>,
+    engines: &mut CompilerEngines,
     request: CompileRequest<'_>,
     sandbox_status: &SandboxStatus,
 ) -> Result<Vec<u8>, String> {
@@ -147,17 +163,27 @@ fn handle_request(
 }
 
 fn handle_compile(
-    engines: &mut HashMap<u32, wasmtime::Engine>,
+    engines: &mut CompilerEngines,
     request: CompileRequest<'_>,
 ) -> Result<Vec<u8>, String> {
-    let engine = match engines.entry(request.max_memory_pages) {
-        hash_map::Entry::Occupied(e) => e.into_mut(),
-        hash_map::Entry::Vacant(e) => e.insert(
-            create_compiler_engine(request.max_memory_pages)
-                .unwrap_or_else(|err| abort_worker(format!("failed to create engine: {err}"))),
-        ),
-    };
-    engine.precompile_module(&request.prepared_code).map_err(|err| err.to_string())
+    macro_rules! compile {
+        ($engines:expr, $runner:ident) => {{
+            let engine = match $engines.entry(request.max_memory_pages) {
+                hash_map::Entry::Occupied(e) => e.into_mut(),
+                hash_map::Entry::Vacant(e) => e.insert(
+                    $runner::create_compiler_engine(request.max_memory_pages).unwrap_or_else(
+                        |err| abort_worker(format!("failed to create engine: {err}")),
+                    ),
+                ),
+            };
+            engine.precompile_module(&request.prepared_code).map_err(|err| err.to_string())
+        }};
+    }
+
+    match request.wasmtime_version {
+        WasmtimeVersion::V45 => compile!(engines.v45, wasmtime_45_runner),
+        WasmtimeVersion::V48 => compile!(engines.v48, wasmtime_48_runner),
+    }
 }
 
 /// Exit the worker process with a message to its local stderr.

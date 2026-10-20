@@ -41,7 +41,13 @@ thiserror.workspace = true
 tracing.workspace = true
 wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
 wasmparser-236 = { workspace = true, optional = true }
-wasmtime = { workspace = true, features = [
+wasmtime-45 = { workspace = true, features = [
+    "call-hook",
+    "parallel-compilation",
+    "pooling-allocator",
+    "runtime",
+], optional = true }
+wasmtime-48 = { workspace = true, features = [
     "call-hook",
     "parallel-compilation",
     "pooling-allocator",
@@ -83,7 +89,7 @@ wat.workspace = true
 
 [features]
 default = ["wasmtime_vm"]
-wasmtime_vm = ["wasmtime", "anyhow", "prepare", "rayon"]
+wasmtime_vm = ["wasmtime-45", "wasmtime-48", "anyhow", "prepare", "rayon"]
 prepare = [
     "finite-wasm-6",
     "wasm-encoder",

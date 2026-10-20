@@ -1,7 +1,7 @@
 use super::test_vm_config;
 use crate::ContractCode;
 use crate::prepare::prepare_contract;
-use crate::wasmtime_runner::{CachedArtifact, WasmtimeVM, create_compiler_engine};
+use crate::wasmtime_48_runner::{CachedArtifact, WasmtimeVM, create_compiler_engine};
 use near_parameters::vm::VMKind;
 use std::sync::Arc;
 

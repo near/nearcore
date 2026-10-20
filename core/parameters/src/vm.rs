@@ -242,6 +242,9 @@ pub struct Config {
     /// `Module::deserialize`.
     pub fix_contract_loading_error: bool,
 
+    /// Use Wasmtime 48 instead of the older Wasmtime 45 engine.
+    pub wasmtime_48: bool,
+
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
