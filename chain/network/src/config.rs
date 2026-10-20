@@ -653,7 +653,7 @@ mod test {
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::network_protocol::{AccountData, VersionedAccountData, to_unix_nanos};
     use crate::rate_limits::messages_limits::{
         RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
     };
@@ -815,7 +815,7 @@ mod test {
             },
             account_key: signer.public_key(),
             version: 0,
-            timestamp: clock.now_utc(),
+            timestamp: to_unix_nanos(clock.now_utc()),
         };
         let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);

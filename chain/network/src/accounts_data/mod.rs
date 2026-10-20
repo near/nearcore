@@ -27,7 +27,9 @@
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
-use crate::network_protocol::{AccountData, SignedAccountData, VersionedAccountData};
+use crate::network_protocol::{
+    AccountData, SignedAccountData, VersionedAccountData, to_unix_nanos,
+};
 use crate::types::AccountKeys;
 use near_async::time;
 use near_crypto::PublicKey;
@@ -139,7 +141,7 @@ impl AccountDataCacheSnapshot {
                     data: local.data.as_ref().clone(),
                     account_key: local.signer.public_key(),
                     version: d.version + 1,
-                    timestamp: clock.now_utc(),
+                    timestamp: to_unix_nanos(clock.now_utc()),
                 }
                 .sign(local.signer.as_ref())
                 .unwrap(),
@@ -177,7 +179,7 @@ impl AccountDataCacheSnapshot {
                         data: local.data.as_ref().clone(),
                         account_key: account_key.clone(),
                         version: self.data.get(&account_key).map_or(0, |d| d.version) + 1,
-                        timestamp: clock.now_utc(),
+                        timestamp: to_unix_nanos(clock.now_utc()),
                     }
                     .sign(local.signer.as_ref())
                     .unwrap(),
@@ -260,11 +262,9 @@ impl AccountDataCache {
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
-                match d.payload().verify(&d.account_key) {
-                    Ok(()) => Some(d),
-                    Err(()) => None,
-                }
+            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| match d.verify() {
+                Ok(()) => Some(d),
+                Err(()) => None,
             })
         })
         .await;

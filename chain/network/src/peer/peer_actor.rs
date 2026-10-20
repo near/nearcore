@@ -6,7 +6,8 @@ use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
     PeersRequest, PeersResponse, RoutingTableUpdate, SnapshotHostInfoVerificationError,
-    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
+    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody, from_unix_nanos,
+    to_unix_nanos,
 };
 use crate::peer::stream;
 use crate::peer::stream::IncomingFrame;
@@ -492,7 +493,7 @@ impl PeerActor {
                 OwnedAccount {
                     account_key: signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
-                    timestamp: self.clock.now_utc(),
+                    timestamp: to_unix_nanos(self.clock.now_utc()),
                 }
                 .sign(&signer)
             }),
@@ -617,7 +618,7 @@ impl PeerActor {
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
-            if let Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+            if let Err(_) = owned_account.verify() {
                 self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
                 return;
             }
@@ -625,7 +626,9 @@ impl PeerActor {
                 self.stop(ClosingReason::OwnedAccountMismatch);
                 return;
             }
-            if (owned_account.timestamp - self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {
+            if (from_unix_nanos(owned_account.timestamp) - self.clock.now_utc()).abs()
+                >= MAX_CLOCK_SKEW
+            {
                 self.stop(ClosingReason::TooLargeClockSkew);
                 return;
             }
