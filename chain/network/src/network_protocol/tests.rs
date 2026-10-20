@@ -53,7 +53,7 @@ fn bad_account_data_size() {
         },
         account_key: signer.public_key(),
         version: rng.r#gen(),
-        timestamp: clock.now_utc(),
+        timestamp: to_unix_nanos(clock.now_utc()),
     };
     assert!(ad.sign(&signer.into()).is_err());
 }
