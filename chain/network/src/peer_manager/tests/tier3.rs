@@ -1,7 +1,11 @@
 use crate::broadcast;
+use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Handshake, PartialEdgeInfo, PeerMessage, StateRequestAck};
+use crate::network_protocol::{
+    Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, StateRequestAck, StateResponseInfo,
+    StateResponseInfoV2, T2MessageBody, TieredMessageBody,
+};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection::PoolError;
@@ -11,14 +15,21 @@ use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::types::Edge;
+use crate::types::{
+    Edge, NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    StateRequestSenderForNetwork,
+};
 use futures::future::join_all;
+use near_async::messaging::{AsyncSender, CanSendAsync};
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{
+    PartOrHeader, ShardStateSyncResponse, ShardStateSyncResponseV2, StateRequestAckBody,
+};
 use near_primitives::types::ShardId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::TestDB;
@@ -29,7 +40,21 @@ use std::sync::Arc;
 /// descriptors.
 const MAX_INBOUND_TIER3_CONNECTIONS: usize = 8;
 
-/// Starts a peer manager to which the tests connect.
+/// The response which a host started with `start_pm` sends for a state request. The network
+/// doesn't look into the response, so it is left empty.
+fn state_response(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    part_idx: Option<StatePartIndex>,
+) -> StateResponseInfo {
+    let state_response = ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+        header: None,
+        part: part_idx.map(|part_idx| (part_idx, vec![])),
+    });
+    StateResponseInfo::V2(Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }))
+}
+
+/// Starts a peer manager to which the tests connect. It answers all state requests.
 async fn start_pm(
     clock: &time::Clock,
     chain: &Arc<data::Chain>,
@@ -37,7 +62,28 @@ async fn start_pm(
 ) -> ActorHandler {
     let mut cfg = chain.make_config(rng);
     cfg.max_inbound_tier3_connections = MAX_INBOUND_TIER3_CONNECTIONS as u32;
-    peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await
+    let state_request_sender = StateRequestSenderForNetwork {
+        state_request_header: AsyncSender::from_fn(|StateRequestHeader { shard_id, sync_hash }| {
+            Some(StatePartOrHeader(Box::new(state_response(shard_id, sync_hash, None))))
+        }),
+        state_request_part: AsyncSender::from_fn(
+            |StateRequestPart { shard_id, sync_hash, part_idx }| {
+                Some(StatePartOrHeader(Box::new(state_response(
+                    shard_id,
+                    sync_hash,
+                    Some(part_idx),
+                ))))
+            },
+        ),
+    };
+    peer_manager::testonly::start_with_state_request_sender(
+        clock.clone(),
+        TestDB::new(),
+        cfg,
+        chain.clone(),
+        state_request_sender,
+    )
+    .await
 }
 
 /// Opens a Tier3 connection to `pm` and sends a handshake as the owner of `key`.
@@ -206,10 +252,10 @@ async fn concurrent_requesters_limited() {
     assert_eq!(accepted, FREE);
 }
 
-// Verify that a host sends the ack and the state part over the Tier3 connection
-// on which the request arrived.
+// Verify that a host sends the acks and the responses for state header and part requests over
+// the Tier3 connection on which the requests arrived.
 #[tokio::test]
-async fn part_request_answered_over_tier3() {
+async fn requests_answered_over_tier3() {
     init_test_logger();
     let mut rng = make_rng(921853242);
     let rng = &mut rng;
@@ -223,21 +269,27 @@ async fn part_request_answered_over_tier3() {
     let shard_id = ShardId::new(0);
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
     let part_idx = 7;
-    stream.write(&PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx)).await;
-    let ack = StateRequestAck {
-        shard_id,
-        sync_hash,
-        part_or_header: PartOrHeader::Part { part_idx },
-        body: StateRequestAckBody::WillRespond,
-    };
-    assert_eq!(stream.read().await.unwrap(), PeerMessage::StateRequestAck(ack));
-    let msg = stream.read().await.unwrap();
-    let PeerMessage::VersionedStateResponse(response) = msg else {
-        panic!("unexpected message: {msg}");
-    };
-    assert_eq!(response.shard_id(), shard_id);
-    assert_eq!(response.sync_hash(), sync_hash);
-    assert_eq!(response.part_idx(), Some(part_idx));
+    for (request, part_or_header, part_idx) in [
+        (PeerMessage::StateRequestHeader(shard_id, sync_hash), PartOrHeader::Header, None),
+        (
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx),
+            PartOrHeader::Part { part_idx },
+            Some(part_idx),
+        ),
+    ] {
+        stream.write(&request).await;
+        let ack = StateRequestAck {
+            shard_id,
+            sync_hash,
+            part_or_header,
+            body: StateRequestAckBody::WillRespond,
+        };
+        assert_eq!(stream.read().await.unwrap(), PeerMessage::StateRequestAck(ack));
+        assert_eq!(
+            stream.read().await.unwrap(),
+            PeerMessage::VersionedStateResponse(state_response(shard_id, sync_hash, part_idx)),
+        );
+    }
 }
 
 // Verify that a host acks over the Tier3 connection a request which it fails to answer.
@@ -250,10 +302,16 @@ async fn failed_request_acknowledged_over_tier3() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
 
-    let pm = start_pm(&clock, &chain, rng).await;
+    // Without a state request handler, the host fails all requests.
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
     let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng).await;
 
-    // The test harness fails all state header requests.
     let shard_id = ShardId::new(0);
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
     stream.write(&PeerMessage::StateRequestHeader(shard_id, sync_hash)).await;
@@ -313,4 +371,100 @@ async fn ack_accepted_over_tier3() {
         })
         .await;
     assert_eq!(processed, ack);
+}
+
+// Verify that a host acks routed state requests over Tier2, and sends the responses over a Tier3
+// connection which it opens to the requester.
+#[tokio::test]
+async fn routed_requests_answered_over_tier3() {
+    init_test_logger();
+    let mut rng = make_rng(921853246);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let host = start_pm(&clock, &chain, rng).await;
+    // The requester puts its address in the requests, so that the host can connect to it.
+    let mut cfg = chain.make_config(rng);
+    cfg.tier3_public_addr = cfg.node_addr.as_ref().map(|addr| **addr);
+    let requester =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await;
+    let host_id = host.cfg.node_id();
+    let requester_id = requester.cfg.node_id();
+    requester.connect_to(&host.peer_info(), tcp::Tier::T2).await;
+    requester.wait_for_routing_table(&[(host_id.clone(), vec![host_id.clone()])]).await;
+    host.wait_for_routing_table(&[(requester_id.clone(), vec![requester_id])]).await;
+
+    // Let the requester know that the host has a snapshot of the shard.
+    let shard_id = ShardId::new(0);
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let info = SnapshotHostInfo::new(
+        host_id.clone(),
+        snapshot_hash,
+        0,
+        vec![shard_id],
+        &host.cfg.node_key,
+    );
+    requester
+        .with_state(move |s| async move { s.snapshot_hosts.insert_skip_verify(Arc::new(info)) })
+        .await;
+
+    // The host connects to the requester to answer the first request, and reuses the connection
+    // for the second.
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let part_idx = 7;
+    for (request, part_or_header, part_idx) in [
+        (
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx },
+            PartOrHeader::Part { part_idx },
+            Some(part_idx),
+        ),
+        (
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, snapshot_hash },
+            PartOrHeader::Header,
+            None,
+        ),
+    ] {
+        let events = requester.events.from_now();
+        let response: PeerManagerMessageResponse = requester
+            .actor
+            .send_async(PeerManagerMessageRequest::NetworkRequests(request))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.as_network_response(),
+            NetworkResponses::SelectedDestination(host_id.clone())
+        );
+
+        let ack = StateRequestAck {
+            shard_id,
+            sync_hash,
+            part_or_header,
+            body: StateRequestAckBody::WillRespond,
+        };
+        let want_ack: TieredMessageBody = T2MessageBody::StateRequestAck(ack).into();
+        events
+            .clone()
+            .recv_until(|ev| match ev {
+                Event::MessageProcessed(tcp::Tier::T2, PeerMessage::Routed(msg))
+                    if msg.body() == &want_ack =>
+                {
+                    Some(())
+                }
+                _ => None,
+            })
+            .await;
+        let want_response = state_response(shard_id, sync_hash, part_idx);
+        events
+            .clone()
+            .recv_until(|ev| match ev {
+                Event::MessageProcessed(
+                    tcp::Tier::T3,
+                    PeerMessage::VersionedStateResponse(response),
+                ) if response == want_response => Some(()),
+                _ => None,
+            })
+            .await;
+    }
 }
