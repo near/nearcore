@@ -237,12 +237,9 @@ pub fn spice_validate_chunk_state_witness(
 
     let chunk_extra = match &state_witness {
         SpiceChunkStateWitness::V1(_) => chunk_extra,
-        SpiceChunkStateWitness::Boundary(witness) => replay_boundary_implicit_transitions(
-            witness,
-            boundary_replays,
-            chunk_extra,
-            runtime_adapter,
-        )?,
+        SpiceChunkStateWitness::Boundary(_) => {
+            replay_boundary_implicit_transitions(boundary_replays, chunk_extra, runtime_adapter)?
+        }
     };
 
     // TODO(spice-resharding): Handle possible resharding transitions.
