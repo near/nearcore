@@ -41,7 +41,7 @@ pub struct SnapshotHostInfo {
     /// Missing if the info was published by an older host or relayed by an older node.
     pub signature: Option<Signature>,
     /// Signature on (sync_hash, epoch_height, shards), the only one older nodes verify.
-    // TODO(saketh): Stop sending it in the release after next. Nodes on this release
+    // TODO(network-overhaul): Stop sending it in the release after next. Nodes on this release
     // drop infos without it, so the next release must still send it.
     pub legacy_signature: Option<Signature>,
 }
