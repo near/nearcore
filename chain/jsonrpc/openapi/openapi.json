@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.37"
+    "version": "1.3.38"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2520,6 +2520,27 @@
             },
             "required": [
               "AccountNotInitialized"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `FunctionCall` action called the method reserved for external contract calls.\nThat method only runs in an external call or a view call.",
+            "properties": {
+              "ReservedMethodName": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReservedMethodName"
             ],
             "type": "object"
           }

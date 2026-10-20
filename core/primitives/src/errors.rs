@@ -961,6 +961,11 @@ pub enum ActionErrorKind {
     AccountNotInitialized {
         account_id: AccountId,
     } = 30,
+    /// A `FunctionCall` action called the method reserved for external contract calls.
+    /// That method only runs in an external call or a view call.
+    ReservedMethodName {
+        method_name: String,
+    } = 31,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1320,6 +1325,11 @@ impl Display for ActionErrorKind {
                 f,
                 "Can't complete the action because account {:?} is uninitialized",
                 account_id
+            ),
+            ActionErrorKind::ReservedMethodName { method_name } => write!(
+                f,
+                "Method {:?} is reserved for external contract calls and can't be called by a FunctionCall action",
+                method_name
             ),
         }
     }
