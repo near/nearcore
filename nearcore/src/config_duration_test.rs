@@ -70,6 +70,10 @@ fn test_config_duration_all_std() {
                     routing_graph_max_peers: Some(100_000),
                     routing_graph_max_edges: Some(1_000_000),
                     routing_graph_max_accounts_per_message: Some(10_000),
+                    prefer_borsh: None,
+                    allow_protobuf_on_connection: None,
+                    sign_with_borsh: None,
+                    allow_protobuf_signed_structs: None,
                 },
                 ..Default::default()
             },
