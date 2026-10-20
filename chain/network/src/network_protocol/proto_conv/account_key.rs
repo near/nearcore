@@ -4,7 +4,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
     AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
-    VersionedAccountData,
+    VersionedAccountData, from_unix_nanos, to_unix_nanos,
 };
 use protobuf::{Message as _, MessageField as MF};
 
@@ -31,7 +31,7 @@ impl From<&VersionedAccountData> for proto::AccountKeyPayload {
                 account_key: MF::some((&x.account_key).into()),
                 proxies: x.proxies.iter().map(Into::into).collect(),
                 version: x.version,
-                timestamp: MF::some(utc_to_proto(&x.timestamp)),
+                timestamp: MF::some(utc_to_proto(&from_unix_nanos(x.timestamp))),
                 ..Default::default()
             })),
             ..Self::default()
@@ -53,8 +53,9 @@ impl TryFrom<&proto::AccountKeyPayload> for VersionedAccountData {
             },
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             version: x.version,
-            timestamp: map_from_required(&x.timestamp, utc_from_proto)
-                .map_err(Self::Error::Timestamp)?,
+            timestamp: to_unix_nanos(
+                map_from_required(&x.timestamp, utc_from_proto).map_err(Self::Error::Timestamp)?,
+            ),
         })
     }
 }
@@ -116,7 +117,7 @@ impl From<&OwnedAccount> for proto::AccountKeyPayload {
             payload_type: Some(ProtoPT::OwnedAccount(proto::OwnedAccount {
                 account_key: MF::some((&x.account_key).into()),
                 peer_id: MF::some((&x.peer_id).into()),
-                timestamp: MF::some(utc_to_proto(&x.timestamp)),
+                timestamp: MF::some(utc_to_proto(&from_unix_nanos(x.timestamp))),
                 ..Default::default()
             })),
             ..Self::default()
@@ -134,8 +135,9 @@ impl TryFrom<&proto::AccountKeyPayload> for OwnedAccount {
         Ok(Self {
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
-            timestamp: map_from_required(&x.timestamp, utc_from_proto)
-                .map_err(Self::Error::Timestamp)?,
+            timestamp: to_unix_nanos(
+                map_from_required(&x.timestamp, utc_from_proto).map_err(Self::Error::Timestamp)?,
+            ),
         })
     }
 }

@@ -166,8 +166,20 @@ pub struct VersionedAccountData {
     /// * timestamp is a version tie breaker, introduced only to minimize
     ///   the risk of version collision (see accounts_data/mod.rs).
     pub version: u64,
-    /// UTC timestamp of when the AccountData has been signed.
-    pub timestamp: time::Utc,
+    /// UTC timestamp of when the AccountData has been signed, in nanoseconds since the unix
+    /// epoch, see `to_unix_nanos`.
+    pub timestamp: u64,
+}
+
+/// Converts `t` to nanoseconds since the unix epoch, which is how the timestamps of
+/// `VersionedAccountData` and `OwnedAccount` are represented. Saturates before 1970 and after 2554.
+pub(crate) fn to_unix_nanos(t: time::Utc) -> u64 {
+    t.unix_timestamp_nanos().clamp(0, u64::MAX.into()) as u64
+}
+
+/// Converts nanoseconds since the unix epoch to UTC time, see `to_unix_nanos`.
+pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
+    time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
 }
 
 /// Limit on the size of the serialized AccountData message.
@@ -229,6 +241,11 @@ impl VersionedAccountData {
             payload: AccountKeySignedPayload { payload, signature },
         })
     }
+
+    /// `timestamp` as UTC time.
+    pub fn timestamp_utc(&self) -> time::Utc {
+        from_unix_nanos(self.timestamp)
+    }
 }
 
 impl std::ops::Deref for VersionedAccountData {
@@ -288,7 +305,8 @@ impl SignedAccountData {
 pub struct OwnedAccount {
     pub(crate) account_key: PublicKey,
     pub(crate) peer_id: PeerId,
-    pub(crate) timestamp: time::Utc,
+    /// UTC timestamp in nanoseconds since the unix epoch, see `to_unix_nanos`.
+    pub(crate) timestamp: u64,
 }
 
 impl OwnedAccount {
