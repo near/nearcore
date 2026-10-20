@@ -1,6 +1,6 @@
 use crate::hash_domain::HashDomainTag;
 use crate::util::try_fixed_array;
-use aws_lc_rs::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey};
+use near_mldsa_native_sys as mldsa;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use near_schema_checker_lib::ProtocolSchema;
@@ -758,9 +758,12 @@ impl SecretKey {
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut OsRng)),
             KeyType::MLDSA65 => {
-                let kp =
-                    PqdsaKeyPair::generate(&ML_DSA_65_SIGNING).expect("ML-DSA-65 keygen failed");
-                SecretKey::MLDSA65(ml_dsa_65_secret_from_keypair(&kp))
+                use secp256k1::rand::RngCore;
+                let mut seed = [0u8; ML_DSA_65_SEED_LENGTH];
+                OsRng.fill_bytes(&mut seed);
+                SecretKey::MLDSA65(
+                    ml_dsa_65_secret_from_seed(&seed).expect("ML-DSA-65 keygen failed"),
+                )
             }
         }
     }
@@ -785,11 +788,13 @@ impl SecretKey {
             }
 
             SecretKey::MLDSA65(secret_key) => {
-                let kp = PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
+                // Validate the key first, as aws-lc-rs did on import.
+                let mut pk = [0u8; ML_DSA_65_PUBLIC_KEY_LENGTH];
+                mldsa::public_key_from_secret_key(&secret_key.0, &mut pk)
                     .expect("invalid ML-DSA-65 raw private key");
+                let rnd = ml_dsa_65_signing_randomness();
                 let mut sig_buf = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
-                let n = kp.sign(data, sig_buf.as_mut()).expect("ML-DSA-65 sign failed");
-                debug_assert_eq!(n, ML_DSA_65_SIGNATURE_LENGTH);
+                mldsa::sign(&secret_key.0, data, &rnd, &mut sig_buf).expect("ML-DSA-65 sign failed");
                 Signature::MLDSA65(MlDsa65Signature(sig_buf))
             }
         }
@@ -808,12 +813,9 @@ impl SecretKey {
                 PublicKey::SECP256K1(public_key)
             }
             SecretKey::MLDSA65(secret_key) => {
-                let kp = PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
-                    .expect("invalid ML-DSA-65 raw private key");
-                use aws_lc_rs::signature::KeyPair;
-                let pk_bytes: &[u8] = kp.public_key().as_ref();
                 let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
-                buf.copy_from_slice(pk_bytes);
+                mldsa::public_key_from_secret_key(&secret_key.0, &mut buf)
+                    .expect("invalid ML-DSA-65 raw private key");
                 PublicKey::MLDSA65(MlDsa65PublicKey(buf))
             }
         }
@@ -827,38 +829,36 @@ impl SecretKey {
     }
 }
 
-/// Helper: extract the 4032-byte raw private key from a freshly-generated keypair.
+/// Per-signature randomness: hedged signing (as aws-lc-rs did) when an OS RNG
+/// is available, otherwise the FIPS 204 deterministic variant.
 #[cfg(feature = "rand")]
-fn ml_dsa_65_secret_from_keypair(kp: &PqdsaKeyPair) -> MlDsa65SecretKey {
-    use aws_lc_rs::encoding::{AsRawBytes, PqdsaPrivateKeyRaw};
-    let raw: PqdsaPrivateKeyRaw<'static> =
-        kp.private_key().as_raw_bytes().expect("ML-DSA-65 raw private export failed");
-    let bytes: &[u8] = raw.as_ref();
-    debug_assert_eq!(bytes.len(), ML_DSA_65_SECRET_KEY_LENGTH);
-    let mut buf = Box::new([0u8; ML_DSA_65_SECRET_KEY_LENGTH]);
-    buf.copy_from_slice(bytes);
-    MlDsa65SecretKey(buf)
+fn ml_dsa_65_signing_randomness() -> [u8; mldsa::RND_BYTES] {
+    use secp256k1::rand::RngCore;
+    let mut rnd = [0u8; mldsa::RND_BYTES];
+    secp256k1::rand::rngs::OsRng.fill_bytes(&mut rnd);
+    rnd
+}
+
+#[cfg(not(feature = "rand"))]
+fn ml_dsa_65_signing_randomness() -> [u8; mldsa::RND_BYTES] {
+    [0u8; mldsa::RND_BYTES]
 }
 
 /// Helper: build an `MlDsa65SecretKey` from a 32-byte seed (deterministic).
 fn ml_dsa_65_secret_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<MlDsa65SecretKey, crate::errors::ParseKeyError> {
-    use aws_lc_rs::encoding::{AsRawBytes, PqdsaPrivateKeyRaw};
-    let kp = PqdsaKeyPair::from_seed(&ML_DSA_65_SIGNING, &seed[..]).map_err(|err| {
+    let mut pk = [0u8; ML_DSA_65_PUBLIC_KEY_LENGTH];
+    let mut sk = Box::new([0u8; ML_DSA_65_SECRET_KEY_LENGTH]);
+    mldsa::keypair_from_seed(seed, &mut pk, &mut sk).map_err(|err| {
         crate::errors::ParseKeyError::InvalidData { error_message: err.to_string() }
     })?;
-    let raw: PqdsaPrivateKeyRaw<'static> = kp.private_key().as_raw_bytes().map_err(|err| {
-        crate::errors::ParseKeyError::InvalidData { error_message: err.to_string() }
-    })?;
-    let bytes: &[u8] = raw.as_ref();
-    let arr: [u8; ML_DSA_65_SECRET_KEY_LENGTH] = try_fixed_array(bytes)?;
-    Ok(MlDsa65SecretKey(Box::new(arr)))
+    Ok(MlDsa65SecretKey(sk))
 }
 
 /// Build an [`MlDsa65SecretKey`] from a 32-byte seed.
 ///
-/// Wraps `PqdsaKeyPair::from_seed`.
+/// FIPS 204 `ML-DSA.KeyGen_internal`.
 pub fn ml_dsa_65_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<SecretKey, crate::errors::ParseKeyError> {
@@ -895,7 +895,8 @@ impl FromStr for SecretKey {
                 // private key by handing them to the library. Catches
                 // malformed-but-correct-length blobs at parse time
                 // rather than blowing up later in `sign()`.
-                PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &data[..])
+                let mut pk = [0u8; ML_DSA_65_PUBLIC_KEY_LENGTH];
+                mldsa::public_key_from_secret_key(&data, &mut pk)
                     .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 Self::MLDSA65(MlDsa65SecretKey(Box::new(data)))
             }
@@ -1104,8 +1105,7 @@ impl Signature {
                 SECP256K1.verify_ecdsa(&message, &sig, &pub_key).is_ok()
             }
             (Signature::MLDSA65(signature), PublicKey::MLDSA65(public_key)) => {
-                let unparsed = UnparsedPublicKey::new(&ML_DSA_65, &public_key.0[..]);
-                unparsed.verify(data, &signature.0[..]).is_ok()
+                mldsa::verify(&public_key.0, data, &signature.0)
             }
             _ => false,
         }
@@ -1772,11 +1772,11 @@ mod tests {
     }
 
     /// Known-Answer Test pinning the (seed → public key) mapping and the
-    /// sign/verify round-trip on a fixed message. If `aws-lc-rs` ever
+    /// sign/verify round-trip on a fixed message. If the ML-DSA backend ever
     /// changes the bytes it emits for ML-DSA-65 keygen, or makes verify
     /// reject something it used to accept (or vice versa), this test
     /// fails - preventing a silent fork between nodes on different
-    /// `aws-lc-rs` versions.
+    /// backend versions.
     ///
     /// Only the public key is byte-pinned: ML-DSA-65 signatures *can*
     /// be non-deterministic in some library configurations, but verify
@@ -1794,7 +1794,7 @@ mod tests {
         assert_eq!(
             pk.to_string(),
             KAT_PUBKEY,
-            "seed → pubkey mapping changed; possible aws-lc-rs upgrade fork"
+            "seed → pubkey mapping changed; possible ML-DSA backend upgrade fork"
         );
         let sig = sk.sign(KAT_MESSAGE);
         assert!(sig.verify(KAT_MESSAGE, &pk), "self-produced signature must verify");
