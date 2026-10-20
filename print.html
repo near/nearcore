@@ -3370,6 +3370,13 @@ the name change often means the change of the semantics, which means the contrac
 execute anyway.</li>
 </ul>
 <p>However there is one reason to not have <code>data_read</code> -- it makes <code>API</code> more human-like which is a general direction Wasm APIs, like WASI are moving towards to.</p>
+<p>Some of the functions below behave differently depending on how the contract execution was initiated:</p>
+<ul>
+<li>an <strong>internal</strong> call executes a receipt, created by a transaction or by a cross-contract call;</li>
+<li>a <strong>view</strong> call is a read-only call made through RPC;</li>
+<li>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
+or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.</li>
+</ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3393,6 +3400,8 @@ some access key and submitted into a memory pool (either through the wallet usin
 <h6 id="normal-operation"><a class="header" href="#normal-operation">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the signer account id into the register.</li>
+<li>In an external call there is no signer, so saves the bytes of the current account id instead: the contract signs
+for the call itself.</li>
 </ul>
 <h6 id="panics-1"><a class="header" href="#panics-1">Panics</a></h6>
 <ul>
@@ -3416,7 +3425,8 @@ e.g. to increase the allowance or manipulate with the public key.</p>
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
 <ul>
@@ -3438,7 +3448,8 @@ that does function invocation on the contract or another contract as a result of
 <h6 id="panics-3"><a class="header" href="#panics-3">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
 <ul>
@@ -3456,6 +3467,7 @@ can set this to another account id when sending the receipt.</p>
 <h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the account id receiving balance refunds into the register.</li>
+<li>In an external call the contract pays for the call, so saves the bytes of the current account id instead.</li>
 </ul>
 <h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
 <ul>
@@ -3541,6 +3553,17 @@ the contract execution starts;</li>
 </ul>
 <p>If contract execution fails <code>prepaid_gas - used_gas</code> is refunded back to <code>signer_account_id</code> and <code>attached_deposit</code>
 is refunded back to <code>predecessor_account_id</code>.</p>
+<p>An external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
+the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
+calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so <code>used_gas</code> can be
+at most what the balance pays for, and using more panics with <code>GasExceeded</code>. Two limits also apply: the gas burnt is
+limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
+<code>max_total_prepaid_gas</code>.</p>
+<p>The cost is taken as soon as the gas is used, and <code>account_balance</code> returns the balance left after it. A deposit or
+transfer cannot spend the balance needed to pay for the gas used so far, and panics with <code>BalanceExceeded</code>
+instead.</p>
+<p>An external call has no deposit. If one is called with a nonzero <code>attached_deposit</code>, it fails with
+<code>DepositInExternalCall</code> before any contract code runs.</p>
 <p>The following spec is the same for all functions:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3569,7 +3592,8 @@ used_gas() -&gt; u64
 </span></code></pre></pre>
 <h6 id="panics-7"><a class="header" href="#panics-7">Panics</a></h6>
 <ul>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If <code>prepaid_gas</code> is called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="math-api"><a class="header" href="#math-api">Math API</a></h1>
@@ -7830,6 +7854,24 @@ gas that is computed after the current call has finished. This allows attaching
 100% of unspent gas to a call. If there are multiple calls, this allows
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.</p>
+<h3 id="gas-in-external-contract-calls"><a class="header" href="#gas-in-external-contract-calls">Gas in External Contract Calls</a></h3>
+<p>External contract calls (the <code>ExternalContractCalls</code> protocol feature, not yet
+stable) let a contract authorize a call from a user who has no balance. The
+contract pays for the gas, so there is no <code>attached_gas</code> and the
+<code>prepaid_gas()</code> host function fails. Instead, two limits apply:</p>
+<ul>
+<li>The call can burn at most <code>max_gas_burnt_external</code>, 20 Tgas. This bounds the
+work done before the contract has decided to accept the call.</li>
+<li>The gas burnt plus the gas attached to outgoing promises can be at most
+<code>max_total_prepaid_gas</code>.</li>
+</ul>
+<p>The contract pays for all the gas the call uses from its balance, at the gas
+price of the call: the gas it burns, the gas attached to function calls, and
+the execution fees of all actions and receipts. The balance takes the place of
+the prepaid gas, so the call fails with <code>GasExceeded</code> once it uses more gas
+than the balance pays for, and spending the balance on deposits lowers that
+limit. A promise gets exactly the gas it was created with: unspent gas is not
+distributed by weight, because there is no prepaid gas to distribute.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the

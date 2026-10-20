@@ -262,6 +262,24 @@ gas that is computed after the current call has finished. This allows attaching
 100% of unspent gas to a call. If there are multiple calls, this allows
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.</p>
+<h3 id="gas-in-external-contract-calls"><a class="header" href="#gas-in-external-contract-calls">Gas in External Contract Calls</a></h3>
+<p>External contract calls (the <code>ExternalContractCalls</code> protocol feature, not yet
+stable) let a contract authorize a call from a user who has no balance. The
+contract pays for the gas, so there is no <code>attached_gas</code> and the
+<code>prepaid_gas()</code> host function fails. Instead, two limits apply:</p>
+<ul>
+<li>The call can burn at most <code>max_gas_burnt_external</code>, 20 Tgas. This bounds the
+work done before the contract has decided to accept the call.</li>
+<li>The gas burnt plus the gas attached to outgoing promises can be at most
+<code>max_total_prepaid_gas</code>.</li>
+</ul>
+<p>The contract pays for all the gas the call uses from its balance, at the gas
+price of the call: the gas it burns, the gas attached to function calls, and
+the execution fees of all actions and receipts. The balance takes the place of
+the prepaid gas, so the call fails with <code>GasExceeded</code> once it uses more gas
+than the balance pays for, and spending the balance on deposits lowers that
+limit. A promise gets exactly the gas it was created with: unspent gas is not
+distributed by weight, because there is no prepaid gas to distribute.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the

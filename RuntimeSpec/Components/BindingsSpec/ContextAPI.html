@@ -157,6 +157,13 @@ the name change often means the change of the semantics, which means the contrac
 execute anyway.</li>
 </ul>
 <p>However there is one reason to not have <code>data_read</code> -- it makes <code>API</code> more human-like which is a general direction Wasm APIs, like WASI are moving towards to.</p>
+<p>Some of the functions below behave differently depending on how the contract execution was initiated:</p>
+<ul>
+<li>an <strong>internal</strong> call executes a receipt, created by a transaction or by a cross-contract call;</li>
+<li>a <strong>view</strong> call is a read-only call made through RPC;</li>
+<li>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
+or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.</li>
+</ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -180,6 +187,8 @@ some access key and submitted into a memory pool (either through the wallet usin
 <h6 id="normal-operation"><a class="header" href="#normal-operation">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the signer account id into the register.</li>
+<li>In an external call there is no signer, so saves the bytes of the current account id instead: the contract signs
+for the call itself.</li>
 </ul>
 <h6 id="panics-1"><a class="header" href="#panics-1">Panics</a></h6>
 <ul>
@@ -203,7 +212,8 @@ e.g. to increase the allowance or manipulate with the public key.</p>
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
 <ul>
@@ -225,7 +235,8 @@ that does function invocation on the contract or another contract as a result of
 <h6 id="panics-3"><a class="header" href="#panics-3">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
 <ul>
@@ -243,6 +254,7 @@ can set this to another account id when sending the receipt.</p>
 <h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the account id receiving balance refunds into the register.</li>
+<li>In an external call the contract pays for the call, so saves the bytes of the current account id instead.</li>
 </ul>
 <h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
 <ul>

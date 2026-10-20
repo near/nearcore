@@ -155,6 +155,17 @@ the contract execution starts;</li>
 </ul>
 <p>If contract execution fails <code>prepaid_gas - used_gas</code> is refunded back to <code>signer_account_id</code> and <code>attached_deposit</code>
 is refunded back to <code>predecessor_account_id</code>.</p>
+<p>An external call (see <a href="ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
+the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
+calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so <code>used_gas</code> can be
+at most what the balance pays for, and using more panics with <code>GasExceeded</code>. Two limits also apply: the gas burnt is
+limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
+<code>max_total_prepaid_gas</code>.</p>
+<p>The cost is taken as soon as the gas is used, and <code>account_balance</code> returns the balance left after it. A deposit or
+transfer cannot spend the balance needed to pay for the gas used so far, and panics with <code>BalanceExceeded</code>
+instead.</p>
+<p>An external call has no deposit. If one is called with a nonzero <code>attached_deposit</code>, it fails with
+<code>DepositInExternalCall</code> before any contract code runs.</p>
 <p>The following spec is the same for all functions:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -183,7 +194,8 @@ used_gas() -&gt; u64
 </span></code></pre></pre>
 <h6 id="panics-1"><a class="header" href="#panics-1">Panics</a></h6>
 <ul>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
+<li>If <code>prepaid_gas</code> is called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 
                     </main>
