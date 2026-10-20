@@ -349,6 +349,18 @@ pub struct NetworkConfigOverrides {
     pub routing_graph_max_edges: Option<usize>,
     /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
     pub routing_graph_max_accounts_per_message: Option<usize>,
+    /// See `NetworkTransitionConfig::prefer_borsh`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_borsh: Option<bool>,
+    /// See `NetworkTransitionConfig::allow_protobuf_on_connection`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_protobuf_on_connection: Option<bool>,
+    /// See `NetworkTransitionConfig::sign_with_borsh`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_with_borsh: Option<bool>,
+    /// See `NetworkTransitionConfig::allow_protobuf_signed_structs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_protobuf_signed_structs: Option<bool>,
 }
 
 impl Default for Config {
