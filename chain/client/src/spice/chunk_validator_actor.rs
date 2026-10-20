@@ -429,7 +429,7 @@ impl SpiceChunkValidatorActor {
         let contract_accesses = self.pending_contract_accesses.pop(&block_hash);
         for accesses in contract_accesses.into_iter().flat_map(HashMap::into_values) {
             if let Err(err) = self.handle_spice_contract_accesses(accesses) {
-                tracing::debug!(target: "spice_chunk_validator", %block_hash, ?err, "dropping deferred contract accesses");
+                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "error handling deferred contract accesses");
             }
         }
 
