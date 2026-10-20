@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
@@ -101,6 +102,23 @@ impl<'a> TestLoopNode<'a> {
         let chain_store = &self.client().chain.chain_store;
         let head_hash = self.head().last_block_hash;
         get_last_certified_block_header(chain_store, &head_hash).unwrap()
+    }
+
+    /// The last pre-spice block on this node's chain, found by walking down from the
+    /// head. The head must have reached the activation boundary: it is either the last
+    /// pre-spice block itself or a spice block above it.
+    pub fn last_pre_spice_block_header(&self) -> Arc<BlockHeader> {
+        let chain = &self.client().chain;
+        let mut header = chain.get_block_header(&self.head().last_block_hash).unwrap();
+        while header.is_spice() {
+            header = chain.get_block_header(header.prev_hash()).unwrap();
+        }
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), header.hash()).unwrap(),
+            "head at height {} has not reached the spice activation boundary",
+            self.head().height,
+        );
+        header
     }
 
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
