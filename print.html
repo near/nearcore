@@ -2049,8 +2049,6 @@ equal to the maximum of the last three stakes and the highest proposal in the cu
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>struct RoutingTable {
-    /// PeerId associated for every known account id.
-    account_peers: HashMap&lt;AccountId, AnnounceAccount&gt;,
     /// Active PeerId that are part of the shortest path to each PeerId.
     peer_forwarding: HashMap&lt;PeerId, HashSet&lt;PeerId&gt;&gt;,
     /// Store last update for known edges.
@@ -2064,12 +2062,7 @@ equal to the maximum of the last three stakes and the highest proposal in the cu
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>
-<p><code>account_peers</code> is a mapping from each known account to the correspondent <a href="NetworkSpec/Messages.html#announceaccount">announcement</a>. Given that validators are known by its <a href="NetworkSpec/Messages.html#accountid">AccountId</a> when a node needs to send a message to a validator it finds the <a href="NetworkSpec/Messages.html#peerid">PeerId</a> associated with the <a href="NetworkSpec/Messages.html#accountid">AccountId</a> in this table.</p>
-</li>
-<li>
-<p><code>peer_forwarding</code>: For node <code>S</code>, <code>peer_forwarding</code> constitutes a mapping from each <a href="NetworkSpec/Messages.html#peerid">PeerId</a> <code>T</code>, to the set of peers that are directly connected to <code>S</code> and belong to the shortest route, in terms of number of edges, between <code>S</code> and <code>T</code>. When node <code>S</code> needs to send a message to node <code>T</code> and they are not directly connected, <code>S</code> choose one peer among the set <code>peer_forwarding[S]</code> and sends a routed message to it with destination <code>T</code>.</p>
-</li>
+<li><code>peer_forwarding</code>: For node <code>S</code>, <code>peer_forwarding</code> constitutes a mapping from each <a href="NetworkSpec/Messages.html#peerid">PeerId</a> <code>T</code>, to the set of peers that are directly connected to <code>S</code> and belong to the shortest route, in terms of number of edges, between <code>S</code> and <code>T</code>. When node <code>S</code> needs to send a message to node <code>T</code> and they are not directly connected, <code>S</code> choose one peer among the set <code>peer_forwarding[S]</code> and sends a routed message to it with destination <code>T</code>.</li>
 </ul>
 <!-- TODO: Add example. Draw a graph. Show routing table for each node. -->
 <!-- TODO: Notice when two nodes are totally disconnected, and when two nodes are directly connected -->
@@ -2105,27 +2098,11 @@ equal to the maximum of the last three stakes and the highest proposal in the cu
                 self.routing_table.edges_info[(peer0, peer1)] = edge
 </code></pre>
 <ul>
-<li>Announce account: <code>account_peers</code> map is updated with announcements from more recent epochs.</li>
-</ul>
-<pre><code class="language-python">def on_announce_accounts_received(self, announcements):
-    for announce_account in announcements:
-        # Check the announcement is valid
-        if announce_account.is_valid():
-            account_id = announce_account.account_id
-
-            # Find most recent announcement for account_id being announced
-            current_announce_account = self.routing_table.account_peers.get(account_id)
-
-            # If new epoch is happens after current epoch.
-            if announce_account.epoch &gt; current_announce_account.epoch:
-                # Update with the new announcement
-                self.routing_table.account_peers[announce_id] = announce_account
-</code></pre>
-<ul>
 <li>Route back messages: Read about it on <a href="NetworkSpec/NetworkSpec.html#routing-back">Routing back section</a></li>
 </ul>
 <h3 id="routing"><a class="header" href="#routing">Routing</a></h3>
 <p>When a node needs to send a message to another peer, it checks in the routing table if it is connected to that peer, possibly not directly but through several hops. Then it select one of the shortest path to the target peer and sends a <a href="NetworkSpec/Messages.html#routedmessage"><code>RoutedMessage</code></a> to the first peer in the path.</p>
+<p>Validators are known by their <a href="NetworkSpec/Messages.html#accountid">AccountId</a>. To send a message to a validator, a node first finds the <a href="NetworkSpec/Messages.html#peerid">PeerId</a> of the node running it. Each validator regularly broadcasts an <code>AccountData</code> signed with its validator key, which maps that key to its <a href="NetworkSpec/Messages.html#peerid">PeerId</a>. Nodes learn the validator keys of the current and next epochs from the chain.</p>
 <p>When it receives a <a href="NetworkSpec/Messages.html#routedmessage"><code>RoutedMessage</code></a>, it check if it is the target, in that case consume the body of the message, otherwise it finds a route to the target following described approach and sends the message again. It is important that before routing a message each peer check signature from original author of the message, passing a message with invalid signature can result in ban for the sender. It is not required however checking the content of the message itself.</p>
 <p>Each <a href="NetworkSpec/Messages.html#routedmessage"><code>RoutedMessage</code></a> is equipped with a time-to-live integer. If this message is not for the node processing it, it decrement the field by one before routing it; if the value is 0, the node drops the message instead of routing it.</p>
 <h4 id="routing-back"><a class="header" href="#routing-back">Routing back</a></h4>
@@ -2176,7 +2153,7 @@ def on_routed_message_received(self, routed_message, sender):
         self.send_routed_message(routed_message, sender)
 </code></pre>
 <h3 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h3>
-<p>When two node connect to each other they exchange all known edges (from <code>RoutingTable::edges_info</code>) and account announcements (from <code>RoutingTable::account_peers</code>). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new <code>AnnounceAccount</code> or a new <code>Edge</code> they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.</p>
+<p>When two node connect to each other they exchange all known edges (from <code>RoutingTable::edges_info</code>). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new <code>Edge</code> they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.</p>
 <h2 id="security"><a class="header" href="#security">Security</a></h2>
 <p>Messages exchanged between peers (both direct or routed) are cryptographically signed with sender private key. Nodes ID contains public key of each node that allow other peer to verify this messages. To keep secure communication most of this message requires some nonce/timestamp that forbid a malicious actor reuse a signed message out of context.</p>
 <p>In the case of routing messages each intermediate hop should verify that message hash and signatures are valid before routing to next hop.</p>
@@ -2225,7 +2202,7 @@ def on_routed_message_received(self, routed_message, sender):
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
-    /// Contains accounts and edge information.
+    /// Contains edge information.
     Sync(SyncData),
     RequestUpdateNonce(EdgeInfo),
     ResponseUpdateNonce(Edge),
@@ -2240,22 +2217,6 @@ def on_routed_message_received(self, routed_message, sender):
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-}
-<span class="boring">}
-</span></code></pre></pre>
-<h3 id="announceaccount"><a class="header" href="#announceaccount">AnnounceAccount</a></h3>
-<p>Each peer should announce its account</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>struct AnnounceAccount {
-    /// AccountId to be announced.
-    account_id: AccountId,
-    /// PeerId from the owner of the account.
-    peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    signature: Signature,
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -7320,10 +7281,11 @@ would be a chunk creator in +2, +3, +4 and +8 blocks (this is controlled by
 <h2 id="step-3-en-route-to-validatorproducer"><a class="header" href="#step-3-en-route-to-validatorproducer">Step 3: En-route to validator/producer</a></h2>
 <p>Great, the node knows to send (forward) the transaction to the validator, but
 how does the routing work? How do we know which peer is hosting a validator?</p>
-<p>Each validator is regularly (every <code>config.ttl_account_id_router</code>/2 seconds == 30
-minutes in production) broadcasting so called <code>AnnounceAccount</code>, which is
-basically a pair of <code>(account_id, peer_id)</code>, to the whole network. This way each
-node knows which <code>peer_id</code> to send the message to.</p>
+<p>Each validator regularly (every <code>tier1.advertise_proxies_interval</code> == 15 minutes
+by default) broadcasts a signed <code>AccountData</code> to the whole network. It maps the
+validator's public key to the <code>peer_id</code> of the node running the validator. Each
+node knows the keys of the current and next epoch validators from the chain, so
+it knows which <code>peer_id</code> to send the message to.</p>
 <p>Then it asks the routing table about the shortest path to the peer, and sends
 the <code>ForwardTx</code> message to the peer.</p>
 <h2 id="step-4-chunk-producer"><a class="header" href="#step-4-chunk-producer">Step 4: Chunk producer</a></h2>
@@ -7341,7 +7303,7 @@ identifier. If the validator sees that the transaction is present in the chain,
 it removes it from its local mempool.</p>
 <h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
 <p>Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an <code>AnnounceAccount</code> for it, so it doesn’t know
+validator or it didn’t receive an <code>AccountData</code> for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.</p>
 <p>We’re working on adding some monitoring to see how often this happens.</p>
@@ -9582,8 +9544,8 @@ struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
 <h2 id="78---step-8---exchange-routing-table-part-1---node-b"><a class="header" href="#78---step-8---exchange-routing-table-part-1---node-b">7.8 - Step 8 - Exchange routing table part 1 - node <code>B</code></a></h2>
 <p>At the end of the <code>register_peer</code> method node <code>B</code> will perform a
 <code>RoutingTableSync</code> sync. Sending the list of known <code>edges</code> representing a
-full graph, and a list of known <code>AnnounceAccount</code>. Those will be
-covered later, in their dedicated sections see sections (to be added). <!-- TODO: TODO1, TODO2 --></p>
+full graph. Those will be covered later, in their dedicated sections see
+sections (to be added). <!-- TODO: TODO1, TODO2 --></p>
 <pre><code class="language-rust  ignore">message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
 </code></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -9592,9 +9554,6 @@ covered later, in their dedicated sections see sections (to be added). <!-- TODO
 pub struct RoutingTableSync { // also known as `SyncData` (#5489)
     /// List of known edges from `RoutingTableActor::edges_info`.
     pub(crate) edges: Vec&lt;Edge&gt;,
-    /// List of known `account_id` to `PeerId` mappings.
-    /// Useful for `send_message_to_account` method, to route message to particular account.
-    pub(crate) accounts: Vec&lt;AnnounceAccount&gt;,
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -9755,9 +9714,6 @@ used nonce.</li>
 <li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to a list of edges.</li>
 <li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to the last component <code>nonce</code> it belongs to.</li>
 </ul>
-<h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
-<p><code>ColAccountAnnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
-(<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="gas-cost-parameters"><a class="header" href="#gas-cost-parameters">Gas Cost Parameters</a></h1>
 <p>Gas in NEAR Protocol solves two problems.</p>

@@ -179,7 +179,7 @@
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
-    /// Contains accounts and edge information.
+    /// Contains edge information.
     Sync(SyncData),
     RequestUpdateNonce(EdgeInfo),
     ResponseUpdateNonce(Edge),
@@ -194,22 +194,6 @@
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-}
-<span class="boring">}
-</span></code></pre></pre>
-<h3 id="announceaccount"><a class="header" href="#announceaccount">AnnounceAccount</a></h3>
-<p>Each peer should announce its account</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>struct AnnounceAccount {
-    /// AccountId to be announced.
-    account_id: AccountId,
-    /// PeerId from the owner of the account.
-    peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    signature: Signature,
 }
 <span class="boring">}
 </span></code></pre></pre>

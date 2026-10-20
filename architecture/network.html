@@ -398,8 +398,8 @@ struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
 <h2 id="78---step-8---exchange-routing-table-part-1---node-b"><a class="header" href="#78---step-8---exchange-routing-table-part-1---node-b">7.8 - Step 8 - Exchange routing table part 1 - node <code>B</code></a></h2>
 <p>At the end of the <code>register_peer</code> method node <code>B</code> will perform a
 <code>RoutingTableSync</code> sync. Sending the list of known <code>edges</code> representing a
-full graph, and a list of known <code>AnnounceAccount</code>. Those will be
-covered later, in their dedicated sections see sections (to be added). <!-- TODO: TODO1, TODO2 --></p>
+full graph. Those will be covered later, in their dedicated sections see
+sections (to be added). <!-- TODO: TODO1, TODO2 --></p>
 <pre><code class="language-rust  ignore">message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
 </code></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -408,9 +408,6 @@ covered later, in their dedicated sections see sections (to be added). <!-- TODO
 pub struct RoutingTableSync { // also known as `SyncData` (#5489)
     /// List of known edges from `RoutingTableActor::edges_info`.
     pub(crate) edges: Vec&lt;Edge&gt;,
-    /// List of known `account_id` to `PeerId` mappings.
-    /// Useful for `send_message_to_account` method, to route message to particular account.
-    pub(crate) accounts: Vec&lt;AnnounceAccount&gt;,
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -571,9 +568,6 @@ used nonce.</li>
 <li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to a list of edges.</li>
 <li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to the last component <code>nonce</code> it belongs to.</li>
 </ul>
-<h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
-<p><code>ColAccountAnnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
-(<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 
                     </main>
 

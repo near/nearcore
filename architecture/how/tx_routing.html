@@ -183,10 +183,11 @@ would be a chunk creator in +2, +3, +4 and +8 blocks (this is controlled by
 <h2 id="step-3-en-route-to-validatorproducer"><a class="header" href="#step-3-en-route-to-validatorproducer">Step 3: En-route to validator/producer</a></h2>
 <p>Great, the node knows to send (forward) the transaction to the validator, but
 how does the routing work? How do we know which peer is hosting a validator?</p>
-<p>Each validator is regularly (every <code>config.ttl_account_id_router</code>/2 seconds == 30
-minutes in production) broadcasting so called <code>AnnounceAccount</code>, which is
-basically a pair of <code>(account_id, peer_id)</code>, to the whole network. This way each
-node knows which <code>peer_id</code> to send the message to.</p>
+<p>Each validator regularly (every <code>tier1.advertise_proxies_interval</code> == 15 minutes
+by default) broadcasts a signed <code>AccountData</code> to the whole network. It maps the
+validator's public key to the <code>peer_id</code> of the node running the validator. Each
+node knows the keys of the current and next epoch validators from the chain, so
+it knows which <code>peer_id</code> to send the message to.</p>
 <p>Then it asks the routing table about the shortest path to the peer, and sends
 the <code>ForwardTx</code> message to the peer.</p>
 <h2 id="step-4-chunk-producer"><a class="header" href="#step-4-chunk-producer">Step 4: Chunk producer</a></h2>
@@ -204,7 +205,7 @@ identifier. If the validator sees that the transaction is present in the chain,
 it removes it from its local mempool.</p>
 <h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
 <p>Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an <code>AnnounceAccount</code> for it, so it doesn’t know
+validator or it didn’t receive an <code>AccountData</code> for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.</p>
 <p>We’re working on adding some monitoring to see how often this happens.</p>
