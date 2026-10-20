@@ -191,12 +191,14 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
-// The mainnet-derived epoch config rotates producer shard assignments at every
-// epoch boundary, so rotated-in producers need state sync — which is disabled
-// wholesale under a spice build (nearcore/src/state_sync.rs, `TODO(spice)`), even
-// for pre-spice epochs. The spice activation itself is covered by
-// tests/spice/activation_boundary.rs with pinned assignments.
-// TODO(spice-test): blocked on state sync.
+// In a spice build `PROTOCOL_VERSION` and the versions just below it all have spice
+// enabled, so every epoch here is a spice epoch. The mainnet-derived epoch config
+// rotates the producers' shard assignments at each epoch boundary, so rotated-in
+// producers must state sync, which spice does not support yet: a spice chain stores no
+// incoming receipts, so the state sync header cannot be built and the sync never
+// completes. The spice activation itself is covered by
+// tests/spice/activation_boundary.rs, with pinned assignments.
+// TODO(spice-test): blocked on state sync under spice.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
@@ -229,7 +231,7 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 /// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
 #[test]
 // TODO(spice-test): blocked on state sync, see slow_test_protocol_upgrade_no_missing_chunks.
-// Both versions are pre-spice, but the spice build disables state sync regardless.
+// In a spice build both versions have spice enabled too.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
