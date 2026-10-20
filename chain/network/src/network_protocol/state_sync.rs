@@ -113,6 +113,10 @@ impl SnapshotHostInfo {
         if self.signature.is_none() && self.legacy_signature.is_none() {
             return Err(SnapshotHostInfoVerificationError::InvalidSignature);
         }
+        // Only `signature` covers the address.
+        if self.addr.is_some() && self.signature.is_none() {
+            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+        }
         let public_key = self.peer_id.public_key();
         if let Some(signature) = &self.signature {
             if !signature.verify(self.hash().as_ref(), public_key) {

@@ -149,20 +149,13 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
                 max: MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
             });
         }
-        let signature = try_from_optional(&x.signature).map_err(Self::Error::Signature)?;
-        // Only `signature` covers the address, so without it the address is dropped rather
-        // than stored or relayed.
-        let addr = match signature {
-            Some(_) => try_from_optional(&x.addr).map_err(Self::Error::Addr)?,
-            None => None,
-        };
         Ok(Self {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
             epoch_height: x.epoch_height,
             shards: x.shards.clone().into_iter().map(Into::into).collect(),
-            addr,
-            signature,
+            addr: try_from_optional(&x.addr).map_err(Self::Error::Addr)?,
+            signature: try_from_optional(&x.signature).map_err(Self::Error::Signature)?,
             legacy_signature: try_from_optional(&x.legacy_signature)
                 .map_err(Self::Error::LegacySignature)?,
         })

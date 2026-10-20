@@ -361,7 +361,7 @@ impl SnapshotHostsCache {
             // release will accept and relay them while still sending the legacy signature,
             // and the release after that will stop sending it. They are dropped without an
             // error so that nodes on this release don't ban peers on the next release.
-            // TODO(saketh): Accept them in the next release.
+            // TODO(network-overhaul): Accept them in the next release.
             data.into_iter()
                 .filter(|d| !d.shards.is_empty() && d.legacy_signature.is_some() && inner.is_new(d))
                 .collect_vec()

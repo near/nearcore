@@ -521,10 +521,12 @@ fn snapshot_host_info_signed_address() {
     let want = SnapshotHostInfo { addr: None, signature: None, ..info.clone() };
     assert_eq!(stripped, want);
 
-    // An address without the signature covering it is dropped while parsing.
+    // An address without the signature covering it fails verification.
     let mut unsigned = proto::SnapshotHostInfo::from(&info);
     unsigned.signature = MessageField::none();
-    assert_eq!(SnapshotHostInfo::try_from(&unsigned).unwrap(), want);
+    let unsigned = SnapshotHostInfo::try_from(&unsigned).unwrap();
+    assert_eq!(unsigned, SnapshotHostInfo { signature: None, ..info });
+    assert_eq!(unsigned.verify(), Err(SnapshotHostInfoVerificationError::InvalidSignature));
 }
 
 #[test]
