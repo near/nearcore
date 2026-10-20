@@ -20,6 +20,10 @@ fn default_ideal_connections_lo() -> u32 {
 fn default_ideal_connections_hi() -> u32 {
     35
 }
+/// Maximum number of inbound Tier3 connections.
+fn default_max_inbound_tier3_connections() -> u32 {
+    64
+}
 /// Default socket options for peer connections.
 fn default_so_recv_buffer_size() -> Option<u32> {
     Some(1000000)
@@ -106,6 +110,9 @@ pub struct Config {
     /// Upper bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_hi")]
     pub ideal_connections_hi: u32,
+    /// Maximum number of inbound Tier3 connections.
+    #[serde(default = "default_max_inbound_tier3_connections")]
+    pub max_inbound_tier3_connections: u32,
     #[serde(default = "default_so_recv_buffer_size")]
     pub so_recv_buffer_size: Option<u32>,
     #[serde(default = "default_so_send_buffer_size")]
@@ -348,6 +355,7 @@ impl Default for Config {
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
             ideal_connections_hi: default_ideal_connections_hi(),
+            max_inbound_tier3_connections: default_max_inbound_tier3_connections(),
             so_recv_buffer_size: default_so_recv_buffer_size(),
             so_send_buffer_size: default_so_send_buffer_size(),
             peer_recent_time_window: default_peer_recent_time_window(),

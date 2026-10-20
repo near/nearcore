@@ -415,6 +415,26 @@ message StateResponse {
   StateResponseInfo state_response_info = 1;
 }
 
+// Requests a state header over a TIER3 connection opened by the requester.
+// The host sends the ack and the response over the same connection.
+message StateRequestHeader {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+}
+
+// Requests a state part over a TIER3 connection opened by the requester.
+// The host sends the ack and the response over the same connection.
+message StateRequestPart {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+  uint64 part_id = 3;
+}
+
+message StateRequestAck {
+  // Borsh-encoded near_primitives::state_sync::StateRequestAck.
+  bytes borsh = 1;
+}
+
 message SnapshotHostInfo {
   PublicKey peer_id = 1;
   CryptoHash sync_hash = 2;
@@ -496,5 +516,8 @@ message PeerMessage {
 
     OptimisticBlock optimistic_block = 36;
     RoutedMessageV3 routed_v3 = 37;
+    StateRequestHeader state_request_header = 38;
+    StateRequestPart state_request_part = 39;
+    StateRequestAck state_request_ack = 40;
   }
 }

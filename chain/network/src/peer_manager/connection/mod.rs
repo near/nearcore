@@ -36,7 +36,10 @@ impl tcp::Tier {
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
             PeerMessage::Disconnect(..) => true,
-            PeerMessage::VersionedStateResponse(_) => self == tcp::Tier::T3,
+            PeerMessage::StateRequestHeader(..)
+            | PeerMessage::StateRequestPart(..)
+            | PeerMessage::StateRequestAck(_)
+            | PeerMessage::VersionedStateResponse(_) => self == tcp::Tier::T3,
             PeerMessage::OptimisticBlock(..) => true,
             PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
@@ -107,6 +110,10 @@ pub(crate) struct Connection {
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Whether this is an inbound Tier3 connection from a peer requesting state from us,
+    /// rather than from a host answering our own state requests. The pool accepts at most
+    /// `NetworkConfig::max_inbound_tier3_connections` such connections.
+    pub tier3_requester: bool,
     /// Time where the connection was established.
     pub established_time: time::Instant,
 
@@ -241,6 +248,8 @@ pub(crate) enum PoolError {
     UnexpectedLoopConnection,
     #[error("OutboundHandshakePermit dropped before calling Pool.insert_ready()")]
     PermitDropped,
+    #[error("too many tier3 connections from peers requesting state")]
+    TooManyTier3Requesters,
 }
 
 impl Pool {
@@ -258,7 +267,13 @@ impl Pool {
         self.0.load()
     }
 
-    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
+    /// Inserts a connection which completed its handshake. If `max_tier3_requesters` is set,
+    /// at most that many connections with `tier3_requester` set are accepted.
+    pub fn insert_ready(
+        &self,
+        peer: Arc<Connection>,
+        max_tier3_requesters: Option<usize>,
+    ) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
             // We support loopback connections for the purpose of
@@ -297,6 +312,12 @@ impl Pool {
                         return Err(PoolError::PermitDropped);
                     }
                 }
+            }
+            if peer.tier3_requester
+                && let Some(max) = max_tier3_requesters
+                && pool.ready.values().filter(|conn| conn.tier3_requester).count() >= max
+            {
+                return Err(PoolError::TooManyTier3Requesters);
             }
             if pool.ready.insert(id.clone(), peer.clone()).is_some() {
                 return Err(PoolError::AlreadyConnected);
