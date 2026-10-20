@@ -2,7 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::messaging::Handler;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{GetValidatorInfo, ViewClientActor};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -23,7 +23,6 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_stateless_validators_with_multi_test_loop() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
     let accounts = (0..NUM_ACCOUNTS)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -36,25 +35,20 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     let chunk_validators_only = (NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS)
         .map(|idx| accounts[idx].as_str())
         .collect_vec();
-    let clients = accounts.iter().take(NUM_VALIDATORS).cloned().collect_vec();
 
     let boundary_accounts =
         ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+        .build();
 
     // Capture the initial validator info in the first epoch.
     let initial_epoch_id = env.node(0).head().epoch_id;

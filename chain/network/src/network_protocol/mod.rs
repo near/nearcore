@@ -581,10 +581,6 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-    pub fn is_t1(&self) -> bool {
-        matches!(self, TieredMessageBody::T1(_))
-    }
-
     pub fn variant(&self) -> &'static str {
         match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),

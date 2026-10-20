@@ -90,10 +90,6 @@ impl ValidatorConfig {
     pub fn account_id(&self) -> Option<AccountId> {
         self.signer.get().map(|s| s.validator_id().clone())
     }
-
-    pub fn frozen_view(&self) -> FrozenValidatorConfig<'_> {
-        FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
-    }
 }
 
 #[derive(Clone)]

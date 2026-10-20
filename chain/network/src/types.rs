@@ -14,7 +14,6 @@ pub use crate::network_protocol::{
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice::data_distribution::SpiceDataRequest;
-pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
@@ -247,12 +246,12 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard and given sync hash.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, sync_prev_prev_hash: CryptoHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, snapshot_hash: CryptoHash },
     /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        sync_prev_prev_hash: CryptoHash,
+        snapshot_hash: CryptoHash,
         part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
