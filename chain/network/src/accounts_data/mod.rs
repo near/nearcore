@@ -262,11 +262,9 @@ impl AccountDataCache {
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
-                match d.payload().verify(&d.account_key) {
-                    Ok(()) => Some(d),
-                    Err(()) => None,
-                }
+            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| match d.verify() {
+                Ok(()) => Some(d),
+                Err(()) => None,
             })
         })
         .await;

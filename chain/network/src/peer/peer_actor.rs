@@ -618,7 +618,7 @@ impl PeerActor {
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
-            if let Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+            if let Err(_) = owned_account.verify() {
                 self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
                 return;
             }

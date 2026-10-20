@@ -85,7 +85,7 @@ const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
 const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
 const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
 
-#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct PeerAddr {
     pub addr: std::net::SocketAddr,
     pub peer_id: PeerId,
@@ -136,7 +136,7 @@ impl std::str::FromStr for PeerAddr {
 /// identity is known (and the maximal size of allowed AccountData is bounded)
 /// the global state that is distributed in the form of AccountData is bounded
 /// as well.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct AccountData {
     /// ID of the node that handles the account key (aka validator key).
     pub peer_id: PeerId,
@@ -150,7 +150,7 @@ pub struct AccountData {
 /// Wrapper of the AccountData which adds metadata to it.
 /// It allows to decide which AccountData is newer (authoritative)
 /// and discard the older versions.
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct VersionedAccountData {
     /// The wrapped account data.
     pub data: AccountData,
@@ -255,7 +255,7 @@ impl std::ops::Deref for VersionedAccountData {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -279,10 +279,11 @@ impl AccountKeySignedPayload {
 // TODO(gprusak): this is effectively immutable, and we always pass it around
 // in an Arc, so the Arc can be moved inside (except that constructing malformed
 // SignedAccountData for tests may get a little tricky).
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
-    // Serialized and signed AccountData.
+    // Serialized and signed AccountData. It is kept together with the account data, so
+    // verifying the signature checks that it encodes the account data.
     payload: AccountKeySignedPayload,
 }
 
@@ -297,11 +298,21 @@ impl SignedAccountData {
     pub fn payload(&self) -> &AccountKeySignedPayload {
         &self.payload
     }
+
+    /// Verifies the signature with the account key, and that it covers the account data.
+    pub fn verify(&self) -> Result<(), ()> {
+        if VersionedAccountData::from_proto_bytes(&self.payload.payload).ok().as_ref()
+            != Some(&self.account_data)
+        {
+            return Err(());
+        }
+        self.payload.verify(&self.account_key)
+    }
 }
 
 /// Proof that a given peer owns the account key.
 /// Included in every handshake sent by a validator node.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct OwnedAccount {
     pub(crate) account_key: PublicKey,
     pub(crate) peer_id: PeerId,
@@ -328,10 +339,11 @@ impl OwnedAccount {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct SignedOwnedAccount {
     owned_account: OwnedAccount,
-    // Serialized and signed OwnedAccount.
+    // Serialized and signed OwnedAccount. It is kept together with the owned account, so
+    // verifying the signature checks that it encodes the owned account.
     payload: AccountKeySignedPayload,
 }
 
@@ -346,9 +358,19 @@ impl SignedOwnedAccount {
     pub fn payload(&self) -> &AccountKeySignedPayload {
         &self.payload
     }
+
+    /// Verifies the signature with the account key, and that it covers the owned account.
+    pub fn verify(&self) -> Result<(), ()> {
+        if OwnedAccount::from_proto_bytes(&self.payload.payload).ok().as_ref()
+            != Some(&self.owned_account)
+        {
+            return Err(());
+        }
+        self.payload.verify(&self.account_key)
+    }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
@@ -369,7 +391,7 @@ impl RoutingTableUpdate {
 }
 
 /// Structure representing handshake between peers.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct Handshake {
     /// Current protocol version.
     pub(crate) protocol_version: u32,
@@ -389,15 +411,17 @@ pub struct Handshake {
     pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
-    GenesisMismatch(GenesisId),
-    InvalidTarget,
+    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 } = 0,
+    GenesisMismatch(GenesisId) = 1,
+    InvalidTarget = 2,
 }
 
 /// See SyncAccountsData in network_protocol/network.proto.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct SyncAccountsData {
     pub accounts_data: Vec<Arc<SignedAccountData>>,
     pub requesting_full_sync: bool,
@@ -405,7 +429,7 @@ pub struct SyncAccountsData {
 }
 
 /// Message sent to request a PeersResponse
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct PeersRequest {
     /// Limits the number of peers to send back
     pub max_peers: Option<u32>,
@@ -414,7 +438,7 @@ pub struct PeersRequest {
 }
 
 /// Message sent as a response to PeersRequest
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct PeersResponse {
     /// Peers drawn from the PeerStore of the responding node,
     /// which includes peers learned transitively from other peers
@@ -424,50 +448,62 @@ pub struct PeersResponse {
 }
 
 /// Message sent when gracefully disconnecting from the other peer.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct Disconnect {
     /// Advises the other peer to remove the connection from storage
     /// Used when it is not expected that a reconnect attempt would succeed
     pub remove_from_connection_store: bool,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
+/// Discriminants are part of the borsh encoding, don't reuse them.
+#[derive(
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    strum::IntoStaticStr,
+    strum::EnumVariantNames,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Tier1Handshake(Handshake),
-    Tier2Handshake(Handshake),
-    Tier3Handshake(Handshake),
-    HandshakeFailure(PeerInfo, HandshakeFailureReason),
+    Tier1Handshake(Handshake) = 0,
+    Tier2Handshake(Handshake) = 1,
+    Tier3Handshake(Handshake) = 2,
+    HandshakeFailure(PeerInfo, HandshakeFailureReason) = 3,
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
-    LastEdge(Edge),
+    LastEdge(Edge) = 4,
     /// Contains accounts and edge information.
-    SyncRoutingTable(RoutingTableUpdate),
-    RequestUpdateNonce(PartialEdgeInfo),
+    SyncRoutingTable(RoutingTableUpdate) = 5,
+    RequestUpdateNonce(PartialEdgeInfo) = 6,
 
-    SyncAccountsData(SyncAccountsData),
+    SyncAccountsData(SyncAccountsData) = 7,
 
-    PeersRequest(PeersRequest),
-    PeersResponse(PeersResponse),
+    PeersRequest(PeersRequest) = 8,
+    PeersResponse(PeersResponse) = 9,
 
-    BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<Arc<BlockHeader>>),
+    BlockHeadersRequest(Vec<CryptoHash>) = 10,
+    BlockHeaders(Vec<Arc<BlockHeader>>) = 11,
 
-    BlockRequest(CryptoHash),
-    Block(Arc<Block>),
-    OptimisticBlock(OptimisticBlock),
+    BlockRequest(CryptoHash) = 12,
+    Block(Arc<Block>) = 13,
+    OptimisticBlock(OptimisticBlock) = 14,
 
-    Transaction(SignedTransaction),
-    Routed(Box<RoutedMessage>),
+    Transaction(SignedTransaction) = 15,
+    Routed(Box<RoutedMessage>) = 16,
 
     /// Gracefully disconnect from other peer.
-    Disconnect(Disconnect),
-    Challenge(Box<Challenge>),
+    Disconnect(Disconnect) = 17,
+    Challenge(Box<Challenge>) = 18,
 
-    SyncSnapshotHosts(SyncSnapshotHosts),
-    VersionedStateResponse(StateResponseInfo),
+    SyncSnapshotHosts(SyncSnapshotHosts) = 19,
+    VersionedStateResponse(StateResponseInfo) = 20,
 
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
+    EpochSyncRequest = 21,
+    EpochSyncResponse(CompressedEpochSyncProof) = 22,
 }
 
 impl fmt::Display for PeerMessage {

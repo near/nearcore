@@ -72,6 +72,15 @@ pub enum ParseSignedAccountDataError {
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
+impl VersionedAccountData {
+    /// Parses the protobuf encoding of the data, which is signed in `SignedAccountData`.
+    pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedAccountDataError> {
+        let account_data = proto::AccountKeyPayload::parse_from_bytes(payload)
+            .map_err(ParseSignedAccountDataError::Decode)?;
+        (&account_data).try_into().map_err(ParseSignedAccountDataError::AccountData)
+    }
+}
+
 impl From<&SignedAccountData> for proto::AccountKeySignedPayload {
     fn from(x: &SignedAccountData) -> Self {
         Self {
@@ -85,14 +94,10 @@ impl From<&SignedAccountData> for proto::AccountKeySignedPayload {
 impl TryFrom<&proto::AccountKeySignedPayload> for SignedAccountData {
     type Error = ParseSignedAccountDataError;
     fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
-        let account_data =
-            proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
-            account_data: (&account_data).try_into().map_err(Self::Error::AccountData)?,
-            payload: AccountKeySignedPayload {
-                payload: x.payload.clone(),
-                signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
-            },
+            account_data: VersionedAccountData::from_proto_bytes(&x.payload)?,
+            payload: AccountKeySignedPayload { payload: x.payload.clone(), signature },
         })
     }
 }
@@ -154,6 +159,15 @@ pub enum ParseSignedOwnedAccountError {
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
+impl OwnedAccount {
+    /// Parses the protobuf encoding of the owned account, which is signed in `SignedOwnedAccount`.
+    pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedOwnedAccountError> {
+        let owned_account = proto::AccountKeyPayload::parse_from_bytes(payload)
+            .map_err(ParseSignedOwnedAccountError::Decode)?;
+        (&owned_account).try_into().map_err(ParseSignedOwnedAccountError::OwnedAccount)
+    }
+}
+
 impl From<&SignedOwnedAccount> for proto::AccountKeySignedPayload {
     fn from(x: &SignedOwnedAccount) -> Self {
         Self {
@@ -167,14 +181,10 @@ impl From<&SignedOwnedAccount> for proto::AccountKeySignedPayload {
 impl TryFrom<&proto::AccountKeySignedPayload> for SignedOwnedAccount {
     type Error = ParseSignedOwnedAccountError;
     fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
-        let owned_account =
-            proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
-            owned_account: (&owned_account).try_into().map_err(Self::Error::OwnedAccount)?,
-            payload: AccountKeySignedPayload {
-                payload: x.payload.clone(),
-                signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
-            },
+            owned_account: OwnedAccount::from_proto_bytes(&x.payload)?,
+            payload: AccountKeySignedPayload { payload: x.payload.clone(), signature },
         })
     }
 }
