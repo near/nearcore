@@ -169,8 +169,18 @@ check-publishable-separately *OPTIONS:
             REPORT="$REPORT\n$pkg_name: SKIPPED"
             continue
         fi
+        check_args="--examples --tests {{ OPTIONS }}"
+        # near-store's RocksDB backend doesn't build on Windows, and the tests of
+        # near-store and near-runtime pull it in through dev-dependencies. Check
+        # only their libraries there, with near-store on its in-memory store.
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-store" ]; then
+            check_args="--no-default-features"
+        fi
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-runtime" ]; then
+            check_args="{{ OPTIONS }}"
+        fi
         env RUSTFLAGS="-D warnings" \
-        cargo check -p $pkg_name --examples --tests {{ OPTIONS }}
+        cargo check -p $pkg_name $check_args
         res=$?
         if [ $res -eq 0 ]; then
             REPORT="$REPORT\n$pkg_name: OK"
