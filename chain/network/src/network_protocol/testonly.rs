@@ -10,7 +10,7 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
@@ -69,12 +69,6 @@ pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
     }
 }
 
-pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
-    let peer_id = make_peer_id(rng);
-    let validator_signer = make_validator_signer(rng);
-    AnnounceAccount::new(&validator_signer, peer_id, EpochId::default())
-}
-
 pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     let account_id = make_account_id(rng);
     let secret_key = make_secret_key(rng);
@@ -100,7 +94,6 @@ pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {
-        accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
         edges: {
             let mut e = vec![];
             for i in 0..signers.len() {
