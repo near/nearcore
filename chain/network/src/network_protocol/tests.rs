@@ -191,6 +191,24 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Older nodes still send AnnounceAccounts in field 2 of RoutingTableUpdate, which is now
+/// reserved. Such messages should still be parsed, with the field ignored.
+#[test]
+fn deserialize_sync_routing_table_with_legacy_accounts() {
+    let mut rng = make_rng(89028037453);
+    let msg = PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng));
+    let mut proto_msg = proto::PeerMessage::from(&msg);
+    let Some(proto::peer_message::Message_type::SyncRoutingTable(rtu)) =
+        &mut proto_msg.message_type
+    else {
+        panic!("expected a SyncRoutingTable message");
+    };
+    // Encoding of a legacy AnnounceAccount wrapper, whose field 1 held the borsh bytes.
+    rtu.special_fields.mut_unknown_fields().add_length_delimited(2, vec![0x0a, 0x03, 1, 2, 3]);
+    let got = PeerMessage::deserialize(&proto_msg.write_to_bytes().unwrap()).unwrap();
+    assert_eq!(got, msg);
+}
+
 fn make_block_approval_message() -> RoutedMessage {
     let mut rng = make_rng(19385389);
     let signer = data::make_validator_signer(&mut rng);

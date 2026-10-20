@@ -41,7 +41,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
@@ -129,7 +129,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
@@ -736,6 +735,22 @@ impl PeerManagerActor {
         let sent_total: u64 = t2_infos.iter().map(|p| p.sent_bytes_per_sec).sum();
         let recv_total: u64 = t2_infos.iter().map(|p| p.received_bytes_per_sec).sum();
 
+        let accounts_data = self.state.accounts_data.load();
+        let known_producers = accounts_data
+            .keys_by_id
+            .iter()
+            .filter_map(|(account_id, keys)| {
+                let data = keys.iter().find_map(|key| accounts_data.data.get(key))?;
+                Some(KnownProducer {
+                    account_id: account_id.clone(),
+                    peer_id: data.peer_id.clone(),
+                    // TODO: fill in the address.
+                    addr: None,
+                    next_hops: self.state.graph.routing_table.view_route(&data.peer_id),
+                })
+            })
+            .collect();
+
         NetworkInfo {
             connected_peers: t2_infos,
             tier1_connections: t1_infos,
@@ -743,21 +758,9 @@ impl PeerManagerActor {
             peer_max_count: self.state.config.max_num_peers,
             sent_bytes_per_sec: sent_total,
             received_bytes_per_sec: recv_total,
-            known_producers: self
-                .state
-                .account_announcements
-                .get_announcements()
-                .into_iter()
-                .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id.clone(),
-                    // TODO: fill in the address.
-                    addr: None,
-                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
-                })
-                .collect(),
-            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
-            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
+            known_producers,
+            tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
+            tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }
     }
 
@@ -1039,14 +1042,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason, &*self.transport);
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                let state = self.state.clone();
-                let transport = self.transport.clone();
-                self.handle.spawn("announce_account", async move {
-                    state.add_accounts(vec![announce_account], transport).await;
-                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {

@@ -88,12 +88,6 @@ message PartialEdgeInfo {
   bytes borsh = 1;
 }
 
-// Wrapper of the borsh-encoded AnnounceAccount.
-// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/network.rs#L86
-message AnnounceAccount {
-  bytes borsh = 1;
-}
-
 // Wrapper of the borsh-encoded NEAR chain block.
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/block.rs#L77
 message Block {
@@ -225,7 +219,6 @@ message AccountData {
   // TODO(gprusak): it should be possible to add support for routing
   // messages to an account_id directly (for TIER1), instead of routing
   // to a specific peer_id. Then this field won't be necessary.
-  // Unless we use it instead of AnnounceAccount.
   PublicKey peer_id = 5; // required.
 
   PublicKey account_key = 6; // required.
@@ -255,14 +248,10 @@ message AccountData {
 // the peers. This is one of the first messages sent after Handshake.
 // First RoutingTableUpdate contains the whole graph known to peer.
 // Afterwards only the graph delta (changed edges) are included.
-//
-// Accounts provides a mapping AccountId -> PeerId, providing knowledge
-// about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
-  reserved 3, 4;
+  // Field 2 carried the deprecated AnnounceAccounts.
+  reserved 2, 3, 4;
   repeated Edge edges = 1;
-  // list of known NEAR validator accounts
-  repeated AnnounceAccount accounts = 2;
 }
 
 // TODO: document it.

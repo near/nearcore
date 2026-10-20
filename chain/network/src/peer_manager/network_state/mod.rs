@@ -1,5 +1,4 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
-use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
@@ -150,8 +149,6 @@ pub(crate) struct NetworkState {
 
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
-    /// AnnounceAccounts mapping TIER1 account ids to peer ids.
-    pub account_announcements: Arc<AnnounceAccountCache>,
     /// The public IP of this node; available after connecting to any one peer.
     pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
@@ -335,10 +332,9 @@ impl NetworkState {
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(AccountDataCache::new()),
-            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
@@ -884,15 +880,8 @@ impl NetworkState {
             .flat_map(|keys| keys.iter())
             .find_map(|key| accounts_data.data.get(key))
             .map(|data| data.peer_id.clone());
-        // Find the target peer_id:
-        // - first look it up in self.accounts_data
-        // - if missing, fall back to lookup in self.graph.routing_table
-        // We want to deprecate self.graph.routing_table.account_owner in the next release.
         let target = if let Some(peer_id) = peer_id_from_account_data {
-            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
-            peer_id
-        } else if let Some(peer_id) = self.account_announcements.get_account_owner(account_id) {
-            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.inc();
             peer_id
         } else {
             // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -903,7 +892,6 @@ impl NetworkState {
                    ?msg,
                    err = "unknown account",
             );
-            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys());
             return false;
         };
 
