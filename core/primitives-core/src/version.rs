@@ -500,6 +500,9 @@ pub enum ProtocolFeature {
     /// the status of the `universal_state_init_to_account_id` host function, and comes with the
     /// fees that price the decode and canonical check.
     CanonicalUniversalStateInit,
+    /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
+    /// accepts it there and the header is handled like `BlockHeaderV6`.
+    RejectBlockHeaderV7BeforeSpice,
 }
 
 impl ProtocolFeature {
@@ -638,6 +641,7 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::RejectUniversalAccountTransfers => 87,
+            ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
             ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
             ProtocolFeature::CanonicalUniversalStateInit => 88,
 
