@@ -1,3 +1,4 @@
+#[cfg(feature = "rocksdb")]
 pub(super) mod opener;
 
 use crate::Store;

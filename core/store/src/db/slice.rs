@@ -2,7 +2,28 @@ use super::refcount;
 use rocks::RocksSlice;
 use std::sync::Arc;
 
+#[cfg(feature = "rocksdb")]
 mod rocks;
+
+/// Uninhabited stand-in so `DBSlice` keeps its shape without the `rocksdb`
+/// feature; a RocksDB slice can never be constructed.
+#[cfg(not(feature = "rocksdb"))]
+mod rocks {
+    use std::convert::Infallible;
+    use std::marker::PhantomData;
+
+    pub(super) struct RocksSlice<'a>(Infallible, PhantomData<&'a ()>);
+
+    impl<'a> RocksSlice<'a> {
+        pub(super) fn strip_refcount(self) -> Option<Self> {
+            match self.0 {}
+        }
+
+        pub fn as_slice(&self) -> &[u8] {
+            match self.0 {}
+        }
+    }
+}
 
 /// Data returned from the database.
 ///
@@ -20,6 +41,7 @@ enum Inner<'a> {
     Vec(Vec<u8>),
 
     /// Data held as RocksDB-specific pinnable slice.
+    #[cfg_attr(not(feature = "rocksdb"), allow(dead_code))]
     Rocks(RocksSlice<'a>),
 }
 

@@ -21,8 +21,10 @@ use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::str::{FromStr, from_utf8};
 
+#[cfg(feature = "rocksdb")]
 mod archive;
 
+#[cfg(feature = "rocksdb")]
 pub use archive::{
     TestArchiveStorageParams, TestNodeStorage, create_test_node_storage,
     create_test_node_storage_with_cold,

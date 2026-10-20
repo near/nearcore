@@ -17,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[cfg(feature = "rocksdb")]
 mod disk;
 
 #[derive(Debug, PartialEq, Eq)]
