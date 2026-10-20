@@ -4,9 +4,9 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Handshake, PartialEdgeInfo, PeerMessage, StateRequestAck};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
-use crate::peer_manager::connection::{MAX_INBOUND_TIER3_CONNECTIONS, PoolError};
+use crate::peer_manager::connection::PoolError;
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::peer_manager::testonly::{ActorHandler, FDS_PER_PEER};
+use crate::peer_manager::testonly::ActorHandler;
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
@@ -23,9 +23,11 @@ use near_primitives::types::ShardId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::TestDB;
 use rand::Rng;
-use rlimit::Resource;
-use std::cmp::min;
 use std::sync::Arc;
+
+/// Limit on inbound Tier3 connections, kept low so that the tests don't need many file
+/// descriptors.
+const MAX_INBOUND_TIER3_CONNECTIONS: usize = 8;
 
 /// Starts a peer manager to which the tests connect.
 async fn start_pm(
@@ -33,13 +35,9 @@ async fn start_pm(
     chain: &Arc<data::Chain>,
     rng: &mut impl Rng,
 ) -> ActorHandler {
-    peer_manager::testonly::start(
-        clock.clone(),
-        TestDB::new(),
-        chain.make_config(rng),
-        chain.clone(),
-    )
-    .await
+    let mut cfg = chain.make_config(rng);
+    cfg.max_inbound_tier3_connections = MAX_INBOUND_TIER3_CONNECTIONS as u32;
+    peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await
 }
 
 /// Opens a Tier3 connection to `pm` and sends a handshake as the owner of `key`.
@@ -106,17 +104,6 @@ async fn connect_requester(
     (stream_id, stream)
 }
 
-/// Raises the file descriptors limit if needed, so that a test can open
-/// MAX_INBOUND_TIER3_CONNECTIONS connections. It is never lowered, since tests may share
-/// the process.
-fn raise_fd_limit() {
-    let (soft, hard) = Resource::NOFILE.get().unwrap();
-    let needed = (1000 + 2 * FDS_PER_PEER * MAX_INBOUND_TIER3_CONNECTIONS) as u64;
-    if soft < needed {
-        Resource::NOFILE.set(min(hard, needed), hard).unwrap();
-    }
-}
-
 // Verify that a node accepts Tier3 connections from peers which request state from it.
 #[tokio::test]
 async fn requester_accepted() {
@@ -137,7 +124,6 @@ async fn requester_accepted() {
 #[tokio::test]
 async fn requesters_limited() {
     init_test_logger();
-    raise_fd_limit();
     let mut rng = make_rng(921853241);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -188,7 +174,6 @@ async fn requesters_limited() {
 #[tokio::test]
 async fn concurrent_requesters_limited() {
     init_test_logger();
-    raise_fd_limit();
     let mut rng = make_rng(921853245);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -196,7 +181,7 @@ async fn concurrent_requesters_limited() {
     let clock = clock.clock();
 
     // Leave room for a few requesters, then let twice as many handshake at once.
-    const FREE: usize = 10;
+    const FREE: usize = 4;
     let pm = start_pm(&clock, &chain, rng).await;
     let mut requesters = vec![];
     for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS - FREE {

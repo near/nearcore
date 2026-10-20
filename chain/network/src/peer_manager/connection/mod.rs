@@ -23,10 +23,6 @@ use std::sync::{Arc, Weak};
 #[cfg(test)]
 mod tests;
 
-/// Maximum number of inbound Tier3 connections a node accepts from peers requesting state
-/// from it. Connections from hosts answering our own state requests are not limited.
-pub(crate) const MAX_INBOUND_TIER3_CONNECTIONS: usize = 64;
-
 impl tcp::Tier {
     /// Checks if the given message type is allowed on a connection of the given Tier.
     /// TIER1 is reserved exclusively for BFT consensus messages.
@@ -116,7 +112,7 @@ pub(crate) struct Connection {
     pub peer_type: PeerType,
     /// Whether this is an inbound Tier3 connection from a peer requesting state from us,
     /// rather than from a host answering our own state requests. The pool accepts at most
-    /// MAX_INBOUND_TIER3_CONNECTIONS such connections.
+    /// `NetworkConfig::max_inbound_tier3_connections` such connections.
     pub tier3_requester: bool,
     /// Time where the connection was established.
     pub established_time: time::Instant,
@@ -271,7 +267,13 @@ impl Pool {
         self.0.load()
     }
 
-    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
+    /// Inserts a connection which completed its handshake. If `max_tier3_requesters` is set,
+    /// at most that many connections with `tier3_requester` set are accepted.
+    pub fn insert_ready(
+        &self,
+        peer: Arc<Connection>,
+        max_tier3_requesters: Option<usize>,
+    ) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
             // We support loopback connections for the purpose of
@@ -312,8 +314,8 @@ impl Pool {
                 }
             }
             if peer.tier3_requester
-                && pool.ready.values().filter(|conn| conn.tier3_requester).count()
-                    >= MAX_INBOUND_TIER3_CONNECTIONS
+                && let Some(max) = max_tier3_requesters
+                && pool.ready.values().filter(|conn| conn.tier3_requester).count() >= max
             {
                 return Err(PoolError::TooManyTier3Requesters);
             }

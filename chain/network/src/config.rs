@@ -167,6 +167,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Maximum number of inbound Tier3 connections.
+    pub max_inbound_tier3_connections: u32,
     /// Socket options for peer connections.
     pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
@@ -415,6 +417,7 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            max_inbound_tier3_connections: cfg.max_inbound_tier3_connections,
             socket_options: SocketOptions {
                 recv_buffer_size: cfg.so_recv_buffer_size,
                 send_buffer_size: cfg.so_send_buffer_size,
@@ -504,6 +507,7 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            max_inbound_tier3_connections: 64,
             socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
