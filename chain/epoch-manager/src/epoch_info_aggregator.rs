@@ -61,10 +61,8 @@ impl EpochInfoAggregator {
     ///         │←── self ─→│
     /// ```
     ///
-    /// Note that there is no method which allows adding information about G,
-    /// H or I blocks into the aggregator.  The expected usage is to create
-    /// a new aggregator starting from I, add H and G into it (using this
-    /// method) and then [merge][`Self::merge`] it into `self`.
+    /// Block recording calls it on an empty aggregator for one block, then
+    /// [merges][`Self::merge`] the result into the parent's aggregator.
     /// `chunk_producers` carries the per-shard producers resolved via the
     /// grandparent anchor (EarlyKickout); `None` falls back to the legacy
     /// height-based sampler.
@@ -231,48 +229,9 @@ impl EpochInfoAggregator {
         self.last_block_hash = other.last_block_hash;
     }
 
-    /// Merges information from `other` aggregator into `self`.
-    ///
-    /// The `other` aggregator must hold statistics from blocks which
-    /// **precede** the ones this aggregator has.  Both aggregators have to be
-    /// for the same epoch (the function panics if they aren’t).
-    ///
-    /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height, arrows denote ‘is
-    /// parent’ relationship and B is start of a new epoch):
-    ///
-    /// ```text
-    ///     │←─── other ───→│   │←─ self ──→│
-    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
-    ///     └── new epoch ──→
-    /// ```
-    ///
-    /// Once the method finishes `self` will hold statistics for blocks from
-    /// B till J.
-    ///
-    /// The method is a bit like doing `other.merge(self)` except that `other`
-    /// is not changed.
-    pub fn merge_prefix(&mut self, other: &EpochInfoAggregator) {
-        self.merge_common(&other);
-
-        // merge version tracker
-        self.version_tracker.reserve(other.version_tracker.len());
-        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in &other.version_tracker {
-            self.version_tracker.entry(*k).or_insert_with(|| *v);
-        }
-
-        // merge proposals
-        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in &other.all_proposals {
-            self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-    }
-
     /// Merges block, chunk production and chunk endorsement stats from `other` into `self`.
     ///
-    /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
-    /// merging.
+    /// See [`Self::merge`] for a description of merging.
     fn merge_common(&mut self, other: &EpochInfoAggregator) {
         assert_eq!(self.epoch_id, other.epoch_id);
 
