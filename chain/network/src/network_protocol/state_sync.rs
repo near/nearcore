@@ -119,8 +119,6 @@ impl SnapshotHostInfo {
                 return Err(SnapshotHostInfoVerificationError::InvalidSignature);
             }
         }
-        // Older nodes ban peers that relay an info with an invalid legacy signature,
-        // so it is checked even when `signature` is valid.
         if let Some(signature) = &self.legacy_signature {
             if !signature.verify(self.legacy_hash().as_ref(), public_key) {
                 return Err(SnapshotHostInfoVerificationError::InvalidSignature);
