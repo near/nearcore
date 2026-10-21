@@ -1885,6 +1885,9 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     };
     set_local_tier1_proxy(&mut config, *addr, signer.public_key());
     config.network.tier1.connect_interval = Duration::seconds(1);
+    // In-process test nodes do not use the `adv_*` RPC methods, so they start without
+    // `ADVERSARY_CONSENT`.
+    config.adversarial_mode = AdversarialMode::None;
     NearConfig::new(
         config,
         genesis,
