@@ -4,9 +4,7 @@ use axum::http::{Request, StatusCode};
 use futures::future::BoxFuture;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::test_loop::sender::TestLoopSender;
-#[cfg(feature = "test_features")]
-use near_chain_configs::AdversarialMode;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{AdversarialMode, GenesisConfig};
 use near_client::gc_actor::GCActor;
 use near_client_primitives::types::BlockNotificationMessage;
 use near_jsonrpc::client::RpcTransport;
@@ -111,7 +109,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
     client_sender: &TestLoopSender<near_client::client_actor::ClientActor>,
     view_client_sender: &TestLoopSender<near_client::ViewClientActor>,
     rpc_handler_sender: &TestLoopSender<near_client::RpcHandlerActor>,
-    #[allow(unused)] gc_actor_sender: &TestLoopSender<GCActor>, // used only when test_features is enabled.
+    gc_actor_sender: &TestLoopSender<GCActor>,
     genesis_config: &GenesisConfig,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     pool: Arc<RwLock<ShardedRpcPool>>,
@@ -130,9 +128,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
         rpc_handler_sender.clone().into_multi_sender(),
         peer_manager_sender,
         block_notification_watcher,
-        #[cfg(feature = "test_features")]
         gc_actor_sender.clone().into_multi_sender(),
-        #[cfg(feature = "test_features")]
         AdversarialMode::Rpc,
         entity_debug_handler,
         pool,

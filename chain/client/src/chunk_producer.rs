@@ -41,7 +41,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
-#[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashSet;
@@ -51,7 +50,6 @@ use std::sync::mpsc::Receiver;
 use time::ext::InstantExt as _;
 use tracing::instrument;
 
-#[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceChunksMode {
     // Produce chunks as usual.
@@ -75,7 +73,6 @@ pub enum AdvProduceChunksMode {
     },
 }
 
-#[cfg(feature = "test_features")]
 pub struct ChunkProducerAdversarialControls {
     pub produce_mode: Option<AdvProduceChunksMode>,
     pub produce_invalid_chunks: bool,
@@ -94,7 +91,6 @@ pub struct ProduceChunkResult {
 pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
-    #[cfg(feature = "test_features")]
     pub adversarial: ChunkProducerAdversarialControls,
 
     clock: Clock,
@@ -137,7 +133,6 @@ impl ChunkProducer {
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
 
         Self {
-            #[cfg(feature = "test_features")]
             adversarial: ChunkProducerAdversarialControls {
                 produce_mode: None,
                 produce_invalid_chunks: false,
@@ -197,7 +192,6 @@ impl ChunkProducer {
             return Ok(None);
         }
 
-        #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
             tracing::debug!(target: "client", "skip chunk production");
             return Ok(None);
@@ -215,7 +209,6 @@ impl ChunkProducer {
         )
     }
 
-    #[cfg(feature = "test_features")]
     fn maybe_insert_invalid_transaction(
         mut txs: PreparedTransactions,
         prev_block_hash: CryptoHash,
@@ -318,24 +311,9 @@ impl ChunkProducer {
 
         let cached_transactions =
             self.get_cached_prepared_transactions(prev_block, shard_uid, chunk_extra.gas_limit())?;
-        let prepared_transactions = {
-            #[cfg(feature = "test_features")]
-            match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
-                _ => match cached_transactions {
-                    Some(txs) => txs,
-                    None => self.prepare_transactions(
-                        shard_uid,
-                        prev_block,
-                        chunk_extra.as_ref(),
-                        chain_validate,
-                        validate_tx_ttl,
-                        protocol_version,
-                    )?,
-                },
-            }
-            #[cfg(not(feature = "test_features"))]
-            match cached_transactions {
+        let prepared_transactions = match self.adversarial.produce_mode {
+            Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
+            _ => match cached_transactions {
                 Some(txs) => txs,
                 None => self.prepare_transactions(
                     shard_uid,
@@ -345,10 +323,9 @@ impl ChunkProducer {
                     validate_tx_ttl,
                     protocol_version,
                 )?,
-            }
+            },
         };
 
-        #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
             prev_block_hash,
@@ -356,7 +333,6 @@ impl ChunkProducer {
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
-        #[cfg(feature = "test_features")]
         let tx_root = if matches!(
             self.adversarial.produce_mode,
             Some(AdvProduceChunksMode::ProduceWithCorruptedTxRoot)
@@ -376,7 +352,6 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         let gas_limit = chunk_extra.gas_limit();
-        #[cfg(feature = "test_features")]
         let (gas_used, gas_limit) = if self.adversarial.produce_max_gas_chunk_header {
             // gas_limit too: empty chunks have prev_gas_used == 0, which won't overflow.
             (Gas::MAX, Gas::MAX)
@@ -500,13 +475,10 @@ impl ChunkProducer {
         // (prepared_transactions, skipped_transactions_to_reintroduce)
         let (prepared_transactions, skipped_transactions) =
             if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
-                #[cfg(feature = "test_features")]
                 let skip_verification = matches!(
                     self.adversarial.produce_mode,
                     Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
                 );
-                #[cfg(not(feature = "test_features"))]
-                let skip_verification = false;
 
                 if skip_verification {
                     let mut res = vec![];
@@ -624,7 +596,6 @@ impl ChunkProducer {
         Ok(prepared_transactions)
     }
 
-    #[cfg(feature = "test_features")]
     fn should_skip_chunk_production(
         &self,
         next_block_height: BlockHeight,
@@ -657,7 +628,6 @@ impl ChunkProducer {
         }
     }
 
-    #[cfg(feature = "test_features")]
     fn should_skip_chunk_production_window(
         &self,
         next_block_height: BlockHeight,
@@ -723,7 +693,6 @@ impl ChunkProducer {
             return;
         }
 
-        #[cfg(feature = "test_features")]
         if matches!(
             self.adversarial.produce_mode,
             Some(AdvProduceChunksMode::ProduceWithoutTx)
@@ -732,13 +701,11 @@ impl ChunkProducer {
             return;
         }
 
-        #[cfg(feature = "test_features")]
-        let tx_validity_period_check: Box<
-            dyn Fn(&SignedTransaction) -> bool + Send + 'static,
-        > = match self.adversarial.produce_mode {
-            Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => Box::new(|_| true),
-            _ => Box::new(tx_validity_period_check),
-        };
+        let tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static> =
+            match self.adversarial.produce_mode {
+                Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => Box::new(|_| true),
+                _ => Box::new(tx_validity_period_check),
+            };
 
         let next_height = prev_block_context.height + 1;
         let _span = tracing::debug_span!(

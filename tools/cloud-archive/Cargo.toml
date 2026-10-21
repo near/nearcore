@@ -35,8 +35,6 @@ near-primitives.workspace = true
 near-store.workspace = true
 
 [features]
-# `near_jsonrpc::start_http` takes an extra argument under this feature, and the cfg is
-# evaluated where the call is written, so it has to be reachable from here.
-test_features = ["near-jsonrpc/test_features", "nearcore/test_features"]
-# Same reason: the sender `start_http` takes carries an extra message under this feature.
+# The sender `near_jsonrpc::start_http` takes carries an extra message under this feature,
+# and the cfg is evaluated where the call is written, so it has to be reachable from here.
 sandbox = ["near-jsonrpc/sandbox", "near-client-primitives/sandbox", "nearcore/sandbox"]

@@ -47,15 +47,16 @@ test-specific features guarded by a feature flag to be available. To compile the
 binary with such features run:
 
 ```
-cargo build -p neard --features=adversarial
+cargo build -p neard --features=test_features
 ```
 
-The feature is called `adversarial` to highlight that the many functions it enables,
-outside of tests, would constitute malicious behavior. The node compiled with
-such a flag will not start unless an environment variable `ADVERSARY_CONSENT=1`
-is set and prints a noticeable warning when it starts, thus minimizing the chance
-that an honest participant accidentally launches a node compiled with such
-functionality.
+Adversarial behavior (the `adv_*` RPC methods used by many tests) is controlled
+by the `adversarial_mode` field in `config.json`: `None` (default) or `Rpc`. With
+`test_features` the default is `Rpc`. Outside of tests, this behavior would
+constitute malicious behavior. A node with `adversarial_mode` other than `None`
+will not start unless an environment variable `ADVERSARY_CONSENT=1` is set and
+prints a noticeable warning when it starts, thus minimizing the chance that an
+honest participant accidentally launches a node with such functionality.
 
 You can change the way the tests run (locally or using Google Cloud), and where
 the local tests look for the binary by supplying a config file. For example, if you
