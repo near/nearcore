@@ -909,10 +909,9 @@ impl JsonRpcHandler {
 
     /// Handles adversarial requests if they are enabled.
     ///
-    /// Adversarial requests are only enabled when `adversarial_mode` is `Rpc`.
-    /// If the request has not been recognized as an adversarial request,
-    /// returns `Err(request)` so that caller can continue handling the
-    /// request.  Otherwise returns `Ok(response)` where `response` is the
+    /// Returns `Err(request)` when `adversarial_mode` is not `Rpc` or the
+    /// method is not an `adv_*` method, so that caller can continue handling
+    /// the request.  Otherwise returns `Ok(response)` where `response` is the
     /// result of handling the request.
     // The `Err` variant hands the unrecognized request back to the caller.
     #[allow(clippy::result_large_err)]

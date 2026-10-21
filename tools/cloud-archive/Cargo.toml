@@ -35,6 +35,6 @@ near-primitives.workspace = true
 near-store.workspace = true
 
 [features]
-# The sender `near_jsonrpc::start_http` takes carries an extra message under this feature,
-# and the cfg is evaluated where the call is written, so it has to be reachable from here.
+# Under this feature the client sender of `near_jsonrpc::start_http` has one more message,
+# so `ReaderNodeActor` must implement its handler.
 sandbox = ["near-jsonrpc/sandbox", "near-client-primitives/sandbox", "nearcore/sandbox"]
