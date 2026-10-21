@@ -179,7 +179,7 @@ no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
 tokens from the balance of the signer's account. The fee is calculated as <code>gas amount</code> * <code>gas price</code>. The gas amount for actions included in a <code>SignedTransaction</code>
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
-(See <a href="https://docs.near.org/protocol/gas#cost-for-common-actions">here</a> for more details.)</p>
+(See <a href="https://docs.near.org/protocol/transactions/gas#cost-for-common-actions">here</a> for more details.)</p>
 <p>If the account has insufficient balance to pay for this, it will fail with a
 <code>NotEnoughBalance</code> error, with the required balance included in the error message.</p>
 <p>The <code>gas amount</code> is not a field of <code>SignedTransaction</code>, nor is it something the
