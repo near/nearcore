@@ -50,13 +50,12 @@ binary with such features run:
 cargo build -p neard --features=test_features
 ```
 
-Adversarial behavior (the `adv_*` RPC methods used by many tests) is controlled
-by the `adversarial_mode` field in `config.json`: `None` (default) or `Rpc`. With
-`test_features` the default is `Rpc`. Outside of tests, this behavior would
-constitute malicious behavior. A node with `adversarial_mode` other than `None`
-will not start unless an environment variable `ADVERSARY_CONSENT=1` is set and
-prints a noticeable warning when it starts, thus minimizing the chance that an
-honest participant accidentally launches a node with such functionality.
+Many tests use the `adv_*` RPC methods. They are accepted only when
+`adversarial_mode` in `config.json` is `Rpc`. The default is `None`, or `Rpc` in
+`test_features` builds. Outside of tests, this behavior is malicious. A node with
+`adversarial_mode` other than `None` logs an error when it starts, and it does
+not start unless the environment variable `ADVERSARY_CONSENT=1` is set. This
+makes it hard to start such a node by mistake.
 
 You can change the way the tests run (locally or using Google Cloud), and where
 the local tests look for the binary by supplying a config file. For example, if you
@@ -241,14 +240,16 @@ for an example of signing and submitting a transaction.
 ## Adversarial behavior
 
 Some tests need certain nodes in the cluster to exercise behavior that is
-impossible to be invoked by an honest node. For such tests, we provide
-functionality that is protected by an "adversarial" feature flag.
+impossible to be invoked by an honest node. For such tests, we provide the
+`adv_*` RPC methods. They are accepted only when `adversarial_mode` is `Rpc`,
+which is the default in `test_features` builds (see above).
 
 It's an advanced feature, and more thorough documentation is a TODO. Most of the
-tests that depend on the feature flag enabled are under
-`{nearcore}/pytest/tests/adversarial`, refer to them for how such features can
-be used. Search for code in the `nearcore` codebase guarded by the "adversarial"
-feature flag for an example of how such features are added and exposed.
+tests that use these methods are under `{nearcore}/pytest/tests/adversarial`,
+refer to them for how they can be used. See `process_adversarial_request_internal`
+in `chain/jsonrpc/src/lib.rs` for the list of methods, and
+`NetworkAdversarialMessage` in `chain/client/src/client_actor.rs` for how they
+reach the node.
 
 ## Interfering with the network
 

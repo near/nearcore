@@ -458,7 +458,7 @@ pub struct Config {
     /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
-    /// Adversarial (fault injection) behavior. Do not enable in production.
+    /// Adversarial behavior. Do not enable in production.
     /// Not written to config.json when it is the default.
     #[serde(skip_serializing_if = "is_default_adversarial_mode")]
     pub adversarial_mode: AdversarialMode,
