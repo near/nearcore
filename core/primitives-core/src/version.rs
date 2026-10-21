@@ -189,9 +189,9 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
-            ProtocolFeature::FailCallToMissingGlobalContract => 88,
-            ProtocolFeature::FixSelfMappedShardBandwidthRequest => 88,
-            ProtocolFeature::UpdatedEthWalletContract => 88,
+            ProtocolFeature::FailCallToMissingGlobalContract => 89,
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
+            ProtocolFeature::UpdatedEthWalletContract => 89,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -244,7 +244,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 88;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
