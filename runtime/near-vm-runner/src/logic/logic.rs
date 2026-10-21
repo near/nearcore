@@ -53,9 +53,13 @@ impl ExecutionResultState {
             .account_balance
             .checked_add(context.attached_deposit)
             .expect("current_account_balance overflowed");
+        // The fees of an external call are spent before the call starts, so the
+        // call can't spend that part of the balance.
+        let current_account_balance =
+            context.execution_mode.balance_after_fee(current_account_balance);
         let current_storage_usage = context.storage_usage;
         let gas_price = match context.execution_mode {
-            ExecutionMode::External { gas_price } => Some(gas_price),
+            ExecutionMode::External { gas_price, .. } => Some(gas_price),
             ExecutionMode::Internal | ExecutionMode::View(_) => None,
         };
         if let Some(gas_price) = gas_price {
