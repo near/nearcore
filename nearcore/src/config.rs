@@ -1841,6 +1841,9 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
+    // In-process test nodes do not use the `adv_*` RPC methods, so they start without
+    // `ADVERSARY_CONSENT`.
+    config.adversarial_mode = AdversarialMode::None;
     NearConfig::new(
         config,
         genesis,

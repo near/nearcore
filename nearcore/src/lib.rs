@@ -21,7 +21,7 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Chain, ChainGenesis};
-use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{AdversarialMode, MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_writer::{
@@ -54,6 +54,7 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -388,6 +389,24 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+/// Refuses to start a node with adversarial behavior unless `ADVERSARY_CONSENT=1` is set.
+fn check_adversary_consent(adversarial_mode: AdversarialMode) -> anyhow::Result<()> {
+    if adversarial_mode == AdversarialMode::None {
+        return Ok(());
+    }
+    tracing::error!(
+        target: "neard",
+        ?adversarial_mode,
+        "this node has adversarial behavior enabled, do not use in production"
+    );
+    if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+        anyhow::bail!(
+            "adversarial_mode is {adversarial_mode:?}, set ADVERSARY_CONSENT=1 to start the node"
+        );
+    }
+    Ok(())
+}
+
 pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
@@ -395,6 +414,7 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    check_adversary_consent(config.config.adversarial_mode)?;
     if config.config.enable_compiler_daemon {
         // Keep using the running executable's inode after a rename-over binary
         // upgrade. Resolving this symlink up front would leave a stale deleted
@@ -885,4 +905,18 @@ pub async fn start_with_config_and_synchronization_impl(
         resharding_handle,
         shard_tracker,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_adversary_consent;
+    use near_chain_configs::AdversarialMode;
+    use std::env;
+
+    #[test]
+    fn test_check_adversary_consent() {
+        assert!(check_adversary_consent(AdversarialMode::None).is_ok());
+        let has_consent = env::var("ADVERSARY_CONSENT").as_deref() == Ok("1");
+        assert_eq!(check_adversary_consent(AdversarialMode::Rpc).is_ok(), has_consent);
+    }
 }
