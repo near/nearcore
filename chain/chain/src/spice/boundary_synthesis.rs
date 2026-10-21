@@ -178,17 +178,8 @@ pub fn get_undelivered_receipt_proofs(
     shard_id: ShardId,
 ) -> Result<HashMap<ChunkHash, Vec<ReceiptProof>>, Error> {
     let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
-    undelivered_receipt_proofs_of_carriers(chain_store, epoch_manager, &carriers)
-}
-
-/// [`get_undelivered_receipt_proofs`] for carriers already derived.
-fn undelivered_receipt_proofs_of_carriers(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    carriers: &[UndeliveredReceiptCarrier],
-) -> Result<HashMap<ChunkHash, Vec<ReceiptProof>>, Error> {
     let mut undelivered_receipt_proofs = HashMap::new();
-    for carrier in carriers {
+    for carrier in &carriers {
         let shard_id = carrier.chunk_header.shard_id();
         let prev_block = chain_store.get_block(&carrier.prev_block_hash)?;
         let prev_shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
@@ -245,14 +236,6 @@ pub fn validate_undelivered_receipt_proofs(
     proofs: &HashMap<ChunkHash, Vec<ReceiptProof>>,
 ) -> Result<Vec<Receipt>, Error> {
     let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
-    validate_undelivered_receipt_proofs_of_carriers(&carriers, proofs)
-}
-
-/// [`validate_undelivered_receipt_proofs`] for carriers already derived.
-fn validate_undelivered_receipt_proofs_of_carriers(
-    carriers: &[UndeliveredReceiptCarrier],
-    proofs: &HashMap<ChunkHash, Vec<ReceiptProof>>,
-) -> Result<Vec<Receipt>, Error> {
     // The proofs must cover exactly the carriers, each with a proof per target in order.
     let expected: BTreeMap<&ChunkHash, Vec<ShardId>> = carriers
         .iter()
@@ -270,7 +253,7 @@ fn validate_undelivered_receipt_proofs_of_carriers(
         )));
     }
     let mut receipts = Vec::new();
-    for carrier in carriers {
+    for carrier in &carriers {
         // Present with one proof per target: the shapes matched above.
         let chunk_proofs = &proofs[carrier.chunk_header.chunk_hash()];
         for (target_shard_id, proof) in carrier.target_shard_ids.iter().zip(chunk_proofs) {
@@ -295,9 +278,8 @@ pub fn get_undelivered_receipts(
     block: &Block,
     shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
-    let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
-    let proofs = undelivered_receipt_proofs_of_carriers(chain_store, epoch_manager, &carriers)?;
-    validate_undelivered_receipt_proofs_of_carriers(&carriers, &proofs)
+    let proofs = get_undelivered_receipt_proofs(chain_store, epoch_manager, block, shard_id)?;
+    validate_undelivered_receipt_proofs(chain_store, epoch_manager, block, shard_id, &proofs)
 }
 
 /// The execution result of shard `shard_id`'s previous chunk, read off the chunk
