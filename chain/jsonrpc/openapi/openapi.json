@@ -21312,7 +21312,7 @@
         "type": "object"
       },
       "SpiceChunkEndorsementStats": {
-        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV8`) and consumed by reward and kickout.",
         "properties": {
           "expected": {
             "format": "uint32",
