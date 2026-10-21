@@ -161,6 +161,17 @@ than the balance pays for, and spending the balance on deposits lowers that
 limit. A promise gets exactly the gas it was created with: unspent gas is not
 distributed by weight, because there is no prepaid gas to distribute.
 
+Before the method runs, the call burns the fees of a self-addressed function
+call with the same method name and input: receipt creation, the function call
+base fee, and the per-byte fee for the method name and the payload, each with
+its send and execution part. There is no signature, so there is no signature
+verification fee. The fees count toward `max_gas_burnt_external`, so a larger
+payload leaves less of the budget to the method. With the largest payload the
+fees are about 8 Tgas. The contract must be able to afford the fees, or the
+call is rejected before any contract code is loaded, and the balance the
+method sees excludes them. Like the rest of the call, the fees are charged
+only if the contract accepts the call.
+
 ### Contract Reward
 
 A rather unique property of Near Protocol is that a part of the gas fee goes to
