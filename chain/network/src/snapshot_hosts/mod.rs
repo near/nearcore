@@ -162,11 +162,11 @@ impl Inner {
         // Discard snapshot infos below the epoch height threshold set by chain progression
         if self
             .discard_snapshot_infos_below_epoch_height
-            .is_some_and(|min_epoch| min_epoch > h.epoch_height)
+            .is_some_and(|min_epoch| min_epoch > h.epoch_height())
         {
             return false;
         }
-        match self.hosts.peek(&h.peer_id) {
+        match self.hosts.peek(h.peer_id()) {
             Some(old) if old.freshness() >= h.freshness() => false,
             _ => true,
         }
@@ -186,11 +186,11 @@ impl Inner {
     /// Adds the peer to the shard-specific caches, but only if the info matches
     /// the sync hash we are currently syncing.
     fn add_to_shard_hosts(&mut self, info: &SnapshotHostInfo) {
-        if self.current_state_sync_hash.as_ref() != Some(&info.sync_hash) {
+        if self.current_state_sync_hash != Some(info.sync_hash()) {
             return;
         }
-        for shard_id in &info.shards {
-            self.hosts_for_shard.entry(*shard_id).or_default().insert(info.peer_id.clone());
+        for shard_id in info.shards() {
+            self.hosts_for_shard.entry(*shard_id).or_default().insert(info.peer_id().clone());
         }
     }
 
@@ -206,8 +206,8 @@ impl Inner {
         self.add_to_shard_hosts(d.as_ref());
         // `push` returns a different peer on eviction, or `d` itself on a
         // same-key update; only an eviction should leave the shard caches.
-        if let Some((displaced, _)) = self.hosts.push(d.peer_id.clone(), d.clone()) {
-            if displaced != d.peer_id {
+        if let Some((displaced, _)) = self.hosts.push(d.peer_id().clone(), d.clone()) {
+            if &displaced != d.peer_id() {
                 self.remove_from_shard_hosts(&displaced);
             }
         }
@@ -247,7 +247,7 @@ impl Inner {
 
         loop {
             let Some((peer_id, info)) = self.hosts.pop_lru() else { break };
-            if info.epoch_height >= min_epoch_to_keep {
+            if info.epoch_height() >= min_epoch_to_keep {
                 new_hosts.push(peer_id, info);
             } else {
                 self.remove_from_shard_hosts(&peer_id);
@@ -351,7 +351,7 @@ impl SnapshotHostsCache {
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Filter out any data which is invalid, outdated or which we already have.
-        if data.iter().map(|d| d.peer_id.clone()).collect::<HashSet<_>>().len() != data.len() {
+        if data.iter().map(|d| d.peer_id().clone()).collect::<HashSet<_>>().len() != data.len() {
             return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
         }
         let new_data = {
@@ -363,7 +363,9 @@ impl SnapshotHostsCache {
             // error so that nodes on this release don't ban peers on the next release.
             // TODO(network-overhaul): Accept them in the next release.
             data.into_iter()
-                .filter(|d| !d.shards.is_empty() && d.legacy_signature.is_some() && inner.is_new(d))
+                .filter(|d| {
+                    !d.shards().is_empty() && d.legacy_signature().is_some() && inner.is_new(d)
+                })
                 .collect_vec()
         };
         // Verify the signatures in parallel.

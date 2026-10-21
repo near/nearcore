@@ -45,12 +45,11 @@ fn make_snapshot_host_info(
         sync_hash,
         epoch_height,
         shards,
-        None,
+        data::make_addr(rng),
         secret_key,
     ))
 }
 
-/// Used to consume peer events until there's an event of type SyncSnapshotHosts
 /// Makes the config of a peer manager that advertises snapshots. Hosts advertise snapshots
 /// only once they know their public address, so it is configured rather than learned from
 /// peers at some point during the test.
@@ -60,6 +59,7 @@ fn make_host_config(chain: &data::Chain, rng: &mut impl Rng) -> NetworkConfig {
     cfg
 }
 
+/// Used to consume peer events until there's an event of type SyncSnapshotHosts
 fn take_sync_snapshot_msg(event: Event) -> Option<SyncSnapshotHosts> {
     match event {
         Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncSnapshotHosts(msg)) => Some(msg),
@@ -274,7 +274,7 @@ async fn too_many_shards_not_broadcast() {
         CryptoHash::hash_borsh(rng.r#gen::<u64>()),
         rng.r#gen(),
         too_many_shards,
-        None,
+        data::make_addr(rng),
         &peer1_config.node_key,
     ));
 
@@ -349,13 +349,13 @@ async fn propagate() {
     let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
     let new_epoch_event =
         PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
-            SnapshotHostEvent::ChainProgressed { epoch_height: info1.epoch_height },
+            SnapshotHostEvent::ChainProgressed { epoch_height: info1.epoch_height() },
         ));
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
         SnapshotHostEvent::SnapshotCreated {
-            sync_hash: info1.sync_hash,
-            epoch_height: info1.epoch_height,
-            shards: info1.shards.clone(),
+            sync_hash: info1.sync_hash(),
+            epoch_height: info1.epoch_height(),
+            shards: info1.shards().to_vec(),
         },
     ));
     let _: () = pms[1].actor.send_async(new_epoch_event).await.unwrap();
@@ -364,11 +364,11 @@ async fn propagate() {
     tracing::info!(target:"test", "make sure that the message sent from #1 reaches #2 on the other side of the ring");
     // #1 signs its public address into the info, and the relays preserve it.
     let info1 = Arc::new(SnapshotHostInfo::new(
-        info1.peer_id.clone(),
-        info1.sync_hash,
-        info1.epoch_height,
-        info1.shards.clone(),
-        pms[1].cfg.tier3_public_addr,
+        info1.peer_id().clone(),
+        info1.sync_hash(),
+        info1.epoch_height(),
+        info1.shards().to_vec(),
+        pms[1].cfg.tier3_public_addr.unwrap(),
         &pms[1].cfg.node_key,
     ));
     let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(info1).collect();
@@ -410,7 +410,7 @@ async fn large_shard_id_in_cache() {
         vec![ShardId::new(0), ShardId::new(1232232), large_shard_id_1, large_shard_id_2]
             .into_iter()
             .collect(),
-        None,
+        data::make_addr(rng),
         &peer1_config.node_key,
     ));
 
@@ -479,23 +479,23 @@ async fn too_many_shards_truncate() {
     let msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(msg.hosts.len(), 1);
     let info: &SnapshotHostInfo = &msg.hosts[0];
-    assert_eq!(info.peer_id, pm.peer_info().id);
-    assert_eq!(info.epoch_height, epoch_height);
-    assert_eq!(info.sync_hash, sync_hash);
+    assert_eq!(info.peer_id(), &pm.peer_info().id);
+    assert_eq!(info.epoch_height(), epoch_height);
+    assert_eq!(info.sync_hash(), sync_hash);
 
     // The list of shards should contain MAX_SHARDS_PER_SNAPSHOT_HOST_INFO randomly sampled, unique shard ids taken from too_many_shards
-    assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
-    for &shard_id in &info.shards {
+    assert_eq!(info.shards().len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+    for &shard_id in info.shards() {
         // Shard ids are taken from the original vector
         let shard_id: usize = shard_id.into();
         assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
     // cspell:ignore twoelems
-    assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
+    assert!(info.shards().windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
     // The list isn't truncated by choosing the first half of the shards vec, it should be chosen randomly.
     // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.
-    assert_ne!(&info.shards, &too_many_shards[..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO]);
+    assert_ne!(info.shards(), &too_many_shards[..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO]);
 }
 
 /// Test that a SnapshotHostInfo message with no shards isn't broadcast by PeerManager.
@@ -536,7 +536,7 @@ async fn no_shards_not_broadcast() {
         CryptoHash::hash_borsh(rng.r#gen::<u64>()),
         rng.r#gen(),
         vec![],
-        None,
+        data::make_addr(rng),
         &peer1_config.node_key,
     ));
 
@@ -609,7 +609,7 @@ async fn no_public_addr_not_broadcast() {
         sync_hash,
         epoch_height,
         shards,
-        Some(addr),
+        addr,
         &pm.cfg.node_key,
     );
     wait_for_host_info(&mut peer1, &want, &[]).await;

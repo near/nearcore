@@ -156,17 +156,18 @@ connection. A node accepts up to `network.max_inbound_tier3_connections`
 (64 by default) such connections at a time. Requesters do not send direct
 requests yet.
 
-Snapshot host advertisements also carry the host's own listening address: its
-public address as observed by its peers, or `tier3_public_addr` if configured.
-The host signs the address together with the snapshot fields, so relays cannot
-alter it. A host advertises each snapshot once, so its address stays fixed until
-its next snapshot. A host that does not know its address yet when it creates a
-snapshot does not advertise that snapshot. Advertisements keep a legacy
-signature over the snapshot fields alone, which is the only one older nodes
-verify. Older nodes drop the address when relaying, and a copy that carries it
-replaces an address-less copy of the same snapshot. Until every node accepts
-advertisements without the legacy signature, nodes drop them instead of
-relaying. State requests do not yet use these addresses.
+Snapshot host advertisements are versioned, and version 2 adds the host's own
+listening address: its public address as observed by its peers, or
+`tier3_public_addr` if configured. The host signs the address together with the
+snapshot fields, so relays cannot alter it. A host advertises each snapshot
+once, so its address stays fixed until its next snapshot. A host that does not
+know its address yet when it creates a snapshot does not advertise that
+snapshot. Version 2 advertisements keep a legacy signature over the snapshot
+fields alone, which is the only one older nodes verify. Older nodes relay them
+as version 1, without the address, and a version 2 copy replaces a version 1
+copy of the same snapshot. Until every node accepts advertisements without the
+legacy signature, nodes drop them instead of relaying. State requests do not
+yet use these addresses.
 
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for

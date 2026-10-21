@@ -1413,8 +1413,8 @@ impl NetworkState {
                     let res = ds.iter().map(|_| ()).collect();
                     let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
                     for d in ds.into_iter().flatten() {
-                        if sum.get(&d.peer_id).map_or(true, |old| old.freshness() < d.freshness()) {
-                            sum.insert(d.peer_id.clone(), d);
+                        if sum.get(d.peer_id()).is_none_or(|old| old.freshness() < d.freshness()) {
+                            sum.insert(d.peer_id().clone(), d);
                         }
                     }
                     let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {

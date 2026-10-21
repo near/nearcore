@@ -16,6 +16,7 @@ use std::net::SocketAddr;
 ///
 /// Signatures are included so that we know it was really published by that peer.
 ///
+/// Discriminants are part of the borsh encoding, don't reuse them.
 #[derive(
     Clone,
     Debug,
@@ -26,7 +27,49 @@ use std::net::SocketAddr;
     borsh::BorshDeserialize,
     ProtocolSchema,
 )]
-pub struct SnapshotHostInfo {
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum SnapshotHostInfo {
+    /// Published by an older host, or relayed by an older node, which drops the fields of V2
+    /// that it doesn't know.
+    V1(SnapshotHostInfoV1) = 0,
+    V2(SnapshotHostInfoV2) = 1,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub struct SnapshotHostInfoV1 {
+    /// Id of the node serving the snapshot
+    pub peer_id: PeerId,
+    /// Hash of the snapshot's state root
+    pub sync_hash: CryptoHash,
+    /// Ordinal of the epoch of the state root
+    pub epoch_height: EpochHeight,
+    /// List of shards included in the snapshot.
+    pub shards: Vec<ShardId>,
+    /// Signature on (sync_hash, epoch_height, shards)
+    pub signature: Signature,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub struct SnapshotHostInfoV2 {
     /// Id of the node serving the snapshot
     pub peer_id: PeerId,
     /// Hash of the snapshot's state root
@@ -36,27 +79,17 @@ pub struct SnapshotHostInfo {
     /// List of shards included in the snapshot.
     pub shards: Vec<ShardId>,
     /// Listening address the host advertises for itself.
-    pub addr: Option<SocketAddr>,
-    /// Signature on (sync_hash, epoch_height, shards, addr).
-    /// Missing if the info was published by an older host or relayed by an older node.
-    pub signature: Option<Signature>,
+    pub addr: SocketAddr,
+    /// Signature on ("SnapshotHostInfoV2", sync_hash, epoch_height, shards, addr).
+    pub signature: Signature,
     /// Signature on (sync_hash, epoch_height, shards), the only one older nodes verify.
     // TODO(network-overhaul): Stop sending it in the release after next. Nodes on this release
     // drop infos without it, so the next release must still send it.
     pub legacy_signature: Option<Signature>,
 }
 
-impl SnapshotHostInfo {
+impl SnapshotHostInfoV1 {
     fn build_hash(
-        sync_hash: &CryptoHash,
-        epoch_height: &EpochHeight,
-        shards: &Vec<ShardId>,
-        addr: &Option<SocketAddr>,
-    ) -> CryptoHash {
-        CryptoHash::hash_borsh((sync_hash, epoch_height, shards, addr))
-    }
-
-    fn build_legacy_hash(
         sync_hash: &CryptoHash,
         epoch_height: &EpochHeight,
         shards: &Vec<ShardId>,
@@ -64,69 +97,125 @@ impl SnapshotHostInfo {
         CryptoHash::hash_borsh((sync_hash, epoch_height, shards))
     }
 
+    fn has_valid_signature(&self) -> bool {
+        let hash = Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards);
+        self.signature.verify(hash.as_ref(), self.peer_id.public_key())
+    }
+}
+
+impl SnapshotHostInfoV2 {
+    fn build_hash(
+        sync_hash: &CryptoHash,
+        epoch_height: &EpochHeight,
+        shards: &Vec<ShardId>,
+        addr: &SocketAddr,
+    ) -> CryptoHash {
+        // Keeps the signed data distinct from that of other versions, and from other data signed
+        // with the node key, such as edges.
+        static SIGNATURE_DIFFERENTIATOR: &str = "SnapshotHostInfoV2";
+        CryptoHash::hash_borsh((SIGNATURE_DIFFERENTIATOR, sync_hash, epoch_height, shards, addr))
+    }
+
+    fn has_valid_signatures(&self) -> bool {
+        let public_key = self.peer_id.public_key();
+        let hash = Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards, &self.addr);
+        self.signature.verify(hash.as_ref(), public_key)
+            && self.legacy_signature.as_ref().is_none_or(|signature| {
+                let legacy_hash = SnapshotHostInfoV1::build_hash(
+                    &self.sync_hash,
+                    &self.epoch_height,
+                    &self.shards,
+                );
+                signature.verify(legacy_hash.as_ref(), public_key)
+            })
+    }
+}
+
+impl SnapshotHostInfo {
     pub(crate) fn new(
         peer_id: PeerId,
         sync_hash: CryptoHash,
         epoch_height: EpochHeight,
         shards: Vec<ShardId>,
-        addr: Option<SocketAddr>,
+        addr: SocketAddr,
         secret_key: &SecretKey,
     ) -> Self {
         #[cfg(not(test))]
         assert_eq!(&secret_key.public_key(), peer_id.public_key());
-        let hash = Self::build_hash(&sync_hash, &epoch_height, &shards, &addr);
-        let legacy_hash = Self::build_legacy_hash(&sync_hash, &epoch_height, &shards);
-        Self {
+        let hash = SnapshotHostInfoV2::build_hash(&sync_hash, &epoch_height, &shards, &addr);
+        let legacy_hash = SnapshotHostInfoV1::build_hash(&sync_hash, &epoch_height, &shards);
+        Self::V2(SnapshotHostInfoV2 {
             peer_id,
             sync_hash,
             epoch_height,
             shards,
             addr,
-            signature: Some(secret_key.sign(hash.as_ref())),
+            signature: secret_key.sign(hash.as_ref()),
             legacy_signature: Some(secret_key.sign(legacy_hash.as_ref())),
+        })
+    }
+
+    pub fn peer_id(&self) -> &PeerId {
+        match self {
+            Self::V1(info) => &info.peer_id,
+            Self::V2(info) => &info.peer_id,
         }
     }
 
-    pub(crate) fn hash(&self) -> CryptoHash {
-        Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards, &self.addr)
+    pub fn sync_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(info) => info.sync_hash,
+            Self::V2(info) => info.sync_hash,
+        }
     }
 
-    pub(crate) fn legacy_hash(&self) -> CryptoHash {
-        Self::build_legacy_hash(&self.sync_hash, &self.epoch_height, &self.shards)
+    pub fn epoch_height(&self) -> EpochHeight {
+        match self {
+            Self::V1(info) => info.epoch_height,
+            Self::V2(info) => info.epoch_height,
+        }
+    }
+
+    pub fn shards(&self) -> &[ShardId] {
+        match self {
+            Self::V1(info) => &info.shards,
+            Self::V2(info) => &info.shards,
+        }
+    }
+
+    /// Signature on (sync_hash, epoch_height, shards), the only one older nodes verify.
+    pub(crate) fn legacy_signature(&self) -> Option<&Signature> {
+        match self {
+            Self::V1(info) => Some(&info.signature),
+            Self::V2(info) => info.legacy_signature.as_ref(),
+        }
     }
 
     /// Of two infos from the same host, only the one with the greater key is kept.
-    /// A host publishes one info per snapshot, so the epoch height orders them. A copy
-    /// without `signature`, such as one relayed by an older node, never replaces a
-    /// copy of the same epoch that has it.
-    pub(crate) fn freshness(&self) -> (EpochHeight, bool) {
-        (self.epoch_height, self.signature.is_some())
+    /// A host publishes one info per snapshot, so the epoch height orders them. A V1 copy,
+    /// such as one relayed by an older node, never replaces a V2 copy of the same epoch.
+    pub(crate) fn freshness(&self) -> (EpochHeight, u8) {
+        let version = match self {
+            Self::V1(_) => 1,
+            Self::V2(_) => 2,
+        };
+        (self.epoch_height(), version)
     }
 
     pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
         // Number of shards must be limited, otherwise it'd be possible to create malicious
         // messages with millions of shard ids.
-        if self.shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
-            return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
+        let num_shards = self.shards().len();
+        if num_shards > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+            return Err(SnapshotHostInfoVerificationError::TooManyShards(num_shards));
         }
 
-        if self.signature.is_none() && self.legacy_signature.is_none() {
+        let valid = match self {
+            Self::V1(info) => info.has_valid_signature(),
+            Self::V2(info) => info.has_valid_signatures(),
+        };
+        if !valid {
             return Err(SnapshotHostInfoVerificationError::InvalidSignature);
-        }
-        // Only `signature` covers the address.
-        if self.addr.is_some() && self.signature.is_none() {
-            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
-        }
-        let public_key = self.peer_id.public_key();
-        if let Some(signature) = &self.signature {
-            if !signature.verify(self.hash().as_ref(), public_key) {
-                return Err(SnapshotHostInfoVerificationError::InvalidSignature);
-            }
-        }
-        if let Some(signature) = &self.legacy_signature {
-            if !signature.verify(self.legacy_hash().as_ref(), public_key) {
-                return Err(SnapshotHostInfoVerificationError::InvalidSignature);
-            }
         }
 
         Ok(())

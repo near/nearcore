@@ -445,7 +445,7 @@ message SnapshotHostInfo {
   Signature legacy_signature = 5;
   // Listening address the host advertises for itself.
   SocketAddr addr = 6;
-  // Signature on (sync_hash, epoch_height, shards, addr).
+  // Signature on ("SnapshotHostInfoV2", sync_hash, epoch_height, shards, addr).
   Signature signature = 7;
 }
 

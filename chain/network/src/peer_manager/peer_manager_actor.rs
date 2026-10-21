@@ -1039,7 +1039,7 @@ impl PeerManagerActor {
                     sync_hash,
                     epoch_height,
                     shards,
-                    Some(addr),
+                    addr,
                     &self.state.config.node_key,
                 ));
 
@@ -1718,10 +1718,10 @@ impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
                     .get_hosts()
                     .iter()
                     .map(|h| SnapshotHostInfoView {
-                        peer_id: h.peer_id.clone(),
-                        sync_hash: h.sync_hash,
-                        epoch_height: h.epoch_height,
-                        shards: h.shards.clone().into_iter().map(Into::into).collect(),
+                        peer_id: h.peer_id().clone(),
+                        sync_hash: h.sync_hash(),
+                        epoch_height: h.epoch_height(),
+                        shards: h.shards().iter().copied().map(Into::into).collect(),
                     })
                     .collect::<Vec<_>>(),
             }),

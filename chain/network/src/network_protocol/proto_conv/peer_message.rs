@@ -2,7 +2,9 @@
 use super::*;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
-use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
+use crate::network_protocol::state_sync::{
+    SnapshotHostInfo, SnapshotHostInfoV1, SnapshotHostInfoV2, SyncSnapshotHosts,
+};
 use crate::network_protocol::{
     Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
     RoutedMessageV3, RoutingTableUpdate, StateRequestAck, SyncAccountsData, TieredMessageBody,
@@ -118,20 +120,26 @@ pub enum ParseSnapshotHostInfoError {
     Signature(ParseSignatureError),
     #[error("legacy_signature {0}")]
     LegacySignature(ParseSignatureError),
+    #[error("expected addr with signature, or legacy_signature alone")]
+    UnknownVersion,
     #[error("shards: {count} > {max} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)")]
     TooManyShards { count: usize, max: usize },
 }
 
 impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
     fn from(x: &SnapshotHostInfo) -> Self {
+        let (addr, signature) = match x {
+            SnapshotHostInfo::V1(_) => (None, None),
+            SnapshotHostInfo::V2(info) => (Some(&info.addr), Some(&info.signature)),
+        };
         Self {
-            peer_id: MF::some((&x.peer_id).into()),
-            sync_hash: MF::some((&x.sync_hash).into()),
-            epoch_height: x.epoch_height,
-            shards: x.shards.clone().into_iter().map(Into::into).collect(),
-            legacy_signature: MF::from_option(x.legacy_signature.as_ref().map(Into::into)),
-            addr: MF::from_option(x.addr.as_ref().map(Into::into)),
-            signature: MF::from_option(x.signature.as_ref().map(Into::into)),
+            peer_id: MF::some(x.peer_id().into()),
+            sync_hash: MF::some((&x.sync_hash()).into()),
+            epoch_height: x.epoch_height(),
+            shards: x.shards().iter().copied().map(Into::into).collect(),
+            legacy_signature: MF::from_option(x.legacy_signature().map(Into::into)),
+            addr: MF::from_option(addr.map(Into::into)),
+            signature: MF::from_option(signature.map(Into::into)),
             ..Default::default()
         }
     }
@@ -150,15 +158,29 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
                 max: MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
             });
         }
-        Ok(Self {
-            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
-            sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
-            epoch_height: x.epoch_height,
-            shards: x.shards.clone().into_iter().map(Into::into).collect(),
-            addr: try_from_optional(&x.addr).map_err(Self::Error::Addr)?,
-            signature: try_from_optional(&x.signature).map_err(Self::Error::Signature)?,
-            legacy_signature: try_from_optional(&x.legacy_signature)
-                .map_err(Self::Error::LegacySignature)?,
+        let peer_id = try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?;
+        let sync_hash = try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?;
+        let epoch_height = x.epoch_height;
+        let shards = x.shards.clone().into_iter().map(Into::into).collect();
+        let addr = try_from_optional(&x.addr).map_err(Self::Error::Addr)?;
+        let signature = try_from_optional(&x.signature).map_err(Self::Error::Signature)?;
+        let legacy_signature =
+            try_from_optional(&x.legacy_signature).map_err(Self::Error::LegacySignature)?;
+        // Older nodes relay only the fields of V1.
+        Ok(match (addr, signature, legacy_signature) {
+            (Some(addr), Some(signature), legacy_signature) => Self::V2(SnapshotHostInfoV2 {
+                peer_id,
+                sync_hash,
+                epoch_height,
+                shards,
+                addr,
+                signature,
+                legacy_signature,
+            }),
+            (None, None, Some(signature)) => {
+                Self::V1(SnapshotHostInfoV1 { peer_id, sync_hash, epoch_height, shards, signature })
+            }
+            _ => return Err(Self::Error::UnknownVersion),
         })
     }
 }

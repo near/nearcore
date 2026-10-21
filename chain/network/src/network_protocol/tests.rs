@@ -500,7 +500,10 @@ mod versioned_witness_tests {
 fn snapshot_host_info_signed_address() {
     use crate::network_protocol::SnapshotHostInfoVerificationError;
     use crate::network_protocol::proto;
-    use crate::network_protocol::state_sync::SnapshotHostInfo;
+    use crate::network_protocol::proto_conv::ParseSnapshotHostInfoError;
+    use crate::network_protocol::state_sync::{
+        SnapshotHostInfo, SnapshotHostInfoV1, SnapshotHostInfoV2,
+    };
     use protobuf::MessageField;
 
     let mut rng = make_rng(2847510394);
@@ -510,32 +513,76 @@ fn snapshot_host_info_signed_address() {
         CryptoHash::default(),
         1,
         vec![ShardId::new(0)],
-        Some("192.0.2.1:24567".parse().unwrap()),
+        "192.0.2.1:24567".parse().unwrap(),
         &signer,
     );
     info.verify().unwrap();
     assert_eq!(SnapshotHostInfo::try_from(&proto::SnapshotHostInfo::from(&info)).unwrap(), info);
+    let SnapshotHostInfo::V2(v2) = &info else { panic!("expected a V2 info") };
 
     // Relays can't change the address.
-    let tampered =
-        SnapshotHostInfo { addr: Some("192.0.2.2:24567".parse().unwrap()), ..info.clone() };
+    let tampered = SnapshotHostInfo::V2(SnapshotHostInfoV2 {
+        addr: "192.0.2.2:24567".parse().unwrap(),
+        ..v2.clone()
+    });
     assert_eq!(tampered.verify(), Err(SnapshotHostInfoVerificationError::InvalidSignature));
 
-    // Older nodes relay only the fields they know, and the result still verifies.
+    // Older nodes relay only the fields of V1, and the result still verifies.
     let mut stripped = proto::SnapshotHostInfo::from(&info);
     stripped.addr = MessageField::none();
     stripped.signature = MessageField::none();
     let stripped = SnapshotHostInfo::try_from(&stripped).unwrap();
     stripped.verify().unwrap();
-    let want = SnapshotHostInfo { addr: None, signature: None, ..info.clone() };
+    let want = SnapshotHostInfo::V1(SnapshotHostInfoV1 {
+        peer_id: v2.peer_id.clone(),
+        sync_hash: v2.sync_hash,
+        epoch_height: v2.epoch_height,
+        shards: v2.shards.clone(),
+        signature: v2.legacy_signature.clone().unwrap(),
+    });
     assert_eq!(stripped, want);
+    assert_eq!(SnapshotHostInfo::try_from(&proto::SnapshotHostInfo::from(&want)).unwrap(), want);
 
-    // An address without the signature covering it fails verification.
+    // An address without the signature covering it, or the reverse, matches no version.
     let mut unsigned = proto::SnapshotHostInfo::from(&info);
     unsigned.signature = MessageField::none();
-    let unsigned = SnapshotHostInfo::try_from(&unsigned).unwrap();
-    assert_eq!(unsigned, SnapshotHostInfo { signature: None, ..info });
-    assert_eq!(unsigned.verify(), Err(SnapshotHostInfoVerificationError::InvalidSignature));
+    let mut no_addr = proto::SnapshotHostInfo::from(&info);
+    no_addr.addr = MessageField::none();
+    for x in [unsigned, no_addr] {
+        assert!(matches!(
+            SnapshotHostInfo::try_from(&x),
+            Err(ParseSnapshotHostInfoError::UnknownVersion)
+        ));
+    }
+}
+
+/// Nodes on other releases verify these signatures, so the signed data must not change.
+#[test]
+fn snapshot_host_info_signed_data() {
+    use crate::network_protocol::state_sync::SnapshotHostInfo;
+
+    let mut rng = make_rng(2847510394);
+    let signer = data::make_secret_key(&mut rng);
+    let info = SnapshotHostInfo::new(
+        PeerId::new(signer.public_key()),
+        CryptoHash::hash_borsh(1u64),
+        1,
+        vec![ShardId::new(0), ShardId::new(3)],
+        "192.0.2.1:24567".parse().unwrap(),
+        &signer,
+    );
+    let SnapshotHostInfo::V2(info) = info else { panic!("expected a V2 info") };
+    let public_key = signer.public_key();
+    let legacy_hash = CryptoHash::hash_borsh((&info.sync_hash, &info.epoch_height, &info.shards));
+    assert!(info.legacy_signature.unwrap().verify(legacy_hash.as_ref(), &public_key));
+    let hash = CryptoHash::hash_borsh((
+        "SnapshotHostInfoV2",
+        &info.sync_hash,
+        &info.epoch_height,
+        &info.shards,
+        &info.addr,
+    ));
+    assert!(info.signature.verify(hash.as_ref(), &public_key));
 }
 
 #[test]
@@ -550,14 +597,15 @@ fn snapshot_host_info_too_many_shards() {
     // send-side debug_assert. We then set `shards` on the proto directly.
     let signer = data::make_secret_key(&mut rng);
     let peer_id = PeerId::new(signer.public_key());
-    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], None, &signer);
+    let addr = "192.0.2.1:24567".parse().unwrap();
+    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], addr, &signer);
     let base = proto::SnapshotHostInfo::from(&info);
 
     // len == cap: must succeed.
     let mut ok_proto = base.clone();
     ok_proto.shards = (0..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64).collect();
     let parsed = SnapshotHostInfo::try_from(&ok_proto).expect("at-cap parse should succeed");
-    assert_eq!(parsed.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+    assert_eq!(parsed.shards().len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
 
     // len == cap + 1: must fail with TooManyShards, before any per-shard allocation.
     let mut too_many = base;
