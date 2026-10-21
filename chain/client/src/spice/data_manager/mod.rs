@@ -17,7 +17,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -26,6 +26,7 @@ use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
+use std::ops::Bound;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -121,6 +122,8 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     pulls: Pulls,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
+    /// Highest consensus final head height seen at a trigger.`None` until the first trigger.
+    final_height: Option<BlockHeight>,
 }
 
 impl<P: DataPolicy> SpiceDataManager<P> {
@@ -139,6 +142,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             items_by_height: BTreeMap::new(),
             delivered_items: HashSet::new(),
             final_execution_head: None,
+            final_height: None,
         }
     }
 
@@ -177,6 +181,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
+        // A block off the canonical chain at or below the final head can never be applied.
+        if self.final_height.is_some_and(|final_height| height <= final_height)
+            && self.canonical_block_hash(height)? != Some(*block.hash())
+        {
+            return Ok(());
+        }
         for (id, producers) in self.policies.needed_items(block)? {
             if self.items.contains_key(&id) || self.policies.is_done(&id) {
                 continue;
@@ -188,7 +198,8 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     }
 
     /// The block was processed at `now`: expires the items at or below the final execution
-    /// head, tracks the items needed from the block, adds the tracked items the block makes
+    /// head, drops the items off the canonical chain at or below the consensus final head,
+    /// tracks the items needed from the block, adds the tracked items the block makes
     /// pullable to `pulls`, removes the delivered items already in the store, and
     /// returns the requests for the pullable rest, grouped by producer. A failed chain read is
     /// logged and skips only its own step.
@@ -201,6 +212,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             Ok(height) => self.expire_at_or_below(height),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
+            }
+        }
+        match self.chain_store.final_head() {
+            Ok(final_head) => self.drop_forks_at_or_below(final_head.height),
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final head");
             }
         }
         match self.chain_store.get_block(block_hash) {
@@ -269,11 +286,23 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         }
         self.pulls.record_answer(id, sender);
         let encoder = self.encoders.entry(total_parts);
-        let outcome = insert_verified_parts(item, &encoder, id, producer_index, verified);
-        if let Ok(PartsOutcome::Decoded(_)) = &outcome {
-            self.delivered_items.insert(id.clone());
+        for part in verified {
+            match item.insert_part(&encoder, id, producer_index, part) {
+                PartInsertResult::Decoded(data) => {
+                    self.delivered_items.insert(id.clone());
+                    return Ok(PartsOutcome::Decoded(data));
+                }
+                PartInsertResult::Garbage(error) => {
+                    return Err(SenderFault::GarbageCommitment(error));
+                }
+                PartInsertResult::ConflictingCommitment => {
+                    return Err(SenderFault::ConflictingCommitment);
+                }
+                PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
+                PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
+            }
         }
-        outcome
+        Ok(PartsOutcome::Collecting)
     }
 
     /// Stops tracking items at or below `height`.
@@ -288,6 +317,39 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");
             self.delivered_items.remove(&id);
+        }
+    }
+
+    /// Removes the items off the canonical chain at heights newly at or below `final_height`.
+    fn drop_forks_at_or_below(&mut self, final_height: BlockHeight) {
+        let from = match self.final_height {
+            Some(checked) if checked >= final_height => return,
+            Some(checked) => Bound::Excluded(checked),
+            None => Bound::Unbounded,
+        };
+        self.final_height = Some(final_height);
+        let mut forks = Vec::new();
+        for (&height, ids) in self.items_by_height.range((from, Bound::Included(final_height))) {
+            let canonical = match self.canonical_block_hash(height) {
+                Ok(canonical) => canonical,
+                Err(err) => {
+                    tracing::error!(target: "spice_data_distribution", ?err, height, "failed to read the canonical block");
+                    continue;
+                }
+            };
+            forks.extend(ids.iter().filter(|id| Some(*id.block_hash()) != canonical).cloned());
+        }
+        for id in forks {
+            self.remove_item(&id);
+        }
+    }
+
+    /// Hash of the canonical block at `height`; `None` if the canonical chain has none there.
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+        match self.chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => Ok(Some(hash)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
         }
     }
 
@@ -308,29 +370,6 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         self.pulls.forget(id, item.height);
         self.delivered_items.remove(id);
     }
-}
-
-/// Inserts `verified` parts from the producer at `producer_index` until one settles a
-/// commitment or fails.
-fn insert_verified_parts(
-    item: &mut FetchItem,
-    encoder: &Arc<ReedSolomonEncoder>,
-    id: &DataId,
-    producer_index: usize,
-    verified: Vec<VerifiedCodedPart>,
-) -> Result<PartsOutcome, SenderFault> {
-    for part in verified {
-        match item.insert_part(encoder, id, producer_index, part) {
-            PartInsertResult::Decoded(data) => return Ok(PartsOutcome::Decoded(data)),
-            PartInsertResult::Garbage(error) => return Err(SenderFault::GarbageCommitment(error)),
-            PartInsertResult::ConflictingCommitment => {
-                return Err(SenderFault::ConflictingCommitment);
-            }
-            PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
-            PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
-        }
-    }
-    Ok(PartsOutcome::Collecting)
 }
 
 /// Removes `id` from `index` under `height`, dropping the height once it holds no id.

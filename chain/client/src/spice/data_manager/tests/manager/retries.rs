@@ -301,21 +301,16 @@ fn a_pool_is_requested_from_member_by_member_however_often_another_commitment_of
 
     // Nobody answers: each round both trackers send again, and the honest pool's two members
     // take turns.
-    let mut requested = HashSet::new();
-    for block in &blocks[1..] {
-        let requests = wants_for(manager.on_block_processed(block), &id);
-        assert!(requests.contains_key(&producers[2]));
-        let [member]: [&AccountId; 1] = pool
-            .iter()
-            .filter(|member| requests.contains_key(*member))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap_or_else(|members| {
-                panic!("not exactly one pool member requested from: {members:?}")
-            });
-        assert!(requested.insert(member.clone()), "{member} requested from twice before the other");
-        manager.clock.advance(PullConfig::default().request_timeout);
-    }
+    let round_1 = wants_for(manager.on_block_processed(&blocks[1]), &id);
+    manager.clock.advance(PullConfig::default().request_timeout);
+    let round_2 = wants_for(manager.on_block_processed(&blocks[2]), &id);
+
+    assert!(round_1.contains_key(&producers[2]) && round_2.contains_key(&producers[2]));
+    let asked = |round: &BTreeMap<AccountId, BTreeSet<u64>>| -> Vec<&AccountId> {
+        pool.iter().filter(|member| round.contains_key(*member)).collect()
+    };
+    // Each round asks exactly one pool member, and the second round asks the other one.
+    assert_matches!((asked(&round_1).as_slice(), asked(&round_2).as_slice()), ([a], [b]) if a != b);
 }
 
 #[test]
@@ -344,20 +339,15 @@ fn a_pool_requested_at_once_for_own_ordinals_is_then_requested_from_member_by_me
         );
     }
 
-    let mut requested = HashSet::new();
-    for block in &blocks[2..] {
-        let requests = wants_for(manager.on_block_processed(block), &id);
-        let [member]: [&AccountId; 1] = pool
-            .iter()
-            .filter(|member| requests.contains_key(*member))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap_or_else(|members| {
-                panic!("not exactly one pool member requested from: {members:?}")
-            });
-        assert!(requested.insert(member.clone()), "{member} requested from twice before the other");
-        manager.clock.advance(PullConfig::default().request_timeout);
-    }
+    let round_1 = wants_for(manager.on_block_processed(&blocks[2]), &id);
+    manager.clock.advance(PullConfig::default().request_timeout);
+    let round_2 = wants_for(manager.on_block_processed(&blocks[3]), &id);
+
+    let asked = |round: &BTreeMap<AccountId, BTreeSet<u64>>| -> Vec<&AccountId> {
+        pool.iter().filter(|member| round.contains_key(*member)).collect()
+    };
+    // Each round asks exactly one pool member, and the second round asks the other one.
+    assert_matches!((asked(&round_1).as_slice(), asked(&round_2).as_slice()), ([a], [b]) if a != b);
 }
 
 #[test]
@@ -402,13 +392,17 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn only_the_lowest_pullable_heights_are_pulled() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 7);
-    let mut manager = TestManager::applying(&chain, 2);
+    let pulled_heights = 4;
+    assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
+    let config = PullConfig {
+        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        ..PullConfig::default()
+    };
+    let mut manager = TestManager::with_pull_config(&chain, 2, config);
     for block in &blocks[..6] {
         manager.track_block(&block);
     }
     manager.certify_up_to(6);
-    let pulled_heights = PullConfig::default().pulled_heights.get();
-    assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
 
     let requests = by_producer(manager.on_block_processed(&blocks[6]));
 
@@ -430,7 +424,13 @@ fn only_the_lowest_pullable_heights_are_pulled() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 8);
-    let mut manager = TestManager::applying(&chain, 2);
+    let pulled_heights = 4;
+    assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
+    let config = PullConfig {
+        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        ..PullConfig::default()
+    };
+    let mut manager = TestManager::with_pull_config(&chain, 2, config);
     let others: Vec<AccountId> =
         (0..TOTAL_PARTS).map(|i| account(&format!("other{i}.near"))).collect();
     manager.set_producers_for(1, others.clone());
@@ -438,8 +438,6 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
         manager.track_block(&block);
     }
     manager.certify_up_to(6);
-    let pulled_heights = PullConfig::default().pulled_heights.get();
-    assert_eq!(pulled_heights, 4, "the expectation below spells out the heights pulled");
     manager.on_block_processed(&blocks[6]);
 
     // Shard 1's two lowest items finish; shard 0's producers stay silent.
@@ -451,7 +449,7 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
     // The clock stands still: shard 0's items keep the two lowest heights in the window, so
     // shard 1's next heights wait.
     assert_eq!(manager.on_block_processed(&blocks[7]), vec![]);
-    for block in &blocks[4..6] {
+    for block in &blocks[pulled_heights..6] {
         assert!(manager.pulling_from(&receipt_id(block, 1, 2)).is_empty());
     }
 }
@@ -463,8 +461,7 @@ fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_s
     let config =
         PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
     let request_timeout = config.request_timeout;
-    let mut manager = TestManager::new(&chain);
-    manager.set_pull_config(config);
+    let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
 
     // Height 3: only the lowest item is pulled.
@@ -483,11 +480,9 @@ fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_s
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let mut manager = TestManager::new(&chain);
-    manager.set_pull_config(PullConfig {
-        pulled_heights: NonZeroUsize::new(1).unwrap(),
-        ..PullConfig::default()
-    });
+    let config =
+        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
     assert!(manager.pulling_from(&ids[1]).is_empty());
@@ -505,11 +500,9 @@ fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pull
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let mut manager = TestManager::new(&chain);
-    manager.set_pull_config(PullConfig {
-        pulled_heights: NonZeroUsize::new(1).unwrap(),
-        ..PullConfig::default()
-    });
+    let config =
+        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
     assert!(manager.pulling_from(&ids[1]).is_empty());
@@ -528,13 +521,17 @@ fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding() {
     let (chain, blocks) = chain_with_blocks(9);
-    let mut manager = TestManager::new(&chain);
+    let pulled_heights = 4;
+    assert!(pulled_heights < 5, "the burst must leave heights waiting");
+    let config = PullConfig {
+        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        ..PullConfig::default()
+    };
+    let mut manager = TestManager::with_pull_config(&chain, 1, config);
     for block in &blocks[..5] {
         manager.track_block(&block);
     }
     manager.certify_up_to(5);
-    let pulled_heights = PullConfig::default().pulled_heights.get();
-    assert!(pulled_heights < 5, "the burst must leave heights waiting");
 
     let first = by_producer(manager.on_block_processed(&blocks[5]));
     let expected: WantsByProducer = producers()

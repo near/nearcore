@@ -3,6 +3,7 @@ use super::{DataId, remove_indexed};
 use near_async::time::{Duration, Instant};
 use near_primitives::types::{AccountId, BlockHeight};
 use rand::seq::SliceRandom;
+use rand::thread_rng;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::take;
 use std::num::NonZeroUsize;
@@ -54,14 +55,9 @@ pub(super) struct Pulls {
 /// A request made to one producer for one item.
 struct Request {
     created_at: Instant,
-    status: RequestStatus,
-}
-
-enum RequestStatus {
-    /// No verified answer yet; outstanding until `request_timeout` after it was created.
-    Issued,
-    /// A verified answer arrived.
-    Answered,
+    /// A verified answer arrived; until then the request is outstanding for `request_timeout`
+    /// after `created_at`.
+    answered: bool,
 }
 
 impl Pulls {
@@ -78,7 +74,7 @@ impl Pulls {
     pub(super) fn record_answer(&mut self, id: &DataId, producer: &AccountId) {
         let request = self.requests.get_mut(id).and_then(|requests| requests.get_mut(producer));
         if let Some(request) = request {
-            request.status = RequestStatus::Answered;
+            request.answered = true;
         }
     }
 
@@ -155,11 +151,6 @@ impl Pulls {
     }
 
     #[cfg(test)]
-    pub(super) fn set_config(&mut self, config: Config) {
-        self.config = config;
-    }
-
-    #[cfg(test)]
     pub(super) fn is_pullable(&self, id: &DataId) -> bool {
         self.pullable.values().any(|ids| ids.contains(id))
     }
@@ -187,11 +178,11 @@ impl Pulls {
 
 impl Request {
     fn new(created_at: Instant) -> Self {
-        Self { created_at, status: RequestStatus::Issued }
+        Self { created_at, answered: false }
     }
 
     fn is_outstanding(&self, trigger: &Trigger) -> bool {
-        matches!(self.status, RequestStatus::Issued) && self.created_at > trigger.stale_cutoff
+        !self.answered && self.created_at > trigger.stale_cutoff
     }
 }
 
@@ -262,12 +253,13 @@ impl ItemRequests<'_> {
         }
         let last_created = |member: &AccountId| self.last_request(member).map(|r| r.created_at);
         let oldest = pool.iter().map(|member| last_created(member)).min()?;
-        let candidates: Vec<&&AccountId> =
-            pool.iter().filter(|member| last_created(member) == oldest).collect();
-        let source = (**candidates
-            .choose(&mut rand::thread_rng())
-            .expect("the oldest creation time comes from a member of the pool"))
-        .clone();
+        let candidates: Vec<&AccountId> =
+            pool.iter().copied().filter(|member| last_created(member) == oldest).collect();
+        let source = candidates
+            .choose(&mut thread_rng())
+            .copied()
+            .expect("the oldest creation time comes from a member of the pool")
+            .clone();
         self.record(source.clone());
         Some(source)
     }

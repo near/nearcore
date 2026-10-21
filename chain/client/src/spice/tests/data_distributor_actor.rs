@@ -7,7 +7,7 @@ use crate::spice::data_distributor_actor::{
     MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, validate_wants,
 };
-use crate::spice::data_manager::{AssembledDataError, DataId, PullConfig, SenderFault};
+use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
     save_and_record_block,
@@ -3493,28 +3493,22 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
-    // The dead fork's witness is purged at the final head and the canonical block's stays.
-    // Neither proof item goes before the final execution head passes it, and the fork's
-    // certified proof is still asked for.
+    // The dead fork's witness and certified proof are dropped at the final head, and are not
+    // asked for. The canonical block's witness and proof stay.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
     assert!(actor.is_tracking(&proof_id(&next_block)));
-    assert!(actor.is_tracking(&proof_id(&fork_block)));
+    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     let (witness_blocks, proof_blocks) = requested_blocks(&mut outgoing_rc);
     assert!(!witness_blocks.contains(fork_block.hash()));
     assert!(witness_blocks.contains(next_block.hash()));
-    assert!(proof_blocks.contains(fork_block.hash()));
+    assert!(!proof_blocks.contains(fork_block.hash()));
 
-    // Once the final execution head passes their height, both items expire, and the fork's
-    // proof is not asked for again after its request times out.
+    // The canonical block's proof expires once the final execution head passes its height.
     save_final_execution_head(&chain, &next_block);
-    clock.advance(PullConfig::default().request_timeout);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
-    assert!(!actor.is_tracking(&proof_id(&fork_block)));
-    let (_witness_blocks, proof_blocks) = requested_blocks(&mut outgoing_rc);
-    assert!(!proof_blocks.contains(fork_block.hash()));
 }
 
 #[test]

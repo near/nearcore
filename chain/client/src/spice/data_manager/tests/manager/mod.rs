@@ -192,6 +192,10 @@ impl TestManager {
     }
 
     fn applying(chain: &Chain, shard: u64) -> Self {
+        Self::with_pull_config(chain, shard, PullConfig::default())
+    }
+
+    fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
         let shard_tracker = ShardTracker::new(
@@ -210,7 +214,7 @@ impl TestManager {
         };
         Self {
             manager: SpiceDataManager::new(
-                PullConfig::default(),
+                pull_config,
                 DATA_PARTS_RATIO,
                 store.chain_store(),
                 policy,
@@ -246,8 +250,11 @@ impl TestManager {
         store_update.commit();
     }
 
-    fn set_pull_config(&mut self, config: PullConfig) {
-        self.manager.pulls.set_config(config);
+    /// Writes `block` to the store as the consensus final head.
+    fn set_final_head(&self, block: &Block) {
+        let mut store_update = self.store.store_update();
+        store_update.chain_store_update().set_final_head(&Tip::from_header(block.header()));
+        store_update.commit();
     }
 
     fn track_block(&mut self, block: &Block) {
