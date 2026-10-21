@@ -1,3 +1,4 @@
+mod activation_boundary;
 mod activation_tracking;
 mod all_stake_fallback;
 mod basic;

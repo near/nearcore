@@ -5,11 +5,11 @@ use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
+    RoutedMessageV3, RoutingTableUpdate, StateRequestAck, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
-use borsh::BorshDeserialize as _;
+use borsh::{BorshDeserialize as _, to_vec};
 use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
@@ -18,6 +18,7 @@ use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
+use std::io::Error as IoError;
 use std::sync::Arc;
 
 /// Upper bound on the Borsh-encoded size of a peer-supplied transaction body,
@@ -37,27 +38,18 @@ const MAX_ROUTED_MESSAGE_SIZE_BYTES: usize = 64 * MIB as usize;
 pub enum ParseRoutingTableUpdateError {
     #[error("edges {0}")]
     Edges(ParseVecError<ParseEdgeError>),
-    #[error("accounts {0}")]
-    Accounts(ParseVecError<ParseAnnounceAccountError>),
 }
 
 impl From<&RoutingTableUpdate> for proto::RoutingTableUpdate {
     fn from(x: &RoutingTableUpdate) -> Self {
-        Self {
-            edges: x.edges.iter().map(Into::into).collect(),
-            accounts: x.accounts.iter().map(Into::into).collect(),
-            ..Default::default()
-        }
+        Self { edges: x.edges.iter().map(Into::into).collect(), ..Default::default() }
     }
 }
 
 impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
     type Error = ParseRoutingTableUpdateError;
     fn try_from(x: &proto::RoutingTableUpdate) -> Result<Self, Self::Error> {
-        Ok(Self {
-            edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
-            accounts: try_from_slice(&x.accounts).map_err(Self::Error::Accounts)?,
-        })
+        Ok(Self { edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)? })
     }
 }
 
@@ -315,6 +307,27 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::SyncSnapshotHosts(ssh) => ProtoMT::SyncSnapshotHosts(ssh.into()),
+                PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                    ProtoMT::StateRequestHeader(proto::StateRequestHeader {
+                        shard_id: (*shard_id).into(),
+                        sync_hash: MF::some(sync_hash.into()),
+                        ..Default::default()
+                    })
+                }
+                PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
+                    ProtoMT::StateRequestPart(proto::StateRequestPart {
+                        shard_id: (*shard_id).into(),
+                        sync_hash: MF::some(sync_hash.into()),
+                        part_id: *part_idx,
+                        ..Default::default()
+                    })
+                }
+                PeerMessage::StateRequestAck(ack) => {
+                    ProtoMT::StateRequestAck(proto::StateRequestAck {
+                        borsh: to_vec(ack).unwrap(),
+                        ..Default::default()
+                    })
+                }
                 PeerMessage::VersionedStateResponse(sri) => {
                     ProtoMT::StateResponse(proto::StateResponse {
                         state_response_info: MF::some(sri.into()),
@@ -380,6 +393,12 @@ pub enum ParsePeerMessageError {
     RoutedCreatedAtTimestamp(ComponentRange),
     #[error("sync_accounts_data: {0}")]
     SyncAccountsData(ParseVecError<ParseSignedAccountDataError>),
+    #[error("state_request_header: {0}")]
+    StateRequestHeader(ParseRequiredError<ParseCryptoHashError>),
+    #[error("state_request_part: {0}")]
+    StateRequestPart(ParseRequiredError<ParseCryptoHashError>),
+    #[error("state_request_ack: {0}")]
+    StateRequestAck(IoError),
     #[error("state_response: {0}")]
     StateResponse(ParseRequiredError<ParseStateInfoError>),
     #[error("sync_snapshot_hosts: {0}")]
@@ -420,7 +439,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     edges: vec![
                         try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
                     ],
-                    accounts: vec![],
                 })
             }
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
@@ -495,6 +513,19 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Challenge(c) => PeerMessage::Challenge(Box::new(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             )),
+            ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
+                srh.shard_id.into(),
+                try_from_required(&srh.sync_hash).map_err(Self::Error::StateRequestHeader)?,
+            ),
+            ProtoMT::StateRequestPart(srp) => PeerMessage::StateRequestPart(
+                srp.shard_id.into(),
+                try_from_required(&srp.sync_hash).map_err(Self::Error::StateRequestPart)?,
+                srp.part_id,
+            ),
+            ProtoMT::StateRequestAck(ack) => PeerMessage::StateRequestAck(
+                StateRequestAck::try_from_slice(&ack.borsh)
+                    .map_err(Self::Error::StateRequestAck)?,
+            ),
             ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
                 try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
             ),

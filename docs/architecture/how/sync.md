@@ -150,6 +150,12 @@ return acknowledgements over Tier 2, then connect back to the requester over
 Tier 3 to send the state headers and parts. State response payloads are accepted
 only on Tier 3 connections.
 
+Hosts also accept requests sent directly over a Tier 3 connection opened by the
+requester, and send the acknowledgement and the response back over that
+connection. A node accepts up to `network.max_inbound_tier3_connections`
+(64 by default) such connections at a time. Requesters do not send direct
+requests yet.
+
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for
 non-archival nodes, as that data would be garbage collected after a few epochs

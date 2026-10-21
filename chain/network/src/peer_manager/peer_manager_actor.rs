@@ -41,7 +41,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
@@ -129,7 +129,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
@@ -736,6 +735,22 @@ impl PeerManagerActor {
         let sent_total: u64 = t2_infos.iter().map(|p| p.sent_bytes_per_sec).sum();
         let recv_total: u64 = t2_infos.iter().map(|p| p.received_bytes_per_sec).sum();
 
+        let accounts_data = self.state.accounts_data.load();
+        let known_producers = accounts_data
+            .keys_by_id
+            .iter()
+            .filter_map(|(account_id, keys)| {
+                let data = keys.iter().find_map(|key| accounts_data.data.get(key))?;
+                Some(KnownProducer {
+                    account_id: account_id.clone(),
+                    peer_id: data.peer_id.clone(),
+                    // TODO: fill in the address.
+                    addr: None,
+                    next_hops: self.state.graph.routing_table.view_route(&data.peer_id),
+                })
+            })
+            .collect();
+
         NetworkInfo {
             connected_peers: t2_infos,
             tier1_connections: t1_infos,
@@ -743,21 +758,9 @@ impl PeerManagerActor {
             peer_max_count: self.state.config.max_num_peers,
             sent_bytes_per_sec: sent_total,
             received_bytes_per_sec: recv_total,
-            known_producers: self
-                .state
-                .account_announcements
-                .get_announcements()
-                .into_iter()
-                .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id.clone(),
-                    // TODO: fill in the address.
-                    addr: None,
-                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
-                })
-                .collect(),
-            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
-            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
+            known_producers,
+            tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
+            tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }
     }
 
@@ -1039,14 +1042,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason, &*self.transport);
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                let state = self.state.clone();
-                let transport = self.transport.clone();
-                self.handle.spawn("announce_account", async move {
-                    state.add_accounts(vec![announce_account], transport).await;
-                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
@@ -1519,9 +1514,9 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     .try_acquire(STATE_SYNC_RESPONSE_BYTES);
 
                 // Process the request.
-                // Unconditionally produce an ack to be sent back over tier2.
+                // Unconditionally produce an ack.
                 // Optionally produce a response to be sent over tier3.
-                let (tier2_ack, maybe_tier3_response) = match request.body {
+                let (ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
                         let (ack, response) = if response_permit.is_none() {
                             tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
@@ -1545,12 +1540,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         };
 
                         (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
+                            StateRequestAck {
                                 shard_id,
                                 sync_hash,
                                 part_or_header: PartOrHeader::Header,
                                 body: ack,
-                            }).into(),
+                            },
                             response
                         )
                     }
@@ -1577,12 +1572,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         };
 
                         (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
+                            StateRequestAck {
                                 shard_id,
                                 sync_hash,
                                 part_or_header: PartOrHeader::Part { part_idx },
                                 body: ack,
-                            }).into(),
+                            },
                             response
                         )
                     }
@@ -1591,16 +1586,22 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let sender: PeerId = request.peer_info.id.clone();
 
                 // Send an ack for the request
-                tracing::debug!(target: "network", ?tier2_ack, %sender, "ack state request from host");
-                let routed_message = state.sign_message(
-                    &clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(sender.clone()),
-                        body: tier2_ack,
-                    },
-                );
-                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, transport.as_ref()) {
-                    tracing::debug!(target: "network", sender = %sender, "failed to route ack");
+                tracing::debug!(target: "network", ?ack, %sender, is_direct = request.is_direct, "ack state request from host");
+                if request.is_direct {
+                    if !transport.send_message(tcp::Tier::T3, sender.clone(), Arc::new(PeerMessage::StateRequestAck(ack))) {
+                        tracing::debug!(target: "network", sender = %sender, "failed to send ack, tier3 connection is closed");
+                    }
+                } else {
+                    let routed_message = state.sign_message(
+                        &clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::PeerId(sender.clone()),
+                            body: T2MessageBody::StateRequestAck(ack).into(),
+                        },
+                    );
+                    if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, transport.as_ref()) {
+                        tracing::debug!(target: "network", sender = %sender, "failed to route ack");
+                    }
                 }
 
                 let Some(tier3_response) = maybe_tier3_response else {
@@ -1610,10 +1611,11 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 // had a permit (the Busy branch above clears it).
                 let response_permit = response_permit.expect("permit set when response present");
 
-                // Establish a tier3 connection if we don't have one already.
+                // Establish a tier3 connection if we don't have one already. Direct requests are
+                // answered only over the connection that the requester opened.
                 let already_connected_t3 =
                     state.peers.is_connected_on_tier(&sender, tcp::Tier::T3);
-                if !already_connected_t3 {
+                if !request.is_direct && !already_connected_t3 {
                     if let Err(err) = transport
                         .connect_to_peer(&clock, request.peer_info.clone(), tcp::Tier::T3)
                         .await

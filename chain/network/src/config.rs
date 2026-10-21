@@ -31,9 +31,6 @@ pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE: usize = 50_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE: usize = 50_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_PEERS: usize = 100_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES: usize = 1_000_000;
-/// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
-/// Sized at ~10x the realistic validator count to leave headroom.
-pub const DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE: usize = 10_000;
 
 /// Default size of the semaphore which limits the total size of the outgoing messages.
 pub const DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 3 * GIB as usize;
@@ -167,6 +164,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Maximum number of inbound Tier3 connections.
+    pub max_inbound_tier3_connections: u32,
     /// Socket options for peer connections.
     pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
@@ -181,8 +180,6 @@ pub struct NetworkConfig {
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: time::Duration,
-    /// Time to persist Accounts Id in the router without removing them.
-    pub ttl_account_id_router: time::Duration,
     /// Number of hops a message is allowed to travel before being dropped.
     /// This is used to avoid infinite loop because of inconsistent view of the network
     /// by different nodes.
@@ -227,8 +224,6 @@ pub struct NetworkConfig {
     pub routing_graph_max_peers: usize,
     /// Maximum total number of edges stored in the routing graph.
     pub routing_graph_max_edges: usize,
-    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
-    pub routing_graph_max_accounts_per_message: usize,
     /// Size of the semaphore which limits the total size of the outgoing messages.
     pub outgoing_queue_limiter_capacity_bytes: usize,
     /// Maximum capacity of the write buffer of a single connection.
@@ -290,9 +285,6 @@ impl NetworkConfig {
         }
         if let Some(v) = overrides.routing_graph_max_edges {
             self.routing_graph_max_edges = v;
-        }
-        if let Some(v) = overrides.routing_graph_max_accounts_per_message {
-            self.routing_graph_max_accounts_per_message = v;
         }
     }
 
@@ -415,6 +407,7 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            max_inbound_tier3_connections: cfg.max_inbound_tier3_connections,
             socket_options: SocketOptions {
                 recv_buffer_size: cfg.so_recv_buffer_size,
                 send_buffer_size: cfg.so_send_buffer_size,
@@ -424,7 +417,6 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
-            ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             push_info_period: time::Duration::milliseconds(100),
@@ -445,7 +437,6 @@ impl NetworkConfig {
             routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
-            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
             outgoing_queue_limiter_capacity_bytes: cfg
                 .outgoing_queue_limiter_capacity_bytes
                 .unwrap_or(DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES),
@@ -504,13 +495,13 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            max_inbound_tier3_connections: 64,
             socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: time::Duration::seconds(5),
-            ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
             push_info_period: time::Duration::milliseconds(100),
@@ -535,7 +526,6 @@ impl NetworkConfig {
             routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
-            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
             outgoing_queue_limiter_capacity_bytes: DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
             max_write_buffer_capacity_bytes: DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
             #[cfg(test)]
@@ -610,10 +600,6 @@ impl NetworkConfig {
         anyhow::ensure!(
             self.routing_graph_max_edges_per_source <= self.routing_graph_max_edges,
             "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
-        );
-        anyhow::ensure!(
-            self.routing_graph_max_accounts_per_message > 0,
-            "routing_graph_max_accounts_per_message must be > 0"
         );
 
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
@@ -761,11 +747,6 @@ mod test {
                 &after.routing_graph_max_edges,
                 &overrides.routing_graph_max_edges
             ));
-            assert!(check_override_field(
-                &before.routing_graph_max_accounts_per_message,
-                &after.routing_graph_max_accounts_per_message,
-                &overrides.routing_graph_max_accounts_per_message
-            ));
         };
         let no_overrides = NetworkConfigOverrides::default();
         let mut overrides = NetworkConfigOverrides::default();
@@ -778,7 +759,6 @@ mod test {
         overrides.routing_graph_max_edges_per_source = Some(20_000);
         overrides.routing_graph_max_peers = Some(30_000);
         overrides.routing_graph_max_edges = Some(40_000);
-        overrides.routing_graph_max_accounts_per_message = Some(5_000);
 
         let nc_before =
             config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
@@ -847,11 +827,6 @@ mod test {
         let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.routing_graph_max_edges_per_source = 100;
         nc.routing_graph_max_edges = 50;
-        assert!(nc.verify().is_err());
-
-        // max_accounts_per_message = 0 should fail.
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
-        nc.routing_graph_max_accounts_per_message = 0;
         assert!(nc.verify().is_err());
 
         // Valid config should pass.

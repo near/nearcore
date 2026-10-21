@@ -113,7 +113,7 @@ fn a_message_with_a_failing_part_is_rejected_whole_whatever_the_position() {
         // Enough good parts to decode were in the message; none landed and the sender
         // is not bound.
         assert!(manager.item(&id).commitments.is_empty());
-        assert!(manager.state(&id, &producer).commitment.is_none());
+        assert!(manager.bound_commitment(&id, &producer).is_none());
     }
 }
 
@@ -136,7 +136,7 @@ fn a_message_with_more_parts_than_total_is_rejected_before_any_proof_check() {
 
     assert_matches!(result, Err(SenderFault::TooManyParts));
     assert!(manager.item(&id).commitments.is_empty());
-    assert!(manager.state(&id, &producer).commitment.is_none());
+    assert!(manager.bound_commitment(&id, &producer).is_none());
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn a_repeated_ordinal_rejects_the_message_whole() {
     // not bound.
     assert_matches!(result, Err(SenderFault::DuplicateOrdinal));
     assert!(manager.item(&id).commitments.is_empty());
-    assert!(manager.state(&id, &producer).commitment.is_none());
+    assert!(manager.bound_commitment(&id, &producer).is_none());
 }
 
 #[test]
@@ -204,5 +204,5 @@ fn an_empty_message_is_a_sender_fault_whether_or_not_the_id_is_tracked() {
         assert_matches!(result, Err(SenderFault::EmptyMessage));
     }
     assert!(manager.item(&tracked).commitments.is_empty());
-    assert!(manager.state(&tracked, &producer).commitment.is_none());
+    assert!(manager.bound_commitment(&tracked, &producer).is_none());
 }

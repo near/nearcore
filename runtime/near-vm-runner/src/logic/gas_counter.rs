@@ -8,6 +8,7 @@ use crate::ProfileDataV3;
 use near_parameters::vm::Config;
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
 use near_primitives_core::types::{Compute, Gas};
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
 use std::result::Result as StdResult;
@@ -96,7 +97,6 @@ impl GasCounter {
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
-        use std::cmp::min;
         // In view mode there is no real prepaid gas; the per-call budget is
         // `max_gas_burnt` (i.e. `max_gas_burnt_view`). Bound `prepaid_gas` by it
         // rather than widening it to `Gas::MAX`: `remaining_gas()` seeds the
@@ -141,7 +141,6 @@ impl GasCounter {
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
-            use std::cmp::min;
             if promises_gas != Gas::ZERO && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
@@ -181,7 +180,6 @@ impl GasCounter {
     }
 
     pub(crate) fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {
-        use std::cmp::min;
         // Never burn more gas than what was paid for.
         let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
         self.fast_counter.burnt_gas = min(new_burnt_gas.as_gas(), hard_burnt_limit.as_gas());
@@ -371,6 +369,20 @@ impl GasCounter {
         self.deduct_gas(Gas::ZERO, use_gas)
     }
 
+    /// Lower the prepaid gas to `prepaid_gas`, which must be at least the gas
+    /// used so far.
+    ///
+    /// In an external contract call the prepaid gas is what the contract can
+    /// pay for, which goes down when the contract spends its balance.
+    pub(crate) fn lower_prepaid_gas(&mut self, prepaid_gas: Gas) {
+        debug_assert!(self.used_gas() <= prepaid_gas);
+        self.prepaid_gas = min(self.prepaid_gas, prepaid_gas);
+        self.fast_counter.gas_limit = min(
+            self.max_gas_burnt.as_gas(),
+            self.prepaid_gas.saturating_sub(self.promises_gas).as_gas(),
+        );
+    }
+
     pub(crate) fn burnt_gas(&self) -> Gas {
         Gas::from_gas(self.fast_counter.burnt_gas)
     }
@@ -380,9 +392,21 @@ impl GasCounter {
         self.promises_gas.checked_add(Gas::from_gas(self.fast_counter.burnt_gas)).unwrap()
     }
 
-    /// Amount of gas still remaining
+    /// Amount of gas that can still be burnt: what is left of `prepaid_gas`
+    /// or of `max_gas_burnt`, whichever is less.
+    ///
+    /// Note: This is used to seed the in-Wasm gas global on the Wasmtime backend, which only
+    /// calls back into the host when it runs out. In an external contract call
+    /// `max_gas_burnt` (`max_gas_burnt_external`) is far below the prepaid gas,
+    /// so seeding the global from the prepaid gas alone would let a pure-Wasm loop run far past
+    /// the budget before it is checked.
+    ///
+    /// For internal calls, `prepaid_gas <= max_gas_burnt` so this is the same as the old
+    /// behavior of simply returning `self.prepaid_gas.saturating_sub(self.used_gas())`.
     pub(crate) fn remaining_gas(&self) -> Gas {
-        self.prepaid_gas.saturating_sub(self.used_gas())
+        let remaining_prepaid = self.prepaid_gas.saturating_sub(self.used_gas());
+        let remaining_burnt = self.max_gas_burnt.saturating_sub(self.burnt_gas());
+        min(remaining_prepaid, remaining_burnt)
     }
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {

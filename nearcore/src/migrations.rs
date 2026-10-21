@@ -78,6 +78,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             ),
             49 => Ok(()), // DBCol::ChunkProducers column added, no need to perform a migration
             50 => migrate_50_to_51(hot_store),
+            51 => migrate_51_to_52(hot_store),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -387,6 +388,23 @@ fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
     store_update.commit();
 
     tracing::info!(target: "migrations", rewritten, already_versioned, "completed migration from DB version 50 to 51");
+    Ok(())
+}
+
+/// Migrates the database from version 51 to 52.
+///
+/// Deletes the contents of `DBCol::_AccountAnnouncements`. AnnounceAccounts were
+/// removed in favor of AccountData, so the column is no longer read or written.
+///
+/// Hot store only: the column is not copied to cold storage.
+fn migrate_51_to_52(hot_store: &Store) -> anyhow::Result<()> {
+    tracing::info!(target: "migrations", "starting migration from DB version 51 to 52");
+
+    let mut store_update = hot_store.store_update();
+    store_update.delete_all(DBCol::_AccountAnnouncements);
+    store_update.commit();
+
+    tracing::info!(target: "migrations", "completed migration from DB version 51 to 52");
     Ok(())
 }
 
@@ -914,6 +932,41 @@ mod migrate_50_to_51_tests {
 }
 
 #[cfg(test)]
+mod migrate_51_to_52_tests {
+    use super::migrate_51_to_52;
+    use near_store::{DBCol, NodeStorage, Store};
+    use tempfile::TempDir;
+
+    /// Backed by RocksDB rather than the in-memory test store, since only RocksDB
+    /// implements `delete_all` as a range delete over the column's keys.
+    fn open_hot_store() -> (TempDir, Store) {
+        let (dir, opener) = NodeStorage::test_opener();
+        let store = opener.open().unwrap().get_hot_store();
+        (dir, store)
+    }
+
+    #[test]
+    fn deletes_account_announcements() {
+        let (_dir, store) = open_hot_store();
+        let mut store_update = store.store_update();
+        for account_id in ["alice.near", "bob.near", "carol.near"] {
+            store_update.set(DBCol::_AccountAnnouncements, account_id.as_bytes(), b"announcement");
+        }
+        store_update.commit();
+
+        migrate_51_to_52(&store).unwrap();
+
+        assert_eq!(store.iter(DBCol::_AccountAnnouncements).count(), 0);
+    }
+
+    #[test]
+    fn migrates_an_empty_column() {
+        let (_dir, store) = open_hot_store();
+        migrate_51_to_52(&store).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::Migrator;
     use crate::config::load_test_config;
@@ -1018,7 +1071,7 @@ mod tests {
         let migrated_store = migrated_storage.get_hot_store();
         assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
         // The checkpoint really was at 49, and every arm from there ran in order.
-        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50]);
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51]);
         // The column family now exists and is readable. It is empty until EarlyKickout
         // activates.
         assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);

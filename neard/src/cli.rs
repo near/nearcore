@@ -238,8 +238,8 @@ pub(super) enum NeardSubCommand {
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
 
-    /// Connects to a NEAR node and sends ping messages to the accounts it sends
-    /// us after the handshake is completed, printing stats to stdout.
+    /// Connects to a NEAR node and sends ping messages to it, printing stats to
+    /// stdout.
     Ping(PingCommand),
 
     /// Mirror transactions from a source chain to a test chain with state forked
