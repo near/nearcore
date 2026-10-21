@@ -564,7 +564,10 @@ pub async fn start_with_config_and_synchronization_impl(
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
+    let adv = near_client::adversarial::Controls::new(
+        config.client_config.archive,
+        config.config.adversarial_mode,
+    );
 
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
@@ -635,6 +638,7 @@ pub async fn start_with_config_and_synchronization_impl(
         shard_tracker.clone(),
         config.client_config.gc.clone(),
         storage.is_local_archive(),
+        config.config.adversarial_mode,
     ));
 
     let resharding_handle = ReshardingHandle::new();
@@ -754,6 +758,7 @@ pub async fn start_with_config_and_synchronization_impl(
         maybe_split_store.clone(),
         config.client_config.chunk_request_retry_period,
         config.client_config.chunks_cache_height_horizon,
+        config.config.adversarial_mode,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 

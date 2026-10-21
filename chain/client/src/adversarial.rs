@@ -1,19 +1,29 @@
+use near_chain_configs::AdversarialMode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Default)]
 struct Inner {
+    adversarial_mode: AdversarialMode,
     disable_header_sync: AtomicBool,
     disable_doomslug: AtomicBool,
     is_archival: bool,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Controls(Arc<Inner>);
 
 impl Controls {
-    pub fn new(is_archival: bool) -> Self {
-        Self(Arc::new(Inner { is_archival, ..Inner::default() }))
+    pub fn new(is_archival: bool, adversarial_mode: AdversarialMode) -> Self {
+        Self(Arc::new(Inner {
+            adversarial_mode,
+            disable_header_sync: AtomicBool::new(false),
+            disable_doomslug: AtomicBool::new(false),
+            is_archival,
+        }))
+    }
+
+    pub fn adversarial_mode(&self) -> AdversarialMode {
+        self.0.adversarial_mode
     }
 
     pub fn disable_header_sync(&self) -> bool {

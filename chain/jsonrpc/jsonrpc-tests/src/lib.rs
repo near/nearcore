@@ -138,7 +138,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     });
 
     // 6. Create ViewClientActor
-    let adv = Controls::default();
+    let adv = Controls::new(false, AdversarialMode::Rpc);
     let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),

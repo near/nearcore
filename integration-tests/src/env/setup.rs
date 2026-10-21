@@ -17,7 +17,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::default_chunks_cache_height_horizon;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    AdversarialMode, ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     TrackedShardsConfig,
 };
@@ -156,7 +156,7 @@ fn setup(
         base
     };
 
-    let adv = Controls::default();
+    let adv = Controls::new(false, AdversarialMode::Rpc);
 
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         clock.clone(),
@@ -272,6 +272,7 @@ fn setup(
         store,
         config.chunk_request_retry_period,
         config.chunks_cache_height_horizon,
+        AdversarialMode::Rpc,
     );
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
@@ -595,6 +596,7 @@ pub fn setup_synchronous_shards_manager(
         <_>::clone(&chain_header_head),
         Duration::hours(1),
         default_chunks_cache_height_horizon(),
+        AdversarialMode::Rpc,
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
 }

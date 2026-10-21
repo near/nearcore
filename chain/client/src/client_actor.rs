@@ -48,7 +48,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner};
+use near_chain_configs::{AdversarialMode, ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
@@ -522,6 +522,10 @@ impl Handler<NetworkAdversarialMessage> for ClientActor {
 
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
+        if self.adv.adversarial_mode() == AdversarialMode::None {
+            tracing::warn!(target: "adversary", ?msg, "ignoring adversarial message, adversarial_mode is None");
+            return None;
+        }
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
