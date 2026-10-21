@@ -14,7 +14,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId, VmGeneration,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -220,6 +220,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             next_wasm_config: None,
+            vm_generation: VmGeneration(0),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,

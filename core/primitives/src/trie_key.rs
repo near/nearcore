@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_crypto::PublicKeyHandle;
 use near_primitives_core::trie_key::access_key_key_len;
-use near_primitives_core::types::{NonceIndex, ShardId};
+use near_primitives_core::types::{NonceIndex, ShardId, VmGeneration};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
@@ -83,6 +83,8 @@ pub mod col {
     pub const YIELD_ID_TO_DATA_ID: u8 = 22;
     /// Reverse mapping from runtime data ID to user-provided yield ID.
     pub const DATA_ID_TO_YIELD_ID: u8 = 23;
+    /// Compilation status for a code hash and VM generation.
+    pub const CONTRACT_COMPILATION_STATUS: u8 = 24;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -101,7 +103,7 @@ pub mod col {
         (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 22] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 23] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -124,6 +126,7 @@ pub mod col {
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
         (YIELD_ID_TO_DATA_ID, "YieldIdToDataId"),
         (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
+        (CONTRACT_COMPILATION_STATUS, "ContractCompilationStatus"),
     ];
 }
 
@@ -300,6 +303,14 @@ pub enum TrieKey {
         key_handle: PublicKeyHandle,
         index: NonceIndex,
     } = 21,
+    /// Stores a `ContractCompilationStatus` per contract code hash and vm version.
+    ///
+    /// Prefixing by `vm_generation` first to support efficient clean up of old
+    /// version by dropping an entire subtree at once.
+    ContractCompilationStatus {
+        vm_generation: VmGeneration,
+        code_hash: CryptoHash,
+    } = col::CONTRACT_COMPILATION_STATUS,
 }
 
 /// Provides `len` function.
@@ -432,6 +443,9 @@ impl TrieKey {
             TrieKey::GlobalContractNonce { identifier } => {
                 col::GLOBAL_CONTRACT_NONCE.len() + identifier.len()
             }
+            TrieKey::ContractCompilationStatus { code_hash, .. } => {
+                col::CONTRACT_COMPILATION_STATUS.len() + size_of::<u32>() + code_hash.as_ref().len()
+            }
             TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
                 col::PROMISE_YIELD_STATUS.len()
                     + receiver_id.len()
@@ -558,6 +572,11 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_NONCE);
                 identifier.append_into(buf);
             }
+            TrieKey::ContractCompilationStatus { vm_generation, code_hash } => {
+                buf.push(col::CONTRACT_COMPILATION_STATUS);
+                buf.extend(&vm_generation.0.to_le_bytes());
+                buf.extend(code_hash.as_ref());
+            }
             TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
                 buf.push(col::PROMISE_YIELD_STATUS);
                 buf.extend(receiver_id.as_bytes());
@@ -612,6 +631,7 @@ impl TrieKey {
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GlobalContractNonce { .. } => None,
+            TrieKey::ContractCompilationStatus { .. } => None,
             TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::YieldIdToDataId { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::DataIdToYieldId { receiver_id, .. } => Some(receiver_id.clone()),
@@ -920,6 +940,7 @@ pub mod trie_key_parsers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use borsh::{from_slice, to_vec};
     use near_crypto::KeyType;
 
     // cspell:ignore cheapaccounts lols skidanov
@@ -1331,6 +1352,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_contract_compilation_status_key() {
+        let code_hash = CryptoHash::hash_bytes(b"contract");
+        let generation = VmGeneration(158);
+        let key = TrieKey::ContractCompilationStatus { vm_generation: generation, code_hash };
+        let bytes = key.to_vec();
+        assert_eq!(bytes.len(), 37);
+        assert_eq!(bytes.len(), key.len());
+        assert_eq!(bytes[0], col::CONTRACT_COMPILATION_STATUS);
+        assert_eq!(&bytes[1..5], &158u32.to_le_bytes());
+        assert_eq!(&bytes[5..], code_hash.as_ref());
+        assert_eq!(key.get_account_id(), None);
+        assert_eq!(from_slice::<TrieKey>(&to_vec(&key).unwrap()).unwrap(), key);
+        let other =
+            TrieKey::ContractCompilationStatus { vm_generation: VmGeneration(159), code_hash };
+        assert_ne!(key.to_vec(), other.to_vec());
     }
 
     #[test]

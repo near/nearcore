@@ -226,12 +226,16 @@ fn apply_distribution_current_shard(
 
     state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
 
+    let code = ContractCode::new(global_contract_data.code().to_vec(), code_hash);
     precompile_contract_with_warming(
-        &ContractCode::new(global_contract_data.code().to_vec(), code_hash),
+        &code,
         config,
         apply_state.next_wasm_config.clone(),
         apply_state.cache.as_deref(),
     );
+    if ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version) {
+        state_update.record_contract_compilation(*code.hash(), code_len);
+    }
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
     let fees = &apply_state.config.fees;
     let per_byte_total = fees
