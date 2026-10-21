@@ -155,6 +155,9 @@ pub enum ProtocolFeature {
     /// External contract calls (ECC): unsigned transactions carrying no signer, public key,
     /// nonce or signature. See <https://github.com/near/nearcore/issues/16423>.
     ExternalContractCalls,
+    /// Track protocol-level contract warmness and cold compilation bytes,
+    /// limiting how many cold contract bytes can be compiled per chunk.
+    ContractCompilationStatus,
 }
 
 impl ProtocolFeature {
@@ -200,6 +203,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExternalContractCalls => 150,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
+            ProtocolFeature::ContractCompilationStatus => 158,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -247,7 +251,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 158;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

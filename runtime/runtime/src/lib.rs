@@ -62,7 +62,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
-    NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, VmGeneration,
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
@@ -111,6 +111,7 @@ pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
+mod contract_compilation_status;
 mod contract_preparation;
 mod conversions;
 mod deterministic_account_id;
@@ -199,6 +200,8 @@ pub struct ApplyState {
     /// runtime use this to pre-warm the cache for the upcoming VM, so the boundary
     /// doesn't trigger a re-compile avalanche. `None` in steady state.
     pub next_wasm_config: Option<Arc<VmConfig>>,
+    /// Consensus VM generation from `RuntimeConfigStore::vm_generation`.
+    pub vm_generation: VmGeneration,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Cache for trie node accesses.
@@ -400,6 +403,8 @@ pub struct ApplyResult {
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
+    /// Protocol-level-cold code bytes that were compiled for deployments and fn calls.
+    pub cold_contract_bytes: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
     pub bandwidth_requests: BandwidthRequests,
@@ -635,6 +640,13 @@ impl Runtime {
                     apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                 )?;
+                if ProtocolFeature::ContractCompilationStatus
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    let code_hash = account.as_ref().unwrap().local_contract_hash().unwrap();
+                    state_update
+                        .record_contract_compilation(code_hash, deploy_contract.code.len() as u64);
+                }
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
@@ -2880,9 +2892,26 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+
+        let shard_id_str = apply_state.shard_id.to_string();
+        let cold_contract_bytes = if ProtocolFeature::ContractCompilationStatus
+            .enabled(apply_state.current_protocol_version)
+        {
+            let cold_contract_bytes =
+                contract_compilation_status::update_contract_compilation_status(
+                    &mut state_update,
+                    &apply_state,
+                )?;
+            metrics::CHUNK_COLD_CONTRACT_BYTES
+                .with_label_values(&[shard_id_str.as_str()])
+                .observe(cold_contract_bytes as f64);
+            cold_contract_bytes
+        } else {
+            0
+        };
+
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
-        let shard_id_str = apply_state.shard_id.to_string();
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
@@ -2958,6 +2987,7 @@ impl Runtime {
             processed_yield_timeouts,
             proof,
             delayed_receipts_count,
+            cold_contract_bytes,
             metrics: Some(processing_state.metrics),
             congestion_info: Some(own_congestion_info),
             bandwidth_requests,
@@ -3069,6 +3099,7 @@ fn missing_chunk_apply_result(
         outcomes: vec![],
         state_changes,
         stats: processing_state.stats,
+        cold_contract_bytes: 0,
         processed_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,

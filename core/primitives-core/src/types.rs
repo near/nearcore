@@ -49,6 +49,25 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 
+/// Identifies a consensus VM configuration generation.
+///
+/// Unlike [`ProtocolVersion`], this changes only when VM configuration changes
+/// invalidate compiled contracts.
+#[derive(
+    borsh::BorshDeserialize,
+    borsh::BorshSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub struct VmGeneration(pub ProtocolVersion);
+
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
 /// as the shard index. This is no longer the case, and the ShardIndex should be

@@ -341,6 +341,7 @@ impl NightshadeRuntime {
             current_protocol_version,
             config: config.clone(),
             next_wasm_config,
+            vm_generation: self.runtime_config_store.vm_generation(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             save_receipt_to_tx,

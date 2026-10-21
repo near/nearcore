@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{ProtocolVersion, VmGeneration};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -152,6 +152,19 @@ impl RuntimeConfigStore {
                 panic!("Not found RuntimeConfig for protocol version {}", protocol_version)
             })
             .1
+    }
+
+    /// Protocol version of the most recent VM configuration change.
+    pub fn vm_generation(&self, protocol_version: ProtocolVersion) -> VmGeneration {
+        let mut generation = 0;
+        let mut previous: Option<&Arc<RuntimeConfig>> = None;
+        for (version, config) in self.store.range(..=protocol_version) {
+            if previous.is_none_or(|previous| previous.wasm_config != config.wasm_config) {
+                generation = *version;
+            }
+            previous = Some(config);
+        }
+        VmGeneration(generation)
     }
 
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
@@ -354,6 +367,30 @@ mod tests {
             |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
         assert_eq!(budget(version), Gas::from_teragas(20));
         assert_eq!(budget(version - 1), Gas::ZERO);
+    }
+
+    #[test]
+    fn vm_generation_tracks_vm_changes_only() {
+        let base = RuntimeConfig::test();
+        let mut fee_only = base.clone();
+        fee_only.fees = RuntimeConfig::free().fees;
+        let mut wasm_op_changed = base.clone();
+        Arc::make_mut(&mut wasm_op_changed.wasm_config).regular_op_cost += 1;
+        let store = RuntimeConfigStore::new_custom(BTreeMap::from([
+            (0, Arc::new(base.clone())),
+            // Changing normal fees does not require recompilation.
+            (10, Arc::new(fee_only)),
+            // Changing the WASM up requires to rerun prepartion.
+            (20, Arc::new(wasm_op_changed.clone())),
+            // Cloned config does not require recompilation.
+            (30, Arc::new(wasm_op_changed)),
+            (40, Arc::new(base)),
+        ]));
+        assert_eq!(store.vm_generation(0), VmGeneration(0));
+        assert_eq!(store.vm_generation(19), VmGeneration(0));
+        assert_eq!(store.vm_generation(20), VmGeneration(20));
+        assert_eq!(store.vm_generation(39), VmGeneration(20));
+        assert_eq!(store.vm_generation(40), VmGeneration(40));
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions

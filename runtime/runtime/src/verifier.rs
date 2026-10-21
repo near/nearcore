@@ -1060,6 +1060,7 @@ mod tests {
             current_protocol_version: ProtocolFeature::GasKeys.protocol_version(),
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

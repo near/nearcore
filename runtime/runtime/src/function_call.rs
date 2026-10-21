@@ -93,6 +93,20 @@ pub(crate) fn action_function_call(
             let contract =
                 preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
+            if ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+            {
+                if let Some(code_len) = contract_id.resolve_code_len(
+                    runtime_ext.trie_update,
+                    AccessOptions::DEFAULT,
+                    &epoch_info_provider.chain_id(),
+                    apply_state.current_protocol_version,
+                )? {
+                    runtime_ext
+                        .trie_update
+                        .record_contract_compilation(contract_id.hash(), code_len);
+                }
+            }
 
             execute_function_call(
                 contract,

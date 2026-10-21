@@ -78,6 +78,8 @@ use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
+mod contract_compilation_status;
+
 /***************/
 /* Apply tests */
 /***************/
@@ -89,7 +91,7 @@ fn setup_runtime(
     initial_balance: Balance,
     initial_locked: Balance,
     gas_limit: Gas,
-) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, MockEpochInfoProvider) {
     let epoch_info_provider = MockEpochInfoProvider::default();
     let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
@@ -200,6 +202,7 @@ fn setup_runtime_for_shard(
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,
+        vm_generation: Default::default(),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -4558,6 +4561,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         current_protocol_version: PROTOCOL_VERSION,
         config,
         next_wasm_config: None,
+        vm_generation: Default::default(),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -6103,6 +6107,7 @@ mod self_signed_state_init {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(config),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
             is_new_chunk: true,
             save_receipt_to_tx: false,
