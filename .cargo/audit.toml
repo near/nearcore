@@ -81,6 +81,9 @@ ignore = [
     # Nearcore builds Wasmtime without the component model, so the handle-table
     # code path isn't compiled in.
     "RUSTSEC-2026-0363",
+    # RUSTSEC-2026-0379: Bug in cranelift backend on aarch64, we only use this
+    # for development, never on real nodes.
+    "RUSTSEC-2026-0379",
 
     # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. Reached only through
     # serde_yaml (itself marked deprecated upstream; latest is 0.9.34+deprecated),
