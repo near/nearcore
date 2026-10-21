@@ -16,6 +16,8 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(UseGlobalContractAction),
     DeterministicStateInit(DeterministicStateInitAction),
+    TransferToGasKey(TransferToGasKeyAction),
+    WithdrawFromGasKey(WithdrawFromGasKeyAction),
 }
 ```
 
@@ -209,14 +211,15 @@ pub struct AddKeyAction {
 **Outcome**:
 
 - Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
+- If the access key permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, a [gas key](/DataStructures/AccessKey.md#gas-keys) is created with balance initialized to zero and `num_nonces` independent nonce entries in the trie.
 
 ### Errors
 
 **Validation Error**:
 
-If the access key is of type `FunctionCallPermission`, the following errors can happen
+If the access key is of type `FunctionCallPermission` (or `GasKeyFunctionCall`), the following errors can happen
 
-- If `receiver_id` in `access_key` is not a valid account id, the following error will be returned 
+- If `receiver_id` in `access_key` is not a valid account id, the following error will be returned
 
 ```rust
 /// Invalid account ID.
@@ -224,7 +227,7 @@ InvalidAccountId { account_id: AccountId },
 ```
 
 - If the length of some method name exceed `max_length_method_name`, which is a genesis parameter (current value is 256),
-the following error will be returned 
+the following error will be returned
 
 ```rust
 /// The length of some method name exceeded the limit in a Add Key action.
@@ -238,6 +241,12 @@ the following error will be returned
 /// The total number of bytes of the method names exceeded the limit in a Add Key action.
 AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 }
 ```
+
+If the access key is a gas key (`GasKeyFullAccess` or `GasKeyFunctionCall`), the following additional validation applies:
+
+- `num_nonces` must be at most 1024 (`MAX_NONCES_FOR_GAS_KEY`)
+- `balance` must be zero (gas keys start unfunded)
+- For `GasKeyFunctionCall`, the `FunctionCallPermission` must have `allowance` set to `None`
 
 **Execution Error**:
 
@@ -261,6 +270,7 @@ pub struct DeleteKeyAction {
 **Outcome**:
 
 - Deletes the [AccessKey](/DataStructures/AccessKey.md) associated with `public_key`.
+- If the key is a [gas key](/DataStructures/AccessKey.md#gas-keys), its remaining balance is **burned** and all nonce entries are removed from the trie. The gas key balance must be at most 1 NEAR for deletion to succeed.
 
 ### Errors
 
@@ -271,6 +281,14 @@ pub struct DeleteKeyAction {
 ```rust
 /// Account tries to remove an access key that doesn't exist
 DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+- When deleting a gas key whose balance exceeds 1 NEAR:
+
+```rust
+/// Cannot delete a gas key with balance exceeding the burn limit.
+/// Use WithdrawFromGasKey to reduce the balance first.
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: Option<PublicKey>, balance: Balance }
 ```
 
 - `StorageError` is returned if state or storage is corrupted.
@@ -287,6 +305,7 @@ pub struct DeleteAccountAction {
 **Outcomes**:
 
 - The account, as well as all the data stored under the account, is deleted and the tokens are transferred to `beneficiary_id`.
+- If the account has any [gas keys](/DataStructures/AccessKey.md#gas-keys), the sum of all gas key balances is **burned**. The total gas key balance must be at most 1 NEAR for deletion to succeed.
 
 ### Errors
 
@@ -314,6 +333,12 @@ DeleteAccountStaking { account_id: AccountId }
 ```
 
 **Execution Error**:
+
+- If the sum of all gas key balances on the account exceeds 1 NEAR:
+
+```rust
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: None, balance: Balance }
+```
 
 - If state or storage is corrupted, a `StorageError` is returned.
 
@@ -518,3 +543,65 @@ pub struct DeterministicStateInitAction {
 
 - `GlobalContractDoesNotExist` if the referenced global contract does not exist on the shard of the receiver. (It may
   take a while for it to propagate to all shards.)
+
+## TransferToGasKeyAction
+
+```rust
+pub struct TransferToGasKeyAction {
+    /// The public key identifying the gas key to fund.
+    pub public_key: PublicKey,
+    /// Amount of tokens to transfer from the account balance to the gas key balance.
+    pub deposit: Balance,
+}
+```
+
+Funds a [gas key](/DataStructures/AccessKey.md#gas-keys) by transferring tokens from the account balance to the gas key balance. The `predecessor_id` and `receiver_id` must be equal.
+
+**Outcome**:
+
+- The gas key's balance is increased by `deposit`.
+- The `deposit` amount is deducted from the account balance (as part of the transaction's deposit cost).
+
+### Errors
+
+**Execution Error**:
+
+- If no access key with the given `public_key` exists, or it is not a gas key:
+
+```rust
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+## WithdrawFromGasKeyAction
+
+```rust
+pub struct WithdrawFromGasKeyAction {
+    /// The public key identifying the gas key to withdraw from.
+    pub public_key: PublicKey,
+    /// Amount of tokens to withdraw from the gas key balance to the account balance.
+    pub amount: Balance,
+}
+```
+
+Withdraws tokens from a [gas key](/DataStructures/AccessKey.md#gas-keys) balance back to the account balance. The `predecessor_id` and `receiver_id` must be equal. This action must be signed with a regular access key, not the gas key itself.
+
+**Outcome**:
+
+- The gas key's balance is decreased by `amount`.
+- The account's balance is increased by `amount`.
+
+### Errors
+
+**Execution Error**:
+
+- If no access key with the given `public_key` exists, or it is not a gas key:
+
+```rust
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+- If the gas key balance is less than the requested `amount`:
+
+```rust
+InsufficientGasKeyBalance { account_id: AccountId, public_key: PublicKey, balance: Balance, required: Balance }
+```
