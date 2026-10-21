@@ -337,6 +337,8 @@ pub struct AllEpochConfig {
     chain_id: String,
     epoch_length: BlockHeightDelta,
     genesis_protocol_version: ProtocolVersion,
+    /// Shard layout of the genesis epoch, as declared in the genesis config.
+    genesis_shard_layout: ShardLayout,
 }
 
 impl AllEpochConfig {
@@ -345,12 +347,14 @@ impl AllEpochConfig {
         epoch_length: BlockHeightDelta,
         config_store: EpochConfigStore,
         genesis_protocol_version: ProtocolVersion,
+        genesis_shard_layout: ShardLayout,
     ) -> Self {
         Self {
             config_store,
             chain_id: chain_id.to_string(),
             epoch_length,
             genesis_protocol_version,
+            genesis_shard_layout,
         }
     }
 
@@ -369,6 +373,18 @@ impl AllEpochConfig {
 
     pub fn genesis_protocol_version(&self) -> ProtocolVersion {
         self.genesis_protocol_version
+    }
+
+    /// Shard layout of the genesis epoch.
+    ///
+    /// For a genesis protocol version with a static shard layout the layout from the epoch config
+    /// is authoritative. Once dynamic resharding is enabled the epoch config no longer defines a
+    /// layout, so the layout declared in the genesis config is used instead.
+    pub fn genesis_shard_layout(&self) -> ShardLayout {
+        self.config_store
+            .get_config(self.genesis_protocol_version)
+            .static_shard_layout()
+            .unwrap_or_else(|| self.genesis_shard_layout.clone())
     }
 }
 
