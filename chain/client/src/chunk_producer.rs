@@ -711,7 +711,7 @@ impl ChunkProducer {
             shard_uid,
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),
-            tx_validity_period_check: Box::new(tx_validity_period_check),
+            tx_validity_period_check,
             validate_tx_ttl: Box::new(validate_tx_ttl),
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
