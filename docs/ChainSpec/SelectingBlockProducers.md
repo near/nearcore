@@ -2,6 +2,10 @@
 
 ## Background
 
+Note: this section describes the Simple Nightshade design as of March 2021. Since stateless validation
+(protocol version 69), block producers no longer track all shards. See
+[Algorithm for assigning chunk producers to shards](#algorithm-for-assigning-chunk-producers-to-shards).
+
 Near is intended to be a sharded blockchain. At the time of writing (March 2021), challenges (an
 important security feature for a sharded network) are not fully implemented. As a stepping stone
 towards the full sharded solution, Near will go through a phase called "Simple Nightshade". In this
@@ -148,10 +152,11 @@ So the total stake in each shard will be roughly be `total_stake_all_chunk_produ
 ## Algorithm for assigning chunk producers to shards
 
 Note that block producers are a subset of chunk producers, so this algorithm will also assign block producers
-to shards. This also means that a block producer may only be assigned to a subset of shards. For the security of
-the protocol, all block producers must track all shards, even if they are not assigned to produce chunks for all shards.
-We enforce that in the implementation level, not the protocol level. A validator node will panic if it doesn't track all
-shards.
+to shards. This also means that a block producer may only be assigned to a subset of shards. Since stateless
+validation (protocol version 69), validators do not need to track all shards. A validator tracks the shards that it
+produces chunks for in the current or the next epoch. Chunk validators check chunks with state witnesses and do not
+need the shard state. On mainnet and testnet, a node whose account is a validator in the current epoch panics at
+startup if its config tracks all shards. Validator nodes should set `tracked_shards_config` to `"NoShards"`.
 
 ### Input
 
