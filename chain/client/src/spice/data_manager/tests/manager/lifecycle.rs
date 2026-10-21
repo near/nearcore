@@ -162,6 +162,60 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     assert!(manager.manager.items_by_height.is_empty());
 }
 
+/// The fork at height 3 is certified by its own child, so it takes the only window slot
+/// until consensus finality passes it, however far execution lags.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_fork_item_at_or_below_the_final_head_is_dropped_and_frees_its_window_slot() {
+    let (mut chain, blocks) = chain_with_blocks(2);
+    let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+    let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+    let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
+    let canonical_at_6 = process_block_at(&mut chain, &canonical_at_5, 6);
+    let pull_config =
+        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let mut manager = TestManager::with_pull_config(&chain, 1, pull_config);
+    manager.set_final_head(&blocks[1]);
+    manager.track_block(&canonical_at_4);
+    manager.track_block(&fork_at_3);
+    let canonical_id = receipt_id(&canonical_at_4, 0, 1);
+    let fork_id = receipt_id(&fork_at_3, 0, 1);
+    let fork_chunk = SpiceChunkId { block_hash: *fork_at_3.hash(), shard_id: ShardId::new(0) };
+    let fork_certifier = certifying_block(&fork_at_3, &[fork_chunk]);
+    save_and_record_block(&mut chain, &fork_certifier);
+    manager.track_block(&fork_certifier);
+    manager.certify_up_to(4);
+
+    // The fork is above the final head and holds the lowest pullable height.
+    assert_eq!(
+        wants_for(manager.on_block_processed(&canonical_at_5), &fork_id),
+        own_ordinal_pulls()
+    );
+
+    // The clock stands still: only the drop can have let the canonical item in.
+    manager.set_final_head(&canonical_at_4);
+    let requests = wants_for(manager.on_block_processed(&canonical_at_6), &canonical_id);
+    assert_eq!(requests, own_ordinal_pulls());
+    manager.assert_forgotten(&fork_id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_fork_block_at_or_below_the_final_head_is_not_tracked() {
+    let (mut chain, blocks) = chain_with_blocks(2);
+    let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+    let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_head(&canonical_at_4);
+    manager.on_block_processed(&canonical_at_4);
+
+    manager.track_block(&fork_at_3);
+    manager.track_block(&blocks[1]);
+
+    assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_same_height() {
@@ -197,12 +251,7 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
 
     let requests = wants_for(manager.on_block_processed(&certifier), &id);
-    let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-        .collect();
-    assert_eq!(requests, own_ordinal_asks);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]
@@ -258,7 +307,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its

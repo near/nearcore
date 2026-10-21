@@ -140,9 +140,7 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-# Pinned to an exact version because ML-DSA performance affects gas costs;
-# releases that touch its implementation need an explicit rebench.
-aws-lc-rs = "=1.18.1"
+aws-lc-rs = "1.18.2"
 axum = { version = "0.8", features = ["http2", "macros"] }
 axum-test = "18.0"
 base64 = "0.21"

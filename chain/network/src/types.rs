@@ -541,6 +541,10 @@ pub struct AccountIdOrPeerTrackingShard {
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
+    /// Requests routed over Tier2 are acknowledged over Tier2, and the response is sent over a
+    /// Tier3 connection to `peer_info.addr`. Requests received directly over a Tier3 connection
+    /// opened by the requester are answered over that connection.
+    pub is_direct: bool,
     /// Contents of the request
     pub body: Tier3RequestBody,
     pub recv_permit: RecvMessagePermit,

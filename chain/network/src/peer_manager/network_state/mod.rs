@@ -482,19 +482,6 @@ impl NetworkState {
                 if !edge.verify() {
                     return Err(RegisterPeerError::InvalidEdge);
                 }
-                if info.peer_type == PeerType::Inbound {
-                    // Reject inbound Tier3 connections that don't correspond to a
-                    // state sync request we sent. We check without removing so that
-                    // the entry remains valid for the full timeout window — the peer
-                    // may need to open additional T3 connections (e.g. if the first
-                    // was idle-closed before a later response is ready).
-                    //
-                    // Edge verification is done first so that a spoofed peer_id with
-                    // an invalid edge cannot influence the pending-request lookup.
-                    if !self.pending_tier3_requests.contains_key(&peer_info.id) {
-                        return Err(RegisterPeerError::UnexpectedTier3Connection);
-                    }
-                }
             }
         }
         Ok(())
@@ -1082,6 +1069,7 @@ impl NetworkState {
                             addr: Some(request.addr),
                             account_id: None,
                         },
+                        is_direct: false,
                         body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1097,6 +1085,7 @@ impl NetworkState {
                             addr: Some(request.addr),
                             account_id: None,
                         },
+                        is_direct: false,
                         body: Tier3RequestBody::StatePart(StatePartRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1275,6 +1264,41 @@ impl NetworkState {
                 None
             }
             PeerMessage::Challenge(_) => None,
+            PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
+                    is_direct: true,
+                    body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                        shard_id,
+                        sync_hash,
+                    }),
+                    recv_permit,
+                });
+                None
+            }
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
+                    is_direct: true,
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id,
+                        sync_hash,
+                        part_idx,
+                    }),
+                    recv_permit,
+                });
+                None
+            }
+            PeerMessage::StateRequestAck(ack) => {
+                self.client
+                    .send_async(
+                        StateResponseReceived { peer_id, state_response: StateResponse::Ack(ack) }
+                            .span_wrap(),
+                    )
+                    .await
+                    .ok();
+                None
+            }
             PeerMessage::VersionedStateResponse(info) => {
                 self.client
                     .send_async(

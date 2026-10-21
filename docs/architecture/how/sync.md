@@ -150,6 +150,12 @@ return acknowledgements over Tier 2, then connect back to the requester over
 Tier 3 to send the state headers and parts. State response payloads are accepted
 only on Tier 3 connections.
 
+Hosts also accept requests sent directly over a Tier 3 connection opened by the
+requester, and send the acknowledgement and the response back over that
+connection. A node accepts up to `network.max_inbound_tier3_connections`
+(64 by default) such connections at a time. Requesters do not send direct
+requests yet.
+
 Snapshot host advertisements also carry the host's own listening address: its
 public address as observed by its peers, or `tier3_public_addr` if configured.
 The host signs the address together with the snapshot fields, so relays cannot

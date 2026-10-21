@@ -19,9 +19,12 @@ use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
+use crate::types::StateRequestSenderForNetwork;
 use crate::types::{AccountKeys, ChainInfo, KnownPeerStatus, ReasonForBan};
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::{CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop};
+use near_async::messaging::{
+    CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,
+};
 use near_async::{ActorSystem, time};
 use near_primitives::network::PeerId;
 use std::collections::HashSet;
@@ -554,8 +557,19 @@ impl ActorHandler {
 pub(crate) async fn start(
     clock: time::Clock,
     store: Arc<dyn near_store::db::Database>,
+    cfg: config::NetworkConfig,
+    chain: Arc<data::Chain>,
+) -> ActorHandler {
+    start_with_state_request_sender(clock, store, cfg, chain, noop().into_multi_sender()).await
+}
+
+/// Like `start`, but passes state requests from peers to `state_request_sender`.
+pub(crate) async fn start_with_state_request_sender(
+    clock: time::Clock,
+    store: Arc<dyn near_store::db::Database>,
     mut cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
+    state_request_sender: StateRequestSenderForNetwork,
 ) -> ActorHandler {
     let (send, mut recv) = broadcast::unbounded_channel::<Event>();
     let chain = chain.clone();
@@ -565,14 +579,16 @@ pub(crate) async fn start(
     let client_sender: ClientSenderForNetwork = noop().into_multi_sender();
 
     let actor_system = ActorSystem::new();
+    // Requests which PeerManagerActor sends to itself, such as Tier3Request.
+    let peer_manager_sender = LateBoundSender::new();
     let (actor, tcp) = PeerManagerActor::spawn(
         clock,
         actor_system.clone(),
         store,
         cfg.clone(),
         client_sender,
-        noop().into_multi_sender(),
-        noop().into_multi_sender(),
+        state_request_sender,
+        peer_manager_sender.as_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
@@ -580,6 +596,7 @@ pub(crate) async fn start(
         genesis_id,
     )
     .unwrap();
+    peer_manager_sender.bind(actor.clone());
     let actor = AutoStopActor(actor);
     let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
     // Wait for the server to start.

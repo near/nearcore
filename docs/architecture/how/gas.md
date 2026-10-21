@@ -37,7 +37,7 @@ tokens from the balance of the signer's account. The fee is calculated as `gas
 amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
-(See [here](https://docs.near.org/protocol/gas#cost-for-common-actions) for more details.)
+(See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
 
 If the account has insufficient balance to pay for this, it will fail with a
 `NotEnoughBalance` error, with the required balance included in the error message.
