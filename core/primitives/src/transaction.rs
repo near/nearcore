@@ -767,6 +767,13 @@ impl TransactionEnvelope {
         }
     }
 
+    pub fn as_unsigned(&self) -> Option<&EccTransaction> {
+        match self {
+            Self::Signed(_) => None,
+            Self::Unsigned(tx) => Some(tx),
+        }
+    }
+
     /// Performs the validity checks that depend on the protocol version and the runtime
     /// config, without checking the signature.
     pub fn check_valid_for_config(
@@ -865,6 +872,111 @@ impl schemars::JsonSchema for TransactionEnvelope {
             "type": "string",
             "format": "byte"
         })
+    }
+}
+
+/// An [`EccTransaction`] that passed [`EccTransaction::check_valid_for_config`]. There is no
+/// signature to verify: the contract's own check at apply time takes its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedEcc(EccTransaction);
+
+impl ValidatedEcc {
+    #[allow(clippy::result_large_err)]
+    pub fn new(
+        config: &RuntimeConfig,
+        ecc: EccTransaction,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, (InvalidTxError, EccTransaction)> {
+        match ecc.check_valid_for_config(config, protocol_version) {
+            Ok(()) => Ok(Self(ecc)),
+            Err(err) => Err((err, ecc)),
+        }
+    }
+
+    /// This method should only be used for test purposes.
+    pub fn new_for_test(ecc: EccTransaction) -> Self {
+        Self(ecc)
+    }
+
+    pub fn to_ecc(&self) -> &EccTransaction {
+        &self.0
+    }
+
+    pub fn into_ecc(self) -> EccTransaction {
+        self.0
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.0.get_hash()
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.0.get_size()
+    }
+
+    pub fn contract_id(&self) -> &AccountId {
+        self.0.contract_id()
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        self.0.payload()
+    }
+}
+
+/// A [`TransactionEnvelope`] that passed validation, either kind. This is what the transaction
+/// pool holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ValidatedTransactionEnvelope {
+    Signed(ValidatedTransaction),
+    Unsigned(ValidatedEcc),
+}
+
+impl ValidatedTransactionEnvelope {
+    #[allow(clippy::result_large_err)]
+    pub fn new(
+        config: &RuntimeConfig,
+        envelope: TransactionEnvelope,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, (InvalidTxError, TransactionEnvelope)> {
+        match envelope {
+            TransactionEnvelope::Signed(signed_tx) => {
+                ValidatedTransaction::new(config, signed_tx, protocol_version)
+                    .map(Self::Signed)
+                    .map_err(|(err, signed_tx)| (err, signed_tx.into()))
+            }
+            TransactionEnvelope::Unsigned(ecc) => ValidatedEcc::new(config, ecc, protocol_version)
+                .map(Self::Unsigned)
+                .map_err(|(err, ecc)| (err, ecc.into())),
+        }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.get_hash(),
+            Self::Unsigned(tx) => tx.get_hash(),
+        }
+    }
+
+    /// The account that decides which shard the transaction goes to: the signer, or the
+    /// contract for an ECC.
+    pub fn routing_account_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.signer_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+}
+
+impl From<ValidatedTransaction> for ValidatedTransactionEnvelope {
+    fn from(tx: ValidatedTransaction) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl From<ValidatedEcc> for ValidatedTransactionEnvelope {
+    fn from(tx: ValidatedEcc) -> Self {
+        Self::Unsigned(tx)
     }
 }
 
@@ -1429,6 +1541,38 @@ mod tests {
             oversized.check_valid_for_config(&config, feature_version),
             Err(InvalidTxError::TransactionSizeExceeded { .. })
         );
+    }
+
+    #[test]
+    fn test_validated_envelope() {
+        let config = RuntimeConfig::test();
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+
+        let ecc = TransactionEnvelope::from(test_ecc());
+        let validated =
+            ValidatedTransactionEnvelope::new(&config, ecc.clone(), feature_version).unwrap();
+        assert_matches!(validated, ValidatedTransactionEnvelope::Unsigned(_));
+        assert_eq!(validated.get_hash(), ecc.get_hash());
+        assert_eq!(validated.routing_account_id().as_str(), "wallet.near");
+        // An invalid transaction is handed back unchanged.
+        let (err, returned) =
+            ValidatedTransactionEnvelope::new(&config, ecc.clone(), feature_version - 1)
+                .unwrap_err();
+        assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
+        assert_eq!(returned, ecc);
+
+        for signed_tx in test_signed_txs() {
+            let envelope = TransactionEnvelope::from(signed_tx.clone());
+            let validated =
+                ValidatedTransactionEnvelope::new(&config, envelope.clone(), feature_version)
+                    .unwrap();
+            assert_eq!(validated.get_hash(), envelope.get_hash());
+            assert_eq!(validated.routing_account_id().as_str(), "alice.near");
+            let ValidatedTransactionEnvelope::Signed(validated_tx) = validated else {
+                panic!("expected a signed transaction");
+            };
+            assert_eq!(validated_tx.into_signed_tx(), signed_tx);
+        }
     }
 
     #[test]

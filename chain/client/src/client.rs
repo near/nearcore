@@ -71,7 +71,9 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::transaction::{SignedTransaction, TransactionEnvelope, ValidatedTransaction};
+use near_primitives::transaction::{
+    SignedTransaction, TransactionEnvelope, ValidatedTransactionEnvelope,
+};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -554,11 +556,7 @@ impl Client {
                     removed_hashes.push(tx.get_hash());
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                // TODO(ecc): remove ECCs from the pool once it can hold them (#16473)
-                pool_guard.remove_transactions(
-                    shard_uid,
-                    transactions.iter().filter_map(TransactionEnvelope::as_signed),
-                );
+                pool_guard.remove_transactions(shard_uid, transactions);
             }
         }
         Ok(removed_hashes)
@@ -590,17 +588,19 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .filter(|tx| !exclude.contains(&tx.get_hash()))
-                    // TODO(ecc): reintroduce ECCs once the pool can hold them
-                    .filter_map(|tx| tx.as_signed().cloned())
-                    .filter_map(|signed_tx| {
-                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                    .filter_map(|tx| {
+                        match ValidatedTransactionEnvelope::new(
+                            &config,
+                            tx.clone(),
+                            protocol_version,
+                        ) {
                             Ok(validated_tx) => Some(validated_tx),
-                            Err((err, signed_tx)) => {
+                            Err((err, tx)) => {
                                 tracing::debug!(
                                     target: "client",
-                                    ?signed_tx,
+                                    ?tx,
                                     ?err,
-                                    "validating signed tx failed with error"
+                                    "validating tx failed with error"
                                 );
                                 None
                             }
@@ -2064,7 +2064,9 @@ impl Client {
                     }
                 }
 
-                // Reintroduce old-branch-only txs (skip overlap with new branch).
+                // Reintroduce old-branch-only txs (skip overlap with new branch). The blocks are
+                // ordered from the newest one, and each batch of ECCs goes ahead of
+                // everything waiting, so the ECCs end up in the order of arrival.
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                         match self.reintroduce_transactions_for_block(&block, &new_branch_txs) {

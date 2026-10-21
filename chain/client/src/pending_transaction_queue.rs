@@ -200,6 +200,9 @@ impl PendingTransactionQueue {
     }
 
     /// Add transactions from a newly accepted block's chunk.
+    // TODO(spice): track ECCs too, and allow one ECC in flight per contract. The
+    // producer's dry run of a second ECC to the same contract would see state that the first one
+    // is about to change.
     pub fn add_chunk_transactions<'a>(
         &mut self,
         block_hash: CryptoHash,
