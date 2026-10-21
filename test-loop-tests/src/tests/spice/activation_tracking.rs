@@ -91,11 +91,6 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
 
 /// The upgrade with validators that start tracking a shard exactly at activation, and
 /// catch-up too slow to land the last pre-spice block before its boundary bootstrap runs.
-///
-/// A validator that tracks a shard in the first spice epoch but not before applies the
-/// last pre-spice block's chunk of that shard through catch-up, asynchronously, some
-/// time after processing the block, while the boundary bootstrap runs as soon as the
-/// block is postprocessed.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activation() {
@@ -235,10 +230,6 @@ fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activati
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_with_validator_set_change_at_activation() {
     init_test_logger();
-
-    // Long enough for every producer to vote in the genesis epoch, so activation is
-    // decided at its end, at the same time as the validator set the stake changes below
-    // define: both land two epochs later.
     let epoch_length = 20;
     let num_producers = 4;
     let validators = create_validator_ids(num_producers);
