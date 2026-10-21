@@ -481,28 +481,31 @@ fn find_chunk_execution_result(
 }
 
 fn record_endorsements(actors: &mut [TestActor], block: &Block) {
+    for chunk in block.chunks().iter_raw() {
+        record_endorsements_for_shard(actors, block, chunk.shard_id());
+    }
+}
+
+/// Every actor endorses `block`'s chunk of `shard_id`, which certifies it.
+fn record_endorsements_for_shard(actors: &mut [TestActor], block: &Block, shard_id: ShardId) {
     let epoch_id = block.header().epoch_id();
     let shard_layout = actors[0].actor.epoch_manager.get_shard_layout(epoch_id).unwrap();
-    for chunk in block.chunks().iter_raw() {
-        let shard_id = chunk.shard_id();
-        let execution_result =
-            find_chunk_execution_result(actors, block.hash(), &shard_layout, shard_id);
-
+    let execution_result =
+        find_chunk_execution_result(actors, block.hash(), &shard_layout, shard_id);
+    for actor in actors.iter() {
+        let Some(signer) = actor.actor.validator_signer.get() else {
+            continue;
+        };
+        let endorsement = SpiceChunkEndorsement::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id },
+            execution_result.clone(),
+            &signer,
+        );
         for actor in actors.iter() {
-            let Some(signer) = actor.actor.validator_signer.get() else {
-                continue;
-            };
-            let endorsement = SpiceChunkEndorsement::new(
-                SpiceChunkId { block_hash: *block.hash(), shard_id },
-                execution_result.clone(),
-                &signer,
-            );
-            for actor in actors.iter() {
-                actor.actor.core_writer_sender.send(SpiceChunkEndorsementMessage(
-                    endorsement.clone(),
-                    RecvMessagePermit::none(),
-                ));
-            }
+            actor
+                .actor
+                .core_writer_sender
+                .send(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
         }
     }
 }
@@ -970,6 +973,47 @@ fn test_an_invalid_network_receipt_is_dropped() {
     assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
     // Nothing is buffered for a later retry either.
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+}
+
+/// A receipt waits only for its own source shard: it is saved while another shard of the
+/// source block is still uncertified. Applying the next block still waits for every shard.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_network_receipt_is_saved_once_its_source_shard_is_certified() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    for actor in &mut actors {
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        assert!(block_executed(&actor, &block));
+    }
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let other_shard_id = block
+        .chunks()
+        .iter_raw()
+        .map(|chunk| chunk.shard_id())
+        .find(|shard_id| *shard_id != from_shard_id)
+        .unwrap();
+    record_endorsements_for_shard(&mut actors, &block, from_shard_id);
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let store = actors[0].chain.chain_store.store();
+
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+
+    assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+
+    let next_block = produce_block(&mut actors, &block);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *next_block.hash() });
+    assert!(!block_executed(&actors[0], &next_block));
+
+    record_endorsements_for_shard(&mut actors, &block, other_shard_id);
+    actors[0].handle_with_internal_events(ExecutionResultEndorsed { block_hash: *block.hash() });
+    assert!(block_executed(&actors[0], &next_block));
 }
 
 /// A receipt for a tracked shard that arrives before anything created that shard's

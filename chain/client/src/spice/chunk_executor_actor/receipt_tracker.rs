@@ -28,8 +28,9 @@ impl UnverifiedReceiptTracker {
         self.proofs_by_source_block.len()
     }
 
-    /// Verify and persist any receipts buffered against `source_block` once its
-    /// execution results are available; invalid proofs are dropped.
+    /// Verify and persist each receipt buffered against `source_block` once the execution
+    /// result of its source shard is available; invalid proofs are dropped. A proof waits
+    /// only for its own source shard: applying the next block still waits for every shard.
     pub(crate) fn try_drain(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -43,14 +44,16 @@ impl UnverifiedReceiptTracker {
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
-        if !core_reader.all_execution_results_exist(block.header())? {
-            return Ok(());
-        }
-        let execution_results = core_reader.get_execution_results_by_shard_id(block.header())?;
         let Some(receipt_proofs) = self.proofs_by_source_block.remove(source_block) else {
             return Ok(());
         };
+        let execution_results = core_reader.get_execution_results_by_shard_id(block.header())?;
+        let mut waiting = Vec::new();
         for receipt_proof in receipt_proofs {
+            if !execution_results.contains_key(&receipt_proof.1.from_shard_id) {
+                waiting.push(receipt_proof);
+                continue;
+            }
             match verify_receipt_proof(&receipt_proof, &execution_results) {
                 // Commit each proof in its own transaction: duplicate network
                 // deliveries share a key, so batching them would overwrite within
@@ -64,6 +67,9 @@ impl UnverifiedReceiptTracker {
                     tracing::debug!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts");
                 }
             }
+        }
+        if !waiting.is_empty() {
+            self.proofs_by_source_block.insert(*source_block, waiting);
         }
         Ok(())
     }
