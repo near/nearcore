@@ -40,7 +40,15 @@ for the rest of the actions until `DeleteAccount`. This gives permission by anot
 pub struct CreateAccountAction {}
 ```
 
-If `receiver_id` has length == 64, this account id is considered to be `hex(public_key)`, meaning creation of account only succeeds if followed up with `AddKey(public_key)` action.
+If `receiver_id` is an implicit account ID, the action fails with `OnlyImplicitAccountCreationAllowed`. Implicit
+account IDs are NEAR-implicit IDs (64 lowercase hex characters), `0x` ETH-implicit IDs, `0s` deterministic IDs and,
+from protocol version 87, `0u` universal IDs. These accounts are created in other ways:
+
+- A NEAR-implicit, ETH-implicit or deterministic account is created by a `Transfer` to its ID, when the `Transfer` is
+  the only action of a receipt that is not a refund.
+- A deterministic account can also be created by `DeterministicStateInit`.
+- From protocol version 87, a universal account is created by `UniversalStateInit`, or by a `Transfer` that is not a
+  refund. That `Transfer` may be batched with other actions.
 
 **Outcome**:
 
@@ -51,8 +59,10 @@ If `receiver_id` has length == 64, this account id is considered to be `hex(publ
 
 **Execution Error**:
 
-- If the action tries to create a top level account whose length is no greater than 32 characters, and `predecessor_id` is not
-`registrar_account_id`, which is defined by the protocol, the following error will be returned
+- If `predecessor_id` is not `registrar_account_id` (currently `registrar`), and the action tries to create a top level
+account whose ID is shorter than `min_allowed_top_level_account_length` (currently 65), the following error will be
+returned. Account IDs are at most 64 characters long, so only the registrar can create named top level accounts with
+`CreateAccount`.
 
 ```rust
 /// A top-level account ID can only be created by registrar.
@@ -69,6 +79,12 @@ the following error will be returned
 ```rust
 /// A newly created account must be under a namespace of the creator account
 CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
+```
+
+- If `receiver_id` is an implicit account ID, the following error will be returned
+
+```rust
+OnlyImplicitAccountCreationAllowed { account_id: AccountId },
 ```
 
 ## DeployContractAction
