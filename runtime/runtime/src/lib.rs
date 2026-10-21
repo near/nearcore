@@ -19,6 +19,7 @@ pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
     verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
