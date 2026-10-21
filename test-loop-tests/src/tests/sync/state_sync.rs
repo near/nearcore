@@ -33,7 +33,6 @@ use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -245,19 +244,12 @@ fn test_state_sync_simple_two_node() {
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -275,19 +267,12 @@ fn test_state_sync_simple_five_node() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -304,22 +289,13 @@ fn test_state_sync_simple_five_node() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_chunk_extra_divergence_stops_the_node() {
     init_test_logger();
-    let validators_spec = create_validators_spec(5, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .validators(5, 0)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .build();
 
     env.node_mut(4).client_actor().client.chain.adv_corrupt_state_sync_chunk_extra = true;
@@ -339,18 +315,11 @@ fn test_state_sync_empty_shard() {
     // have no accounts (only "validator0", "validator1", "near" exist).
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
@@ -367,19 +336,12 @@ fn test_state_sync_miss_chunks_first_block() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -406,19 +368,12 @@ fn test_state_sync_miss_chunks_second_block() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -443,19 +398,12 @@ fn test_state_sync_miss_chunks_third_block() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -480,19 +428,12 @@ fn test_state_sync_miss_chunks_sync_block() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         // Drop shards 0 and 1 at offset 3 — this is the sync hash block itself.
@@ -518,19 +459,12 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -556,19 +490,12 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -596,19 +523,12 @@ fn test_state_sync_miss_chunks_multiple() {
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -636,10 +556,9 @@ fn test_state_sync_untrack_then_track() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
     let validators = validators_spec_clients(&validators_spec);
-    let mut clients = validators.clone();
     // Add a 6th client that is NOT a validator — it only tracks shards per schedule.
-    let extra_node_idx = clients.len();
-    clients.push("extra-node".parse().unwrap());
+    let extra_node_idx = validators.len();
+    let extra_node: AccountId = "extra-node".parse().unwrap();
 
     let schedule = vec![
         vec![ShardId::new(0), ShardId::new(1)], // epoch 0: initial
@@ -649,19 +568,13 @@ fn test_state_sync_untrack_then_track() {
     ];
 
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_non_validator_client(&extra_node)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .config_modifier(move |config, client_index| {
             if client_index != extra_node_idx {
                 return;
@@ -689,19 +602,12 @@ fn test_state_sync_from_fork() {
 
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .genesis_height(genesis_height)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
         .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
@@ -724,19 +630,12 @@ fn test_state_sync_to_fork() {
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .genesis_height(genesis_height)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
         .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
@@ -759,19 +658,12 @@ fn test_state_sync_fork_after_sync() {
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .genesis_height(genesis_height)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
         .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
@@ -793,19 +685,12 @@ fn test_state_sync_fork_before_sync() {
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .genesis_height(genesis_height)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
         .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
@@ -867,20 +752,11 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_request() {
     init_test_logger();
-    let validators_spec = create_validators_spec(4, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
-        .validators_spec(validators_spec)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .validators(4, 0)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .build();
     spam_state_sync_header_reqs(&mut env);
 }
@@ -895,20 +771,13 @@ fn test_state_sync_protocol_upgrade() {
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .protocol_version(PROTOCOL_VERSION - 1)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, INITIAL_USER_BALANCE)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);

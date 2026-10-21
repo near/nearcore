@@ -1,5 +1,6 @@
 use crate::spice::chunk_validator_actor::{
-    SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor,
+    MAX_BLOCKS_WITH_PENDING_CONTRACT_ACCESSES, SpiceChunkStateWitnessMessage,
+    SpiceChunkValidatorActor,
 };
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
@@ -913,6 +914,49 @@ fn test_malicious_accesses_first_then_correct() {
     actor.handle(SpiceChunkContractAccessesMessage(correct_accesses, RecvMessagePermit::none()));
     assert!(drain_endorsements(&mut actor.network_rc).is_empty());
     assert_no_contract_requests(&mut actor.network_rc);
+}
+
+/// Contract accesses for a block we do not have are buffered only when signed by a chunk
+/// producer, and only once per sender.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_for_unknown_block_require_producer_signature() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let prev_block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let block = build_block(&actor.chain, &prev_block);
+    let hash_a: CodeHash = hash(b"contract_a").into();
+
+    let forged =
+        make_contract_accesses_with_signer(&block, HashSet::from([hash_a]), "not-a-chunk-producer");
+    actor.handle(SpiceChunkContractAccessesMessage(forged, RecvMessagePermit::none()));
+    assert_eq!(actor.actor.num_pending_contract_accesses(), 0);
+
+    for _ in 0..2 {
+        send_empty_contract_accesses(&mut actor, &block);
+    }
+    assert_eq!(actor.actor.num_pending_contract_accesses(), 1);
+}
+
+/// A chunk producer naming blocks that never arrive cannot grow the buffer past its cap.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_for_unknown_blocks_are_capped() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let signer = create_test_signer("test-validator");
+    let shard_id = block.chunks()[0].shard_id();
+
+    for i in 0..MAX_BLOCKS_WITH_PENDING_CONTRACT_ACCESSES + 5 {
+        let chunk_id = SpiceChunkId { block_hash: hash(&i.to_le_bytes()), shard_id };
+        let accesses = SpiceChunkContractAccesses::new(chunk_id, HashSet::new(), &signer);
+        actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    }
+    assert_eq!(
+        actor.actor.num_pending_contract_accesses(),
+        MAX_BLOCKS_WITH_PENDING_CONTRACT_ACCESSES
+    );
 }
 
 /// Validates that MAX_CONTRACTS_PER_REQUEST is large enough to cover the maximum

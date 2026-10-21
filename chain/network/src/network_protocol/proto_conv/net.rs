@@ -4,7 +4,6 @@ use crate::network_protocol::PeerAddr;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
 use borsh::BorshDeserialize as _;
-use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
 
@@ -119,23 +118,6 @@ impl From<&Edge> for proto::Edge {
 impl TryFrom<&proto::Edge> for Edge {
     type Error = ParseEdgeError;
     fn try_from(x: &proto::Edge) -> Result<Self, Self::Error> {
-        Self::try_from_slice(&x.borsh)
-    }
-}
-
-////////////////////////////////////////
-
-pub type ParseAnnounceAccountError = std::io::Error;
-
-impl From<&AnnounceAccount> for proto::AnnounceAccount {
-    fn from(x: &AnnounceAccount) -> Self {
-        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
-    }
-}
-
-impl TryFrom<&proto::AnnounceAccount> for AnnounceAccount {
-    type Error = ParseAnnounceAccountError;
-    fn try_from(x: &proto::AnnounceAccount) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
     }
 }

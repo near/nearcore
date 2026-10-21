@@ -87,4 +87,18 @@ ignore = [
     # used by near-parameters to parse trusted in-tree runtime parameter files, not
     # untrusted input. Remove once near-parameters moves off serde_yaml (#16566).
     "RUSTSEC-2024-0449",
+
+    # RUSTSEC-2026-0367 / RUSTSEC-2026-0368 / RUSTSEC-2026-0369: `zip` crate
+    # ZipArchive::extract vulnerabilities (SUID/SGID preservation, symlink
+    # target escape, Unix permissions applied through symlinks). Fixed in
+    # zip >= 9.0.0. Reached only via utoipa-swagger-ui 9.0.2 (used by
+    # near-rosetta-rpc to serve the Swagger UI at /swagger-ui). The `vendored`
+    # feature uses `zip` only at build time to unpack a trusted Swagger-UI
+    # release archive shipped with the crate into OUT_DIR -- no runtime
+    # extraction of attacker-controlled zips. Latest published
+    # utoipa-swagger-ui 10.0.1 still pins zip = "8.6"; remove these once
+    # upstream releases a version with zip >= 9.0.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]

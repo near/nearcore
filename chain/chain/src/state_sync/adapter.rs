@@ -323,7 +323,7 @@ impl ChainStateSyncAdapter {
             .ok_or(Error::InvalidShardId(shard_id))?
             .prev_state_root();
         let prev_hash = *prev_block.hash();
-        let prev_prev_hash = snapshot_hash_for_block(prev_block.header());
+        let snapshot_hash = snapshot_hash_for_block(prev_block.header());
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &prev_hash, &state_root)
@@ -337,7 +337,7 @@ impl ChainStateSyncAdapter {
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
-                &prev_prev_hash,
+                &snapshot_hash,
                 &state_root,
                 StatePartId::new(part_idx, num_parts),
             )

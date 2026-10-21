@@ -2870,17 +2870,6 @@ impl Chain {
         }
     }
 
-    pub fn clear_downloaded_parts(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-    ) -> Result<(), Error> {
-        let mut chain_store_update = self.mut_chain_store().store_update();
-        chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
-        chain_store_update.commit()
-    }
-
     /// Drop all downloaded or generated state parts and headers.
     pub fn clear_all_downloaded_parts(&mut self) {
         tracing::debug!(target: "state_sync", "clear old state parts");
@@ -3140,13 +3129,6 @@ impl Chain {
         }
 
         Ok(())
-    }
-
-    pub fn get_transaction_execution_result(
-        &self,
-        id: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        Ok(self.chain_store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
     /// Returns execution status based on the list of currently existing outcomes

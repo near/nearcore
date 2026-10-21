@@ -36,7 +36,6 @@ use std::task::Poll;
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
     let accounts: Vec<AccountId> =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
@@ -48,9 +47,6 @@ fn test_spice_chain() {
         accounts.iter().take(num_block_producers).cloned().collect_vec();
     let validators_only: Vec<AccountId> =
         (0..num_validators).map(|i| format!("validator{i}").parse().unwrap()).collect_vec();
-
-    let clients =
-        block_and_chunk_producers.iter().cloned().chain(validators_only.clone()).collect_vec();
 
     let epoch_length = 10;
     // With each block producer tracking more than one shard we are more likely to find bugs of
@@ -82,14 +78,13 @@ fn test_spice_chain() {
     );
 
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
+        .add_user_accounts(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
         .build();
-    let mut env = builder.genesis(genesis).clients(clients).build();
 
     let client_handles =
         env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();

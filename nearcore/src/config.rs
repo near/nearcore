@@ -102,9 +102,6 @@ const CHUNK_REQUEST_RETRY_PERIOD: i64 = 400;
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: i64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: i64 = 500;
 
-/// The minimum stake required for staking is last seat price divided by this number.
-pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
@@ -774,7 +771,6 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
-                ttl_account_id_router: config.network.ttl_account_id_router,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,

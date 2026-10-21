@@ -190,7 +190,7 @@ impl ShardStateSyncResponseHeader {
     }
 
     #[inline]
-    pub fn chunk_prev_state_root(&self) -> StateRoot {
+    pub fn synced_state_root(&self) -> StateRoot {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),

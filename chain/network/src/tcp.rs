@@ -258,11 +258,6 @@ impl ListenerAddr {
         panic!("Failed to reserve a TCP port for a listener after 1000 attempts");
     }
 
-    /// Constructs a std::net::TcpListener, for usage outside of near_network.
-    pub fn std_listener(&self) -> std::io::Result<std::net::TcpListener> {
-        self.listener()?.0.into_std()
-    }
-
     /// Constructs a Listener out of ListenerAddr.
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
         let socket = match &self.0 {
