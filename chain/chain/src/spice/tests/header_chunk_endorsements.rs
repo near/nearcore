@@ -1,15 +1,15 @@
 use crate::Error;
 use crate::stateless_validation::chunk_endorsement::validate_spice_chunk_endorsements_in_header;
-use near_primitives::block_header::{BlockHeader, BlockHeaderV7};
+use near_primitives::block_header::{BlockHeader, BlockHeaderV8};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 
 /// With spice the chunk endorsements bitmap in the header is unused, so headers must contain an
 /// empty bitmap for each shard.
 fn header_with(chunk_mask: Vec<bool>, chunk_endorsements: ChunkEndorsementsBitmap) -> BlockHeader {
-    let mut header = BlockHeaderV7::default();
+    let mut header = BlockHeaderV8::default();
     header.inner_rest.chunk_mask = chunk_mask;
     header.inner_rest.chunk_endorsements = chunk_endorsements;
-    BlockHeader::BlockHeaderV7(header)
+    BlockHeader::BlockHeaderV8(header)
 }
 
 #[test]

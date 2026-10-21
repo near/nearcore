@@ -155,6 +155,9 @@ pub enum ProtocolFeature {
     /// External contract calls (ECC): unsigned transactions carrying no signer, public key,
     /// nonce or signature. See <https://github.com/near/nearcore/issues/16423>.
     ExternalContractCalls,
+    /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
+    /// accepts it there and the header is handled like `BlockHeaderV6`.
+    RejectBlockHeaderV7BeforeSpice,
 }
 
 impl ProtocolFeature {
@@ -189,6 +192,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
+            ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
