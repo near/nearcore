@@ -141,6 +141,15 @@ fn ordinals(ordinals: &[u64]) -> BTreeSet<u64> {
     ordinals.iter().copied().collect()
 }
 
+/// Each producer pulled from for its own ordinal.
+fn own_ordinal_pulls() -> BTreeMap<AccountId, BTreeSet<u64>> {
+    producers()
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
+        .collect()
+}
+
 type WantsByProducer = BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>>;
 
 fn by_producer(requests: Vec<PullRequest>) -> WantsByProducer {
@@ -183,6 +192,10 @@ impl TestManager {
     }
 
     fn applying(chain: &Chain, shard: u64) -> Self {
+        Self::with_pull_config(chain, shard, PullConfig::default())
+    }
+
+    fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
         let shard_tracker = ShardTracker::new(
@@ -201,7 +214,7 @@ impl TestManager {
         };
         Self {
             manager: SpiceDataManager::new(
-                PullConfig::default(),
+                pull_config,
                 DATA_PARTS_RATIO,
                 store.chain_store(),
                 policy,
@@ -237,8 +250,11 @@ impl TestManager {
         store_update.commit();
     }
 
-    fn set_pull_config(&mut self, config: PullConfig) {
-        self.manager.pull_config = config;
+    /// Writes `block` to the store as the consensus final head.
+    fn set_final_head(&self, block: &Block) {
+        let mut store_update = self.store.store_update();
+        store_update.chain_store_update().set_final_head(&Tip::from_header(block.header()));
+        store_update.commit();
     }
 
     fn track_block(&mut self, block: &Block) {
@@ -249,8 +265,12 @@ impl TestManager {
         self.manager.is_tracking(id)
     }
 
+    fn pulling_from(&self, id: &DataId) -> HashSet<AccountId> {
+        self.manager.pulls.pulling_from(id, self.clock.now())
+    }
+
     fn is_pullable(&self, id: &DataId) -> bool {
-        self.manager.pullable_items.values().any(|ids| ids.contains(id))
+        self.manager.pulls.is_pullable(id)
     }
 
     /// Asserts no item and no index entry is left for `id`.
@@ -258,6 +278,7 @@ impl TestManager {
         assert!(!self.is_tracking(id));
         assert!(!self.manager.items_by_height.values().any(|ids| ids.contains(id)));
         assert!(!self.is_pullable(id));
+        assert!(!self.manager.pulls.holds_state_for(id));
         assert!(!self.manager.delivered_items.contains(id));
     }
 
@@ -310,14 +331,14 @@ impl TestManager {
         self.manager.items.get(id).unwrap_or_else(|| panic!("no item for {id:?}"))
     }
 
-    fn state(&self, id: &DataId, producer: &AccountId) -> &ProducerState {
-        let (_, state) = self
+    fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
+        let (_, bound) = self
             .item(id)
             .producers
             .iter()
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        state
+        bound.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {
@@ -326,6 +347,13 @@ impl TestManager {
             other => panic!("commitment is not tracked: {other:?}"),
         }
     }
+}
+
+/// One item from each of `blocks`, tracked and made pullable.
+fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataId> {
+    let ids = blocks.iter().map(|block| manager.track_needed_proof(block)).collect();
+    manager.certify_up_to(blocks.last().unwrap().header().height());
+    ids
 }
 
 fn receipt_id(block: &Block, from_shard: u64, to_shard: u64) -> DataId {
