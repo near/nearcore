@@ -7,9 +7,12 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
+use near_chain_configs::{
+    AdversarialMode, ClientConfig, Genesis, GenesisConfig, MutableConfigValue,
+};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
@@ -107,7 +110,7 @@ fn setup_network_node_with_tcp(
     let shards_manager_adapter = LateBoundSender::new();
     let (block_notification_watch_sender, _block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
-    let adv = near_client::adversarial::Controls::default();
+    let adv = Controls::new(false, AdversarialMode::Rpc);
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -197,6 +200,7 @@ fn setup_network_node_with_tcp(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
         client_config.chunks_cache_height_horizon,
+        AdversarialMode::Rpc,
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);

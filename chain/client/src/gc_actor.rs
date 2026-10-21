@@ -4,7 +4,7 @@ use near_async::messaging::Actor;
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
 use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
-use near_chain_configs::GCConfig;
+use near_chain_configs::{AdversarialMode, GCConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::Store;
@@ -24,6 +24,7 @@ pub struct GCActor {
     is_local_archive: bool,
     /// In some tests we may want to temporarily disable GC
     no_gc: bool,
+    adversarial_mode: AdversarialMode,
 }
 
 impl GCActor {
@@ -35,6 +36,7 @@ impl GCActor {
         shard_tracker: ShardTracker,
         gc_config: GCConfig,
         is_local_archive: bool,
+        adversarial_mode: AdversarialMode,
     ) -> Self {
         GCActor {
             store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -44,6 +46,7 @@ impl GCActor {
             shard_tracker,
             is_local_archive,
             no_gc: false,
+            adversarial_mode,
         }
     }
 
@@ -118,6 +121,10 @@ pub enum NetworkAdversarialMessage {
 
 impl Handler<NetworkAdversarialMessage> for GCActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
+        if self.adversarial_mode == AdversarialMode::None {
+            tracing::warn!(target: "adversary", ?msg, "ignoring adversarial message, adversarial_mode is None");
+            return;
+        }
         match msg {
             NetworkAdversarialMessage::StopGC => {
                 self.no_gc = true;
