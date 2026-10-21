@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{total_send_fees, tx_cost};
+use crate::config::{ecc_cost, total_send_fees, tx_cost};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
@@ -716,6 +716,96 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
     let transfer_outcome = &apply_result.outcomes[1];
     assert_eq!(transfer_outcome.id, transfer.get_hash());
     assert_matches!(transfer_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+/// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
+/// ECC fails without burning anything and leaves `bob`'s balance as it was, and returns the
+/// error it fails with.
+fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        bob_balance,
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc.clone())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let [ecc_outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
+    let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
+        ecc_outcome.outcome.status.clone()
+    else {
+        panic!("expected the ECC to fail, got {:?}", ecc_outcome.outcome.status);
+    };
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    assert_eq!(bob.amount(), bob_balance);
+    err
+}
+
+/// The fees of the ECC that `apply_ecc` sends to `bob`.
+fn ecc_fee() -> Balance {
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap().burnt_amount
+}
+
+/// An ECC to an account that does not exist is rejected.
+#[test]
+fn test_apply_ecc_missing_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contract_id: AccountId = "missing.near".parse().unwrap();
+    let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
+    assert_eq!(err, InvalidTxError::InvalidSignerId { signer_id: contract_id.to_string() });
+}
+
+/// An ECC to a contract that can't pay for its fees is rejected.
+#[test]
+fn test_apply_ecc_not_enough_balance() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let fee = ecc_fee();
+    let balance = fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let err = apply_ecc(bob_account(), balance);
+    assert_eq!(
+        err,
+        InvalidTxError::NotEnoughBalance { signer_id: bob_account(), balance, cost: fee }
+    );
+}
+
+/// An ECC to a contract that can pay for its fees still fails, since nothing executes it yet,
+/// and pays nothing.
+/// TODO(ecc): update this test with a check for successful execution after ECC processing logic is in place.
+#[test]
+fn test_apply_ecc_funded_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let err = apply_ecc(bob_account(), ecc_fee());
+    assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
 }
 
 #[test]
