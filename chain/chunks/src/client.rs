@@ -1,9 +1,8 @@
 use itertools::Itertools;
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{TransactionEnvelope, ValidatedTransactionEnvelope};
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -65,7 +64,7 @@ impl ShardedTransactionPool {
     pub fn insert_transaction(
         &mut self,
         shard_uid: ShardUId,
-        validated_tx: ValidatedTransaction,
+        validated_tx: impl Into<ValidatedTransactionEnvelope>,
     ) -> InsertTransactionResult {
         self.pool_for_shard(shard_uid).insert_transaction(validated_tx)
     }
@@ -73,10 +72,10 @@ impl ShardedTransactionPool {
     pub fn remove_transactions<'a>(
         &mut self,
         shard_uid: ShardUId,
-        signed_txs: impl IntoIterator<Item = &'a SignedTransaction>,
+        txs: impl IntoIterator<Item = &'a TransactionEnvelope>,
     ) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_uid) {
-            pool.remove_transactions(signed_txs)
+            pool.remove_transactions(txs)
         }
     }
 
@@ -110,22 +109,15 @@ impl ShardedTransactionPool {
             .join("; ")
     }
 
-    /// Reintroduces transactions back during the chain reorg. Returns the number of transactions
-    /// that were added or are already present in the pool.
+    /// Reintroduces transactions back during the chain reorg, or after they were taken out of the
+    /// pool for a chunk. Returns the number of transactions that were added or are already
+    /// present in the pool. See `TransactionPool::reintroduce_transactions`.
     pub fn reintroduce_transactions(
         &mut self,
         shard_uid: ShardUId,
-        validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
+        validated_txs: impl IntoIterator<Item = impl Into<ValidatedTransactionEnvelope>>,
     ) -> usize {
-        let mut reintroduced_count = 0;
-        let pool = self.pool_for_shard(shard_uid);
-        for validated_tx in validated_txs {
-            reintroduced_count += match pool.insert_transaction(validated_tx) {
-                InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
-                InsertTransactionResult::NoSpaceLeft => 0,
-            }
-        }
-        reintroduced_count
+        self.pool_for_shard(shard_uid).reintroduce_transactions(validated_txs)
     }
 
     /// Migrate all of the transactions in the pool from the old shard layout to
@@ -141,21 +133,16 @@ impl ShardedTransactionPool {
         );
         debug_assert!(old_shard_layout != new_shard_layout);
 
-        let mut validated_txs = vec![];
+        let mut validated_txs: Vec<ValidatedTransactionEnvelope> = vec![];
 
         for old_shard_uid in old_shard_layout.shard_uids() {
-            if let Some(mut iter) = self.get_pool_iterator(old_shard_uid) {
-                while let Some(group) = iter.next() {
-                    while let Some(validated_tx) = group.next() {
-                        validated_txs.push(validated_tx);
-                    }
-                }
-            }
+            let Some(iter) = self.get_pool_iterator(old_shard_uid) else { continue };
+            validated_txs.extend(iter.drain());
         }
 
         for validated_tx in validated_txs {
-            let signer_id = validated_tx.signer_id();
-            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(signer_id);
+            let account_id = validated_tx.routing_account_id();
+            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
             self.insert_transaction(new_shard_uid, validated_tx);
         }
     }
@@ -166,12 +153,14 @@ mod tests {
     use crate::client::ShardedTransactionPool;
     use near_crypto::{InMemorySigner, KeyType};
     use near_o11y::testonly::init_test_logger;
-    use near_pool::types::TransactionGroupIterator;
     use near_primitives::{
         epoch_info::RngSeed,
         hash::CryptoHash,
         shard_layout::ShardLayout,
-        transaction::{SignedTransaction, ValidatedTransaction},
+        transaction::{
+            EccTransaction, SignedTransaction, ValidatedEcc, ValidatedTransaction,
+            ValidatedTransactionEnvelope,
+        },
         types::{AccountId, Balance, ShardId},
     };
     use near_store::ShardUId;
@@ -179,6 +168,14 @@ mod tests {
     use std::{collections::HashMap, str::FromStr};
 
     const TEST_SEED: RngSeed = [3; 32];
+
+    /// Takes everything out of the pool of `shard_uid`.
+    fn drain(
+        pool: &mut ShardedTransactionPool,
+        shard_uid: ShardUId,
+    ) -> Vec<ValidatedTransactionEnvelope> {
+        pool.get_pool_iterator(shard_uid).map(|iter| iter.drain()).unwrap_or_default()
+    }
 
     #[test]
     fn test_random_seed_with_shard_id() {
@@ -280,25 +277,110 @@ mod tests {
             let mut total = 0;
             for shard_id in shard_ids {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
-                let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
-                while let Some(group) = pool_iter.next() {
-                    while let Some(validated_tx) = group.next() {
-                        total += 1;
-                        let account_id = validated_tx.signer_id();
-                        let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
-                        tracing::debug!(
-                            ?account_id,
-                            ?tx_shard_uid,
-                            ?shard_uid,
-                            "checking account_id and tx_shard_uid in shard_uid"
-                        );
-                        assert_eq!(shard_uid, tx_shard_uid);
-                    }
+                for validated_tx in drain(&mut pool, shard_uid) {
+                    total += 1;
+                    let account_id = validated_tx.routing_account_id();
+                    let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
+                    tracing::debug!(
+                        ?account_id,
+                        ?tx_shard_uid,
+                        ?shard_uid,
+                        "checking account_id and tx_shard_uid in shard_uid"
+                    );
+                    assert_eq!(shard_uid, tx_shard_uid);
                 }
             }
 
             assert_eq!(total, n);
         }
         tracing::info!("finished");
+    }
+
+    fn ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
+        let contract_id = AccountId::from_str(contract_id).unwrap();
+        ValidatedEcc::new_for_test(EccTransaction::new(contract_id, vec![tag]))
+    }
+
+    /// Takes everything out of the pool of `shard_uid`. Returns the tags of ECCs per
+    /// contract in the order they were taken.
+    fn drain_eccs(
+        pool: &mut ShardedTransactionPool,
+        shard_uid: ShardUId,
+    ) -> HashMap<AccountId, Vec<u8>> {
+        let mut eccs: HashMap<AccountId, Vec<u8>> = HashMap::new();
+        for tx in drain(pool, shard_uid) {
+            let ValidatedTransactionEnvelope::Unsigned(ecc) = tx else { panic!("signed tx") };
+            eccs.entry(ecc.contract_id().clone()).or_default().push(ecc.payload()[0]);
+        }
+        eccs
+    }
+
+    /// ECCs go to the shard of their contract when the pool is resharded, and keep
+    /// their order.
+    #[test]
+    fn test_transaction_pool_resharding_eccs() {
+        let boundary_accounts = ["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
+            .iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+        let old_shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+        let new_shard_layout = ShardLayout::derive_shard_layout(
+            &old_shard_layout,
+            "tge-lockup.sweat".parse().unwrap(),
+        );
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
+
+        // The split shard has contracts on both sides of the new boundary.
+        let contracts = ["aaa", "aurora", "bob", "mmm", "sweat", "ttt", "zzz"];
+        for contract_id in contracts {
+            let old_shard_uid = old_shard_layout
+                .account_id_to_shard_uid(&AccountId::from_str(contract_id).unwrap());
+            for tag in 1..=3 {
+                pool.insert_transaction(old_shard_uid, ecc(contract_id, tag));
+            }
+        }
+
+        pool.reshard(&old_shard_layout, &new_shard_layout);
+
+        let mut total = 0;
+        for shard_uid in new_shard_layout.shard_uids() {
+            for (contract_id, tags) in drain_eccs(&mut pool, shard_uid) {
+                assert_eq!(new_shard_layout.account_id_to_shard_uid(&contract_id), shard_uid);
+                assert_eq!(tags, vec![1, 2, 3]);
+                total += 1;
+            }
+        }
+        assert_eq!(total, contracts.len());
+    }
+
+    /// Reintroduced ECCs go ahead of the ECCs that arrived while they were away, in
+    /// the order they were passed in.
+    #[test]
+    fn test_reintroduce_eccs_keeps_arrival_order() {
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
+        let shard_uid = ShardUId::new(0, ShardId::new(0));
+        pool.insert_transaction(shard_uid, ecc("a.near", 3));
+
+        let reintroduced =
+            pool.reintroduce_transactions(shard_uid, [ecc("a.near", 1), ecc("a.near", 2)]);
+
+        assert_eq!(reintroduced, 2);
+        let eccs = drain_eccs(&mut pool, shard_uid);
+        assert_eq!(eccs[&AccountId::from_str("a.near").unwrap()], vec![1, 2, 3]);
+    }
+
+    /// The ECCs of several blocks are reintroduced one block at a time, the newest block first,
+    /// like a reorg does. They end up in the order of arrival.
+    #[test]
+    fn test_reintroduce_eccs_of_several_blocks_newest_first() {
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
+        let shard_uid = ShardUId::new(0, ShardId::new(0));
+        pool.insert_transaction(shard_uid, ecc("a.near", 5));
+
+        pool.reintroduce_transactions(shard_uid, [ecc("a.near", 3), ecc("a.near", 4)]);
+        pool.reintroduce_transactions(shard_uid, [ecc("a.near", 1), ecc("a.near", 2)]);
+
+        let eccs = drain_eccs(&mut pool, shard_uid);
+        assert_eq!(eccs[&AccountId::from_str("a.near").unwrap()], vec![1, 2, 3, 4, 5]);
     }
 }

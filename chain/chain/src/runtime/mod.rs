@@ -21,7 +21,7 @@ use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
@@ -928,7 +928,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
-        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
+        'add_txs_loop: while let Some(group) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -958,6 +958,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break;
                 }
             }
+
+            // TODO(ecc): include ECCs once the producer packs them. Until then, each group of
+            // ECCs costs a visit here, so once ECCs have a budget in the chunk, the producer
+            // should stop visiting them when the budget is spent. The limits are checked first,
+            // so the visits stay bounded by the time limit and can be cancelled.
+            let PooledGroup::Signed(transaction_group_iter) = group else { continue };
 
             // Transactions taken from this group so far this visit.
             let mut examined_from_group = 0usize;

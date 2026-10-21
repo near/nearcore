@@ -32,7 +32,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -3036,6 +3036,7 @@ fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
     let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
     let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
     while let Some(group) = iter.next() {
+        let PooledGroup::Signed(group) = group else { continue };
         while let Some(tx) = group.next() {
             hashes.insert(tx.get_hash());
         }

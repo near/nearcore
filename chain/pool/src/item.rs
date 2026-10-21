@@ -4,7 +4,6 @@ use crate::types::PoolKey;
 use near_crypto::PublicKey;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{AccountId, NonceIndex};
 use std::collections::VecDeque;
 
@@ -17,10 +16,13 @@ pub enum GroupId<'a> {
         public_key: &'a PublicKey,
         nonce_index: Option<NonceIndex>,
     },
+    /// ECCs to one contract.
+    Ecc { contract_id: &'a AccountId },
 }
 
 impl GroupId<'_> {
-    /// The key of the group in the pool. The seed randomizes the order of the keys.
+    /// The key of the group in the pool. The seed randomizes the order of the keys. The keys of
+    /// groups of different kinds are never compared, as they are kept in different pools.
     pub(crate) fn key(&self, key_seed: &RngSeed) -> PoolKey {
         match self {
             GroupId::AccessKey { account_id, public_key, nonce_index } => {
@@ -30,6 +32,11 @@ impl GroupId<'_> {
                 if let Some(idx) = nonce_index {
                     v.extend_from_slice(&borsh::to_vec(idx).unwrap());
                 }
+                hash(&v)
+            }
+            GroupId::Ecc { contract_id } => {
+                let mut v = key_seed.to_vec();
+                v.extend_from_slice(contract_id.as_bytes());
                 hash(&v)
             }
         }
@@ -53,36 +60,4 @@ pub trait PoolItem: Sized {
     /// Sorts the items of a group, so that the one to take next is at the front. The pool
     /// iterator calls it each time it takes a group out of the pool.
     fn sort_group(group: &mut VecDeque<Self>);
-}
-
-impl PoolItem for ValidatedTransaction {
-    fn hash(&self) -> CryptoHash {
-        self.get_hash()
-    }
-
-    fn size(&self) -> u64 {
-        self.wire_size()
-    }
-
-    fn group(&self) -> GroupId<'_> {
-        GroupId::AccessKey {
-            account_id: self.signer_id(),
-            public_key: self.public_key(),
-            nonce_index: self.nonce().nonce_index(),
-        }
-    }
-
-    /// The transactions of a group are taken in the order of nonces, and are only sorted when
-    /// the group is taken out of the pool. It is more efficient on average to keep them
-    /// unsorted and with potentially conflicting nonce than to keep them sorted all the time.
-    ///
-    /// The one that was added last goes to the front, so that among transactions with the same
-    /// nonce it is the one taken first. Sorting is stable, so this order survives it.
-    fn add_to_group(group: &mut VecDeque<Self>, item: Self) {
-        group.push_front(item);
-    }
-
-    fn sort_group(group: &mut VecDeque<Self>) {
-        group.make_contiguous().sort_by_key(|tx| tx.nonce().nonce());
-    }
 }

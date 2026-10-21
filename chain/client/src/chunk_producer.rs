@@ -20,7 +20,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -497,8 +497,10 @@ impl ChunkProducer {
 
                 if skip_verification {
                     let mut res = vec![];
-                    while let Some(iter) = iter.next() {
-                        res.push(iter.next().unwrap());
+                    while let Some(group) = iter.next() {
+                        // TODO(ecc): include ECCs once the producer packs them
+                        let PooledGroup::Signed(group) = group else { continue };
+                        res.push(group.next().unwrap());
                     }
                     (
                         PreparedTransactions {
@@ -590,6 +592,9 @@ impl ChunkProducer {
             };
         // Reintroduce valid transactions back to the pool. They will be removed
         // when the chunk is included into the block.
+        // TODO(ecc): once ECCs are packed, reintroduce the prepared and the skipped transactions
+        // in one batch in the order they were taken. Two batches put the second one ahead of
+        // the first, which breaks the arrival order of ECCs.
         let reintroduced_count = pool_guard
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
         // Reintroduce skipped transactions (from pending transaction queue constraints) back to pool.
