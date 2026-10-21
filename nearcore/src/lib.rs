@@ -389,6 +389,11 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+/// Returned when a node with adversarial behavior starts without `ADVERSARY_CONSENT=1`.
+#[derive(thiserror::Error, Debug)]
+#[error("adversarial_mode is {0:?}, set ADVERSARY_CONSENT=1 to start the node")]
+pub struct MissingAdversaryConsentError(pub AdversarialMode);
+
 /// Refuses to start a node with adversarial behavior unless `ADVERSARY_CONSENT=1` is set.
 fn check_adversary_consent(adversarial_mode: AdversarialMode) -> anyhow::Result<()> {
     if adversarial_mode == AdversarialMode::None {
@@ -400,9 +405,7 @@ fn check_adversary_consent(adversarial_mode: AdversarialMode) -> anyhow::Result<
         "this node has adversarial behavior enabled, do not use in production"
     );
     if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-        anyhow::bail!(
-            "adversarial_mode is {adversarial_mode:?}, set ADVERSARY_CONSENT=1 to start the node"
-        );
+        return Err(MissingAdversaryConsentError(adversarial_mode).into());
     }
     Ok(())
 }
@@ -914,7 +917,7 @@ pub async fn start_with_config_and_synchronization_impl(
 
 #[cfg(test)]
 mod tests {
-    use super::check_adversary_consent;
+    use super::{MissingAdversaryConsentError, check_adversary_consent};
     use near_chain_configs::AdversarialMode;
     use std::env;
 
@@ -922,6 +925,12 @@ mod tests {
     fn test_check_adversary_consent() {
         assert!(check_adversary_consent(AdversarialMode::None).is_ok());
         let has_consent = env::var("ADVERSARY_CONSENT").as_deref() == Ok("1");
-        assert_eq!(check_adversary_consent(AdversarialMode::Rpc).is_ok(), has_consent);
+        match check_adversary_consent(AdversarialMode::Rpc) {
+            Ok(()) => assert!(has_consent),
+            Err(err) => {
+                assert!(!has_consent);
+                assert!(err.is::<MissingAdversaryConsentError>());
+            }
+        }
     }
 }

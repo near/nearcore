@@ -33,6 +33,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -584,16 +585,22 @@ impl RunCmd {
                 UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
+            let start_result = nearcore::start_with_config_and_synchronization(
+                home_dir,
+                near_config,
+                ActorSystem::new(),
+                Some(tx_crash),
+                Some(config_updater),
+            )
+            .await;
+            if let Err(err) = &start_result {
+                if err.is::<nearcore::MissingAdversaryConsentError>() {
+                    tracing::error!(target: "neard", %err, "refusing to start the node");
+                    process::exit(1);
+                }
+            }
             let nearcore::NearNode { cold_store_loop_handle, resharding_handle, .. } =
-                nearcore::start_with_config_and_synchronization(
-                    home_dir,
-                    near_config,
-                    ActorSystem::new(),
-                    Some(tx_crash),
-                    Some(config_updater),
-                )
-                .await
-                .expect("start_with_config");
+                start_result.expect("start_with_config");
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
