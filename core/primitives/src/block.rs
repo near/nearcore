@@ -229,7 +229,8 @@ impl Block {
             | BlockHeader::BlockHeaderV4(_)
             | BlockHeader::BlockHeaderV5(_)
             | BlockHeader::BlockHeaderV6(_)
-            | BlockHeader::BlockHeaderV7(_) => {
+            | BlockHeader::BlockHeaderV7(_)
+            | BlockHeader::BlockHeaderV8(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
