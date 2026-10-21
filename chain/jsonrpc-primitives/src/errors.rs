@@ -59,7 +59,6 @@ impl RpcError {
     }
 
     /// Create an Invalid Param error.
-    #[cfg(feature = "test_features")]
     pub fn invalid_params(data: impl serde::Serialize) -> Self {
         let value = match to_value(data) {
             Ok(value) => value,
@@ -74,7 +73,6 @@ impl RpcError {
     }
 
     /// Create a server error.
-    #[cfg(feature = "test_features")]
     pub fn server_error<E: serde::Serialize>(e: Option<E>) -> Self {
         RpcError::new(
             -32_000,

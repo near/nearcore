@@ -1,62 +1,38 @@
-#[cfg(feature = "test_features")]
-mod adv {
-    use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-    #[derive(Default)]
-    struct Inner {
-        disable_header_sync: std::sync::atomic::AtomicBool,
-        disable_doomslug: std::sync::atomic::AtomicBool,
-        is_archival: bool,
-    }
-
-    #[derive(Default, Clone)]
-    pub struct Controls(std::sync::Arc<Inner>);
-
-    impl Controls {
-        pub fn new(is_archival: bool) -> Self {
-            Self(std::sync::Arc::new(Inner { is_archival, ..Inner::default() }))
-        }
-
-        pub fn disable_header_sync(&self) -> bool {
-            self.0.disable_header_sync.load(Ordering::SeqCst)
-        }
-
-        pub fn set_disable_header_sync(&mut self, value: bool) {
-            self.0.disable_header_sync.store(value, Ordering::SeqCst);
-        }
-
-        pub fn disable_doomslug(&self) -> bool {
-            self.0.disable_doomslug.load(Ordering::SeqCst)
-        }
-
-        pub fn set_disable_doomslug(&self, value: bool) {
-            self.0.disable_doomslug.store(value, Ordering::SeqCst);
-        }
-
-        pub fn is_archival(&self) -> bool {
-            self.0.is_archival
-        }
-    }
+#[derive(Default)]
+struct Inner {
+    disable_header_sync: AtomicBool,
+    disable_doomslug: AtomicBool,
+    is_archival: bool,
 }
 
-#[cfg(not(feature = "test_features"))]
-mod adv {
-    #[derive(Default, Clone)]
-    pub struct Controls;
+#[derive(Default, Clone)]
+pub struct Controls(Arc<Inner>);
 
-    impl Controls {
-        pub const fn new(_is_archival: bool) -> Self {
-            Self
-        }
+impl Controls {
+    pub fn new(is_archival: bool) -> Self {
+        Self(Arc::new(Inner { is_archival, ..Inner::default() }))
+    }
 
-        pub const fn disable_header_sync(&self) -> bool {
-            false
-        }
+    pub fn disable_header_sync(&self) -> bool {
+        self.0.disable_header_sync.load(Ordering::SeqCst)
+    }
 
-        pub const fn disable_doomslug(&self) -> bool {
-            false
-        }
+    pub fn set_disable_header_sync(&mut self, value: bool) {
+        self.0.disable_header_sync.store(value, Ordering::SeqCst);
+    }
+
+    pub fn disable_doomslug(&self) -> bool {
+        self.0.disable_doomslug.load(Ordering::SeqCst)
+    }
+
+    pub fn set_disable_doomslug(&self, value: bool) {
+        self.0.disable_doomslug.store(value, Ordering::SeqCst);
+    }
+
+    pub fn is_archival(&self) -> bool {
+        self.0.is_archival
     }
 }
-
-pub use adv::Controls;

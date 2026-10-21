@@ -276,7 +276,6 @@ impl RequestPool {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum AdvDistributeChunksMode {
     /// Only send chunk parts to the block producer for the chunk's height,
@@ -320,7 +319,6 @@ pub struct ShardsManagerActor {
     chain_header_head: Tip,
     chunk_request_retry_period: Duration,
 
-    #[cfg(feature = "test_features")]
     pub adv_distribute_chunks_mode: Option<AdvDistributeChunksMode>,
 }
 
@@ -358,7 +356,6 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<AdvDistributeChunksMode> for ShardsManagerActor {
     fn handle(&mut self, msg: AdvDistributeChunksMode) {
         tracing::info!(target: "adversary", mode = ?msg, "setting adversary distribute chunks mode");
@@ -445,7 +442,6 @@ impl ShardsManagerActor {
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
             chunk_request_retry_period,
-            #[cfg(feature = "test_features")]
             adv_distribute_chunks_mode: None,
         }
     }
@@ -947,7 +943,6 @@ impl ShardsManagerActor {
         route_back: CryptoHash,
         me: Option<&AccountId>,
     ) {
-        #[cfg(feature = "test_features")]
         if matches!(
             self.adv_distribute_chunks_mode,
             Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)
@@ -2344,7 +2339,6 @@ impl ShardsManagerActor {
                 );
 
             if Some(&to_whom) != me {
-                #[cfg(feature = "test_features")]
                 if matches!(
                     self.adv_distribute_chunks_mode,
                     Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)

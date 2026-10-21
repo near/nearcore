@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_async::ActorSystem;
-use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
+use near_chain_configs::{AdversarialMode, GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_client::client_actor::ShutdownReason;
 use near_cloud_archive_tool::CloudArchiveCommand;
@@ -35,6 +35,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{env, process};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 #[cfg(feature = "dump-test-contract")]
@@ -83,20 +84,6 @@ impl NeardCmd {
             commit = crate::NEARD_COMMIT,
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
-
-        #[cfg(feature = "test_features")]
-        {
-            tracing::error!(
-                "this is a node compiled with adversarial behaviors, do not use in production"
-            );
-            if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                tracing::error!(
-                    "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
-                );
-                tracing::error!("ADVERSARY_CONSENT=1");
-                std::process::exit(1);
-            }
-        }
 
         let home_dir = neard_cmd.opts.home.clone();
         let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
@@ -351,6 +338,26 @@ pub(super) struct InitCmd {
     max_gas_burnt_view: Option<Gas>,
 }
 
+/// Exits unless `ADVERSARY_CONSENT=1` is set when adversarial behavior is enabled.
+fn check_adversary_consent(adversarial_mode: AdversarialMode) {
+    if adversarial_mode == AdversarialMode::None {
+        return;
+    }
+    tracing::error!(
+        target: "neard",
+        ?adversarial_mode,
+        "this node has adversarial behavior enabled, do not use in production"
+    );
+    if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+        tracing::error!(
+            target: "neard",
+            "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
+        );
+        tracing::error!(target: "neard", "ADVERSARY_CONSENT=1");
+        process::exit(1);
+    }
+}
+
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
 ///
 /// Warns when running a debug or nightly build on mainnet or testnet.
@@ -493,6 +500,7 @@ impl RunCmd {
         let mut near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
+        check_adversary_consent(near_config.config.adversarial_mode);
         check_release_build(&near_config.client_config.chain_id);
         check_validator_arch(
             &near_config.client_config.chain_id,
