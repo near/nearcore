@@ -1,6 +1,9 @@
 use super::*;
+use crate::contract_compilation_status::{
+    record_contract_compilation, update_contract_compilation_status,
+};
 use near_primitives::types::{ContractCompilationStatus, VmGeneration};
-use near_store::get;
+use near_store::{TrieUpdate, get};
 
 struct Fixture {
     runtime: Runtime,
@@ -105,6 +108,40 @@ fn distribute(id: GlobalContractIdentifier, code: &[u8]) -> Receipt {
             0,
         ),
     )
+}
+
+#[test]
+fn status_proof_is_recorded_before_finalization_and_survives_rollback() {
+    let mut f = setup();
+    let code = near_test_contracts::trivial_contract();
+    let install = f.receipt(0, vec![deploy(code)]);
+    f.apply(&[install]);
+
+    // Exercise both an existing status and an absent status in a populated subtree.
+    for (code_hash, expected_cold_bytes) in [(hash(code), 0), (hash(b"cold code"), 9)] {
+        let trie = f
+            .tries
+            .get_trie_for_shard(ShardUId::single_shard(), f.root)
+            .recording_reads_new_recorder();
+        let mut update = TrieUpdate::new(trie);
+        let before = update.trie.recorded_storage_size_upper_bound();
+        record_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        let after = update.trie.recorded_storage_size_upper_bound();
+        assert!(after > before, "status proof must be recorded during execution");
+
+        // Repeated reads do not grow the proof or double-count cold bytes.
+        record_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        assert_eq!(update.trie.recorded_storage_size_upper_bound(), after);
+        update.rollback();
+        assert_eq!(
+            update_contract_compilation_status(&mut update, &f.state).unwrap(),
+            expected_cold_bytes
+        );
+        assert_eq!(update.trie.recorded_storage_size_upper_bound(), after);
+        let key =
+            TrieKey::ContractCompilationStatus { vm_generation: f.state.vm_generation, code_hash };
+        assert_eq!(get(&update, &key).unwrap(), Some(ContractCompilationStatus::Cached));
+    }
 }
 
 #[test]

@@ -644,8 +644,12 @@ impl Runtime {
                     .enabled(apply_state.current_protocol_version)
                 {
                     let code_hash = account.as_ref().unwrap().local_contract_hash().unwrap();
-                    state_update
-                        .record_contract_compilation(code_hash, deploy_contract.code.len() as u64);
+                    contract_compilation_status::record_contract_compilation(
+                        state_update,
+                        apply_state,
+                        code_hash,
+                        deploy_contract.code.len() as u64,
+                    )?;
                 }
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
