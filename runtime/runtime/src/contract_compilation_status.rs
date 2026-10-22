@@ -15,11 +15,29 @@
 
 use crate::ApplyState;
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
+use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{ContractCompilationStatus, StateChangeCause};
 use near_store::{TrieUpdate, get, set};
 
-/// Persist compilation status and return the total compiled bytes.
+/// Read status during execution, before receipt and chunk proof-size checks.
+/// Cold compilation attempts survive receipt rollback.
+pub(crate) fn record_contract_compilation(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    code_hash: CryptoHash,
+    code_len: u64,
+) -> Result<(), RuntimeError> {
+    let key =
+        TrieKey::ContractCompilationStatus { vm_generation: apply_state.vm_generation, code_hash };
+    let status: Option<ContractCompilationStatus> = get(state_update, &key)?;
+    if status.is_none() {
+        state_update.record_contract_compilation(code_hash, code_len);
+    }
+    Ok(())
+}
+
+/// Persist compilation status without further status reads and return the total cold bytes.
 pub(crate) fn update_contract_compilation_status(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -30,11 +48,8 @@ pub(crate) fn update_contract_compilation_status(
             vm_generation: apply_state.vm_generation,
             code_hash,
         };
-        let status: Option<ContractCompilationStatus> = get(state_update, &key)?;
-        if status.is_none() {
-            cold_bytes = cold_bytes.checked_add(code_len).ok_or(IntegerOverflowError)?;
-            set(state_update, key, &ContractCompilationStatus::Cached);
-        }
+        cold_bytes = cold_bytes.checked_add(code_len).ok_or(IntegerOverflowError)?;
+        set(state_update, key, &ContractCompilationStatus::Cached);
     }
     state_update.commit(StateChangeCause::ContractCompilationStatusUpdate);
     Ok(cold_bytes)

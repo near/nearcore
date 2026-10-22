@@ -33,6 +33,9 @@ pub struct TrieUpdate {
     contract_storage: ContractStorage,
     /// Code whose compilation was reached during this chunk, including failed receipts.
     ///
+    /// Code executed that was already compiled, according to the consensus
+    /// contract compilation status, is excluded.
+    ///
     /// Unlike deployments, this is not rolled back with receipt state.
     /// Maps code-hash to code-length.
     contract_compilations: BTreeMap<CryptoHash, u64>,

@@ -1,6 +1,7 @@
 use crate::actions::OrInconsistentState;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::congestion_control::ReceiptSink;
+use crate::contract_compilation_status::record_contract_compilation;
 use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
@@ -234,7 +235,7 @@ fn apply_distribution_current_shard(
         apply_state.cache.as_deref(),
     );
     if ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version) {
-        state_update.record_contract_compilation(*code.hash(), code_len);
+        record_contract_compilation(state_update, apply_state, *code.hash(), code_len)?;
     }
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
     let fees = &apply_state.config.fees;

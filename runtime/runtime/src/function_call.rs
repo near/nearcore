@@ -1,5 +1,6 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
+use crate::contract_compilation_status::record_contract_compilation;
 use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
@@ -102,9 +103,12 @@ pub(crate) fn action_function_call(
                     &epoch_info_provider.chain_id(),
                     apply_state.current_protocol_version,
                 )? {
-                    runtime_ext
-                        .trie_update
-                        .record_contract_compilation(contract_id.hash(), code_len);
+                    record_contract_compilation(
+                        runtime_ext.trie_update,
+                        apply_state,
+                        contract_id.hash(),
+                        code_len,
+                    )?;
                 }
             }
 
