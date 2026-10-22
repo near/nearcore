@@ -318,16 +318,31 @@ mod tests {
         }
     }
 
+    /// The receipts a chunk sends, see [`outgoing_receipts`].
+    struct OutgoingReceipts {
+        receipts: Vec<Receipt>,
+        /// The receipts root the chunk's successor commits to.
+        root: CryptoHash,
+        /// The proofs of the receipts, by target shard.
+        proofs: Vec<ReceiptProof>,
+    }
+
+    impl OutgoingReceipts {
+        /// The proof of the receipts to shard `to_shard_id`.
+        fn proof_to(self, to_shard_id: ShardId) -> ReceiptProof {
+            self.proofs.into_iter().find(|proof| proof.1.to_shard_id == to_shard_id).unwrap()
+        }
+    }
+
     /// The receipts a chunk of `from_shard_id` included at `height`, in the block
     /// following `prev_block_hash`, sends: one to the test receiver and one to the
-    /// other receiver. With the receipts root that chunk's successor commits to and
-    /// the proof of the test receiver's.
+    /// other receiver.
     fn outgoing_receipts(
         chain: &Chain,
         from_shard_id: ShardId,
         prev_block_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> (Vec<Receipt>, CryptoHash, ReceiptProof) {
+    ) -> OutgoingReceipts {
         let shard_layout =
             chain.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
         let from_shard_index: u64 = from_shard_id.into();
@@ -343,29 +358,7 @@ mod tests {
             receipts.clone(),
         )
         .unwrap();
-        let target_shard_id = shard_layout.account_id_to_shard_id(&test_receiver());
-        let proof =
-            proofs.into_iter().find(|proof| proof.1.to_shard_id == target_shard_id).unwrap();
-        (receipts, root, proof)
-    }
-
-    fn carried_receipt_proof(
-        chain: &Chain,
-        from_shard_id: ShardId,
-        prev_block_hash: &CryptoHash,
-        height: BlockHeight,
-        to_shard_id: ShardId,
-    ) -> ReceiptProof {
-        let shard_layout =
-            chain.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
-        let (receipts, _, _) = outgoing_receipts(chain, from_shard_id, prev_block_hash, height);
-        let (_, proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
-            &shard_layout,
-            from_shard_id,
-            receipts,
-        )
-        .unwrap();
-        proofs.into_iter().find(|proof| proof.1.to_shard_id == to_shard_id).unwrap()
+        OutgoingReceipts { receipts, root, proofs }
     }
 
     /// Fabricates, saves and records the next block. `new_chunk_shard` gets a new
@@ -387,8 +380,8 @@ mod tests {
                 if new_chunk_shard != Some(shard_id) {
                     return carried.clone();
                 }
-                let (_, receipts_root, _) =
-                    outgoing_receipts(chain, shard_id, prev_block.hash(), height);
+                let receipts_root =
+                    outgoing_receipts(chain, shard_id, prev_block.hash(), height).root;
                 let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
                     *prev_block.hash(),
                     CryptoHash::default(),
@@ -451,7 +444,7 @@ mod tests {
                         block.header().prev_hash(),
                         block.header().height(),
                     )
-                    .2
+                    .proof_to(self.target_shard_id)
                     .0
                 })
                 .collect()
@@ -477,22 +470,23 @@ mod tests {
                 .sources()
                 .into_iter()
                 .map(|(block, shard_id)| {
-                    let (_, _, proof) = outgoing_receipts(
+                    let proof = outgoing_receipts(
                         &self.chain,
                         shard_id,
                         block.header().prev_hash(),
                         block.header().height(),
-                    );
+                    )
+                    .proof_to(self.target_shard_id);
                     (self.chunk_hash(block, shard_id), proof)
                 })
                 .collect();
-            let undelivered_receipt_proof = carried_receipt_proof(
+            let undelivered_receipt_proof = outgoing_receipts(
                 &self.chain,
                 self.target_shard_id,
                 self.last_new_chunk_block.header().prev_hash(),
                 self.last_new_chunk_block.header().height(),
-                self.other_shard_id,
-            );
+            )
+            .proof_to(self.other_shard_id);
             SpiceBoundaryChunkStateWitness {
                 chunk_id: SpiceChunkId {
                     block_hash: *self.boundary_block.hash(),
@@ -543,22 +537,24 @@ mod tests {
                 .sources()
                 .into_iter()
                 .map(|(block, shard_id)| {
-                    let (_, _, proof) = outgoing_receipts(
+                    let proof = outgoing_receipts(
                         &self.chain,
                         shard_id,
                         block.header().prev_hash(),
                         block.header().height(),
-                    );
+                    )
+                    .proof_to(self.target_shard_id);
                     (*block.hash(), proof)
                 })
                 .collect();
             // The anchor's chunk body carries what the target's previous chunk produced.
-            let (carried_receipts, _, _) = outgoing_receipts(
+            let carried_receipts = outgoing_receipts(
                 &self.chain,
                 self.target_shard_id,
                 self.last_new_chunk_block.header().prev_hash(),
                 self.last_new_chunk_block.header().height(),
-            );
+            )
+            .receipts;
             let target_shard_id = self.target_shard_id;
             let mut store_update = self.chain.chain_store.store_update();
             store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], carried_receipts));
@@ -957,7 +953,10 @@ mod tests {
         .unwrap();
         let carrier_blocks = [&boundary_block, &first_carrier_block];
         assert_eq!(
-            carriers.iter().map(|carrier| carrier.prev_block_hash).collect::<Vec<_>>(),
+            carriers
+                .iter()
+                .map(|carrier| *carrier.chunk_header.prev_block_hash())
+                .collect::<Vec<_>>(),
             carrier_blocks.map(|block| *block.header().prev_hash()).to_vec(),
             "both source chunks after the target's last chunk carry, newest first",
         );
@@ -980,13 +979,13 @@ mod tests {
             .iter()
             .zip(&carriers)
             .map(|(block, carrier)| {
-                let proof = carried_receipt_proof(
+                let proof = outgoing_receipts(
                     &chain,
                     source_shard_id,
                     block.header().prev_hash(),
                     block.header().height(),
-                    target_shard_id,
-                );
+                )
+                .proof_to(target_shard_id);
                 (carrier.chunk_header.chunk_hash().clone(), vec![proof])
             })
             .collect();
@@ -999,7 +998,7 @@ mod tests {
                     block.header().prev_hash(),
                     block.header().height(),
                 )
-                .2
+                .proof_to(target_shard_id)
                 .0
             })
             .collect();
@@ -1070,7 +1069,9 @@ mod tests {
         .unwrap();
         let targets_by_carrier_prev_block: Vec<(CryptoHash, Vec<ShardId>)> = carriers
             .iter()
-            .map(|carrier| (carrier.prev_block_hash, carrier.target_shard_ids.clone()))
+            .map(|carrier| {
+                (*carrier.chunk_header.prev_block_hash(), carrier.target_shard_ids.clone())
+            })
             .collect();
         let expected_targets_by_carrier_prev_block = vec![
             (

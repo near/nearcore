@@ -110,8 +110,6 @@ pub struct UndeliveredReceiptCarrier {
     /// Commits, through its `prev_outgoing_receipts_root`, to the carried receipts: those
     /// its shard's previous chunk produced.
     pub chunk_header: ShardChunkHeader,
-    /// The hash of the block before the one including the chunk.
-    pub prev_block_hash: CryptoHash,
     /// The targets whose last pre-spice chunk precedes the chunk, in the order of the
     /// boundary shard layout.
     pub target_shard_ids: Vec<ShardId>,
@@ -136,11 +134,11 @@ pub fn get_undelivered_receipt_carriers(
             chunks.get(target_shard_index).ok_or(Error::InvalidShardId(target_shard_id))?;
         target_last_included_heights.push((target_shard_id, chunk_header.height_included()));
     }
-    let Some(lowest_last_included_height) =
-        target_last_included_heights.iter().map(|(_, height)| *height).min()
-    else {
-        return Ok(Vec::new());
-    };
+    let lowest_last_included_height = target_last_included_heights
+        .iter()
+        .map(|(_, height)| *height)
+        .min()
+        .expect("a shard layout has at least one shard");
 
     let mut carriers = Vec::new();
     let mut current = chain_store.get_block(block.hash())?;
@@ -154,7 +152,6 @@ pub fn get_undelivered_receipt_carriers(
         if chunk_header.is_new_chunk(height) {
             carriers.push(UndeliveredReceiptCarrier {
                 chunk_header: chunk_header.clone(),
-                prev_block_hash: *current.header().prev_hash(),
                 target_shard_ids: target_last_included_heights
                     .iter()
                     .filter(|(_, last_included_height)| *last_included_height < height)
@@ -180,13 +177,12 @@ pub fn get_undelivered_receipt_proofs(
     let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
     let mut undelivered_receipt_proofs = HashMap::new();
     for carrier in &carriers {
-        let shard_id = carrier.chunk_header.shard_id();
         let carried_receipts =
             get_chunk_clone_from_header(&chain_store.chunk_store(), &carrier.chunk_header)?
                 .prev_outgoing_receipts()
                 .to_vec();
-        let carrier_shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(&carrier.prev_block_hash)?;
+        let carrier_shard_layout = epoch_manager
+            .get_shard_layout_from_prev_block(carrier.chunk_header.prev_block_hash())?;
         let (carried_receipts_root, carried_receipt_proofs) =
             Chain::create_receipts_proofs_from_outgoing_receipts(
                 &carrier_shard_layout,
