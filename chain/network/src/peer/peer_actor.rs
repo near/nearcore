@@ -1146,19 +1146,12 @@ impl PeerActor {
                 let node_id = self.network_state.config.node_id();
 
                 // Record our own IP address as observed by the peer.
-                if self.network_state.my_public_addr.read().is_none() {
-                    if let Some(my_peer_info) =
-                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
-                    {
-                        if let Some(addr) = my_peer_info.addr {
-                            let mut my_public_addr = self.network_state.my_public_addr.write();
-                            *my_public_addr = Some(addr);
-                            tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
-                            metrics::TIER3_PUBLIC_ADDR
-                                .with_label_values(&[&addr.to_string()])
-                                .set(1);
-                        }
-                    }
+                if let Some(addr) = direct_peers
+                    .iter()
+                    .find(|peer_info| peer_info.id == node_id)
+                    .and_then(|peer_info| peer_info.addr)
+                {
+                    self.network_state.record_my_reported_ip(&conn.peer_info.id, addr.ip());
                 }
                 // Add received indirect peers to the peer store
                 self.network_state.peer_store.add_indirect_peers(

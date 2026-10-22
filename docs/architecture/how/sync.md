@@ -150,6 +150,16 @@ return acknowledgements over Tier 2, then connect back to the requester over
 Tier 3 to send the state headers and parts. State response payloads are accepted
 only on Tier 3 connections.
 
+A node puts its own public address into its state requests, so that hosts can
+connect back to it, and into its snapshot advertisements, described below. It is
+`network.experimental.tier3_public_addr` if configured. Otherwise the node
+learns it from its Tier 2 peers, each of which reports the IP at which it sees
+the node. Reports of non-public IPs are ignored. The node uses its listen port
+and the IP reported from the most network groups of peers (/16 for IPv4, /32 for
+IPv6). Reports stop counting when their peer disconnects. With
+`network.allow_private_ip_in_public_addrs`, meant for local test networks,
+private IPs are accepted.
+
 Hosts also accept requests sent directly over a Tier 3 connection opened by the
 requester, and send the acknowledgement and the response back over that
 connection. A node accepts up to `network.max_inbound_tier3_connections`

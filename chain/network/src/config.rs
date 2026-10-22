@@ -145,6 +145,9 @@ pub struct NetworkConfig {
     pub validator: ValidatorConfig,
     /// If set, overrides the auto-discovered public address for Tier3 state sync.
     pub tier3_public_addr: Option<SocketAddr>,
+    /// Whether the node can take a private IP reported by its peers as its public address.
+    /// For local test networks only.
+    pub allow_private_ip_in_public_addrs: bool,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -365,6 +368,7 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: cfg.experimental.tier3_public_addr,
+            allow_private_ip_in_public_addrs: cfg.allow_private_ip_in_public_addrs,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -475,6 +479,8 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: None,
+            // Test nodes connect to each other over the loopback interface.
+            allow_private_ip_in_public_addrs: true,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
