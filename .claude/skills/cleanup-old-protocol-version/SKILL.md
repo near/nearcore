@@ -18,12 +18,16 @@ every cleanup for one `MIN_SUPPORTED_PROTOCOL_VERSION` increment. It:
 3. Removes every `ProtocolFeature` variant with `protocol_version() <= new_min`
    and inlines each one's `.enabled(...)` call sites.
 4. For each yaml under `core/parameters/res/runtime_configs/` whose version
-   is `<= new_min` (typically just `{new_min}.yaml`): inlines the non-overridden
-   parameters, deletes the file, and removes its `CONFIG_DIFFS` entry.
-5. Inlines any `parameters.yaml` lines that have become dead (always `true`
-   or always `false`) now that their guarding feature is gone — the
-   #16454-style follow-up.
-6. Bumps `MIN_SUPPORTED_PROTOCOL_VERSION` to `new_min` in `version.rs`.
+   is `<= new_min` (typically just `{new_min}.yaml`): inlines parameter
+   values into base `parameters.yaml`; for parameters that were only
+   feature flags, also removes the plumbing; for operational values
+   (fees, costs, limits), keeps the plumbing so tests can still override.
+5. Inlines any `parameters.yaml` *feature flags* that have become dead
+   now that their guarding feature is gone — the #16454-style follow-up.
+6. Bumps `MIN_SUPPORTED_PROTOCOL_VERSION`, deletes the yaml files + their
+   `CONFIG_DIFFS` entries + their per-version snapshots, regenerates the
+   `test_json_unchanged` snapshots and the OpenAPI spec, and runs the
+   prescribed Clippy pass.
 7. Opens one PR for the whole bundle.
 
 Rationale: once `MIN_SUPPORTED_PROTOCOL_VERSION = new_min`, every
@@ -111,62 +115,71 @@ For each parameter `P: {old: A, new: B}` in `{v}.yaml`:
 3. **Update `core/parameters/res/runtime_configs/parameters.snap`** to
    reflect `P`'s new base value (match existing alignment).
 
-Then classify `P` as either **overridden later** (its name appears in some
-`{w}.yaml` with `w > v`) or **not overridden later**:
+Then classify `P` along two axes:
 
-- **Overridden later** → stop here for this parameter. Later yamls still
-  read it, so it must stay in `enum Parameter` and in all consumer code.
-  The `{w}.yaml` entry's `old` value should already match `B` (if it does
-  not, something is wrong with the chain — stop and ask).
-- **Not overridden later** → `B` is now `P`'s value forever, so dismantle
-  the plumbing:
-  1. **Remove `P` from the `Parameter` enum** in
-     `core/parameters/src/parameter.rs`, and from the
-     `impl TryFrom<&ParameterTable> for RuntimeConfig` body in
-     `core/parameters/src/parameter_table.rs` (the `params.get(Parameter::P)?`
-     line).
-  2. **Remove `P` from `ConfigView` / `VMConfigView` entirely** (for
-     `wasm_config` / `vm::Config` fields): delete the field from
-     `VMConfigView`, from `vm::Config`, and from both `From` impls between
-     them. We accept the backward-incompatibility
-     ([zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110)) —
-     do not keep the field as `/// Deprecated` with a hardcoded value.
-     Also delete the field from `chain/jsonrpc/openapi/openapi.json` and
-     `chain/jsonrpc/openapi/openrpc.json`, and bump the hardcoded version
-     string in all three places — the `"version"` field at the top of
-     each `.json` and the `version: "x.y.z".to_string(),` literal in
-     `chain/jsonrpc/openapi/src/main.rs` (patch component). See #16454
-     for the diff shape.
-  3. **Replace every usage** across the codebase with the hardcoded value
-     and collapse dead branches, same as Step 2.3.
-  4. Also remove the entry from `parameters.yaml`, `parameters.snap`, and
-     `parameters_testnet.yaml` if it exists — now that `P` is gone from
-     the enum, there's no reader for the base value either.
-  5. **Sweep for dead code and unused data structures** (see "Dead-code
-     sweep" below) — once the parameter is gone and its guards are
-     collapsed, config structs, helper fns and signature arguments often
-     become unused.
+**(a) Overridden later** — its name appears in some `{w}.yaml` with `w > v`:
+
+- Stop here for this parameter. Later yamls still read it, so it must stay
+  in `enum Parameter` and in all consumer code. The `{w}.yaml` entry's
+  `old` value should already match `B` (if it does not, something is wrong
+  with the chain — stop and ask).
+
+**(b) Not overridden later** — further classify:
+
+- **Feature flag** (binary gate whose only semantic effect was to toggle
+  the code paths just removed in Step 2 — e.g. `implicit_account_creation`,
+  `eth_implicit_accounts`, `global_contract_host_fns`): dismantle the full
+  plumbing (steps F1–F5 below).
+- **Operational value** (a fee, gas cost, limit, or any numeric/structured
+  value the runtime still needs to carry — e.g. `action_create_account`,
+  `min_gas_purchase_price`, `account_creation_charge`, any byte or gas
+  limit): **stop after the common steps 1–3 above**. Keep the `Parameter`
+  variant, the `params.get(Parameter::P)?` read, the struct field, the
+  `VMConfigView` field, and the OpenAPI entry. The runtime still reads the
+  value; `RuntimeConfig::free()` zeroes it, `random_config()` randomizes
+  it, and tests may still override it. The YAML update alone captures the
+  fact that there is no longer a *per-protocol-version* difference.
+- If classification is ambiguous (a bool used both as a gate *and*
+  overridden by tests, or a value where the "gate" semantics aren't
+  obvious), surface it to the user before removing the field.
+
+### Feature-flag removal (steps F1–F5)
+
+1. **Remove `P` from the `Parameter` enum** in
+   `core/parameters/src/parameter.rs`, and from the
+   `impl TryFrom<&ParameterTable> for RuntimeConfig` body in
+   `core/parameters/src/parameter_table.rs` (the `params.get(Parameter::P)?`
+   line).
+2. **Remove `P` from `ConfigView` / `VMConfigView` entirely** (for
+   `wasm_config` / `vm::Config` fields): delete the field from
+   `VMConfigView`, from `vm::Config`, and from both `From` impls between
+   them. We accept the backward-incompatibility
+   ([zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110)) —
+   do not keep the field as `/// Deprecated` with a hardcoded value. The
+   OpenAPI/OpenRPC specs will be regenerated in Step 6 — do not hand-edit
+   `openapi.json` / `openrpc.json` here (per `AGENTS.md`'s OpenAPI policy).
+3. **Replace every usage** across the codebase with the hardcoded value
+   and collapse dead branches, same as Step 2.2.
+4. Also remove the entry from `parameters.yaml`, `parameters.snap`, and
+   `parameters_testnet.yaml` if it exists — now that `P` is gone from the
+   enum, there's no reader for the base value either.
+5. **Sweep for dead code and unused data structures** (see "Dead-code
+   sweep" below) — once the parameter is gone and its guards are
+   collapsed, config structs, helper fns and signature arguments often
+   become unused.
 
 After this step, each `{v}.yaml` in `deprecated_yamls` is empty but still
 on disk (deleted in Step 6).
 
 ## 4. Verify intermediate state
 
-Before continuing to the dead-flag follow-up:
+Just a quick build-check before continuing — the full snapshot regen and
+Clippy pass live in Step 6, after all cleanups are in. Running them per
+step is both expensive and premature (Step 5 may remove more
+`VMConfigView` fields).
 
 - `cargo check -p near-parameters`
 - `cargo check --workspace`
-- `cargo insta test --accept -p near-parameters` — regenerates snapshots.
-  Spot-check the diff:
-  - The version-0 snapshot picks up each inlined parameter's new base
-    value (`B` from `{v}.yaml`).
-  - Snapshots for `w > v` where `w` overrides `P` should stay unchanged
-    (they already recorded the post-`{w}` value).
-  - Snapshots for `w > v` where `w` does **not** override `P` should also
-    stay unchanged — the base moved from `A` to `B` but applying the
-    now-missing `{v}.yaml` diff used to move it from `A` to `B` as well.
-  - If any snapshot other than version-0 changes value, something is wrong
-    — stop and investigate before accepting.
 
 ## 5. Inline leftover dead flags from `parameters.yaml`
 
@@ -182,15 +195,17 @@ flags whose only false→true transition belonged to a now-removed
   - If `P` is read via `params.get(Parameter::P)` and the only call site is
     a check that always holds now (because the gating feature is gone),
     inline `P` to its post-bump value.
+  - Only apply this to **feature flags** (binary gates). Do not inline
+    operational values this way — same reasoning as Step 3's
+    feature-flag-vs-operational-value split.
   - Remove `P` from `parameters.yaml`, from `parameters.snap`, from
     `parameters_testnet.yaml` if it exists, from the `Parameter` enum,
     from `parameter_table.rs`, from `vm::Config`, and from `VMConfigView`
-    entirely (both `From` impls) — plus the field in `openapi.json` /
-    `openrpc.json` and the hardcoded version string bump in both `.json`
-    files and `chain/jsonrpc/openapi/src/main.rs`.
-    Backward-incompatibility is accepted; do not keep a deprecated
-    hardcoded field. (This is a change from the older #16454 shape, which
-    did keep the field; follow the issue's updated guidance instead.)
+    entirely (both `From` impls). Backward-incompatibility is accepted;
+    do not keep a deprecated hardcoded field. (This is a change from the
+    older #16454 shape, which did keep the field; follow the issue's
+    updated guidance instead.) The OpenAPI/OpenRPC specs are regenerated
+    in Step 6 — do not hand-edit them here.
   - Collapse all call sites; delete now-unused arguments to helper
     functions (see `transfer_exec_fee` in #16454).
   - **Sweep for dead code and unused data structures** (see "Dead-code
@@ -198,7 +213,10 @@ flags whose only false→true transition belonged to a now-removed
 
 This step is often a no-op after Step 3; skip it if nothing qualifies.
 
-## 6. Bump + delete
+## 6. Bump, delete, regenerate, verify
+
+Do this once, after Steps 2–5 are all applied — then nothing else needs
+touching before the PR.
 
 1. **Bump `MIN_SUPPORTED_PROTOCOL_VERSION`** from `old_min` to `new_min` in
    `core/primitives-core/src/version.rs`.
@@ -207,11 +225,38 @@ This step is often a no-op after Step 3; skip it if nothing qualifies.
    - Remove the `(v, include_config!("{v}.yaml"))` entry from
      `CONFIG_DIFFS` in `core/parameters/src/config_store.rs`.
    - Delete `core/parameters/src/snapshots/near_parameters__config_store__tests__{v}.json.snap`.
-3. **Verify**:
+3. **Regenerate the `test_json_unchanged` snapshots** —
+   `cargo insta test --accept -p near-parameters -- tests::test_json_unchanged`
+   (per the comment on the test itself in `config_store.rs`). This
+   iterates over every stored version and re-serializes `VMConfigView`,
+   so expected diff shapes are:
+   - **Base-value shifts (Step 3 common path)**: for every parameter whose
+     base changed from `A` to `B`, the version-0 snapshot picks up `B`.
+     Snapshots for `w` where some yaml ≤ `w` still overrides the
+     parameter stay unchanged (they already recorded the post-override
+     value); snapshots for `w` where no override exists also stay
+     unchanged (the removed `{v}.yaml` diff used to move `A → B`, so the
+     effective state at `w` is the same `B` either way).
+   - **`VMConfigView` field removals (Step 3 feature-flag path, Step 5)**:
+     the removed field disappears from **every** snapshot (version-0 and
+     every per-version snapshot), because the view is serialized once per
+     version. The remaining fields' values should be unchanged for
+     supported versions.
+   - **Any value change at a supported version for a field that was not
+     touched is a bug** — stop and investigate before accepting.
+4. **Regenerate the OpenAPI/OpenRPC specs**. Per `AGENTS.md`, run the
+   `openapi-spec` Justfile recipe rather than hand-editing the JSONs or
+   the version strings in `src/main.rs` / `src/openrpc.rs` (the recipe
+   updates all four locations in sync — the two JSONs and the two
+   generator sources).
+5. **Run the full verification**:
    - `cargo test -p near-parameters` — in particular
-     `config_store::tests::all_configs_are_specified`, which cross-checks
-     the yaml file set against `CONFIG_DIFFS`.
+     `config_store::tests::all_configs_are_specified` (yaml file set vs
+     `CONFIG_DIFFS`) and `test_json_unchanged`.
    - `cargo check --workspace`.
+   - `RUSTFLAGS="-D warnings" cargo clippy --all-features --all-targets`
+     — exactly as `AGENTS.md` prescribes; do not run clippy per-package or
+     during intermediate sweeps.
 
 ## 7. Open the single PR
 
@@ -222,9 +267,13 @@ PR body should:
 
 - Note that `MIN_SUPPORTED_PROTOCOL_VERSION` moves `old_min → new_min`.
 - List the removed `ProtocolFeature` variants.
-- List the inlined and dropped parameters, and note that any removed
-  `VMConfigView` fields are a backward-incompatible RPC change (per the
-  [zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110)).
+- List the inlined and dropped parameters, distinguishing feature-flag
+  removals (field dropped) from operational-value base-updates (field
+  kept). Note that any removed `VMConfigView` fields are a
+  backward-incompatible RPC change (per the
+  [zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110))
+  and that the OpenAPI/OpenRPC specs were regenerated via the Justfile
+  recipe.
 - List which yaml files and snapshots were deleted.
 - Reference `Part of #16564.`
 
@@ -237,15 +286,27 @@ a config struct frequently leaves whole items unused, but the Rust
 compiler only flags a subset of these (unused `pub` items re-exported
 across crates often go unwarned).
 
-Run `cargo check --workspace` and `cargo clippy --workspace` and treat
-every new `dead_code` / `unused_imports` / `unused_variables` warning as
-in-scope.
+Run `cargo check --workspace` and treat every new `dead_code` /
+`unused_imports` / `unused_variables` warning as in-scope. **Do not run
+`cargo clippy` here** — per `AGENTS.md:31–32` clippy runs once, before
+committing, with the prescribed command (see Step 6.5).
 
 Then grep deliberately for the specific shapes the compiler misses:
 
 - **Enum variants** that were only constructed inside the collapsed
   branch. Grep for each variant's name; if the only remaining references
   are the `match` arm plus `Debug`/serde impls, delete the variant.
+  **Hard stop for Borsh-serialized enums**: variant tags are positional,
+  so removing a variant from an enum that participates in persisted DB
+  columns, block/chunk/transaction/action wire types, or any
+  `BorshDeserialize`/`ProtocolSchema` structure shifts the tags of every
+  later variant and silently breaks decoding of existing records. If the
+  variant stops being constructed but the enum is Borsh-serialized (grep
+  for `BorshSerialize` / `BorshDeserialize` / `ProtocolSchema` on the
+  enum), **leave the variant in place** and only drop its constructor and
+  internal uses. A notable example: `BlockHeaderV5` and similar
+  per-version block/transaction/action variants must stay even after the
+  code that constructs them is gone.
 - **Structs / struct fields** that were only populated or read inside the
   collapsed branch. A field with no live reader can be removed; a struct
   whose only constructor is gone can be deleted along with its impls.
