@@ -1662,8 +1662,10 @@ impl NetworkState {
             .tier2()
             .into_values()
             .filter_map(|s| Some((s.peer_info.addr?.ip(), s.my_reported_ip?)));
-        let addr = public_addr::vote(reports, self.config.allow_private_ip_in_public_addrs)
-            .map(|ip| SocketAddr::new(ip, port));
+        let vote = public_addr::vote(reports, self.config.allow_private_ip_in_public_addrs);
+        metrics::TIER3_PUBLIC_ADDR_GROUPS.set(vote.groups as i64);
+        metrics::TIER3_PUBLIC_ADDR_RUNNER_UP_GROUPS.set(vote.runner_up_groups as i64);
+        let addr = vote.ip.map(|ip| SocketAddr::new(ip, port));
         if *my_public_addr == addr {
             return;
         }

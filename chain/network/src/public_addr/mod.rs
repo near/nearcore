@@ -48,6 +48,16 @@ fn netgroup(ip: IpAddr) -> IpAddr {
     }
 }
 
+/// Outcome of `vote`.
+pub(crate) struct Vote {
+    /// The winning IP, or `None` if no IP was reported.
+    pub ip: Option<IpAddr>,
+    /// Number of network groups which reported `ip`.
+    pub groups: usize,
+    /// Number of network groups which reported the runner-up IP, or 0 if there is none.
+    pub runner_up_groups: usize,
+}
+
 /// Decides the public IP of this node. `reports` contains a `(peer_ip, reported_ip)` pair for
 /// each peer which reported the IP at which it sees this node. Peers from one network group
 /// count once per reported IP, so that a single operator can't outvote the other peers by
@@ -59,7 +69,7 @@ fn netgroup(ip: IpAddr) -> IpAddr {
 pub(crate) fn vote(
     reports: impl IntoIterator<Item = (IpAddr, IpAddr)>,
     allow_private: bool,
-) -> Option<IpAddr> {
+) -> Vote {
     let mut netgroups = HashMap::<IpAddr, HashSet<IpAddr>>::new();
     for (peer_ip, reported_ip) in reports {
         let reported_ip = reported_ip.to_canonical();
@@ -68,5 +78,12 @@ pub(crate) fn vote(
         }
         netgroups.entry(reported_ip).or_default().insert(netgroup(peer_ip));
     }
-    netgroups.into_iter().max_by_key(|(ip, groups)| (groups.len(), *ip)).map(|(ip, _)| ip)
+    let mut tally: Vec<_> = netgroups.into_iter().map(|(ip, groups)| (groups.len(), ip)).collect();
+    tally.sort_unstable();
+    let winner = tally.pop();
+    Vote {
+        ip: winner.map(|(_, ip)| ip),
+        groups: winner.map_or(0, |(groups, _)| groups),
+        runner_up_groups: tally.last().map_or(0, |&(groups, _)| groups),
+    }
 }

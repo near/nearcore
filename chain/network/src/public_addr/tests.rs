@@ -53,9 +53,9 @@ fn is_public_ip_rejects_local_addresses() {
 
 #[test]
 fn vote_picks_ip_reported_from_most_netgroups() {
-    assert_eq!(vote([(peer_ip(0, 1), ip(X))], false), Some(ip(X)));
+    assert_eq!(vote([(peer_ip(0, 1), ip(X))], false).ip, Some(ip(X)));
     let reports = [(peer_ip(0, 1), ip(X)), (peer_ip(1, 1), ip(Y)), (peer_ip(2, 1), ip(X))];
-    assert_eq!(vote(reports, false), Some(ip(X)));
+    assert_eq!(vote(reports, false).ip, Some(ip(X)));
 }
 
 #[test]
@@ -63,7 +63,8 @@ fn vote_counts_each_netgroup_once() {
     // Many peers from one network group are outvoted by peers from two groups.
     let mut reports: Vec<_> = (0..20).map(|host| (peer_ip(0, host), ip(Y))).collect();
     reports.extend((1..3).map(|g| (peer_ip(g, 1), ip(X))));
-    assert_eq!(vote(reports, false), Some(ip(X)));
+    let outcome = vote(reports, false);
+    assert_eq!((outcome.ip, outcome.groups, outcome.runner_up_groups), (Some(ip(X)), 2, 1));
 
     // IPv6 peers are grouped by their /32 prefix.
     let reports = [
@@ -72,14 +73,14 @@ fn vote_counts_each_netgroup_once() {
         (ip("2001:db9::1"), ip(Y)),
         (ip("2001:dba::1"), ip(Y)),
     ];
-    assert_eq!(vote(reports, false), Some(ip(Y)));
+    assert_eq!(vote(reports, false).ip, Some(ip(Y)));
 }
 
 #[test]
 fn vote_ignores_private_ips_unless_allowed() {
     let reports: Vec<_> = (0..5).map(|g| (peer_ip(g, 1), ip("10.0.0.1"))).collect();
-    assert_eq!(vote(reports.clone(), false), None);
-    assert_eq!(vote(reports, true), Some(ip("10.0.0.1")));
+    assert_eq!(vote(reports.clone(), false).ip, None);
+    assert_eq!(vote(reports, true).ip, Some(ip("10.0.0.1")));
 }
 
 #[test]
@@ -87,7 +88,7 @@ fn vote_treats_ipv4_mapped_addresses_as_ipv4() {
     // A mapped report counts towards the IPv4 address, which is the one adopted.
     let reports =
         [(peer_ip(0, 1), ipv4_mapped(ip(X))), (peer_ip(1, 1), ip(X)), (peer_ip(2, 1), ip(Y))];
-    assert_eq!(vote(reports, false), Some(ip(X)));
+    assert_eq!(vote(reports, false).ip, Some(ip(X)));
 
     // A peer at a mapped address is in the network group of the IPv4 address.
     let reports = [
@@ -96,5 +97,5 @@ fn vote_treats_ipv4_mapped_addresses_as_ipv4() {
         (peer_ip(1, 1), ip(Y)),
         (peer_ip(2, 1), ip(Y)),
     ];
-    assert_eq!(vote(reports, false), Some(ip(Y)));
+    assert_eq!(vote(reports, false).ip, Some(ip(Y)));
 }

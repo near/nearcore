@@ -331,6 +331,22 @@ pub(crate) static TIER3_PUBLIC_ADDR: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static TIER3_PUBLIC_ADDR_GROUPS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_tier3_public_addr_groups",
+        "Number of peer network groups reporting the IP of the tier3 public address",
+    )
+    .unwrap()
+});
+
+pub(crate) static TIER3_PUBLIC_ADDR_RUNNER_UP_GROUPS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_tier3_public_addr_runner_up_groups",
+        "Number of peer network groups reporting the runner-up IP for the tier3 public address",
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
