@@ -69,6 +69,15 @@ check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
     RUSTFLAGS="-D warnings" \
     cargo check -p near-vm-runner --no-default-features
+    # Ensure that near-store builds without RocksDB (in-memory store only)
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-store --no-default-features
+    # Ensure that node-runtime builds on its own and does not pull RocksDB or cloud
+    # storage, so it can be used with only near-store's in-memory store
+    RUSTFLAGS="-D warnings" \
+    cargo check -p node-runtime
+    deps="$(cargo tree -p node-runtime -e normal --target all --prefix none --format '{p}')" \
+        && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
 
 # check rust formatting
 check-cargo-fmt:
