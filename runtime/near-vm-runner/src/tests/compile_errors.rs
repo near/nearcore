@@ -1,7 +1,7 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
 
-const FIX_CONTRACT_LOADING_COST: u32 = 129;
+const FIX_CONTRACT_LOADING_COST: u32 = 89;
 
 #[test]
 fn test_initializer_wrong_signature_contract() {

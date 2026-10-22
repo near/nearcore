@@ -196,9 +196,9 @@ impl ProtocolFeature {
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
+            ProtocolFeature::FixContractLoadingCost => 89,
 
             // Nightly features:
-            ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
