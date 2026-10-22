@@ -29,12 +29,13 @@ use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
     SpiceKeyRotationSetup, get_chain_with_genesis, get_fake_next_block_chunk_headers,
-    process_block_sync, setup_spice_key_rotation,
+    process_block_sync, produce_spice_block_certifying_parent, setup_spice_key_rotation,
 };
 use near_chain::types::Tip;
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_primitives::ApplyChunksMode;
 use near_crypto::{KeyType, Signature};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -87,6 +88,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, ShardUId};
+use num_rational::Rational32;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
@@ -1933,6 +1935,73 @@ fn test_a_proof_certified_before_startup_is_pulled_after_it() {
     for producer in producers {
         assert!(
             requested.contains(&(producer.clone(), data_id.clone())),
+            "{producer} was not asked for the proof: {requested:?}"
+        );
+    }
+}
+
+/// A node catching up a shard it applies from next epoch tracks the proofs into that shard and
+/// pulls them once their source chunk is certified.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
+    init_test_logger();
+    let genesis = TestGenesisBuilder::new()
+        .shard_layout(ShardLayout::multi_shard(2, 0))
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &[],
+        ))
+        .build();
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+    let (from_shard_id, to_shard_id) =
+        genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
+    let me = AccountId::from_str("not-validator").unwrap();
+    // Tracked one epoch in three, so some epoch tracks it next but neither now nor before.
+    let tracked_shards_config =
+        TrackedShardsConfig::Schedule(vec![vec![], vec![], vec![to_shard_id]]);
+    let shard_tracker = ShardTracker::new(
+        tracked_shards_config.clone(),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+    let is_catching_up = |block: &Block| {
+        shard_tracker.should_apply_chunk(ApplyChunksMode::CatchingUp, block.hash(), to_shard_id)
+    };
+    let genesis_block = chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
+    while !is_catching_up(&block) {
+        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+    }
+    let certifying_block = produce_spice_block_certifying_parent(&mut chain, &block);
+    assert!(is_catching_up(&certifying_block), "the epoch ended before the proof was certified");
+    let later_block = produce_spice_block_certifying_parent(&mut chain, &certifying_block);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = ActorBuilder::new(Some(me))
+        .tracked_shards_config(tracked_shards_config)
+        .build(outgoing_sc, &chain);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    let id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    assert!(actor.is_tracking(&id));
+
+    actor.handle(ProcessedBlock { block_hash: *later_block.hash() });
+
+    let requested = requested_receipt_proofs(&mut outgoing_rc);
+    let producers = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), from_shard_id)
+        .unwrap();
+    for producer in producers {
+        assert!(
+            requested.contains(&(producer.clone(), SpiceDataIdentifier::from(&id))),
             "{producer} was not asked for the proof: {requested:?}"
         );
     }
