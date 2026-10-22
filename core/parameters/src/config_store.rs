@@ -19,6 +19,10 @@ macro_rules! include_config {
 /// Later version are calculated by applying diffs to this base.
 static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
+/// Protocol versions that change the consensus VM generation.
+/// Add a version whenever its VM config changes.
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 89, 129, 150, 155, 157];
+
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
@@ -117,7 +121,7 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+        Self::new_custom(BTreeMap::from([(0, Arc::new(runtime_config))]))
     }
 
     /// Constructs store with custom configs. This should only be used for testing.
@@ -156,15 +160,10 @@ impl RuntimeConfigStore {
 
     /// Protocol version of the most recent VM configuration change.
     pub fn vm_generation(&self, protocol_version: ProtocolVersion) -> VmGeneration {
-        let mut generation = 0;
-        let mut previous: Option<&Arc<RuntimeConfig>> = None;
-        for (version, config) in self.store.range(..=protocol_version) {
-            if previous.is_none_or(|previous| previous.wasm_config != config.wasm_config) {
-                generation = *version;
-            }
-            previous = Some(config);
-        }
-        VmGeneration(generation)
+        // requirement for `partition_point`: strictly increasing numbers,
+        // guaranteed by the static-check-1.
+        let index = VM_GENERATION_VERSIONS.partition_point(|&version| version <= protocol_version);
+        VmGeneration(VM_GENERATION_VERSIONS[index - 1])
     }
 
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
@@ -178,6 +177,17 @@ impl RuntimeConfigStore {
             .1
     }
 }
+
+/// static-check-1: a zero baseline and strictly increasing entries cover every
+/// protocol version.
+const _: () = {
+    assert!(VM_GENERATION_VERSIONS[0] == 0);
+    let mut index = 1;
+    while index < VM_GENERATION_VERSIONS.len() {
+        assert!(VM_GENERATION_VERSIONS[index - 1] < VM_GENERATION_VERSIONS[index]);
+        index += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {
@@ -369,28 +379,28 @@ mod tests {
         assert_eq!(budget(version - 1), Gas::ZERO);
     }
 
+    /// Tests th validity of `VM_GENERATION_VERSIONS`.
+    ///
+    /// If this fails, you have probably made a change that requires the
+    /// consensus-level Wasm code cache to be invalidated on a protocol ugrade.
+    /// If so, simply add the protocol version to `VM_GENERATION_VERSIONS`.
     #[test]
-    fn vm_generation_tracks_vm_changes_only() {
-        let base = RuntimeConfig::test();
-        let mut fee_only = base.clone();
-        fee_only.fees = RuntimeConfig::free().fees;
-        let mut wasm_op_changed = base.clone();
-        Arc::make_mut(&mut wasm_op_changed.wasm_config).regular_op_cost += 1;
-        let store = RuntimeConfigStore::new_custom(BTreeMap::from([
-            (0, Arc::new(base.clone())),
-            // Changing normal fees does not require recompilation.
-            (10, Arc::new(fee_only)),
-            // Changing the WASM up requires to rerun preparation.
-            (20, Arc::new(wasm_op_changed.clone())),
-            // Cloned config does not require recompilation.
-            (30, Arc::new(wasm_op_changed)),
-            (40, Arc::new(base)),
-        ]));
-        assert_eq!(store.vm_generation(0), VmGeneration(0));
-        assert_eq!(store.vm_generation(19), VmGeneration(0));
-        assert_eq!(store.vm_generation(20), VmGeneration(20));
-        assert_eq!(store.vm_generation(39), VmGeneration(20));
-        assert_eq!(store.vm_generation(40), VmGeneration(40));
+    fn vm_generation_versions_match_vm_config_changes() {
+        let store = RuntimeConfigStore::new();
+        // The first generation is a historical identity: its defining diff may
+        // already have been folded away. Validate every subsequent version.
+        let mut expected = store.vm_generation(MIN_SUPPORTED_PROTOCOL_VERSION);
+        // Include scheduled diffs and listed generations, even in stable builds.
+        // This catches both missing transitions and entries without a VM change.
+        let last_version = PROTOCOL_VERSION
+            .max(CONFIG_DIFFS.last().unwrap().0)
+            .max(*VM_GENERATION_VERSIONS.last().unwrap());
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION + 1..=last_version {
+            if store.get_config(version).wasm_config != store.get_config(version - 1).wasm_config {
+                expected = VmGeneration(version);
+            }
+            assert_eq!(store.vm_generation(version), expected, "protocol version {version}");
+        }
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions
