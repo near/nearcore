@@ -1638,7 +1638,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // Change main_storage_proof_size_soft_limit to the storage size in order to let
     // the first receipt go through but not the second one.
     let mut runtime_config = RuntimeConfig::free();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 300;
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 330;
     apply_state.config = Arc::new(runtime_config);
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {

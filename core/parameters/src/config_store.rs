@@ -380,7 +380,7 @@ mod tests {
             (0, Arc::new(base.clone())),
             // Changing normal fees does not require recompilation.
             (10, Arc::new(fee_only)),
-            // Changing the WASM up requires to rerun prepartion.
+            // Changing the WASM up requires to rerun preparation.
             (20, Arc::new(wasm_op_changed.clone())),
             // Cloned config does not require recompilation.
             (30, Arc::new(wasm_op_changed)),
