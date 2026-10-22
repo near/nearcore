@@ -12,6 +12,7 @@ use crate::test_utils::get_chain_with_genesis_and_epoch_config_store;
 use crate::{Block, Chain};
 use assert_matches::assert_matches;
 use near_async::time::Clock;
+use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -575,8 +576,12 @@ fn chain_with_validator_stakes(stakes: &[Balance]) -> (Vec<String>, Chain) {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .target_validator_mandates_per_shard(2)
         .build_store_for_genesis_protocol_version();
-    let chain =
-        get_chain_with_genesis_and_epoch_config_store(Clock::real(), genesis, epoch_config_store);
+    let chain = get_chain_with_genesis_and_epoch_config_store(
+        Clock::real(),
+        genesis,
+        epoch_config_store,
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    );
     (validators, chain)
 }
 
