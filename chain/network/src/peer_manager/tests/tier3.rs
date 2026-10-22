@@ -404,6 +404,7 @@ async fn routed_requests_answered_over_tier3() {
         snapshot_hash,
         0,
         vec![shard_id],
+        **host.cfg.node_addr.as_ref().unwrap(),
         &host.cfg.node_key,
     );
     requester
