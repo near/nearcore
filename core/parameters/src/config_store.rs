@@ -382,7 +382,7 @@ mod tests {
     /// Tests th validity of `VM_GENERATION_VERSIONS`.
     ///
     /// If this fails, you have probably made a change that requires the
-    /// consensus-level Wasm code cache to be invalidated on a protocol ugrade.
+    /// consensus-level Wasm code cache to be invalidated on a protocol upgrade.
     /// If so, simply add the protocol version to `VM_GENERATION_VERSIONS`.
     #[test]
     fn vm_generation_versions_match_vm_config_changes() {
