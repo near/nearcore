@@ -181,20 +181,10 @@ pub fn get_undelivered_receipt_proofs(
     let mut undelivered_receipt_proofs = HashMap::new();
     for carrier in &carriers {
         let shard_id = carrier.chunk_header.shard_id();
-        let prev_block = chain_store.get_block(&carrier.prev_block_hash)?;
-        let prev_shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
-        let prev_chunks = prev_block.chunks();
-        let prev_last_included_height = prev_chunks
-            .get(prev_shard_layout.get_shard_index(shard_id)?)
-            .ok_or(Error::InvalidShardId(shard_id))?
-            .height_included();
-        let inclusion_block_hash = chunk_inclusion_block_hash(
-            chain_store,
-            prev_block.header(),
-            prev_last_included_height,
-        )?;
         let carried_receipts =
-            chain_store.get_outgoing_receipts(&inclusion_block_hash, shard_id)?.to_vec();
+            get_chunk_clone_from_header(&chain_store.chunk_store(), &carrier.chunk_header)?
+                .prev_outgoing_receipts()
+                .to_vec();
         let carrier_shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(&carrier.prev_block_hash)?;
         let (carried_receipts_root, carried_receipt_proofs) =

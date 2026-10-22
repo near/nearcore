@@ -552,32 +552,16 @@ mod tests {
                     (*block.hash(), proof)
                 })
                 .collect();
-            // The anchor's chunk carries what the target's previous chunk produced, stored
-            // at the block that included that chunk.
-            let anchor_prev_hash = *self.last_new_chunk_block.header().prev_hash();
+            // The anchor's chunk body carries what the target's previous chunk produced.
             let (carried_receipts, _, _) = outgoing_receipts(
                 &self.chain,
                 self.target_shard_id,
-                &anchor_prev_hash,
+                self.last_new_chunk_block.header().prev_hash(),
                 self.last_new_chunk_block.header().height(),
             );
-            let anchor_prev_block = self.chain.get_block(&anchor_prev_hash).unwrap();
-            let anchor_prev_chunks = anchor_prev_block.chunks();
-            let prev_chunk_height = anchor_prev_chunks.get(shard_index).unwrap().height_included();
-            let mut prev_chunk_block_header =
-                self.chain.get_block_header(&anchor_prev_hash).unwrap();
-            while prev_chunk_block_header.height() > prev_chunk_height {
-                prev_chunk_block_header =
-                    self.chain.get_block_header(prev_chunk_block_header.prev_hash()).unwrap();
-            }
             let target_shard_id = self.target_shard_id;
             let mut store_update = self.chain.chain_store.store_update();
-            store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], vec![]));
-            store_update.save_outgoing_receipt(
-                prev_chunk_block_header.hash(),
-                target_shard_id,
-                carried_receipts,
-            );
+            store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], carried_receipts));
             for (block_hash, proof) in incoming_receipts {
                 store_update.save_incoming_receipt(
                     &block_hash,
