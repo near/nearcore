@@ -4,7 +4,7 @@ use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
 use near_chain::state_sync::derive_epoch_sync_hash;
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::Tip;
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -123,7 +123,7 @@ struct ResolvedInitState {
     block_head: Option<BlockHeight>,
     shard_heads: Vec<(ShardId, BlockHeight)>,
     min_height: BlockHeight,
-    prev_epoch_end: BlockHeight,
+    new_component_head: BlockHeight,
 }
 
 /// Information about a resharding the writer archives across.
@@ -171,7 +171,6 @@ pub fn create_cloud_archival_writer(
     future_spawner: Arc<dyn FutureSpawner>,
     writer_config: Option<CloudArchivalWriterConfig>,
     genesis_height: BlockHeight,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
     hot_store: Store,
     cloud_storage: Option<&Arc<CloudStorage>>,
     shard_tracker: ShardTracker,
@@ -198,8 +197,7 @@ pub fn create_cloud_archival_writer(
     );
     let handle = writer.handle.clone();
     tracing::info!(target: "cloud_archival", "starting the cloud archival writer");
-    future_spawner
-        .spawn_boxed("cloud_archival_writer", writer.cloud_archival_loop(runtime_adapter).boxed());
+    future_spawner.spawn_boxed("cloud_archival_writer", writer.cloud_archival_loop().boxed());
     Ok(Some(handle))
 }
 
@@ -226,11 +224,11 @@ impl CloudArchivalWriter {
         }
     }
 
-    async fn cloud_archival_loop(self, runtime_adapter: Arc<dyn RuntimeAdapter>) {
+    async fn cloud_archival_loop(self) {
         let mut initialized = false;
         while !self.handle.0.is_cancelled() {
             let sleep_duration = if !initialized {
-                match self.try_initialize(&runtime_adapter).await {
+                match self.try_initialize().await {
                     InitializationAttempt::Initialized => {
                         initialized = true;
                         Duration::ZERO
@@ -262,10 +260,7 @@ impl CloudArchivalWriter {
     }
 
     /// Checks if the node is ready, then initializes the cloud archive writer.
-    async fn try_initialize(
-        &self,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
-    ) -> InitializationAttempt {
+    async fn try_initialize(&self) -> InitializationAttempt {
         let hot_final_height = match self.get_hot_final_head_height() {
             Ok(h) => h,
             Err(error) => {
@@ -281,7 +276,7 @@ impl CloudArchivalWriter {
             );
             return InitializationAttempt::WaitingForGenesis;
         }
-        match self.initialize(runtime_adapter).await {
+        match self.initialize().await {
             Ok(()) => {
                 tracing::info!(target: "cloud_archival", "cloud archival initialized");
                 InitializationAttempt::Initialized
@@ -713,10 +708,7 @@ impl CloudArchivalWriter {
     /// starts in. Missing components start at the previous epoch's end; existing
     /// ones are clamped to `hot_final_height - 1`.
     // TODO(cloud_archival) Cover this logic with tests.
-    async fn initialize(
-        &self,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
-    ) -> Result<(), CloudArchivalInitializationError> {
+    async fn initialize(&self) -> Result<(), CloudArchivalInitializationError> {
         self.cloud_storage.ensure_bucket_config().await?;
         self.check_batch_size_below_epoch_length()?;
         let hot_final_height = self.get_hot_final_head_height()?;
@@ -729,14 +721,18 @@ impl CloudArchivalWriter {
         let init_state =
             self.resolve_init_state(hot_final_height, block_head_ext, &shard_heads_ext)?;
 
-        self.ensure_min_cloud_head_available_for_archiving(runtime_adapter, init_state.min_height)?;
-        self.log_initialization_status(block_head_ext, &shard_heads_ext, init_state.prev_epoch_end);
-        self.set_local_heads(&init_state)?;
+        let prev_epoch_end =
+            self.ensure_min_cloud_head_available_for_archiving(init_state.min_height)?;
+        self.log_initialization_status(
+            block_head_ext,
+            &shard_heads_ext,
+            init_state.new_component_head,
+        );
+        self.set_local_heads(&init_state, prev_epoch_end)?;
 
         // Publishing otherwise happens at the previous epoch's last block. We upload
         // idempotently on node start in case it didn't happen, e.g. fresh bucket.
         if self.config.archive_block_data {
-            let prev_epoch_end = self.compute_initial_prev_epoch_end(init_state.min_height)?;
             self.archive_next_epoch_data(prev_epoch_end).await?;
         }
 
@@ -770,14 +766,14 @@ impl CloudArchivalWriter {
         &self,
         block_head_ext: Option<BlockHeight>,
         shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
-        prev_epoch_end: BlockHeight,
+        new_component_head: BlockHeight,
     ) {
         let log = |component: &str, head: Option<BlockHeight>| match head {
             Some(head) => {
                 tracing::info!(target: "cloud_archival", component, head, "resuming from external head")
             }
             None => {
-                tracing::info!(target: "cloud_archival", component, start = prev_epoch_end, "no external head, starting from previous epoch end")
+                tracing::info!(target: "cloud_archival", component, head = new_component_head, "no external head, starting from previous epoch end")
             }
         };
         if self.config.archive_block_data {
@@ -808,7 +804,7 @@ impl CloudArchivalWriter {
         let max_archivable_height = hot_final_height - 1;
         // Default for missing components: the previous epoch's last block, so
         // the writer archives the current epoch from its first block.
-        let prev_epoch_end = self.prev_epoch_end_height(hot_final_height)?;
+        let new_component_head = self.prev_epoch_end_height(hot_final_height)?;
 
         let mut min_height_local: Option<BlockHeight> = None;
         let mut update_min = |height: BlockHeight| {
@@ -818,7 +814,7 @@ impl CloudArchivalWriter {
         // Clamp to max_archivable_height so the writer never fast-forwards
         // past its own chain state when another writer is ahead.
         let block_head_local = if self.config.archive_block_data {
-            let height = block_head_ext.unwrap_or(prev_epoch_end).min(max_archivable_height);
+            let height = block_head_ext.unwrap_or(new_component_head).min(max_archivable_height);
             update_min(height);
             Some(height)
         } else {
@@ -827,7 +823,7 @@ impl CloudArchivalWriter {
         let shard_heads_local: Vec<(ShardId, BlockHeight)> = shard_heads_ext
             .iter()
             .map(|&(shard_id, ext_head)| {
-                let height = ext_head.unwrap_or(prev_epoch_end).min(max_archivable_height);
+                let height = ext_head.unwrap_or(new_component_head).min(max_archivable_height);
                 update_min(height);
                 (shard_id, height)
             })
@@ -839,7 +835,7 @@ impl CloudArchivalWriter {
             block_head: block_head_local,
             shard_heads: shard_heads_local,
             min_height: min_height_local,
-            prev_epoch_end,
+            new_component_head,
         })
     }
 
@@ -915,16 +911,12 @@ impl CloudArchivalWriter {
         Ok(())
     }
 
-    /// Ensures the cloud min head has not been garbage collected.
-    /// We check against `gc_stop_height` (not just `gc_tail`) because the
-    /// writer needs data from the entire epoch containing `min_head` -
-    /// `gc_stop_height` is the earliest height whose epoch data is guaranteed
-    /// to be retained.
+    /// Returns the last block of the epoch before `min_head`'s epoch, after checking
+    /// that gc has not deleted it.
     fn ensure_min_cloud_head_available_for_archiving(
         &self,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
         min_head: BlockHeight,
-    ) -> Result<(), CloudArchivalInitializationError> {
+    ) -> Result<CryptoHash, CloudArchivalInitializationError> {
         let gc_tail = self.hot_store.chain_store().tail();
         if min_head < gc_tail {
             return Err(CloudArchivalInitializationError::CloudHeadTooOld {
@@ -933,19 +925,17 @@ impl CloudArchivalWriter {
                 gc_tail,
             });
         }
-        let hot_final_height = self.get_hot_final_head_height()?;
-        assert!(min_head < hot_final_height, "guaranteed by resolve_init_state");
-        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(min_head)?;
-        let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
-        // gc_stop_height at or below genesis means GC hasn't started yet.
-        if gc_tail > gc_stop_height && gc_stop_height > self.genesis_height {
+        let prev_epoch_end = self.compute_initial_prev_epoch_end(min_head)?;
+        let prev_epoch_end_height =
+            self.hot_store.chain_store().get_block_header(&prev_epoch_end)?.height();
+        if prev_epoch_end_height < gc_tail {
             return Err(CloudArchivalInitializationError::CloudHeadTooOld {
                 min_head,
-                gc_stop_height: Some(gc_stop_height),
+                gc_stop_height: Some(prev_epoch_end_height),
                 gc_tail,
             });
         }
-        Ok(())
+        Ok(prev_epoch_end)
     }
 
     /// Reads the hot final head height; falls back to `genesis_height` if unset.
@@ -958,10 +948,10 @@ impl CloudArchivalWriter {
     /// Sets local heads during initialization, each to its own resolved height.
     /// Block and shard heads are stored as `BlockHeight` (always <=
     /// `hot_final_height - 1`, clamped during `resolve_init_state`).
-    /// The prev epoch end is derived from `min_height`.
     fn set_local_heads(
         &self,
         init_state: &ResolvedInitState,
+        prev_epoch_end: CryptoHash,
     ) -> Result<(), CloudArchivalInitializationError> {
         let &ResolvedInitState { block_head, ref shard_heads, min_height, .. } = init_state;
         let mut store_update = self.hot_store.cloud_archival_store().store_update();
@@ -973,7 +963,7 @@ impl CloudArchivalWriter {
             store_update.set_writer_shard_head(shard_id, height);
         }
         store_update.set_writer_min_head(min_height);
-        store_update.set_writer_prev_epoch_end(self.compute_initial_prev_epoch_end(min_height)?);
+        store_update.set_writer_prev_epoch_end(prev_epoch_end);
         store_update.commit();
         // No shard retires during initialization.
         let head_updates: Vec<ShardHeadUpdate> = shard_heads
