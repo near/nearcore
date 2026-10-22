@@ -3415,10 +3415,10 @@ mod contract_precompilation_tests {
     use super::*;
     use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_runtime::state_viewer::TrieViewer;
+    use near_runtime::state_viewer::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-    use node_runtime::state_viewer::TrieViewer;
-    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 

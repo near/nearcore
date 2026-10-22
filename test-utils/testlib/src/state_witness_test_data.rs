@@ -16,10 +16,10 @@ use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::EpochId;
 use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{set_access_key, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::sync::Arc;
 

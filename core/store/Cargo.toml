@@ -3,10 +3,10 @@ name = "near-store"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+description = "Storage layer (RocksDB and in-memory tries, flat storage, trie access) of the NEAR node"
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
 
 [lints]
 workspace = true
