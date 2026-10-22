@@ -77,7 +77,7 @@ check-non-default:
     RUSTFLAGS="-D warnings" \
     cargo check -p node-runtime
     deps="$(cargo tree -p node-runtime -e normal --target all --prefix none --format '{p}')" \
-        && printf '%s\n' "$deps" | awk '/^(rocksdb|object_store) v/ { print; found = 1 } END { exit found }'
+        && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
 
 # check rust formatting
 check-cargo-fmt:
