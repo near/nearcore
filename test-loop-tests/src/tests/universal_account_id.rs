@@ -35,7 +35,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{DeployContractAction, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    DecodeMode, RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
 use near_primitives::universal_state_init_vectors::wallet_contract;
 use near_primitives::utils::derive_universal_account_id;
@@ -535,7 +535,8 @@ fn test_universal_state_init_derives_from_supplied_bytes() {
 
     // Without this the test proves nothing: it has to be an encoding the typed
     // form would not have written.
-    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
+    let decoded = UniversalStateInit::from_raw(&raw, DecodeMode::Lenient)
+        .expect("fixture must be valid borsh");
     assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
 
     let from_supplied = derive_universal_account_id(&raw);
@@ -637,7 +638,8 @@ fn test_universal_state_init_from_contract() {
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-from-contract").public_key();
     let raw = non_canonical_state_init(&public_key);
-    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
+    let decoded = UniversalStateInit::from_raw(&raw, DecodeMode::Lenient)
+        .expect("fixture must be valid borsh");
     assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
 
     let from_supplied = derive_universal_account_id(&raw);
