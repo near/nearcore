@@ -26,8 +26,9 @@ every cleanup for one `MIN_SUPPORTED_PROTOCOL_VERSION` increment. It:
    now that their guarding feature is gone — the #16454-style follow-up.
 6. Bumps `MIN_SUPPORTED_PROTOCOL_VERSION`, deletes the yaml files + their
    `CONFIG_DIFFS` entries + their per-version snapshots, regenerates the
-   `test_json_unchanged` snapshots and the OpenAPI spec, and runs the
-   prescribed Clippy pass.
+   `test_json_unchanged` snapshots, bumps the OpenAPI/OpenRPC version
+   strings in the generator sources and regenerates both JSONs, and runs
+   the prescribed Clippy pass.
 7. Opens one PR for the whole bundle.
 
 Rationale: once `MIN_SUPPORTED_PROTOCOL_VERSION = new_min`, every
@@ -244,11 +245,26 @@ touching before the PR.
      supported versions.
    - **Any value change at a supported version for a field that was not
      touched is a bug** — stop and investigate before accepting.
-4. **Regenerate the OpenAPI/OpenRPC specs**. Per `AGENTS.md`, run the
-   `openapi-spec` Justfile recipe rather than hand-editing the JSONs or
-   the version strings in `src/main.rs` / `src/openrpc.rs` (the recipe
-   updates all four locations in sync — the two JSONs and the two
-   generator sources).
+4. **Regenerate the OpenAPI/OpenRPC specs**. Mechanics (checked against
+   the actual Justfile + generator — the recipe alone is **not** enough):
+   - **Bump the version strings by hand** before regenerating — the
+     generators don't touch them, and the specs are what change:
+     - `chain/jsonrpc/openapi/src/main.rs` — the
+       `version: "x.y.z".to_string(),` literal (patch component for a
+       field removal / RPC-visible cleanup).
+     - `chain/jsonrpc/openapi/src/openrpc.rs` — the `"version": "x.y.z"`
+       string literal.
+   - **Regenerate both JSONs** by running the binary once (not
+     `just openapi-spec` — that recipe calls `git diff --exit-code` on
+     the whole tree afterward and will fail against the unstaged cleanup
+     changes). The command the recipe uses is:
+     `cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json`.
+     The same run also writes `chain/jsonrpc/openapi/openrpc.json`
+     directly (see `fs::write(&openrpc_path, ...)` in `main.rs`).
+   - This is the one case where `AGENTS.md`'s "do not update the OpenAPI
+     spec unless explicitly asked" guard doesn't apply: the cleanup
+     mechanically changes the serialized `VMConfigView` shape, so the
+     spec must track it.
 5. **Run the full verification**:
    - `cargo test -p near-parameters` — in particular
      `config_store::tests::all_configs_are_specified` (yaml file set vs
@@ -272,8 +288,8 @@ PR body should:
   kept). Note that any removed `VMConfigView` fields are a
   backward-incompatible RPC change (per the
   [zulip decision](https://near.zulipchat.com/#narrow/channel/524117-nearone.2Fbetter-engineering/topic/ConfigView.20cleanups/with/631917110))
-  and that the OpenAPI/OpenRPC specs were regenerated via the Justfile
-  recipe.
+  and that the OpenAPI/OpenRPC spec version strings were bumped and both
+  JSONs regenerated.
 - List which yaml files and snapshots were deleted.
 - Reference `Part of #16564.`
 
