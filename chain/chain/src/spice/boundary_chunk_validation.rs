@@ -237,8 +237,8 @@ mod tests {
     use crate::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
     use crate::spice::chunk_validation::tests::assert_invalid_witness;
     use crate::spice::tests::pre_spice::{
-        build_pre_spice_block_with_chunks, grow_to_last_pre_spice_block, save_and_record_block,
-        setup_pre_spice_chain,
+        add_pre_spice_block, build_pre_spice_block_with_chunks, grow_to_last_pre_spice_block,
+        save_and_record_block, setup_pre_spice_chain,
     };
     use near_o11y::testonly::init_test_logger;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -1029,6 +1029,58 @@ mod tests {
             ),
             "undelivered receipt proofs cover",
         );
+    }
+
+    /// A carrier targets exactly the shards whose last pre-spice chunk precedes it.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_carrier_targets_exclude_shards_with_chunk_at_or_after_carrier() {
+        init_test_logger();
+        let mut chain = setup_pre_spice_chain(3);
+        let (last_pre_spice_block, _) = grow_to_last_pre_spice_block(&mut chain);
+        let mut full_block = last_pre_spice_block;
+        for _ in 0..3 {
+            full_block = chain.get_block(full_block.header().prev_hash()).unwrap();
+        }
+        let shard_layout =
+            chain.epoch_manager.get_shard_layout(full_block.header().epoch_id()).unwrap();
+        let [source_shard_id, early_stopped_shard_id, late_stopped_shard_id]: [ShardId; 3] =
+            shard_layout.shard_ids().collect::<Vec<_>>().try_into().unwrap();
+
+        // The early stopped shard's last chunk is at the full block, the late stopped
+        // shard's at the block after the first carrier.
+        let first_carrier_block = add_pre_spice_block(&mut chain, &full_block, &[source_shard_id]);
+        let same_height_block = add_pre_spice_block(
+            &mut chain,
+            &first_carrier_block,
+            &[source_shard_id, late_stopped_shard_id],
+        );
+        let boundary_block =
+            add_pre_spice_block(&mut chain, &same_height_block, &[source_shard_id]);
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), boundary_block.hash()).unwrap()
+        );
+
+        let carriers = get_undelivered_receipt_carriers(
+            &chain.chain_store,
+            chain.epoch_manager.as_ref(),
+            &boundary_block,
+            source_shard_id,
+        )
+        .unwrap();
+        let targets_by_carrier_prev_block: Vec<(CryptoHash, Vec<ShardId>)> = carriers
+            .iter()
+            .map(|carrier| (carrier.prev_block_hash, carrier.target_shard_ids.clone()))
+            .collect();
+        let expected_targets_by_carrier_prev_block = vec![
+            (
+                *boundary_block.header().prev_hash(),
+                vec![early_stopped_shard_id, late_stopped_shard_id],
+            ),
+            (*same_height_block.header().prev_hash(), vec![early_stopped_shard_id]),
+            (*first_carrier_block.header().prev_hash(), vec![early_stopped_shard_id]),
+        ];
+        assert_eq!(targets_by_carrier_prev_block, expected_targets_by_carrier_prev_block);
     }
 
     #[test]
