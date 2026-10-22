@@ -938,6 +938,18 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
+        // Honest nodes never produce V7. Before this feature, nodes accept V7 in non-spice epochs
+        // as if it were V6, so the rejection is gated to keep agreement with those nodes.
+        if ProtocolFeature::RejectBlockHeaderV7BeforeSpice.enabled(epoch_protocol_version)
+            && matches!(header, BlockHeader::BlockHeaderV7(_))
+        {
+            tracing::warn!(
+                target: "chain",
+                %epoch_protocol_version,
+                "block header v7 is not valid in this epoch"
+            );
+            return Err(Error::InvalidProtocolVersion);
+        }
 
         if header.epoch_id() == prev_header.epoch_id() {
             if header.next_bp_hash() != prev_header.next_bp_hash() {
