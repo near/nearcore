@@ -881,7 +881,8 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE
-        | col::GLOBAL_CONTRACT_NONCE => {
+        | col::GLOBAL_CONTRACT_NONCE
+        | col::CONTRACT_COMPILATION_STATUS => {
             copy_kv_to_all_children(&split_params, key, value, store_update)
         }
         col::BUFFERED_RECEIPT_INDICES
@@ -1013,7 +1014,7 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{AccountId, ShardId};
+    use near_primitives::types::{AccountId, ShardId, VmGeneration};
     use near_store::ShardUId;
     use near_store::adapter::StoreAdapter;
     use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -1510,6 +1511,15 @@ mod tests {
             insert_promise_yield(&store, parent_shard),
             insert_buffered_receipts(&store, parent_shard),
         ];
+        let status_key = TrieKey::ContractCompilationStatus {
+            vm_generation: VmGeneration(158),
+            code_hash: CryptoHash::default(),
+        }
+        .to_vec();
+        let status_value = Some(FlatStateValue::Inlined(vec![0]));
+        let mut update = store.store_update();
+        update.set(parent_shard, status_key.clone(), status_value.clone());
+        update.commit();
 
         // Do the resharding.
         flat_storage_resharder.start_resharding_blocking_impl(parent_shard, split_params.clone());
@@ -1527,6 +1537,7 @@ mod tests {
                 store.get_flat_storage_status(child_shard),
                 FlatStorageStatus::Ready(_)
             );
+            assert_eq!(store.get(child_shard, &status_key), status_value);
         }
 
         for validate_fn in validate_fns {

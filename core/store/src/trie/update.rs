@@ -31,6 +31,14 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 pub struct TrieUpdate {
     pub trie: Trie,
     contract_storage: ContractStorage,
+    /// Code whose compilation was reached during this chunk, including failed receipts.
+    ///
+    /// Code executed that was already compiled, according to the consensus
+    /// contract compilation status, is excluded.
+    ///
+    /// Unlike deployments, this is not rolled back with receipt state.
+    /// Maps code-hash to code-length.
+    contract_compilations: BTreeMap<CryptoHash, u64>,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -82,6 +90,7 @@ impl TrieUpdate {
         Self {
             trie,
             contract_storage: ContractStorage::new(trie_storage),
+            contract_compilations: BTreeMap::new(),
             committed: Default::default(),
             prospective: Default::default(),
         }
@@ -94,6 +103,7 @@ impl TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
             contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            contract_compilations: BTreeMap::new(),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),
         }
@@ -113,6 +123,16 @@ impl TrieUpdate {
 
     pub fn contract_storage(&self) -> &ContractStorage {
         &self.contract_storage
+    }
+
+    /// Records a deterministic compilation attempt, not a local cache miss or a
+    /// speculative background preparation. Repeated uses of the same code count once.
+    pub fn record_contract_compilation(&mut self, code_hash: CryptoHash, code_len: u64) {
+        self.contract_compilations.insert(code_hash, code_len);
+    }
+
+    pub fn take_contract_compilations(&mut self) -> BTreeMap<CryptoHash, u64> {
+        std::mem::take(&mut self.contract_compilations)
     }
 
     pub fn get_ref(

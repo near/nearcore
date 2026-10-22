@@ -21549,6 +21549,20 @@
               "type"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "contract_compilation_status_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
           }
         ]
       },

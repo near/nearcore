@@ -13,7 +13,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId, VmGeneration,
+};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -208,6 +210,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             next_wasm_config: None,
+            vm_generation: VmGeneration(0),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,

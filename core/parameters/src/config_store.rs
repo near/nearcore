@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{ProtocolVersion, VmGeneration};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -18,6 +18,10 @@ macro_rules! include_config {
 /// The base config file with all initial parameter values defined.
 /// Later version are calculated by applying diffs to this base.
 static BASE_CONFIG: &str = include_config!("parameters.yaml");
+
+/// Protocol versions that change the consensus VM generation.
+/// Add a version whenever its VM config changes.
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 89, 129, 150, 155, 157];
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
@@ -117,7 +121,7 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+        Self::new_custom(BTreeMap::from([(0, Arc::new(runtime_config))]))
     }
 
     /// Constructs store with custom configs. This should only be used for testing.
@@ -154,6 +158,14 @@ impl RuntimeConfigStore {
             .1
     }
 
+    /// Protocol version of the most recent VM configuration change.
+    pub fn vm_generation(&self, protocol_version: ProtocolVersion) -> VmGeneration {
+        // requirement for `partition_point`: strictly increasing numbers,
+        // guaranteed by the static-check-1.
+        let index = VM_GENERATION_VERSIONS.partition_point(|&version| version <= protocol_version);
+        VmGeneration(VM_GENERATION_VERSIONS[index - 1])
+    }
+
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
     pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
         self.store
@@ -165,6 +177,17 @@ impl RuntimeConfigStore {
             .1
     }
 }
+
+/// static-check-1: a zero baseline and strictly increasing entries cover every
+/// protocol version.
+const _: () = {
+    assert!(VM_GENERATION_VERSIONS[0] == 0);
+    let mut index = 1;
+    while index < VM_GENERATION_VERSIONS.len() {
+        assert!(VM_GENERATION_VERSIONS[index - 1] < VM_GENERATION_VERSIONS[index]);
+        index += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {
@@ -354,6 +377,30 @@ mod tests {
             |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
         assert_eq!(budget(version), Gas::from_teragas(20));
         assert_eq!(budget(version - 1), Gas::ZERO);
+    }
+
+    /// Tests th validity of `VM_GENERATION_VERSIONS`.
+    ///
+    /// If this fails, you have probably made a change that requires the
+    /// consensus-level Wasm code cache to be invalidated on a protocol upgrade.
+    /// If so, simply add the protocol version to `VM_GENERATION_VERSIONS`.
+    #[test]
+    fn vm_generation_versions_match_vm_config_changes() {
+        let store = RuntimeConfigStore::new();
+        // The first generation is a historical identity: its defining diff may
+        // already have been folded away. Validate every subsequent version.
+        let mut expected = store.vm_generation(MIN_SUPPORTED_PROTOCOL_VERSION);
+        // Include scheduled diffs and listed generations, even in stable builds.
+        // This catches both missing transitions and entries without a VM change.
+        let last_version = PROTOCOL_VERSION
+            .max(CONFIG_DIFFS.last().unwrap().0)
+            .max(*VM_GENERATION_VERSIONS.last().unwrap());
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION + 1..=last_version {
+            if store.get_config(version).wasm_config != store.get_config(version - 1).wasm_config {
+                expected = VmGeneration(version);
+            }
+            assert_eq!(store.vm_generation(version), expected, "protocol version {version}");
+        }
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions

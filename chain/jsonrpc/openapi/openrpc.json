@@ -12012,6 +12012,19 @@
             ],
             "title": "BandwidthSchedulerStateUpdate",
             "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "contract_compilation_status_update",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "title": "ContractCompilationStatusUpdate",
+            "type": "object"
           }
         ],
         "title": "StateChangeCauseView"
