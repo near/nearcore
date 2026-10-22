@@ -1189,6 +1189,29 @@ fn test_cloud_archival_single_skipped_slot() {
     h.shutdown();
 }
 
+/// A writer restarted while its bucket head is a height with no block resumes archiving.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_restart_with_head_at_skipped_height() {
+    let batch_size = BlockHeight::from(CloudArchiveHarness::TEST_BATCH_SIZE);
+    let dropped_height = 4 * batch_size - 1;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[dropped_height])
+        .disable_gc()
+        .build();
+    // Stop after the batch ending at the dropped height is archived and before the next one is.
+    h.run_until(dropped_height + batch_size + 1);
+    assert_eq!(h.cloud_block_head(), dropped_height, "setup: bucket head is the dropped height");
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+    assert!(h.local_min_head() > dropped_height, "archiving must resume after the restart");
+    h.assert_heads_ok_before_gc();
+
+    h.shutdown();
+}
+
 /// At cadence 2, `start` (epoch 3) has no snapshot, so the reader resolves the
 /// snapshot to an earlier epoch whose sync block is below the downloaded block
 /// range. Reconstruction loads that snapshot from cloud state parts, so it works
