@@ -6,7 +6,9 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::stun;
 use crate::tcp;
+use crate::test_utils::GetInfo;
 use crate::testonly::{Rng, make_rng};
+use near_async::messaging::CanSendAsync;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner};
@@ -385,6 +387,39 @@ async fn tier2_routing_using_accounts_data() {
 
     tracing::info!(target:"test", "send a routed message pm0 -> pm1 over tier2");
     send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
+}
+
+#[tokio::test]
+async fn known_producers_from_accounts_data() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start 2 nodes and connect them");
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    // No AccountData has been broadcast yet, and AnnounceAccount is not broadcast by default in
+    // tests.
+    let info = pm0.actor.send_async(GetInfo {}).await.unwrap();
+    assert!(info.known_producers.is_empty());
+
+    tracing::info!(target:"test", "propagate accounts data");
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1.cfg]);
+    for pm in [&pm0, &pm1] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    let data: HashSet<_> = pm1.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
+    pm0.wait_for_accounts_data(&data).await;
+
+    let info = pm0.actor.send_async(GetInfo {}).await.unwrap();
+    let got: Vec<_> =
+        info.known_producers.iter().map(|p| (p.account_id.clone(), p.peer_id.clone())).collect();
+    let want_account_id = pm1.cfg.validator.signer.get().unwrap().validator_id().clone();
+    assert_eq!(got, vec![(want_account_id, pm1.cfg.node_id())]);
 }
 
 #[tokio::test]
