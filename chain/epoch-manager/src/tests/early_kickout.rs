@@ -1119,9 +1119,10 @@ fn assert_seeded_row_is_canonical(
     );
 }
 
-// A basis behind the sync point would require a full epoch walk without the grace check.
+// The fork names an older last final block than the tip. If that block is in the
+// start-of-epoch window, the seeder writes the canonical row for the fork.
 #[test]
-fn seed_walk_skips_fork_basis_behind_sync_point() {
+fn seed_skips_fork_basis_behind_newer_final() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = 30;
@@ -1147,16 +1148,16 @@ fn seed_walk_skips_fork_basis_behind_sync_point() {
     assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
 }
 
-// A late block can move the sync point past the canonical basis. Blocks on that basis
-// must still record.
+// A late block can name a newer last final block than the canonical basis. Blocks on that
+// basis must still record.
 enum ForkOrder {
     CanonicalFirst,
     OrphanFirst,
 }
 
-/// The orphan advances the sync point past the canonical basis. Canonical records must
-/// succeed without an epoch walk.
-fn record_fork_behind_sync_point(order: ForkOrder) {
+/// The orphan names a newer last final block than the canonical basis. Canonical records
+/// must succeed without an epoch walk.
+fn record_fork_basis_behind_newer_final(order: ForkOrder) {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 200;
@@ -1168,7 +1169,7 @@ fn record_fork_behind_sync_point(order: ForkOrder) {
     let orphan = hash(b"late orphan at the skipped height");
     let child = hash(b"child of the canonical block");
 
-    let record_behind_sync_point =
+    let record_basis_behind_newer_final =
         |em: &mut EpochManager, prev: CryptoHash, cur: CryptoHash, height: u64| {
             assert_eq!(
                 em.epoch_info_aggregator.last_block_hash,
@@ -1200,20 +1201,20 @@ fn record_fork_behind_sync_point(order: ForkOrder) {
         }
         ForkOrder::OrphanFirst => {
             record_block_with_final(&mut em, tip, orphan, TIP + 1, h[TIP as usize - 1], TIP - 1);
-            record_behind_sync_point(&mut em, tip, canonical, TIP + 2);
+            record_basis_behind_newer_final(&mut em, tip, canonical, TIP + 2);
         }
     }
-    record_behind_sync_point(&mut em, canonical, child, TIP + 3);
+    record_basis_behind_newer_final(&mut em, canonical, child, TIP + 3);
 }
 
 #[test]
-fn fork_behind_sync_point_canonical_first() {
-    record_fork_behind_sync_point(ForkOrder::CanonicalFirst);
+fn fork_basis_behind_newer_final_canonical_first() {
+    record_fork_basis_behind_newer_final(ForkOrder::CanonicalFirst);
 }
 
 #[test]
-fn fork_behind_sync_point_orphan_first() {
-    record_fork_behind_sync_point(ForkOrder::OrphanFirst);
+fn fork_basis_behind_newer_final_orphan_first() {
+    record_fork_basis_behind_newer_final(ForkOrder::OrphanFirst);
 }
 
 // Inside `record_block_info`, the first block of an epoch is its own epoch first block.
@@ -1258,7 +1259,7 @@ fn epoch_boundary_fork_records_canonical_first_block() {
 // Same-height siblings require equivocation. Recording the second sibling finalizes
 // the epoch from its `BlockInfo` before commit.
 #[test]
-fn epoch_last_block_sibling_behind_sync_point_records() {
+fn epoch_last_block_sibling_basis_behind_newer_final_records() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
     let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
@@ -1276,7 +1277,7 @@ fn epoch_last_block_sibling_behind_sync_point_records() {
     assert_eq!(em.epoch_info_aggregator.last_block_hash, p);
 
     let b = hash(b"sibling last block of epoch 0");
-    // A cold memo forces the full-epoch walk inside the record.
+    // A cold memo forces the blacklist computation inside the record.
     em.chunk_producer_blacklists.lock().clear();
     let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     let block_info = block_info_with_final_and_mask(
@@ -1319,8 +1320,8 @@ fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash])
     child
 }
 
-// A restarted manager recomputes from a different aggregator checkpoint. Its blacklist
-// and producer assignments must match the cached results.
+// A restarted manager recomputes the blacklist with an empty memo. Its blacklist and
+// producer assignments must match the memoized results.
 #[test]
 fn memoized_blacklist_matches_restarted_manager() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -1522,8 +1523,8 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
 }
 
 /// The state epoch sync leaves behind: the prev epoch's first, second-last and last
-/// `BlockInfo` are installed, the third-last one deliberately is NOT, even though it is the
-/// aggregator position an anchor can be final on.
+/// `BlockInfo` are installed, the third-last one deliberately is NOT, even though an anchor
+/// can be final on it.
 struct EpochSyncFixture {
     em: EpochManager,
     prev_epoch_id: EpochId,
@@ -1536,7 +1537,7 @@ struct EpochSyncFixture {
     second_last: CryptoHash,
     /// The prev epoch's last block.
     last: CryptoHash,
-    /// The uninstalled aggregator position.
+    /// The prev epoch's third-last block, which has no `BlockInfo`.
     third_last: CryptoHash,
     third_last_height: u64,
     second_last_height: u64,
@@ -1651,10 +1652,11 @@ fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
     }
 }
 
-// Epoch sync leaves the aggregator at a block without `BlockInfo`. Cross-epoch seeding
-// must return before looking up that block.
+// After epoch sync, a current-epoch anchor can be final on the prev epoch's third-last
+// block, which has no `BlockInfo`. Cross-epoch seeding must return before looking up that
+// block.
 #[test]
-fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
+fn seeder_tolerates_post_epoch_sync_third_last_basis() {
     let fx = epoch_sync_fixture();
 
     let anchor = fx.seed_anchor(hash(b"current epoch block"), fx.epoch_start_height);
@@ -1681,7 +1683,7 @@ fn seeder_recovers_from_hole_behind_in_grace_basis() {
         fx.prev_epoch_start_height,
     );
     fx.seed(&anchor, &fx.prev_epoch_id)
-        .expect("an in-grace basis must seed without walking past the basis");
+        .expect("a basis in the start-of-epoch window must seed without reading past the basis");
     assert_seeded_row_is_canonical(
         &fx.em,
         anchor.hash,
@@ -1691,7 +1693,7 @@ fn seeder_recovers_from_hole_behind_in_grace_basis() {
     );
 }
 
-// Cross-epoch seeding must also bypass missing ancestry when the basis is past the sync point.
+// If the basis is in the previous epoch, seeding must also bypass missing ancestry.
 #[test]
 fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
     let fx = epoch_sync_fixture();
@@ -1703,7 +1705,7 @@ fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
         fx.epoch_start_height,
     );
     fx.seed(&anchor, &fx.epoch_id)
-        .expect("a cross-epoch basis must seed without walking past the basis");
+        .expect("a cross-epoch basis must seed without reading past the basis");
     assert_seeded_row_is_canonical(
         &fx.em,
         anchor.hash,
@@ -1735,7 +1737,7 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
 // fails, not only when the record itself does.
 //
 // Covers the first real block: the default final hash makes the seeder return early, and
-// nothing advances the aggregator or finalizes an epoch, so the retry is a plain re-record.
+// the record finalizes no epoch, so the retry is a plain re-record.
 #[test]
 fn record_block_info_dropped_update_is_recorded_on_retry() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -1771,7 +1773,7 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
 }
 
 /// Builds the anchor `BlockInfo` the accessor tests install: same shape the fixture's
-/// proof blocks have, final on the uninstalled aggregator position.
+/// proof blocks have, final on the third-last block, which has no `BlockInfo`.
 fn accessor_anchor_info(
     fx: &EpochSyncFixture,
     anchor_hash: CryptoHash,
@@ -1794,15 +1796,15 @@ fn accessor_anchor_info(
     )
 }
 
-// Accessor-side companion to `seeder_tolerates_post_epoch_sync_aggregator_anchor`: the
+// Accessor-side companion to `seeder_tolerates_post_epoch_sync_third_last_basis`: the
 // same epoch-sync miss state pinned through `get_chunk_producer_blacklist`, so the
 // read-side contract stays enforced even if the accessor and seeder ever stop sharing
 // `chunk_producer_blacklist_at_anchor`.
 #[test]
-fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
+fn accessor_tolerates_post_epoch_sync_third_last_basis() {
     let fx = epoch_sync_fixture();
 
-    // A current-epoch anchor final on the uninstalled position, installed directly like
+    // A current-epoch anchor final on the third-last block, installed directly like
     // the fixture's proof blocks (the accessor reads the anchor's own `BlockInfo`).
     let anchor_hash = hash(b"current epoch block");
     let mut info = accessor_anchor_info(&fx, anchor_hash, fx.last);
@@ -2509,8 +2511,8 @@ fn fork_seeded_rows_reflect_each_branch_blacklist() {
     let fx = ForkFixture::new();
 
     // Two forks off genesis, each starving its own producer. Each branch's blacklist is
-    // self-contained: a non-ancestor branch aggregates afresh from the epoch boundary, so the
-    // assertions hold regardless of which branch the aggregator cache currently sits on.
+    // self-contained: a non-ancestor branch contributes no stats, so branch 2's blacklist is
+    // exactly {1} even though branch 1 was recorded first and starved producer 0.
     fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 1, 0);
     fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 2, 1);
 }
