@@ -9,6 +9,7 @@ use near_chain::ChainStoreAccess;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
+use near_primitives::utils::index_to_bytes;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use nearcore::migrations::{AGGREGATOR_KEY, test_only_migrate_53_to_54};
@@ -121,6 +122,53 @@ fn test_migration_53_to_54_writes_rows_above_header_head() {
         header_head_row.map(|row| row.to_vec()).as_ref(),
         recorded_rows.get(header_head.last_block_hash.as_bytes().as_slice()),
         "the block at the old header head must get its recorded row back",
+    );
+}
+
+/// The 53 -> 54 migration writes rows for blocks that are missing from the header height
+/// index.
+///
+/// `undo-block` deletes the headers and height index entries of header-only blocks above the
+/// head but keeps their `BlockInfo`, so header re-sync does not record them again. The test
+/// removes the height index entries above the final head to get that state, then checks that
+/// the migration still writes the row of the block at the header head.
+#[test]
+fn test_migration_53_to_54_writes_rows_missing_from_height_index() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(10).build();
+    env.validator_runner().run_until_new_epoch();
+    env.validator_runner().run_for_number_of_blocks(5);
+
+    let store = env.validator().store();
+    let chain_store = store.chain_store();
+    let final_head = chain_store.final_head().unwrap();
+    let header_head = chain_store.header_head().unwrap();
+    assert!(header_head.height > final_head.height);
+    let recorded_rows: HashMap<Vec<u8>, Vec<u8>> = store
+        .iter(DBCol::EpochInfoAggregators)
+        .map(|(key, value)| (key.to_vec(), value.to_vec()))
+        .collect();
+
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::EpochInfoAggregators);
+    for height in final_head.height + 1..=header_head.height {
+        store_update.delete(DBCol::HeaderHashesByHeight, &index_to_bytes(height));
+    }
+    store_update.commit();
+
+    test_only_migrate_53_to_54(
+        &store,
+        &env.shared_state.genesis.config,
+        env.shared_state.epoch_config_store.clone(),
+    )
+    .unwrap();
+
+    let header_head_row =
+        store.get(DBCol::EpochInfoAggregators, header_head.last_block_hash.as_ref());
+    assert_eq!(
+        header_head_row.map(|row| row.to_vec()).as_ref(),
+        recorded_rows.get(header_head.last_block_hash.as_bytes().as_slice()),
+        "the block at the header head must get its recorded row back",
     );
 }
 
