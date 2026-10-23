@@ -17,7 +17,8 @@ use crate::setup::spice_partial_data_faults::{
 };
 use crate::setup::state::NodeExecutionData;
 use near_async::time::Duration;
-use near_client::spice::data_distributor_actor::{DATA_PARTS_RATIO, DATA_REQUEST_INTERVAL};
+use near_client::spice::data_distributor_actor::DATA_REQUEST_INTERVAL;
+use near_client::spice::data_manager::DATA_PARTS_RATIO;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};

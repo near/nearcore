@@ -31,7 +31,7 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
     );
-    let policies = Policies::new(
+    let policies = FetchPolicies::new(
         chain.chain_store.store().chain_store(),
         chain.epoch_manager.clone(),
         shard_tracker,
