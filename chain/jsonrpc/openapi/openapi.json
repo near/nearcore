@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.37"
+    "version": "1.3.38"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -4657,16 +4657,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "num_expected_endorsements_per_shard": {
-            "default": [],
-            "description": "Number of chunks this validator was expected to validate and endorse in each shard.\nEach entry in the array corresponds to the shard in the `shards_endorsed` array.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "num_produced_blocks": {
             "format": "uint64",
             "minimum": 0,
@@ -4693,28 +4683,11 @@
             "minimum": 0,
             "type": "integer"
           },
-          "num_produced_endorsements_per_shard": {
-            "default": [],
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "public_key": {
             "$ref": "#/components/schemas/PublicKey"
           },
           "shards": {
             "description": "Shards this validator is assigned to as chunk producer in the current epoch.",
-            "items": {
-              "$ref": "#/components/schemas/ShardId"
-            },
-            "type": "array"
-          },
-          "shards_endorsed": {
-            "default": [],
-            "description": "Shards this validator is assigned to as chunk validator in the current epoch.",
             "items": {
               "$ref": "#/components/schemas/ShardId"
             },

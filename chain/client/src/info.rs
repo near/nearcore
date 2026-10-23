@@ -520,15 +520,12 @@ impl InfoHelper {
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_produced_chunks_per_shard[i] as i64);
                     }
-                    for i in 0..stats.shards_endorsed.len() {
-                        let shard = stats.shards_endorsed[i];
-                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
-                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_expected_endorsements_per_shard[i] as i64);
-                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
-                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_produced_endorsements_per_shard[i] as i64);
-                    }
+                    metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_produced_endorsements as i64);
+                    metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_expected_endorsements as i64);
                 }
                 // If the validator is kicked out, remove the stats for it and for all shards in the current epoch.
                 ValidatorProductionStatus::Kickout(account_id) => {
@@ -540,15 +537,15 @@ impl InfoHelper {
                         .remove_label_values(&[account_id.as_str()]);
                     let _ = metrics::VALIDATORS_CHUNKS_EXPECTED
                         .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED
+                        .remove_label_values(&[account_id.as_str()]);
                     if let Some(shard_layout) = shard_layout {
                         for shard in shard_layout.shard_ids() {
                             let _ = metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                                 .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
                             let _ = metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
-                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
-                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
-                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
                                 .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
                         }
                     }
@@ -879,14 +876,12 @@ struct ValidatorProductionStats {
     num_expected_blocks: NumBlocks,
     num_produced_chunks: NumBlocks,
     num_expected_chunks: NumBlocks,
+    num_produced_endorsements: NumBlocks,
+    num_expected_endorsements: NumBlocks,
     /// Shards this validator is assigned to as chunk producer in the current epoch.
     shards_produced: Vec<ShardId>,
-    /// Shards this validator is assigned to as chunk validator in the current epoch.
-    shards_endorsed: Vec<ShardId>,
     num_produced_chunks_per_shard: Vec<NumBlocks>,
     num_expected_chunks_per_shard: Vec<NumBlocks>,
-    num_produced_endorsements_per_shard: Vec<NumBlocks>,
-    num_expected_endorsements_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStatus {
@@ -899,23 +894,17 @@ impl ValidatorProductionStatus {
             info.num_expected_chunks_per_shard.len(),
             "Number of shards must match number of shards expected to produce a chunk for"
         );
-        debug_assert_eq!(
-            info.shards_endorsed.len(),
-            info.num_expected_endorsements_per_shard.len(),
-            "Number of shards must match number of shards expected to produce a chunk for"
-        );
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
+            num_produced_endorsements: info.num_produced_endorsements,
+            num_expected_endorsements: info.num_expected_endorsements,
             shards_produced: info.shards_produced,
-            shards_endorsed: info.shards_endorsed,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
-            num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
-            num_expected_endorsements_per_shard: info.num_expected_endorsements_per_shard,
         })
     }
 }
