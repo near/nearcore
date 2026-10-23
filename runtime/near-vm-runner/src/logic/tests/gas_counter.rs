@@ -1,4 +1,5 @@
 use crate::logic::MemSlice;
+use crate::logic::errors::FunctionCallError;
 use crate::logic::logic::Result;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
@@ -10,6 +11,7 @@ use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
+use std::sync::Arc;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -198,10 +200,21 @@ const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 
 /// An external call with the given contract balance.
 fn external_logic_builder(balance: Balance) -> VMLogicBuilder {
+    external_logic_builder_with_fee(balance, Gas::ZERO)
+}
+
+/// An external call with the given contract balance, whose fees burnt `fee_gas`.
+fn external_logic_builder_with_fee(balance: Balance, fee_gas: Gas) -> VMLogicBuilder {
     let mut logic_builder = VMLogicBuilder::external();
-    logic_builder.context.execution_mode = ExecutionMode::External { gas_price: GAS_PRICE };
+    logic_builder.context.execution_mode =
+        ExecutionMode::External { gas_price: GAS_PRICE, fee_gas };
     logic_builder.context.account_balance = balance;
     logic_builder
+}
+
+/// The cost of `gas` at `GAS_PRICE`.
+fn gas_cost(gas: Gas) -> Balance {
+    GAS_PRICE.checked_mul(u128::from(gas.as_gas())).unwrap()
 }
 
 /// The cost of the gas used so far, both burnt and attached to promises.
@@ -423,6 +436,130 @@ fn test_external_account_balance_excludes_gas_cost() {
     logic.account_balance(0).expect("account_balance should succeed");
     let got = u128::from_le_bytes(logic.internal_mem_read(0, 16).try_into().unwrap());
     assert_eq!(got, balance.checked_sub(cost).unwrap().as_yoctonear());
+}
+
+/// The fees of an external call count toward its burn budget.
+#[test]
+fn test_external_fee_lowers_burn_budget() {
+    let logic_builder = VMLogicBuilder::external();
+    let limit_config = &logic_builder.config.limit_config;
+    let budget = limit_config.max_gas_burnt_external;
+    let fee_gas = Gas::from_teragas(1);
+    let mode = ExecutionMode::External { gas_price: GAS_PRICE, fee_gas };
+    let limits = mode.gas_limits(limit_config, Gas::ZERO, Balance::from_near(1));
+    assert_eq!(limits.max_gas_burnt, budget.checked_sub(fee_gas).unwrap());
+
+    // Fees above the budget leave nothing to burn.
+    let fee_gas = budget.checked_add(Gas::from_gas(1)).unwrap();
+    let mode = ExecutionMode::External { gas_price: GAS_PRICE, fee_gas };
+    let limits = mode.gas_limits(limit_config, Gas::ZERO, Balance::from_near(1));
+    assert_eq!(limits.max_gas_burnt, Gas::ZERO);
+}
+
+/// The fees of an external call are paid from the contract balance before the
+/// gas the call uses.
+#[test]
+fn test_external_fee_paid_from_balance_first() {
+    let logic_builder = VMLogicBuilder::external();
+    let limit_config = &logic_builder.config.limit_config;
+    let fee_gas = Gas::from_teragas(1);
+    let affordable_gas = Gas::from_teragas(2);
+    let balance = gas_cost(fee_gas.checked_add(affordable_gas).unwrap());
+    let mode = ExecutionMode::External { gas_price: GAS_PRICE, fee_gas };
+    assert_eq!(mode.balance_after_fee(balance), gas_cost(affordable_gas));
+    let limits = mode.gas_limits(limit_config, Gas::ZERO, balance);
+    assert_eq!(limits.prepaid_gas, affordable_gas);
+
+    // A balance that does not cover the fees pays for no gas.
+    let balance = gas_cost(fee_gas).checked_sub(Balance::from_yoctonear(1)).unwrap();
+    assert_eq!(mode.balance_after_fee(balance), Balance::ZERO);
+    let limits = mode.gas_limits(limit_config, Gas::ZERO, balance);
+    assert_eq!(limits.prepaid_gas, Gas::ZERO);
+}
+
+/// When the fees of an external call use up its budget, the call fails before
+/// the contract is loaded.
+#[test]
+fn test_external_fee_exceeding_budget_aborts_loading() {
+    let fee_gas = VMLogicBuilder::external().config.limit_config.max_gas_burnt_external;
+    let logic_builder = external_logic_builder_with_fee(Balance::from_near(1), fee_gas);
+    let gas_counter = logic_builder.context.make_gas_counter(&logic_builder.config);
+    let Err(abort) = gas_counter.charge_loading_base("main") else {
+        panic!("charging the loading base should fail");
+    };
+    let outcome = abort.into_outcome(&logic_builder.context, Arc::new(logic_builder.config));
+    assert_eq!(outcome.aborted, Some(FunctionCallError::HostError(HostError::GasExceeded)));
+    assert_eq!(outcome.burnt_gas, Gas::ZERO);
+}
+
+/// In an external call, `account_balance` excludes the fees of the call.
+#[test]
+fn test_external_account_balance_excludes_fee() {
+    let balance = Balance::from_near(1);
+    let fee_gas = Gas::from_teragas(1);
+    let mut logic_builder = external_logic_builder_with_fee(balance, fee_gas);
+    let mut logic = logic_builder.build();
+
+    // `account_balance` reads the balance after paying its base cost, and
+    // before paying to write the balance to memory.
+    let base_gas = ExtCosts::base.gas(&logic.config().ext_costs);
+    logic.account_balance(0).expect("account_balance should succeed");
+    let got = u128::from_le_bytes(logic.internal_mem_read(0, 16).try_into().unwrap());
+    let expected =
+        balance.checked_sub(gas_cost(fee_gas)).unwrap().checked_sub(gas_cost(base_gas)).unwrap();
+    assert_eq!(got, expected.as_yoctonear());
+}
+
+/// Create a promise with a transfer of `amount` in an external call whose fees
+/// burnt `fee_gas`. Returns the result of the transfer and the balance left.
+fn external_transfer_with_fee(
+    balance: Balance,
+    fee_gas: Gas,
+    amount: u128,
+) -> (Result<()>, Balance) {
+    let mut logic_builder = external_logic_builder_with_fee(balance, fee_gas);
+    let mut logic = logic_builder.build();
+    let index = promise_batch_create(&mut logic, "bob.near").expect("should create a promise");
+    let amount = logic.internal_mem_write(&amount.to_le_bytes());
+    let result = logic.promise_batch_action_transfer(index, amount.ptr);
+    (result, logic.result_state().available_balance())
+}
+
+/// An external call cannot spend the balance it needs to pay for its fees.
+#[test]
+fn test_external_deposit_cannot_spend_fee() {
+    let balance = Balance::from_near(1);
+    let fee_gas = Gas::from_teragas(1);
+    // The balance left after the gas of the transfer, with and without the fees.
+    let (result, available_without_fee) = external_transfer_with_fee(balance, Gas::ZERO, 0);
+    result.expect("transferring nothing should succeed");
+    let (result, available_balance) = external_transfer_with_fee(balance, fee_gas, 0);
+    result.expect("transferring nothing should succeed");
+    assert_eq!(available_balance, available_without_fee.checked_sub(gas_cost(fee_gas)).unwrap());
+    let available = available_balance.as_yoctonear();
+
+    let (result, _) = external_transfer_with_fee(balance, fee_gas, available + 1);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::BalanceExceeded)));
+
+    let (result, available_balance) = external_transfer_with_fee(balance, fee_gas, available);
+    result.expect("transferring the available balance should succeed");
+    assert_eq!(available_balance, Balance::ZERO);
+}
+
+/// The balance an external call leaves pays for both its fees and the gas it
+/// used.
+#[test]
+fn test_external_outcome_balance_excludes_fee() {
+    let balance = Balance::from_near(1);
+    let fee_gas = Gas::from_teragas(1);
+    let mut logic_builder = external_logic_builder_with_fee(balance, fee_gas);
+    let mut logic = logic_builder.build();
+
+    logic.gas_opcodes(1_000_000).expect("should burn gas");
+    let cost = used_gas_cost(&mut logic);
+    let outcome = logic.compute_outcome();
+    let expected = balance.checked_sub(gas_cost(fee_gas)).unwrap().checked_sub(cost).unwrap();
+    assert_eq!(outcome.balance, expected);
 }
 
 /// In an internal call the gas comes from the prepaid gas, not from the

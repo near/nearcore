@@ -10,7 +10,9 @@ use crate::action::DeployGlobalContractAction;
 use crate::action::delegate::VersionedDelegateActionRef;
 use crate::errors::IntegerOverflowError;
 use crate::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
-use crate::transaction::{Action, DeployContractAction, Transaction};
+use crate::transaction::{
+    Action, DeployContractAction, ECC_METHOD_NAME, EccTransaction, Transaction,
+};
 use crate::types::{AccountId, Balance, Compute, Gas};
 use crate::universal_state_init::{RawStateInit, state_init_counts};
 use near_crypto::{KeyType, PublicKey};
@@ -86,6 +88,28 @@ fn gas_key_send_pk_len(config: &RuntimeConfig, public_key: &PublicKey) -> usize 
     }
 }
 
+/// Send fee of a function call whose method name and args together have `num_bytes`.
+pub fn function_call_send_fee(
+    fees: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    num_bytes: u64,
+) -> ParameterCost {
+    let base_fee = fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver);
+    let byte_fee = fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver);
+    let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+    base_fee.checked_add(all_bytes_fee).unwrap()
+}
+
+/// Exec fee of a function call whose method name and args together have `num_bytes`.
+pub fn function_call_exec_fee(fees: &RuntimeFeesConfig, num_bytes: u64) -> ParameterCost {
+    let base_fee = fees.fee(ActionCosts::function_call_base).exec_fee();
+    let byte_fee = fees.fee(ActionCosts::function_call_byte).exec_fee();
+    let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+    base_fee.checked_add(all_bytes_fee).unwrap()
+}
+
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeConfig,
@@ -113,13 +137,7 @@ pub fn total_send_fees(
             FunctionCall(function_call_action) => {
                 let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                     + function_call_action.args.len() as u64;
-                let base_fee =
-                    fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver);
-                let byte_fee =
-                    fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver);
-                let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-
-                base_fee.checked_add(all_bytes_fee).unwrap()
+                function_call_send_fee(fees, sender_is_receiver, num_bytes)
             }
             Transfer(_) => {
                 // Account for implicit account creation
@@ -354,11 +372,7 @@ pub fn exec_fee(
         FunctionCall(function_call_action) => {
             let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                 + function_call_action.args.len() as u64;
-            let base_fee = fees.fee(ActionCosts::function_call_base).exec_fee();
-            let byte_fee = fees.fee(ActionCosts::function_call_byte).exec_fee();
-            let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-
-            base_fee.checked_add(all_bytes_fee).unwrap()
+            function_call_exec_fee(fees, num_bytes)
         }
         Transfer(_) => {
             // Account for implicit account creation
@@ -546,6 +560,39 @@ pub fn calculate_tx_cost(
         deposit_cost,
         total_cost,
     })
+}
+
+/// Describes what an external contract call burns before its method runs.
+#[derive(Debug)]
+pub struct EccCost {
+    /// Total amount of gas burnt by the fees of the call.
+    pub gas_burnt: Gas,
+    /// Total amount of the compute budget of a chunk used by the fees of the call.
+    pub compute_burnt: Compute,
+    /// The amount of tokens burnt by the fees of the call.
+    pub burnt_amount: Balance,
+}
+
+/// Returns the fees an external contract call pays before its method runs: the fees of a
+/// self-addressed function call with the same method name and input. There is no signature,
+/// so there is no signature verification fee.
+///
+/// An ECC is executed right away, so both the send and the exec fees are burnt at once.
+pub fn ecc_cost(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    gas_price: Balance,
+) -> Result<EccCost, IntegerOverflowError> {
+    let fees = &config.fees;
+    let num_bytes = ECC_METHOD_NAME.len() as u64 + ecc.payload().len() as u64;
+    let receipt_fee = fees.fee(ActionCosts::new_action_receipt);
+    let burnt = receipt_fee
+        .send_fee(true)
+        .checked_add_result(receipt_fee.exec_fee())?
+        .checked_add_result(function_call_send_fee(fees, true, num_bytes))?
+        .checked_add_result(function_call_exec_fee(fees, num_bytes))?;
+    let burnt_amount = safe_gas_to_balance(gas_price, burnt.gas)?;
+    Ok(EccCost { gas_burnt: burnt.gas, compute_burnt: burnt.compute, burnt_amount })
 }
 
 /// The signature scheme of a signer key, used to key the per-scheme
@@ -778,13 +825,15 @@ pub fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::TransferAction;
     use crate::action::delegate::{
         DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedSignedDelegateAction,
     };
+    use crate::action::{FunctionCallAction, TransferAction};
     use crate::transaction::{TransactionNonce, TransactionV0};
     use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use crate::version::ProtocolFeature;
     use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
+    use near_parameters::RuntimeConfigStore;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
@@ -1036,5 +1085,86 @@ mod tests {
         let malformed = RawStateInit(vec![7, 7, 7]);
         let bytes_only = universal_state_init_fee(&fees, &malformed, Fee::exec_fee).unwrap();
         assert_eq!(bytes_only.gas, Gas::from_gas(1 + 3));
+    }
+
+    /// The fees of a self-addressed function call with the method name and the args of `ecc`,
+    /// computed with the helpers used for ordinary transactions and receipts.
+    fn self_addressed_function_call_fees(
+        config: &RuntimeConfig,
+        ecc: &EccTransaction,
+    ) -> ParameterCost {
+        let contract_id = ecc.contract_id();
+        let action = Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: ECC_METHOD_NAME.to_string(),
+            args: ecc.payload().to_vec(),
+            gas: Gas::ZERO,
+            deposit: Balance::ZERO,
+        }));
+        let receipt_fee = config.fees.fee(ActionCosts::new_action_receipt);
+        receipt_fee
+            .send_fee(true)
+            .checked_add(receipt_fee.exec_fee())
+            .unwrap()
+            .checked_add(
+                total_send_fees(config, true, std::slice::from_ref(&action), contract_id).unwrap(),
+            )
+            .unwrap()
+            .checked_add(exec_fee(config, &action, contract_id).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn ecc_cost_matches_self_addressed_function_call() {
+        let config = RuntimeConfig::test();
+        let gas_price = Balance::from_yoctonear(100_000_000);
+        for payload_len in [0, 1, 1000] {
+            let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![7; payload_len]);
+            let cost = ecc_cost(&config, &ecc, gas_price).unwrap();
+            let expected = self_addressed_function_call_fees(&config, &ecc);
+            assert_eq!(cost.gas_burnt, expected.gas, "payload_len = {payload_len}");
+            assert_eq!(cost.compute_burnt, expected.compute, "payload_len = {payload_len}");
+            assert_eq!(
+                cost.burnt_amount,
+                safe_gas_to_balance(gas_price, expected.gas).unwrap(),
+                "payload_len = {payload_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn ecc_cost_of_empty_payload() {
+        let config = RuntimeConfig::test();
+        let fees = &config.fees;
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![]);
+        let cost = ecc_cost(&config, &ecc, Balance::from_yoctonear(1)).unwrap();
+
+        let send_and_exec = |cost: ActionCosts| {
+            let fee = fees.fee(cost);
+            fee.send_fee(true).gas.as_gas() + fee.exec_fee().gas.as_gas()
+        };
+        let fixed = send_and_exec(ActionCosts::new_action_receipt)
+            + send_and_exec(ActionCosts::function_call_base);
+        let method_name_bytes =
+            send_and_exec(ActionCosts::function_call_byte) * ECC_METHOD_NAME.len() as u64;
+        assert_eq!(cost.gas_burnt, Gas::from_gas(fixed + method_name_bytes));
+    }
+
+    /// With the parameters of the version that enables external contract calls, the fees of the
+    /// largest payload leave most of the authorization budget to the contract.
+    #[test]
+    fn ecc_cost_of_max_payload_fits_budget() {
+        let config_store = RuntimeConfigStore::new();
+        let protocol_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = config_store.get_config(protocol_version);
+        let limit_config = &config.wasm_config.limit_config;
+        let payload = vec![0; limit_config.max_transaction_size as usize];
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), payload);
+        let cost = ecc_cost(config, &ecc, Balance::from_yoctonear(1)).unwrap();
+        assert!(
+            cost.gas_burnt.checked_mul(2).unwrap() < limit_config.max_gas_burnt_external,
+            "fees of the max payload {} use more than half of the budget {}",
+            cost.gas_burnt,
+            limit_config.max_gas_burnt_external,
+        );
     }
 }

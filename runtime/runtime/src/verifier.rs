@@ -1,5 +1,5 @@
 use crate::action_validation::{validate_actions, validate_actions_with_mode};
-use crate::config::TransactionCost;
+use crate::config::{EccCost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
@@ -12,7 +12,8 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, NonceMode, SignedTransaction, Transaction, TransactionEnvelope, ValidatedTransaction,
+    Action, EccTransaction, NonceMode, SignedTransaction, Transaction, TransactionEnvelope,
+    ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
@@ -268,6 +269,31 @@ pub fn verify_and_charge_tx_ephemeral<E>(
     };
 
     Ok(verdict)
+}
+
+/// Verify that the contract of an external contract call exists and can pay for the fees of the
+/// call. The contract takes the place of the signer: it is the account that pays.
+///
+/// This performs no mutation. The fees are not charged here: the contract pays for them from
+/// the balance the call leaves, only if it accepts the call.
+pub fn verify_ecc_ephemeral(
+    contract: Option<&Account>,
+    ecc: &EccTransaction,
+    cost: &EccCost,
+) -> Result<(), InvalidTxError> {
+    let contract_id = ecc.contract_id();
+    let Some(contract) = contract else {
+        return Err(InvalidTxError::InvalidSignerId { signer_id: contract_id.to_string() });
+    };
+    let balance = contract.amount();
+    if balance < cost.burnt_amount {
+        return Err(InvalidTxError::NotEnoughBalance {
+            signer_id: contract_id.clone(),
+            balance,
+            cost: cost.burnt_amount,
+        });
+    }
+    Ok(())
 }
 
 /// Resolve the signer's account and what authorizes the transaction against it:
@@ -900,7 +926,7 @@ fn validate_data_receipt(
 mod tests {
     use super::*;
     use crate::access_keys::{action_add_key, initial_nonce_value};
-    use crate::config::tx_cost;
+    use crate::config::{ecc_cost, tx_cost};
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
@@ -3195,5 +3221,44 @@ mod tests {
                 InvalidTxError::InvalidNonce { tx_nonce: u64::MAX, ak_nonce: u64::MAX }
             );
         }
+    }
+
+    /// An ECC to `contract.near` and its cost.
+    fn ecc_and_cost() -> (EccTransaction, EccCost) {
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]);
+        let cost =
+            ecc_cost(&RuntimeConfig::test(), &ecc, Balance::from_yoctonear(100_000_000)).unwrap();
+        (ecc, cost)
+    }
+
+    #[test]
+    fn test_verify_ecc_missing_contract() {
+        let (ecc, cost) = ecc_and_cost();
+        assert_eq!(
+            verify_ecc_ephemeral(None, &ecc, &cost),
+            Err(InvalidTxError::InvalidSignerId { signer_id: "contract.near".to_string() })
+        );
+    }
+
+    #[test]
+    fn test_verify_ecc_not_enough_balance() {
+        let (ecc, cost) = ecc_and_cost();
+        let balance = cost.burnt_amount.checked_sub(Balance::from_yoctonear(1)).unwrap();
+        let contract = account_new(balance, CryptoHash::default());
+        assert_eq!(
+            verify_ecc_ephemeral(Some(&contract), &ecc, &cost),
+            Err(InvalidTxError::NotEnoughBalance {
+                signer_id: ecc.contract_id().clone(),
+                balance,
+                cost: cost.burnt_amount,
+            })
+        );
+    }
+
+    #[test]
+    fn test_verify_ecc_exact_balance() {
+        let (ecc, cost) = ecc_and_cost();
+        let contract = account_new(cost.burnt_amount, CryptoHash::default());
+        assert_eq!(verify_ecc_ephemeral(Some(&contract), &ecc, &cost), Ok(()));
     }
 }

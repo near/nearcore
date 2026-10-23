@@ -55,7 +55,10 @@ fn run_external_call(attached_deposit: Balance) -> VMOutcome {
         attached_deposit,
         prepaid_gas: Gas::ZERO,
         random_seed: vec![0, 1, 2],
-        execution_mode: ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) },
+        execution_mode: ExecutionMode::External {
+            gas_price: Balance::from_yoctonear(100_000_000),
+            fee_gas: Gas::ZERO,
+        },
         output_data_receivers: vec![],
     };
 

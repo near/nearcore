@@ -25,6 +25,12 @@ The cost is taken as soon as the gas is used, and `account_balance` returns the 
 transfer cannot spend the balance needed to pay for the gas used so far, and panics with `BalanceExceeded`
 instead.
 
+The call also pays fees for its input before the method runs (see
+[Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)). They are taken from the
+balance the same way: `account_balance` excludes them from the start, and they cannot be spent on gas, deposits or
+transfers. `used_gas` does not include them, and the fees also lower the `max_gas_burnt_external` limit on the gas
+burnt.
+
 An external call has no deposit. If one is called with a nonzero `attached_deposit`, it fails with
 `DepositInExternalCall` before any contract code runs.
 
