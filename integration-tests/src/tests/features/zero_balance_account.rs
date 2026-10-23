@@ -14,7 +14,7 @@ use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, Signed
 use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
-use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use std::sync::Arc;
 
 /// Assert that an account exists and has zero balance
