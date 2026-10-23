@@ -1,4 +1,6 @@
-use crate::{EpochManagerHandle, SampleEpoch};
+use crate::EpochManagerHandle;
+#[cfg(feature = "test_features")]
+use crate::{SampleEpoch, SeedAnchor};
 use near_chain_primitives::Error;
 use near_crypto::{PublicKey, Signature};
 use near_primitives::block::{Block, Tip};
@@ -12,10 +14,12 @@ use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+#[cfg(feature = "test_features")]
+use near_primitives::types::ValidatorId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
-    ShardIndex, ValidatorId, ValidatorInfoIdentifier,
+    ShardIndex, ValidatorInfoIdentifier,
 };
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -24,6 +28,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
+#[cfg(feature = "test_features")]
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -636,6 +641,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// `seed_chunk_producers`. Gated by `ProtocolFeature::EarlyKickout`: empty when the
     /// feature is off, and empty for early-epoch anchors (the aggregator basis still sits in
     /// the previous epoch, then the start-of-epoch grace applies).
+    ///
+    /// Test-only: production reads the seeded `DBCol::ChunkProducers` rows instead.
+    #[cfg(feature = "test_features")]
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,
@@ -1189,6 +1197,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.get_chunk_producer_info(&cpk)
     }
 
+    #[cfg(feature = "test_features")]
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,
@@ -1204,11 +1213,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
-        let final_block_hash = *anchor_info.last_final_block_hash();
-        if final_block_hash == CryptoHash::default() {
-            return Ok(HashMap::new());
-        }
-        let final_block_height = anchor_info.last_finalized_height();
+        let anchor = SeedAnchor {
+            hash: *anchor_hash,
+            height: anchor_info.height(),
+            final_hash: *anchor_info.last_final_block_hash(),
+            final_height: anchor_info.last_finalized_height(),
+            epoch_start_height: epoch_manager.get_epoch_start_height_of(&anchor_info)?,
+        };
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let epoch = SampleEpoch {
@@ -1216,10 +1227,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_info: epoch_info.as_ref(),
             shard_layout: &shard_layout,
         };
-        Ok(epoch_manager
-            .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
-            .blacklist
-            .clone())
+        Ok(epoch_manager.chunk_producer_blacklist_at_anchor(&anchor, &epoch)?.blacklist.clone())
     }
 
     fn get_chunk_validator_assignments(
