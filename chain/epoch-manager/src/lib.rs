@@ -2114,7 +2114,7 @@ impl EpochManager {
             &epoch_id,
             &epoch_info,
             &shard_layout,
-            Some(prev_block_info),
+            prev_block_info,
         );
         let mut this_block = EpochInfoAggregator::new(epoch_id, *block_info.hash());
         this_block.update_tail(
@@ -2134,22 +2134,19 @@ impl EpochManager {
 
     /// Chunk producers of the block built on `prev_block_info`, read from the rows seeded at
     /// its grandparent, so kickout stats count the producers consensus resolved. Returns
-    /// `None` when EarlyKickout is off, the parent is missing or genesis, or the grandparent is
-    /// missing or in another epoch. The caller then samples at `prev_height + 1`. A shard whose
+    /// `None` when EarlyKickout is off, the parent is genesis, or the grandparent is missing or
+    /// in another epoch. The caller then samples at `prev_height + 1`. A shard whose
     /// row is missing or names an unknown account is sampled at `anchor.height + 2`.
     fn anchored_chunk_producers_for_aggregator(
         &self,
         epoch_id: &EpochId,
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
-        prev_block_info: Option<&BlockInfo>,
+        prev_block_info: &BlockInfo,
     ) -> Option<HashMap<ShardId, ValidatorId>> {
         if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
             return None;
         }
-        // Missing prev `BlockInfo` is the epoch-sync special case handled by
-        // the caller; resolve that block with the legacy sampler.
-        let prev_block_info = prev_block_info?;
         if prev_block_info.is_genesis() {
             return None;
         }

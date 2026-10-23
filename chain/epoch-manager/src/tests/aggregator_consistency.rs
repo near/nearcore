@@ -127,7 +127,7 @@ fn recompute_aggregator(em: &EpochManager, block_hash: &CryptoHash) -> EpochInfo
             &epoch_id,
             &epoch_info,
             &shard_layout,
-            Some(&prev_block_info),
+            &prev_block_info,
         );
         aggregator.update_tail(
             &block_info,

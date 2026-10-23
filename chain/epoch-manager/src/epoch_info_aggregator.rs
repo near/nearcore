@@ -48,18 +48,7 @@ impl EpochInfoAggregator {
         }
     }
 
-    /// Aggregates data from a block which directly precede the first block this
-    /// aggregator has statistic on.
-    ///
-    /// For example, this method can be used in the following situation (where
-    /// A through G are blocks ordered in increasing height and arrows denote
-    /// ‘is parent’ relationship and B is start of a new epoch):
-    ///
-    /// ```text
-    ///     ┌─ block_info
-    /// A ← B ← C ← D ← E ← F ← G ← H ← I
-    ///         │←── self ─→│
-    /// ```
+    /// Adds the stats of `block_info` to this aggregator.
     ///
     /// Block recording calls it on an empty aggregator for one block, then
     /// [merges][`Self::merge`] the result into the parent's aggregator.
