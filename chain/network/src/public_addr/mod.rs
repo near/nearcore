@@ -65,14 +65,19 @@ pub(crate) struct Vote {
 /// IP, so that the result is deterministic.
 ///
 /// Reported IPs which are not public are ignored, unless `allow_private` is set, which is meant
-/// for private test networks.
+/// for private test networks. If the node listens on IPv4 (`listen_ip`), reported IPv6 addresses
+/// are ignored too, since the node couldn't accept connections on them.
 pub(crate) fn vote(
     reports: impl IntoIterator<Item = (IpAddr, IpAddr)>,
+    listen_ip: IpAddr,
     allow_private: bool,
 ) -> Vote {
     let mut netgroups = HashMap::<IpAddr, HashSet<IpAddr>>::new();
     for (peer_ip, reported_ip) in reports {
         let reported_ip = reported_ip.to_canonical();
+        if listen_ip.is_ipv4() && reported_ip.is_ipv6() {
+            continue;
+        }
         if !(allow_private || is_public_ip(reported_ip)) {
             continue;
         }

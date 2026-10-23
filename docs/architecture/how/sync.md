@@ -154,9 +154,10 @@ A node puts its own public address into its state requests, so that hosts can
 connect back to it, and into its snapshot advertisements, described below. It is
 `network.experimental.tier3_public_addr` if configured. Otherwise the node
 learns it from its Tier 2 peers, each of which reports the IP at which it sees
-the node. Reports of non-public IPs are ignored. The node uses its listen port
-and the IP reported from the most network groups of peers (/16 for IPv4, /32 for
-IPv6). Reports stop counting when their peer disconnects. With
+the node. Reports of non-public IPs are ignored, and so are reports of IPv6
+addresses if the node listens on IPv4. The node uses its listen port and the IP
+reported from the most network groups of peers (/16 for IPv4, /32 for IPv6).
+Reports stop counting when their peer disconnects. With
 `network.allow_private_ip_in_public_addrs`, meant for local test networks,
 private IPs are accepted.
 
