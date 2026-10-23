@@ -11,7 +11,7 @@ use near_async::time::Clock;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_crypto::KeyType;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -74,13 +74,19 @@ pub fn get_chain_with_epoch_length_and_num_shards(
 
 pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    get_chain_with_genesis_and_epoch_config_store(clock, genesis, epoch_config_store)
+    get_chain_with_genesis_and_epoch_config_store(
+        clock,
+        genesis,
+        epoch_config_store,
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    )
 }
 
 pub fn get_chain_with_genesis_and_epoch_config_store(
     clock: Clock,
     genesis: Genesis,
     epoch_config_store: EpochConfigStore,
+    gc_num_epochs_to_keep: u64,
 ) -> Chain {
     let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
@@ -92,8 +98,13 @@ pub fn get_chain_with_genesis_and_epoch_config_store(
         epoch_config_store,
     );
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test_with_gc_num_epochs_to_keep(
+        tempdir.path(),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+        gc_num_epochs_to_keep,
+    );
     Chain::new(
         clock,
         epoch_manager,
