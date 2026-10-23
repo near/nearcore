@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::tests::early_kickout_withheld_block::deliver_late;
 use crate::tests::sync::util::{
     TEST_EPOCH_SYNC_HORIZON, far_horizon_height, run_until_synced, throttle_header_sync,
 };
@@ -6,6 +7,7 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -74,6 +76,116 @@ fn test_migration_53_to_54_rebuilds_epoch_info_aggregator_rows() {
     }
 
     env.validator_runner().run_until_new_epoch();
+}
+
+/// The 53 -> 54 migration writes rows for recorded headers above the header head.
+///
+/// Header sync commits each header with its `BlockInfo` and moves the header head only after
+/// the whole batch, so an interrupted or failed batch leaves recorded headers above it. The
+/// test moves the header head back to the final head to get that state, then checks that the
+/// migration still writes the row of every block above the final head.
+#[test]
+fn test_migration_53_to_54_writes_rows_above_header_head() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(10).build();
+    env.validator_runner().run_until_new_epoch();
+    env.validator_runner().run_for_number_of_blocks(5);
+
+    let store = env.validator().store();
+    let chain_store = store.chain_store();
+    let final_head = chain_store.final_head().unwrap();
+    let header_head = chain_store.header_head().unwrap();
+    assert!(header_head.height > final_head.height);
+    let recorded_rows: HashMap<Vec<u8>, Vec<u8>> = store
+        .iter(DBCol::EpochInfoAggregators)
+        .map(|(key, value)| (key.to_vec(), value.to_vec()))
+        .collect();
+
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.commit();
+    let mut chain_store_update = chain_store.store_update();
+    chain_store_update.set_header_head(&final_head);
+    chain_store_update.commit().unwrap();
+
+    test_only_migrate_53_to_54(
+        &store,
+        &env.shared_state.genesis.config,
+        env.shared_state.epoch_config_store.clone(),
+    )
+    .unwrap();
+
+    let header_head_row =
+        store.get(DBCol::EpochInfoAggregators, header_head.last_block_hash.as_ref());
+    assert_eq!(
+        header_head_row.map(|row| row.to_vec()).as_ref(),
+        recorded_rows.get(header_head.last_block_hash.as_bytes().as_slice()),
+        "the block at the old header head must get its recorded row back",
+    );
+}
+
+/// The 53 -> 54 migration writes rows for fork blocks above the final head.
+///
+/// The block at one height is withheld and delivered after its canonical sibling's child,
+/// so both siblings are recorded. The node stops right after the late block arrives, while
+/// the final head is still below it. Every migrated row, the late fork block's included,
+/// must equal the row block recording wrote.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_migration_53_to_54_writes_rows_for_forks_above_final_head() {
+    init_test_logger();
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
+    let withheld = env.node(0).head().height + epoch_length + epoch_length / 2;
+    deliver_late(&mut env, withheld);
+    let node = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let chain = &data.get(&node).client.chain;
+            chain.chain_store().get_all_block_hashes_by_height(withheld).values().flatten().count()
+                > 0
+        },
+        Duration::seconds(20),
+    );
+
+    let store = env.validator().store();
+    let chain_store = store.chain_store();
+    let late_block: Vec<CryptoHash> =
+        chain_store.get_all_block_hashes_by_height(withheld).values().flatten().copied().collect();
+    assert_eq!(late_block.len(), 1);
+    let late_block = late_block[0];
+    let canonical_child = chain_store.get_block_hash_by_height(withheld + 1).unwrap();
+    assert_ne!(
+        chain_store.get_block_header(&canonical_child).unwrap().prev_hash(),
+        &late_block,
+        "the canonical chain must skip the late block"
+    );
+    assert!(chain_store.final_head().unwrap().height < withheld);
+    let recorded_rows: HashMap<Vec<u8>, Vec<u8>> = store
+        .iter(DBCol::EpochInfoAggregators)
+        .map(|(key, value)| (key.to_vec(), value.to_vec()))
+        .collect();
+
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.commit();
+    test_only_migrate_53_to_54(
+        &store,
+        &env.shared_state.genesis.config,
+        env.shared_state.epoch_config_store.clone(),
+    )
+    .unwrap();
+
+    assert!(store.exists(DBCol::EpochInfoAggregators, late_block.as_ref()));
+    for (key, value) in store.iter(DBCol::EpochInfoAggregators) {
+        assert_eq!(
+            recorded_rows.get(key.as_ref()).map(Vec::as_slice),
+            Some(value.as_ref()),
+            "migrated row for block {} must match the recorded row",
+            CryptoHash::try_from(key.as_ref()).unwrap(),
+        );
+    }
 }
 
 /// After the 53 -> 54 migration, blocks whose last final block is in the previous epoch
@@ -194,4 +306,65 @@ fn test_migration_53_to_54_during_header_sync_after_epoch_sync() {
     let restarted_idx = env.restart_node("new_node-restart", node_state);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
     env.node_runner(restarted_idx).run_for_number_of_blocks(2 * epoch_length as usize);
+}
+
+/// After epoch sync, the 53 -> 54 migration also starts at the synced epoch's first block when
+/// the final head is a previous-epoch block.
+///
+/// State sync resets the final head to genesis, and the first processed block can then name a
+/// previous-epoch block as its last final block if a height was skipped. Epoch sync stores the
+/// previous epoch's last header but not the `BlockInfo` of the blocks before its second-last,
+/// so walking back from such a final head to its epoch start fails. The test sets the final
+/// head to the previous epoch's last block to get that state.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_migration_53_to_54_with_final_head_in_previous_epoch_after_epoch_sync() {
+    init_test_logger();
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let node_state = env
+        .node_state_builder()
+        .account_id(&create_account_id("new_node"))
+        .config_modifier(|config| {
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+            // Stay in header sync until the header head is near the tip.
+            config.block_header_fetch_horizon = 2;
+        })
+        .build();
+    let new_node_idx = env.add_node("new_node", node_state);
+    // Few headers per response, so the node stays in header sync long enough to stop it.
+    throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 5);
+    let new_node = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let chain = &data.get(&new_node).client.chain;
+            chain.chain_store.store().epoch_store().get_epoch_sync_proof().unwrap().is_some()
+        },
+        Duration::seconds(20),
+    );
+
+    let node_state = env.kill_node("new_node");
+    let store = node_state.storage.hot_store.clone();
+    let chain_store = store.chain_store();
+    let proof = store.epoch_store().get_epoch_sync_proof().unwrap().unwrap();
+    let first_block_hash = *proof.current_epoch.first_block_header_in_epoch.hash();
+    let prev_epoch_last_header = &proof.current_epoch.last_block_header_in_prev_epoch;
+    let mut chain_store_update = chain_store.store_update();
+    chain_store_update.set_final_head(&Tip::from_header(prev_epoch_last_header));
+    chain_store_update.commit().unwrap();
+
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.commit();
+    test_only_migrate_53_to_54(
+        &store,
+        &env.shared_state.genesis.config,
+        env.shared_state.epoch_config_store.clone(),
+    )
+    .unwrap();
+    assert!(store.exists(DBCol::EpochInfoAggregators, first_block_hash.as_ref()));
+    assert!(!store.exists(DBCol::EpochInfoAggregators, prev_epoch_last_header.hash().as_ref()));
 }
