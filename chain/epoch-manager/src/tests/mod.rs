@@ -1,3 +1,4 @@
+mod aggregator_consistency;
 #[cfg(feature = "test_features")]
 mod early_kickout;
 #[cfg(feature = "test_features")]
