@@ -411,34 +411,6 @@ fn fallback_only_certification_schedule(
     fallback_schedule
 }
 
-/// The height of the block carrying `chunk_id`'s execution result, with every account that endorsed
-/// the chunk on chain up to and including it.
-fn certifying_height_and_endorsers(
-    node: &TestLoopNode,
-    chunk_id: &SpiceChunkId,
-) -> Option<(BlockHeight, HashSet<AccountId>)> {
-    let chain_store = node.client().chain.chain_store();
-    let chunk_height = chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
-    let mut endorsers = HashSet::new();
-    for height in chunk_height..=node.head().height {
-        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
-            continue;
-        };
-        let block = node.block(block_hash);
-        endorsers.extend(
-            block
-                .spice_core_statements()
-                .iter_endorsements()
-                .filter(|endorsement| endorsement.chunk_id() == chunk_id)
-                .map(|endorsement| endorsement.account_id().clone()),
-        );
-        if block.spice_core_statements().iter_execution_results().any(|(id, _)| id == chunk_id) {
-            return Some((height, endorsers));
-        }
-    }
-    None
-}
-
 /// Asserts the chunk certified with non-designated validators endorsing it on chain. An ordinary
 /// chunk never admits those on a healthy network: it is not fallback-eligible until it has been
 /// stuck for the full window.
@@ -464,7 +436,8 @@ fn assert_certified_by_all_stake(
         designated.assignments().iter().map(|(account_id, _)| account_id.clone()).collect();
     assert!(!all_stake.is_endorsed_by_more_than_one_third(&designated_accounts));
 
-    let (certifying_height, endorsers) = certifying_height_and_endorsers(node, &chunk_id)
+    let (certifying_height, endorsers) = node
+        .certifying_height_and_endorsers(&chunk_id)
         .unwrap_or_else(|| panic!("fallback-only chunk {chunk_id:?} was not certified"));
     // Inside the ordinary fallback window, so the schedule opened the all-stake path rather than
     // the chunk sitting stuck long enough for the normal one to open.
