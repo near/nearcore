@@ -9,7 +9,7 @@ fn parts_without_an_item_are_not_wanted() {
     let encoder = encoder();
     let (commitment, parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
 
-    let result = manager.on_parts_received(&producers()[0], &id, &commitment, parts, TOTAL_PARTS);
+    let result = manager.on_parts_received(&producers()[0], &id, &commitment, parts);
 
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
@@ -25,14 +25,12 @@ fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
     let late_part = parts.split_off(DATA_PARTS);
 
-    let delivered =
-        manager.on_parts_received(&producers()[0], &id, &commitment, parts, TOTAL_PARTS).unwrap();
+    let delivered = manager.on_parts_received(&producers()[0], &id, &commitment, parts).unwrap();
 
     assert_matches!(delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
     // Nothing more can arrive under a decoded commitment, so a re-pushed part cannot
     // deliver twice. The item stays until it expires.
-    let result =
-        manager.on_parts_received(&producers()[1], &id, &commitment, late_part, TOTAL_PARTS);
+    let result = manager.on_parts_received(&producers()[1], &id, &commitment, late_part);
     assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
     assert!(manager.is_tracking(&id));
 }
@@ -49,10 +47,9 @@ fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
     let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
 
     let first_delivered =
-        manager.on_parts_received(&producers()[0], &id, &first, first_parts, TOTAL_PARTS).unwrap();
-    let second_delivered = manager
-        .on_parts_received(&producers()[1], &id, &second, second_parts, TOTAL_PARTS)
-        .unwrap();
+        manager.on_parts_received(&producers()[0], &id, &first, first_parts).unwrap();
+    let second_delivered =
+        manager.on_parts_received(&producers()[1], &id, &second, second_parts).unwrap();
 
     assert_matches!(first_delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
     assert_matches!(
@@ -73,7 +70,7 @@ fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));
     let late_part = parts.split_off(DATA_PARTS);
 
-    let result = manager.on_parts_received(&producers()[0], &id, &commitment, parts, TOTAL_PARTS);
+    let result = manager.on_parts_received(&producers()[0], &id, &commitment, parts);
     assert_matches!(
         result,
         Err(SenderFault::GarbageCommitment(AssembledDataError::InvalidToShardId))
@@ -81,8 +78,7 @@ fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
 
     // The item keeps collecting, with the mismatched commitment settled.
     assert!(manager.is_tracking(&id));
-    let result =
-        manager.on_parts_received(&producers()[1], &id, &commitment, late_part, TOTAL_PARTS);
+    let result = manager.on_parts_received(&producers()[1], &id, &commitment, late_part);
     assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
 }
 
@@ -102,8 +98,7 @@ fn a_message_with_a_failing_part_is_rejected_whole_whatever_the_position() {
         bad.part[0] ^= 1;
         message.insert(bad_position, bad);
 
-        let result =
-            manager.manager.on_parts_received(&producer, &id, &commitment, message, TOTAL_PARTS);
+        let result = manager.manager.on_parts_received(&producer, &id, &commitment, message);
 
         assert_matches!(
             result,
@@ -131,8 +126,7 @@ fn a_message_with_more_parts_than_total_is_rejected_before_any_proof_check() {
     message.extend(parts);
     assert_eq!(message.len(), TOTAL_PARTS + 1);
 
-    let result =
-        manager.manager.on_parts_received(&producer, &id, &commitment, message, TOTAL_PARTS);
+    let result = manager.manager.on_parts_received(&producer, &id, &commitment, message);
 
     assert_matches!(result, Err(SenderFault::TooManyParts));
     assert!(manager.item(&id).commitments.is_empty());
@@ -151,8 +145,7 @@ fn a_repeated_ordinal_rejects_the_message_whole() {
     let mut message = parts_with_ordinals(&parts, &good);
     message.insert(1, message[0].clone());
 
-    let result =
-        manager.manager.on_parts_received(&producer, &id, &commitment, message, TOTAL_PARTS);
+    let result = manager.manager.on_parts_received(&producer, &id, &commitment, message);
 
     // Enough distinct parts to decode were in the message; none landed and the sender is
     // not bound.
@@ -172,13 +165,8 @@ fn a_message_from_a_sender_that_is_not_a_producer_is_rejected_before_any_proof_c
     let mut message = parts_with_ordinals(&parts, &[0, 1, 2]);
     message[0].part[0] ^= 1;
 
-    let result = manager.manager.on_parts_received(
-        &account("stranger.near"),
-        &id,
-        &commitment,
-        message,
-        TOTAL_PARTS,
-    );
+    let result =
+        manager.manager.on_parts_received(&account("stranger.near"), &id, &commitment, message);
 
     assert_matches!(result, Err(SenderFault::NotAProducer));
     assert!(manager.item(&id).commitments.is_empty());
@@ -199,9 +187,29 @@ fn an_empty_message_is_a_sender_fault_whether_or_not_the_id_is_tracked() {
     assert!(!manager.manager.items.contains_key(&untracked));
 
     for id in [&tracked, &untracked] {
-        let result =
-            manager.manager.on_parts_received(&producer, id, &commitment, vec![], TOTAL_PARTS);
+        let result = manager.manager.on_parts_received(&producer, id, &commitment, vec![]);
         assert_matches!(result, Err(SenderFault::EmptyMessage));
+    }
+    assert!(manager.item(&tracked).commitments.is_empty());
+    assert!(manager.bound_commitment(&tracked, &producer).is_none());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_message_over_the_per_message_cap_is_too_many_parts_whether_or_not_its_item_is_tracked() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let untracked = receipt_id(&blocks[0], 1, 0);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    let producer = producers()[0].clone();
+    let mut manager = TestManager::new(&chain);
+    let tracked = manager.track_needed_proof(&blocks[0]);
+    assert!(!manager.is_tracking(&untracked));
+    let message: Vec<SpiceDataPart> =
+        parts.iter().cycle().take(MAX_REQUESTED_PARTS + 1).cloned().collect();
+
+    for id in [&tracked, &untracked] {
+        let result = manager.manager.on_parts_received(&producer, id, &commitment, message.clone());
+        assert_matches!(result, Err(SenderFault::TooManyParts));
     }
     assert!(manager.item(&tracked).commitments.is_empty());
     assert!(manager.bound_commitment(&tracked, &producer).is_none());

@@ -6,9 +6,9 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, FetchPolicies, PartsOutcome, PendingPartialData, PullConfig,
-    PullRequest, Push, SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData,
-    SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
+    DATA_PARTS_RATIO, EncodedData, FetchPolicies, MAX_REQUESTED_PARTS, PartsOutcome,
+    PendingPartialData, PullConfig, PullRequest, Push, SenderFault, ServeError, ServeOutcome,
+    ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -103,10 +103,6 @@ pub(crate) enum Error {
     InvalidCommitment,
     #[error("decoded data doesn't match commitment hash")]
     InvalidCommitmentHash,
-    #[error("receipt proof id to_shard_id is invalid")]
-    InvalidReceiptToShardId,
-    #[error("receipt proof id from_shard_id is invalid")]
-    InvalidReceiptFromShardId,
     #[error("decoded data doesn't match id")]
     IdAndDataMismatch,
     #[error("data sender is not a validator")]
@@ -152,12 +148,6 @@ pub const DATA_REQUEST_INTERVAL: Duration = Duration::milliseconds(1000);
 /// Max number of entries `(data_id, ordinals)` a single batched request may carry.
 /// This caps the encodes (CPU).
 pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
-
-/// Max total number of parts a single batched request may carry.
-/// This caps the number of parts sent back, not their size. Must stay above the largest
-/// per-shard chunk-producer set.
-// TODO(spice): Bound the outbound bytes per (data_id, requester) too.
-pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
 
 /// Bundles channels for all SPICE-related messages that the network layer dispatches to.
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
@@ -356,8 +346,6 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             | Error::InvalidDecodedWitnessBlockHash
             | Error::InvalidCommitment
             | Error::InvalidCommitmentHash
-            | Error::InvalidReceiptToShardId
-            | Error::InvalidReceiptFromShardId
             | Error::IdAndDataMismatch
             | Error::InvalidPartialDataSignature
             | Error::DecodeError(_)
@@ -698,25 +686,13 @@ impl SpiceDataDistributorActor {
         SpiceVerifiedPartialData { id, commitment, parts, sender }: SpiceVerifiedPartialData,
         block: &Block,
     ) -> Result<(), Error> {
-        self.verify_data_id(&id, block)?;
-
         // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
-                let producers = self.data_manager.producers(&data_id)?;
-                if !producers.contains(&sender) {
-                    return Err(Error::SenderIsNotProducer);
-                }
                 self.data_manager.track_block_items(block.header())?;
-                match self.data_manager.on_parts_received(
-                    &sender,
-                    &data_id,
-                    &commitment,
-                    parts,
-                    producers.len(),
-                ) {
+                match self.data_manager.on_parts_received(&sender, &data_id, &commitment, parts) {
                     Ok(PartsOutcome::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
                         tracing::debug!(target: "spice_data_distribution", ?data_id, ?commitment, "delivering decoded receipt proof");
                         self.executor_sender
@@ -731,7 +707,13 @@ impl SpiceDataDistributorActor {
                     Err(err) => Err(err.into()),
                 }
             }
-            SpiceDataIdentifier::Witness { shard_id, .. } => {
+            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
+                debug_assert_eq!(block_hash, block.hash());
+                let shard_layout =
+                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+                if !shard_layout.shard_ids().contains(shard_id) {
+                    return Err(Error::InvalidWitnessShardId);
+                }
                 let (_recipients, producers) =
                     self.witness_recipients_and_producers(block, *shard_id)?;
                 if !producers.contains(&sender) {
@@ -844,35 +826,6 @@ impl SpiceDataDistributorActor {
     // TODO(spice-data-distribution): responsibility creep — remove when witnesses move onto the engine.
     fn is_witness_known(&self, me: &AccountId, block_hash: &CryptoHash, shard_id: ShardId) -> bool {
         self.core_reader.endorsement_exists(block_hash, shard_id, me)
-    }
-
-    fn verify_data_id(&self, id: &SpiceDataIdentifier, block: &Block) -> Result<(), Error> {
-        match id {
-            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-                let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
-                if !shard_ids.contains(from_shard_id) {
-                    return Err(Error::InvalidReceiptFromShardId);
-                }
-                // TODO(spice-resharding): If to_shard_id may be from the next_epoch this check
-                // needs to be adjusted.
-                if !shard_ids.contains(to_shard_id) {
-                    return Err(Error::InvalidReceiptToShardId);
-                }
-            }
-            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-                let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
-                if !shard_ids.contains(shard_id) {
-                    return Err(Error::InvalidWitnessShardId);
-                }
-            }
-        }
-        Ok(())
     }
 
     fn possible_producers(

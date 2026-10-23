@@ -1,4 +1,3 @@
-use super::source_producers;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::policy::FetchPolicy;
@@ -116,9 +115,5 @@ impl FetchPolicy for ReceiptProofFetchPolicy {
             }
         }
         Ok(ids)
-    }
-
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        source_producers(&self.chain_store, self.epoch_manager.as_ref(), id)
     }
 }

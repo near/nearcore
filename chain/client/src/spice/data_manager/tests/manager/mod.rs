@@ -105,10 +105,6 @@ impl FetchPolicy for TestPolicy {
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.chain_policies.made_pullable_by(block)
     }
-
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        Ok(self.producers_of(id))
-    }
 }
 
 /// Each producer pulled from for its own ordinal.
@@ -263,8 +259,7 @@ impl TestManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
     ) {
-        let result =
-            self.manager.on_parts_received(sender, id, commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.on_parts_received(sender, id, commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Collecting);
     }
 
@@ -272,8 +267,7 @@ impl TestManager {
     fn deliver(&mut self, sender: &AccountId, id: &DataId, data: &SpiceData) {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
-        let result =
-            self.manager.on_parts_received(sender, id, &commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.on_parts_received(sender, id, &commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
     }
 
