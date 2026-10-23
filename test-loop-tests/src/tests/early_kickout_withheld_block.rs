@@ -25,7 +25,7 @@ const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
 /// Deliver the withheld block after its canonical sibling and before the sibling's child.
 /// Every head is then on the sibling, so a node that cannot record the child cannot progress.
-fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
+pub(crate) fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
     let late: Arc<Mutex<Option<Arc<Block>>>> = Arc::new(Mutex::new(None));
     let client_senders: Vec<_> =
         env.node_datas.iter().map(|data| data.client_sender.clone()).collect();
