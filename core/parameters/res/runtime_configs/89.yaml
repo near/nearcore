@@ -1,1 +1,2 @@
 max_globals_per_contract: { new: 65_536 }
+fix_contract_loading_cost: { old: false, new: true }

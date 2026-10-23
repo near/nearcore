@@ -2450,7 +2450,7 @@ fn test_named_account_old_wallet_hash_with_missing_replacement() {
     for chain_id in [MAINNET, TESTNET] {
         let old_version = ProtocolFeature::UpdatedEthWalletContract.protocol_version() - 1;
         let old_hash = eth_wallet_global_contract_hash(chain_id, old_version);
-        for protocol_version in [feature_version - 1, feature_version] {
+        for protocol_version in [feature_version, feature_version + 1] {
             assert!(is_earlier_eth_wallet_global_contract_hash(
                 &old_hash,
                 chain_id,
