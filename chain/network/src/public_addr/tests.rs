@@ -107,6 +107,8 @@ fn vote_treats_ipv4_mapped_addresses_as_ipv4() {
     let reports =
         [(peer_ip(0, 1), ipv4_mapped(ip(X))), (peer_ip(1, 1), ip(X)), (peer_ip(2, 1), ip(Y))];
     assert_eq!(vote(reports, IPV4_LISTENER, false).ip, Some(ip(X)));
+    // A listener at a mapped address accepts IPv4.
+    assert_eq!(vote(reports, ipv4_mapped(IPV4_LISTENER), false).ip, Some(ip(X)));
 
     // A peer at a mapped address is in the network group of the IPv4 address.
     let reports = [

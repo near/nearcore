@@ -73,6 +73,7 @@ pub(crate) fn vote(
     listen_ip: IpAddr,
     allow_private: bool,
 ) -> Vote {
+    let listen_ip = listen_ip.to_canonical();
     let dual_stack = listen_ip == IpAddr::V6(Ipv6Addr::UNSPECIFIED);
     let mut netgroups = HashMap::<IpAddr, HashSet<IpAddr>>::new();
     for (peer_ip, reported_ip) in reports {
