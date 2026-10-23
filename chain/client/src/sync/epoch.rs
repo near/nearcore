@@ -320,6 +320,11 @@ impl EpochSync {
             &mut store_update.epoch_store_update(),
             &first_block_info_in_epoch,
         )?;
+        // Same for its aggregator row: its children read it when they are recorded.
+        epoch_manager.set_epoch_info_aggregator_after_epoch_sync(
+            &mut store_update.epoch_store_update(),
+            &first_block_info_in_epoch,
+        )?;
         // `record_block_info`, which epoch sync bypasses, is otherwise the only
         // block-processing writer of `EpochStart`. The early-kickout grace check no longer
         // reads this column (it walks `BlockInfo.epoch_first_block`), but other readers

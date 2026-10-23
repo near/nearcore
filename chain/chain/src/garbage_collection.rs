@@ -605,6 +605,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // else header-only hashes (never given a body, so never seen by
                 // clear_block_data) orphan their rows.
                 self.gc_chunk_producers_for_block(&header_hash);
+                self.gc_col(DBCol::EpochInfoAggregators, header_hash.as_bytes());
             }
 
             // 4. Delete chunks_tail-related data
@@ -750,6 +751,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the same
         // delete twice. Prefix-scan by block hash deletes each row once, next-layout rows too.
         self.gc_chunk_producers_for_block(&block_hash);
+        self.gc_col(DBCol::EpochInfoAggregators, block_hash.as_bytes());
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
@@ -1024,6 +1026,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // delete it here alongside BlockInfo. Insert-only, so the stale row must go before
         // re-processing re-seeds it.
         self.gc_chunk_producers_for_block(&block_hash);
+        self.gc_col(DBCol::EpochInfoAggregators, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 

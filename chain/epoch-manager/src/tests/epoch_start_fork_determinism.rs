@@ -78,10 +78,11 @@ fn canonical_hash(height: BlockHeight) -> CryptoHash {
 }
 
 /// Builds one node: genesis, the two boundary siblings in the requested order, then the
-/// canonical chain extending the LOW sibling. The orphaned high sibling never feeds the
-/// epoch-info aggregator, so the only state it can leave behind is `EpochStart`. The chunk
-/// mask is a pure function of height, so both nodes record byte-identical blocks and any
-/// divergence observed later is fork order alone.
+/// canonical chain extending the LOW sibling. The orphaned high sibling is not an ancestor
+/// of the canonical blocks, so its aggregator row never feeds theirs, and the only shared
+/// state it can change is `EpochStart`. The chunk mask is a pure function of height, so
+/// both nodes record byte-identical blocks and any divergence observed later is fork order
+/// alone.
 fn build_node(high_first: bool, down: ValidatorId, head_height: BlockHeight) -> EpochManagerHandle {
     let mut em = new_epoch_manager();
     let genesis = genesis_hash();

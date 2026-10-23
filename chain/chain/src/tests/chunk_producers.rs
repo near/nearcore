@@ -6,6 +6,7 @@ mod tests {
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::EpochManagerAdapter;
+    use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::errors::EpochError;
     use near_primitives::hash::CryptoHash;
@@ -475,8 +476,13 @@ mod tests {
                 .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
         };
 
+        let aggregator_row = |chain: &Chain, block: &CryptoHash| -> bool {
+            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, block.as_ref())
+        };
+
         for anchor in &hashes {
             assert!(row(&chain, anchor).is_some(), "row should exist before GC for {anchor}");
+            assert!(aggregator_row(&chain, anchor), "aggregator row should exist for {anchor}");
         }
 
         // GCMode::Canonical clears block_hash.prev, so passing hashes[5] clears anchor hashes[4].
@@ -494,6 +500,8 @@ mod tests {
             "below-boundary anchor row must be deleted"
         );
         assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
+        assert!(!aggregator_row(&chain, &cleared_anchor), "cleared block's aggregator row");
+        assert!(aggregator_row(&chain, &input_hash), "input hash keeps its aggregator row");
 
         // The chunk built on hashes[7] anchors on its grandparent hashes[6].
         assert!(row(&chain, &hashes[6]).is_some(), "above-boundary anchor row must be retained");
@@ -554,6 +562,10 @@ mod tests {
                 .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
         };
         assert!(row(&chain).is_some(), "fork's row should exist before GC");
+        let aggregator_row = |chain: &Chain| -> bool {
+            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, fork_hash.as_ref())
+        };
+        assert!(aggregator_row(&chain), "fork's aggregator row should exist before GC");
 
         // GCMode::Fork clears the given block directly (no prev reassignment).
         let tries = chain.runtime_adapter.get_tries();
@@ -564,6 +576,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert!(row(&chain).is_none(), "fork block's ChunkProducers rows must be deleted");
+        assert!(!aggregator_row(&chain), "fork block's aggregator row must be deleted");
     }
 
     /// clear_head_block_data (the undo-block path) deletes ChunkProducers exactly where it
@@ -616,10 +629,15 @@ mod tests {
                 .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
         };
 
+        let aggregator_row = |chain: &Chain, block: &CryptoHash| -> bool {
+            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, block.as_ref())
+        };
+
         for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(row(&chain, anchor, shard_id).is_some(), "row should exist for {anchor}");
             }
+            assert!(aggregator_row(&chain, anchor), "aggregator row should exist for {anchor}");
         }
 
         let mut store_update = chain.mut_chain_store().store_update();
@@ -634,6 +652,10 @@ mod tests {
                 blocks[3].hash()
             );
         }
+        assert!(
+            !aggregator_row(&chain, blocks[3].hash()),
+            "undo-block must delete the body head's aggregator row"
+        );
         // Header-only anchors keep their BlockInfo, so their ChunkProducers rows must stay
         // paired (retained).
         for anchor in [blocks[4].hash(), blocks[5].hash()] {
@@ -643,6 +665,10 @@ mod tests {
                     "undo-block must retain ChunkProducers for header-only anchor {anchor}"
                 );
             }
+            assert!(
+                aggregator_row(&chain, anchor),
+                "undo-block must retain the aggregator row of header-only anchor {anchor}"
+            );
         }
 
         // Re-syncing the headers restores the deleted body-head row and keeps the header-only
@@ -713,6 +739,11 @@ mod tests {
             &get_block_shard_id(&fork_hash, shard_id),
             &sentinel,
         );
+        store_update.set_ser(
+            DBCol::EpochInfoAggregators,
+            fork_hash.as_ref(),
+            &EpochInfoAggregator::new(epoch_id, fork_hash),
+        );
         store_update.commit();
 
         let fork_row = |chain: &Chain| -> Option<ValidatorStake> {
@@ -734,6 +765,10 @@ mod tests {
         assert!(
             fork_row(&chain).is_none(),
             "header-only fork's ChunkProducers row must be deleted by the header sweep"
+        );
+        assert!(
+            !chain.chain_store().store().exists(DBCol::EpochInfoAggregators, fork_hash.as_ref()),
+            "header-only fork's aggregator row must be deleted by the header sweep"
         );
     }
 

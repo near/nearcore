@@ -797,6 +797,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         block_info: &BlockInfo,
     ) -> Result<(), EpochError>;
 
+    /// Write the `DBCol::EpochInfoAggregators` row of the current epoch's first block after
+    /// epoch sync, which installs that `BlockInfo` outside `record_block_info`. Writes into
+    /// `store_update` so it commits atomically with the block.
+    fn set_epoch_info_aggregator_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError>;
+
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
@@ -1240,8 +1249,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)
     }
 
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
@@ -1293,6 +1300,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         block_info: &BlockInfo,
     ) -> Result<(), EpochError> {
         self.read().seed_chunk_producers_for_first_block(store_update, block_info)
+    }
+
+    fn set_epoch_info_aggregator_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError> {
+        self.read().set_epoch_info_aggregator_for_first_block(store_update, block_info)
     }
 
     fn get_shard_layout_history(
