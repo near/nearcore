@@ -1941,7 +1941,7 @@ fn test_a_proof_certified_before_startup_is_pulled_after_it() {
 }
 
 /// A node catching up a shard it applies from next epoch tracks the proofs into that shard and
-/// pulls them once their source chunk is certified.
+/// pulls them only once their source chunk is certified.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
@@ -1978,9 +1978,6 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
         assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
         block = produce_spice_block_certifying_parent(&mut chain, &block);
     }
-    let certifying_block = produce_spice_block_certifying_parent(&mut chain, &block);
-    assert!(is_catching_up(&certifying_block), "the epoch ended before the proof was certified");
-    let later_block = produce_spice_block_certifying_parent(&mut chain, &certifying_block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(Some(me))
@@ -1991,8 +1988,10 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
     fake_runner.run_queued_actions(&mut actor);
     let id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
     assert!(actor.is_tracking(&id));
+    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 
-    actor.handle(ProcessedBlock { block_hash: *later_block.hash() });
+    let certifying_block = produce_spice_block_certifying_parent(&mut chain, &block);
+    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
 
     let requested = requested_receipt_proofs(&mut outgoing_rc);
     let producers = chain
