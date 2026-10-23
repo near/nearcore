@@ -64,7 +64,8 @@ async fn public_addr_follows_peer_reports() {
     assert_eq!(my_public_addr(&pm).await, Some(node_addr));
 
     tracing::info!(target:"test", "a new report replaces the previous one");
-    let ip: IpAddr = "203.0.113.1".parse().unwrap();
+    // Test nodes listen on [::1], so only IPv6 reports count.
+    let ip: IpAddr = "2001:db8::1".parse().unwrap();
     peer.send(report(pm.cfg.node_id(), SocketAddr::new(ip, node_addr.port()))).await;
     wait_for_report(&mut events).await;
     assert_eq!(my_public_addr(&pm).await, Some(SocketAddr::new(ip, node_addr.port())));

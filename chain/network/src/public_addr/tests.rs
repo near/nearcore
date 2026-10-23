@@ -23,7 +23,7 @@ const Y: &str = "198.51.100.1";
 const X6: &str = "2001:db8::1";
 
 const IPV4_LISTENER: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-const IPV6_LISTENER: IpAddr = IpAddr::V6(Ipv6Addr::UNSPECIFIED);
+const DUAL_STACK_LISTENER: IpAddr = IpAddr::V6(Ipv6Addr::UNSPECIFIED);
 
 #[test]
 fn is_public_ip_rejects_local_addresses() {
@@ -81,12 +81,17 @@ fn vote_counts_each_netgroup_once() {
 }
 
 #[test]
-fn vote_ignores_ipv6_for_ipv4_listener() {
+fn vote_ignores_ips_the_listener_cannot_accept() {
     // The IPv6 address of the node is reported from two network groups, its IPv4 address from one.
     let reports =
         [(ip("2001:db8:1::1"), ip(X6)), (ip("2001:db9::1"), ip(X6)), (peer_ip(0, 1), ip(X))];
     assert_eq!(vote(reports, IPV4_LISTENER, false).ip, Some(ip(X)));
-    assert_eq!(vote(reports, IPV6_LISTENER, false).ip, Some(ip(X6)));
+    assert_eq!(vote(reports, DUAL_STACK_LISTENER, false).ip, Some(ip(X6)));
+
+    // A listener on a specific IPv6 address doesn't accept IPv4.
+    let reports = [(peer_ip(0, 1), ip(X)), (peer_ip(1, 1), ip(X)), (ip("2001:db8:1::1"), ip(X6))];
+    assert_eq!(vote(reports, ip(X6), false).ip, Some(ip(X6)));
+    assert_eq!(vote(reports, DUAL_STACK_LISTENER, false).ip, Some(ip(X)));
 }
 
 #[test]
