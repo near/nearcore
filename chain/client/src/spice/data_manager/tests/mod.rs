@@ -1,7 +1,6 @@
 use super::item::{CodedTracker, CommitmentState, FetchItem, PartInsertResult};
 use super::*;
 use crate::spice::chunk_executor_actor::save_receipt_proof;
-use crate::spice::data_distributor_actor::DATA_PARTS_RATIO;
 use assert_matches::assert_matches;
 use near_async::time::Clock;
 use near_chain::test_utils::{get_chain_with_num_shards, process_block_sync};

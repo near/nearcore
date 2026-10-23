@@ -5,12 +5,12 @@ use crate::spice::chunk_executor_actor::get_witness;
 use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
-pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
-    EncodedData, FetchPolicies, PartsOutcome, PendingPartialData, PullConfig, PullRequest, Push,
-    RequesterFault, SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData,
+    DATA_PARTS_RATIO, EncodedData, FetchPolicies, PartsOutcome, PendingPartialData, PullConfig,
+    PullRequest, Push, SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData,
     SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
 };
+pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::MultiSend;
@@ -84,7 +84,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use strum::IntoStaticStr;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -128,46 +127,6 @@ pub(crate) enum Error {
     Other(&'static str),
 }
 
-/// Why an inbound data request was rejected as malformed. A peer cannot produce any of these
-/// without violating the request grammar, so each is attributable to the sender.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr, thiserror::Error)]
-#[strum(serialize_all = "snake_case")]
-pub enum MalformedDataRequest {
-    #[error("no entries")]
-    NoEntries,
-    #[error("too many entries")]
-    TooManyEntries,
-    #[error("entry without ordinals")]
-    EntryWithoutOrdinals,
-    #[error("too many ordinals")]
-    TooManyOrdinals,
-    #[error("ordinal outside the producer set")]
-    OrdinalOutsideProducerSet,
-    #[error("shard id outside the shard layout")]
-    UnknownShard,
-    #[error("asked a node that does not produce the data")]
-    NotAProducer,
-}
-
-impl MalformedDataRequest {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-}
-
-impl From<RequesterFault> for MalformedDataRequest {
-    fn from(fault: RequesterFault) -> Self {
-        match fault {
-            RequesterFault::NoOrdinals => MalformedDataRequest::EntryWithoutOrdinals,
-            RequesterFault::UnknownShard => MalformedDataRequest::UnknownShard,
-            RequesterFault::NotAProducer => MalformedDataRequest::NotAProducer,
-            RequesterFault::OrdinalOutsideProducerSet => {
-                MalformedDataRequest::OrdinalOutsideProducerSet
-            }
-        }
-    }
-}
-
 impl From<EpochError> for Error {
     fn from(value: EpochError) -> Self {
         match value {
@@ -189,9 +148,6 @@ pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
 
 /// How often the distributor re-requests the data it is still waiting on.
 pub const DATA_REQUEST_INTERVAL: Duration = Duration::milliseconds(1000);
-
-/// Share of the parts an item is encoded into that suffice to decode it.
-pub const DATA_PARTS_RATIO: f64 = 0.6;
 
 /// Max number of entries `(data_id, ordinals)` a single batched request may carry.
 /// This caps the encodes (CPU).
@@ -518,12 +474,10 @@ impl SpiceDataDistributorActor {
                 max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
                 ..PullConfig::default()
             },
-            DATA_PARTS_RATIO,
             chain_store.clone(),
             FetchPolicies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         let data_server = SpiceDataServer::new(
-            DATA_PARTS_RATIO,
             chain_store.clone(),
             epoch_manager.clone(),
             ServePolicies::new(chain_store.clone(), epoch_manager.clone()),
@@ -1539,7 +1493,7 @@ impl SpiceDataDistributorActor {
                 tracing::debug!(target: "spice_data_distribution", ?id, ?requester, "received request for unknown data");
                 return Ok(());
             }
-            Err(ServeError::Requester(fault)) => return Err(Error::MalformedRequest(fault.into())),
+            Err(ServeError::Requester(fault)) => return Err(Error::MalformedRequest(fault)),
             Err(ServeError::Chain(err)) => return Err(err.into()),
         };
         // TODO(spice): Check that requester is one of the recipients and implement a

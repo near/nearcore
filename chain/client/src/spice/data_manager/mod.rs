@@ -24,10 +24,14 @@ pub(crate) use pending::PendingPartialData;
 pub(crate) use policy::{FetchPolicies, FetchPolicy, ServePolicies, ServePolicy};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
-pub(crate) use serve::{Push, RequesterFault, ServeError, ServeOutcome, SpiceDataServer};
+pub use serve::MalformedDataRequest;
+pub(crate) use serve::{Push, ServeError, ServeOutcome, SpiceDataServer};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
 use std::ops::Bound;
+
+/// Share of the parts an item is encoded into that suffice to decode it.
+pub const DATA_PARTS_RATIO: f64 = 0.6;
 
 #[cfg(test)]
 mod tests;
@@ -92,13 +96,12 @@ pub(crate) struct SpiceDataManager<P: FetchPolicy = FetchPolicies> {
 impl<P: FetchPolicy> SpiceDataManager<P> {
     pub(crate) fn new(
         pull_config: PullConfig,
-        data_parts_ratio: f64,
         chain_store: ChainStoreAdapter,
         policies: P,
     ) -> Self {
         Self {
             pulls: Pulls::new(pull_config),
-            encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
             chain_store,
             policies,
             items: HashMap::new(),

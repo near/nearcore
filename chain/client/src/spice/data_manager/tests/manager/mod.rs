@@ -171,7 +171,6 @@ impl TestManager {
         Self {
             manager: SpiceDataManager::new(
                 pull_config,
-                DATA_PARTS_RATIO,
                 store.chain_store(),
                 TestPolicy::applying(chain, shard),
             ),

@@ -23,7 +23,6 @@ impl ServePolicy for TestPolicy {
 /// A server for the producers of every item here.
 fn test_server(chain: &Chain) -> SpiceDataServer<TestPolicy> {
     SpiceDataServer::new(
-        DATA_PARTS_RATIO,
         chain.chain_store.store().chain_store(),
         chain.epoch_manager.clone(),
         TestPolicy {
@@ -46,7 +45,9 @@ fn a_producer_serves_the_requested_parts_of_its_stored_proof_under_the_pushed_co
     let me = &producers()[0];
 
     let pushed = server.build_push(me, &id, &data).unwrap();
-    let served = server.requested_parts(me, &id, &ordinals(&[1, 3])).unwrap();
+    // One data part and one parity part.
+    let requested = [1, DATA_PARTS as u64];
+    let served = server.requested_parts(me, &id, &ordinals(&requested)).unwrap();
 
     let (commitment, parts) = encode_to_wire(&encoder(), &data);
     assert_eq!(pushed.commitment, commitment);
@@ -54,7 +55,7 @@ fn a_producer_serves_the_requested_parts_of_its_stored_proof_under_the_pushed_co
         served,
         ServeOutcome::Parts { commitment: served_commitment, parts: served_parts }
             if served_commitment == commitment
-                && served_parts == parts_with_ordinals(&parts, &[1, 3])
+                && served_parts == parts_with_ordinals(&parts, &requested)
     );
 }
 
@@ -82,7 +83,6 @@ fn a_push_never_goes_to_a_producer() {
     let me = policies.producers(&id).unwrap().remove(0);
     assert!(policies.recipients(&id).unwrap().contains(&me));
     let mut server = SpiceDataServer::new(
-        DATA_PARTS_RATIO,
         chain.chain_store.store().chain_store(),
         chain.epoch_manager.clone(),
         policies,
@@ -117,7 +117,7 @@ fn a_request_to_a_node_that_is_not_a_producer_is_refused() {
 
     let served = server.requested_parts(&account("outsider.near"), &id, &ordinals(&[0]));
 
-    assert_matches!(served, Err(ServeError::Requester(RequesterFault::NotAProducer)));
+    assert_matches!(served, Err(ServeError::Requester(MalformedDataRequest::NotAProducer)));
 }
 
 #[test]
@@ -134,19 +134,6 @@ fn a_proof_not_in_the_store_serves_nothing() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_request_without_ordinals_is_refused() {
-    let (chain, blocks) = chain_with_blocks(1);
-    let id = receipt_id(&blocks[0], 0, 1);
-    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
-    let mut server = test_server(&chain);
-
-    let served = server.requested_parts(&producers()[0], &id, &ordinals(&[]));
-
-    assert_matches!(served, Err(ServeError::Requester(RequesterFault::NoOrdinals)));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn an_ordinal_outside_the_producer_set_is_refused() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
@@ -155,7 +142,10 @@ fn an_ordinal_outside_the_producer_set_is_refused() {
 
     let served = server.requested_parts(&producers()[0], &id, &ordinals(&[0, TOTAL_PARTS as u64]));
 
-    assert_matches!(served, Err(ServeError::Requester(RequesterFault::OrdinalOutsideProducerSet)));
+    assert_matches!(
+        served,
+        Err(ServeError::Requester(MalformedDataRequest::OrdinalOutsideProducerSet))
+    );
 }
 
 #[test]
@@ -163,12 +153,19 @@ fn an_ordinal_outside_the_producer_set_is_refused() {
 fn a_shard_outside_the_layout_is_refused() {
     let (chain, blocks) = chain_with_blocks(1);
     let mut server = test_server(&chain);
+    let bad_shard_id = 7;
 
-    let unknown_from =
-        server.requested_parts(&producers()[0], &receipt_id(&blocks[0], 7, 1), &ordinals(&[0]));
-    let unknown_to =
-        server.requested_parts(&producers()[0], &receipt_id(&blocks[0], 0, 7), &ordinals(&[0]));
+    let unknown_from = server.requested_parts(
+        &producers()[0],
+        &receipt_id(&blocks[0], bad_shard_id, 1),
+        &ordinals(&[0]),
+    );
+    let unknown_to = server.requested_parts(
+        &producers()[0],
+        &receipt_id(&blocks[0], 0, bad_shard_id),
+        &ordinals(&[0]),
+    );
 
-    assert_matches!(unknown_from, Err(ServeError::Requester(RequesterFault::UnknownShard)));
-    assert_matches!(unknown_to, Err(ServeError::Requester(RequesterFault::UnknownShard)));
+    assert_matches!(unknown_from, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
+    assert_matches!(unknown_to, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
 }

@@ -10,8 +10,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(super) use serve::ReceiptProofServePolicy;
 
 /// The source chunk's producers.
-// TODO(spice-resharding): validate whether the source and destination shards are correct
-// when resharding.
 fn source_producers(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,

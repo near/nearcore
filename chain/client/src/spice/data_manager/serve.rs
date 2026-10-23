@@ -1,5 +1,5 @@
 use super::encode::{EncodedData, encode};
-use super::{DataId, ServePolicies, ServePolicy, SpiceData};
+use super::{DATA_PARTS_RATIO, DataId, ServePolicies, ServePolicy, SpiceData};
 use itertools::Itertools as _;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -9,6 +9,7 @@ use near_primitives::types::AccountId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
+use strum::IntoStaticStr;
 
 /// A producer's push of data it produced: its own part, for every recipient.
 pub(crate) struct Push {
@@ -29,24 +30,38 @@ pub(crate) enum ServeOutcome {
     NotStored,
 }
 
-/// What a malformed request got wrong. An honest requester never sends one.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum RequesterFault {
-    #[error("request asks for no ordinals")]
-    NoOrdinals,
-    #[error("request names a shard outside its layout")]
-    UnknownShard,
-    #[error("request asks a node that does not produce the item")]
-    NotAProducer,
-    #[error("request asks for an ordinal outside the producer set")]
+/// Why an inbound data request was rejected as malformed. A peer cannot produce any of these
+/// without violating the request grammar, so each is attributable to the sender.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr, thiserror::Error)]
+#[strum(serialize_all = "snake_case")]
+pub enum MalformedDataRequest {
+    #[error("no entries")]
+    NoEntries,
+    #[error("too many entries")]
+    TooManyEntries,
+    #[error("entry without ordinals")]
+    EntryWithoutOrdinals,
+    #[error("too many ordinals")]
+    TooManyOrdinals,
+    #[error("ordinal outside the producer set")]
     OrdinalOutsideProducerSet,
+    #[error("shard id outside the shard layout")]
+    UnknownShard,
+    #[error("asked a node that does not produce the data")]
+    NotAProducer,
+}
+
+impl MalformedDataRequest {
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
 }
 
 /// Why serving one requested item failed: malformed request, or a read on this node failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServeError {
     #[error("malformed request: {0}")]
-    Requester(#[from] RequesterFault),
+    Requester(#[from] MalformedDataRequest),
     #[error("chain read failed: {0}")]
     Chain(#[from] Error),
 }
@@ -62,13 +77,12 @@ pub(crate) struct SpiceDataServer<P: ServePolicy = ServePolicies> {
 
 impl<P: ServePolicy> SpiceDataServer<P> {
     pub(crate) fn new(
-        data_parts_ratio: f64,
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         policies: P,
     ) -> Self {
         Self {
-            encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
             chain_store,
             epoch_manager,
             policies,
@@ -105,23 +119,19 @@ impl<P: ServePolicy> SpiceDataServer<P> {
         id: &DataId,
         ordinals: &BTreeSet<u64>,
     ) -> Result<ServeOutcome, ServeError> {
-        if ordinals.is_empty() {
-            return Err(RequesterFault::NoOrdinals.into());
-        }
-        // TODO(spice-resharding): validate which layout the shards belong to when resharding.
         let header = self.chain_store.get_block_header(id.block_hash())?;
         let shard_layout =
             self.epoch_manager.get_shard_layout(header.epoch_id()).map_err(Error::from)?;
         if !id.shard_endpoints().iter().all(|shard_id| shard_layout.shard_ids().contains(shard_id))
         {
-            return Err(RequesterFault::UnknownShard.into());
+            return Err(MalformedDataRequest::UnknownShard.into());
         }
         let producers = self.policies.producers(id)?;
         if !producers.contains(me) {
-            return Err(RequesterFault::NotAProducer.into());
+            return Err(MalformedDataRequest::NotAProducer.into());
         }
         if ordinals.last().is_some_and(|highest| *highest >= producers.len() as u64) {
-            return Err(RequesterFault::OrdinalOutsideProducerSet.into());
+            return Err(MalformedDataRequest::OrdinalOutsideProducerSet.into());
         }
         let Some(data) = self.policies.stored_data(id) else {
             return Ok(ServeOutcome::NotStored);

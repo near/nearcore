@@ -31,18 +31,30 @@ impl ServePolicy for ReceiptProofServePolicy {
         source_producers(&self.chain_store, self.epoch_manager.as_ref(), id)
     }
 
-    /// The destination shard's chunk producers for the next block.
-    // TODO(spice-resharding): validate whether the source and destination shards are correct
-    // when resharding.
+    /// The next block's chunk producers of the destination shard; across a resharding, of the
+    /// shards it splits into.
     fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
         let DataId::ReceiptProof { source, to_shard } = id;
+        let source_epoch_id = self.epoch_manager.get_epoch_id(&source.block_hash)?;
         let next_block_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
-        Ok(self
-            .epoch_manager
-            .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, *to_shard)?
-            .into_iter()
-            .collect())
+        let source_layout = self.epoch_manager.get_shard_layout(&source_epoch_id)?;
+        let next_block_layout = self.epoch_manager.get_shard_layout(&next_block_epoch_id)?;
+        let destination_shards = if next_block_layout == source_layout {
+            vec![*to_shard]
+        } else {
+            next_block_layout
+                .get_children_shards_ids(*to_shard)
+                .ok_or(Error::InvalidShardId(*to_shard))?
+        };
+        let mut recipients = HashSet::new();
+        for shard_id in destination_shards {
+            recipients.extend(
+                self.epoch_manager
+                    .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, shard_id)?,
+            );
+        }
+        Ok(recipients)
     }
 
     fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
