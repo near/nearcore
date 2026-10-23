@@ -212,11 +212,10 @@ fn genesis_final_basis_resolves_through_dummy_instead_of_erroring() {
     }
 }
 
-/// Same walk mechanics on a chain whose genesis is NOT at height 0 (forknet forks mainnet
-/// state at heights in the hundreds of millions): the walk resolves a genesis-final basis
-/// through the dummy `BlockInfo` to height 0, so `blocks_into_epoch` lands numerically far
-/// past the grace window. The blacklist must still be empty — a genesis-final basis has an
-/// empty aggregator — and this pin keeps that safety a contract instead of an accident.
+/// A chain whose genesis is NOT at height 0 (forknet forks mainnet state at heights in the
+/// hundreds of millions). Genesis's dummy `BlockInfo` resolves its epoch start to height 0,
+/// but the blacklist takes the epoch start from the anchor, the first real epoch. A
+/// genesis-final basis is below that start, so the blacklist must be empty.
 #[test]
 fn high_genesis_final_basis_keeps_blacklist_empty() {
     const GENESIS_HEIGHT: BlockHeight = 150_000_000;
@@ -254,10 +253,8 @@ fn high_genesis_final_basis_keeps_blacklist_empty() {
             handle.get_chunk_producer_blacklist(&canonical_hash(GENESIS_HEIGHT + 2)).unwrap();
         assert!(
             blacklist.is_empty(),
-            "a genesis-final basis must keep the blacklist empty even though \
-             blocks_into_epoch ({GENESIS_HEIGHT}) is far past the grace window: the empty \
-             aggregator at genesis — not the grace arithmetic — is what protects \
-             high-genesis chains, got {blacklist:?}",
+            "a genesis-final basis is below the first epoch's start, so the blacklist must \
+             be empty, got {blacklist:?}",
         );
     }
 }
