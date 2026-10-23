@@ -37,8 +37,13 @@ pub(super) fn migrate_52_to_53(hot_store: &Store) -> anyhow::Result<()> {
     let mut chunk_production: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> =
         HashMap::new();
     let mut chunk_endorsement: HashMap<ValidatorId, ValidatorStats> = HashMap::new();
+    let mut old_entries = 0;
     for (shard_id, validators) in old.shard_tracker {
         for (validator_id, stats) in validators {
+            old_entries += 1;
+            // The old layout counted a chunk or an endorsement only together with its
+            // `expected`, so `produced <= expected` and a side with `expected == 0` holds no
+            // stats. Dropping it loses nothing.
             if stats.production.expected > 0 {
                 chunk_production
                     .entry(shard_id)
@@ -66,7 +71,13 @@ pub(super) fn migrate_52_to_53(hot_store: &Store) -> anyhow::Result<()> {
     store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &new);
     store_update.commit();
 
-    tracing::info!(target: "migrations", "completed migration from DB version 52 to 53");
+    tracing::info!(
+        target: "migrations",
+        old_entries,
+        chunk_production_entries = new.chunk_production.values().map(HashMap::len).sum::<usize>(),
+        chunk_endorsement_entries = new.chunk_endorsement.len(),
+        "completed migration from DB version 52 to 53"
+    );
     Ok(())
 }
 
