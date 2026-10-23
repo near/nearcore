@@ -1,6 +1,7 @@
 mod adversarial_height;
 mod adversarial_sync_block;
 mod continuous_epoch_sync;
+#[cfg(feature = "test_features")]
 mod early_kickout_sync;
 mod epoch_sync;
 mod far_horizon;
