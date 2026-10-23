@@ -193,6 +193,8 @@ pub struct Config {
     pub public_addrs: Vec<PeerAddr>,
     /// For local tests only (localnet). Allows specifying IPs from private range
     /// (which are not visible from the public internet) in public_addrs field.
+    /// Also lets the node take a private IP reported by its peers as its own address
+    /// for Tier3 state sync.
     #[serde(default)]
     pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
