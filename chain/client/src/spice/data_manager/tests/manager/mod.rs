@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod batching;
 mod delivery;
 mod lifecycle;
+mod orphans;
 mod recovery;
 mod retries;
 
@@ -44,12 +45,18 @@ fn certifying_block(prev: &Block, chunk_ids: &[SpiceChunkId]) -> Arc<Block> {
         .build()
 }
 
-/// Writes `block` and its header to the chain's store, as block processing would.
-fn save_block(chain: &mut Chain, block: &Arc<Block>) {
-    let mut store_update = chain.mut_chain_store().store_update();
-    store_update.save_block_header(block.header().clone()).unwrap();
-    store_update.save_block(block.clone());
-    store_update.commit().unwrap();
+impl SpiceDataManager {
+    /// Receives `parts` for `id` in a message `sender`'s test signer signed.
+    fn receive_from(
+        &mut self,
+        sender: &AccountId,
+        id: &DataId,
+        commitment: &SpiceDataCommitment,
+        parts: Vec<SpiceDataPart>,
+    ) -> Result<PartsOutcome, SenderFault> {
+        let signer = create_test_signer(sender.as_str());
+        self.on_parts_received(signed_by(&signer, id, commitment, parts))
+    }
 }
 
 /// Each producer pulled from for its own ordinal.
@@ -172,6 +179,7 @@ impl TestManager {
         assert!(!self.is_pullable(id));
         assert!(!self.manager.pulls.holds_state_for(id));
         assert!(!self.manager.delivered_items.contains(id));
+        assert!(!self.manager.done_items.contains(id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
@@ -189,7 +197,7 @@ impl TestManager {
             block.header().height(),
             self.certified_height
         );
-        self.manager.on_block_processed(block.hash(), self.clock.now())
+        self.manager.on_block_processed(block.hash(), self.clock.now()).pull_requests
     }
 
     /// Delivers `parts` and asserts the item keeps collecting.
@@ -200,7 +208,7 @@ impl TestManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
     ) {
-        let result = self.manager.on_parts_received(sender, id, commitment, parts).unwrap();
+        let result = self.manager.receive_from(sender, id, commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Collecting);
     }
 
@@ -208,7 +216,7 @@ impl TestManager {
     fn deliver(&mut self, sender: &AccountId, id: &DataId, data: &SpiceData) {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
-        let result = self.manager.on_parts_received(sender, id, &commitment, parts).unwrap();
+        let result = self.manager.receive_from(sender, id, &commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
     }
 
@@ -217,13 +225,11 @@ impl TestManager {
     }
 
     fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
-        let (_, bound) = self
-            .item(id)
-            .producers
-            .iter()
-            .find(|(account, _)| account == producer)
+        let item = self.item(id);
+        let index = item
+            .producer_index(producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        bound.as_ref()
+        item.producers[index].commitment.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {

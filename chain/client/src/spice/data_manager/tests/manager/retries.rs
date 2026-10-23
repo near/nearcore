@@ -62,7 +62,7 @@ fn a_settled_commitments_producers_are_never_asked() {
         &fake,
         parts_with_ordinals(&fake_parts, &[1]),
     );
-    let result = manager.manager.on_parts_received(
+    let result = manager.manager.receive_from(
         &producers[2],
         &id,
         &fake,
@@ -251,7 +251,7 @@ fn an_unverifiable_answer_leaves_the_request_outstanding() {
     broken[0].part[0] ^= 1;
     let missing_before = manager.tracker(&id, &commitment).missing_ordinals();
     for producer in &producers[..2] {
-        let result = manager.manager.on_parts_received(producer, &id, &commitment, broken.clone());
+        let result = manager.manager.receive_from(producer, &id, &commitment, broken.clone());
         assert_matches!(result, Err(SenderFault::InvalidMerkleProof));
     }
 
@@ -368,7 +368,7 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
     }
     let result = manager
         .manager
-        .on_parts_received(&honest, &id, &commitment, parts_with_ordinals(&parts, &[1, 2, 3, 4]))
+        .receive_from(&honest, &id, &commitment, parts_with_ordinals(&parts, &[1, 2, 3, 4]))
         .unwrap();
     assert_matches!(result, PartsOutcome::Decoded(_));
 }
