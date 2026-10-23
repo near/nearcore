@@ -707,6 +707,7 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     let receiver_chain = new_chain(&chain, &genesis);
     let mut receiver =
         new_actor_for_account(receiver_messages_sc, &receiver_chain, receiver_account);
+    receiver.handle(ProcessedBlock { block_hash: *block.hash() });
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
@@ -985,6 +986,7 @@ macro_rules! test_invalid_incoming_partial_data {
 
                     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
                     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+                    actor.handle(ProcessedBlock { block_hash: *block.hash() });
                     {
                         let $default = data_into_verified(incoming_data.data.clone());
                         let partial_data = $build_block;
@@ -1086,6 +1088,7 @@ fn test_a_garbage_decode_delivers_nothing_and_the_item_keeps_collecting() {
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let default = data_into_verified(incoming_data.data);
     let honest_proof = new_test_receipt_proof(&block);
     let producers = producers_of_receipt_proof(&chain, &block, &honest_proof);
@@ -1153,6 +1156,7 @@ fn test_two_candidates_for_one_id_both_reach_the_executor() {
     );
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let data_id = test_receipt_proof_data_id(&block);
 
     actor.handle(first_data);
@@ -1185,6 +1189,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -1243,6 +1248,7 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     {
         let (witness_partial_data, _) = witness_incoming_data(&chain, &block);
         let witness_partial_data = data_into_verified(witness_partial_data.data);
@@ -1535,6 +1541,53 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_for_a_stored_block_is_parked_until_the_block_is_processed() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    assert!(chain.chain_store.block_exists(block.hash()));
+
+    actor.handle(incoming_data);
+
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert!(!actor.is_tracking(&test_receipt_proof_data_id(&block)));
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_matches!(
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_node_without_signer_parks_a_receipt_proof_for_a_block_not_yet_processed() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, _) = receipt_proof_incoming_data(&chain, &block);
+    let to_shard_id = new_test_receipt_proof(&block).1.to_shard_id;
+    let to_shard_uid = {
+        let shard_layout = chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+        ShardUId::from_shard_id_and_layout(to_shard_id, &shard_layout)
+    };
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = ActorBuilder::new(None)
+        .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
+        .build(outgoing_sc, &chain);
+
+    let result = actor.receive_data(incoming_data.data);
+
+    assert_matches!(result, Ok(()));
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_matches!(
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
+    );
 }
 
 #[test]
@@ -2478,6 +2531,7 @@ fn test_handling_data_request_with_receipts_in_store() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     actor.handle(SpiceIncomingPartialData {
         data: partial_data,
         recv_permit: RecvMessagePermit::none(),
@@ -3050,6 +3104,7 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = ActorBuilder::new(Some(requester))
         .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
         .build(outgoing_sc, &requester_chain);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     actor.handle(SpiceIncomingPartialData {
         data: partial_data,
         recv_permit: RecvMessagePermit::none(),

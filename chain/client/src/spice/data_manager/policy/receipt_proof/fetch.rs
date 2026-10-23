@@ -116,4 +116,22 @@ impl FetchPolicy for ReceiptProofFetchPolicy {
         }
         Ok(ids)
     }
+
+    /// The destination shard is in the layout of the final head's epoch or the next one.
+    // TODO(spice): Use the shard tracker to check that this node applies the destination.
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        let DataId::ReceiptProof { to_shard, .. } = id;
+        let final_head = self.chain_store.final_head()?;
+        for epoch_id in [final_head.epoch_id, final_head.next_epoch_id] {
+            if self
+                .epoch_manager
+                .get_shard_layout(&epoch_id)?
+                .shard_ids()
+                .any(|shard_id| shard_id == *to_shard)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }

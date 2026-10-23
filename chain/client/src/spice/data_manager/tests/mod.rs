@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 mod item;
 mod manager;
-mod pending;
+mod orphans;
 mod serve;
 
 /// Data parts of the encoder every test here uses: `max((5 * DATA_PARTS_RATIO) as usize, 1)`.

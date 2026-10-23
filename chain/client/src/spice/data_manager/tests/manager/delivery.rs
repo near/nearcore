@@ -20,7 +20,7 @@ fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0]);
     let encoder = encoder();
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
     let late_part = parts.split_off(DATA_PARTS);
@@ -41,7 +41,7 @@ fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0]);
     let encoder = encoder();
     let (first, first_parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
     let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
@@ -64,7 +64,7 @@ fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0]);
     let encoder = encoder();
     // The decoded proof's destination doesn't match the id's `to_shard`.
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));

@@ -22,6 +22,10 @@ pub(crate) trait FetchPolicy {
 
     /// The ids of this type that `block` makes pullable, tracked or not.
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
+
+    /// Whether this node may need `id` from a block it has not processed yet. Reads no
+    /// block, so it holds for any block at or above the final head.
+    fn may_need(&self, id: &DataId) -> Result<bool, Error>;
 }
 
 /// The fetch policies, one per [`DataId`] variant.
@@ -60,5 +64,9 @@ impl FetchPolicy for FetchPolicies {
 
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.receipt_proofs.made_pullable_by(block)
+    }
+
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        self.policy(id).may_need(id)
     }
 }

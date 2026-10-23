@@ -24,16 +24,16 @@ fn message(block_hash: CryptoHash, parts: Vec<SpiceDataPart>) -> SpicePartialDat
 }
 
 #[test]
-fn empty_message_is_refused_and_not_buffered() {
-    let mut pending = PendingPartialData::new(NonZeroUsize::new(10).unwrap());
+fn an_empty_message_is_refused_and_not_parked() {
+    let mut orphans = OrphanPool::new(NonZeroUsize::new(10).unwrap());
     let block_hash = hash(b"block");
     let part = SpiceDataPart { part_ord: 0, part: Box::new([0]), merkle_proof: Vec::new() };
     let full = message(block_hash, vec![part]);
 
     assert_matches!(
-        pending.insert(message(block_hash, Vec::new())),
+        orphans.insert(message(block_hash, Vec::new())),
         Err(SenderFault::EmptyMessage)
     );
-    pending.insert(full.clone()).unwrap();
-    assert_eq!(pending.take(&block_hash), vec![full]);
+    orphans.insert(full.clone()).unwrap();
+    assert_eq!(orphans.take(&block_hash), vec![full]);
 }

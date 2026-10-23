@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod batching;
 mod delivery;
 mod lifecycle;
+mod orphans;
 mod recovery;
 mod retries;
 
@@ -104,6 +105,10 @@ impl FetchPolicy for TestPolicy {
 
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
         self.chain_policies.made_pullable_by(block)
+    }
+
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        self.chain_policies.may_need(id)
     }
 }
 
@@ -204,7 +209,7 @@ impl TestManager {
     }
 
     fn track_block(&mut self, block: &Block) {
-        self.manager.track_block(block).unwrap();
+        self.manager.track_block(block);
     }
 
     fn is_tracking(&self, id: &DataId) -> bool {
@@ -248,7 +253,7 @@ impl TestManager {
             block.header().height(),
             self.certified_height
         );
-        self.manager.on_block_processed(block.hash(), self.clock.now())
+        self.manager.on_block_processed(block.hash(), self.clock.now()).pull_requests
     }
 
     /// Delivers `parts` and asserts the item keeps collecting.
