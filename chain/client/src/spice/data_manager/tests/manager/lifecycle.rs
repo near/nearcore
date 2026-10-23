@@ -434,7 +434,6 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
         &id,
         &honest_commitment,
         parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
-        TOTAL_PARTS,
     );
     assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
     assert!(manager.is_tracking(&id));

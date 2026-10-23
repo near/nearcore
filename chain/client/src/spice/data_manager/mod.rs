@@ -40,6 +40,11 @@ use std::sync::Arc;
 /// Share of the parts an item is encoded into that suffice to decode it.
 pub const DATA_PARTS_RATIO: f64 = 0.6;
 
+/// Max total number of parts a single batched request may carry, and so a single message
+/// answering it. Must stay above the largest per-shard chunk-producer set.
+// TODO(spice): Bound the outbound bytes per (data_id, requester) too.
+pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
+
 #[cfg(test)]
 mod tests;
 
@@ -48,7 +53,7 @@ mod tests;
 pub(crate) enum SenderFault {
     #[error("message carries no parts")]
     EmptyMessage,
-    #[error("message carries more parts than the commitment has")]
+    #[error("message carries more parts than a message may, or than the item has producers")]
     TooManyParts,
     #[error("message carries the same part ordinal twice")]
     DuplicateOrdinal,
@@ -134,14 +139,6 @@ impl SpiceDataManager {
             final_execution_head: None,
             final_height: None,
         }
-    }
-
-    /// The producers of `id`, in the parts' encoding order.
-    pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        let header = self.chain_store.get_block_header(id.block_hash())?;
-        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
-        producers_in_epoch(&epoch_info, &shard_layout, id)
     }
 
     /// The ids of every data kind this node needs from `block`.
@@ -280,27 +277,31 @@ impl SpiceDataManager {
 
     /// Handles incoming parts: verifies every part's proof against the commitment before
     /// inserting any; a part failing its proof rejects the whole message and leaves the item
-    /// untouched, as does an empty message, one with more than `total_parts` parts, one
-    /// repeating an ordinal, or one from a sender that is not a producer of the item. A verified message counts as the sender's answer to any request
-    /// outstanding to it. A decoding insert checks the decoded data against the committed hash
-    /// and the id, settles the commitment either way, and returns matching data.
+    /// untouched, as does an empty message, one with more than `MAX_REQUESTED_PARTS` parts or
+    /// more parts than the item has producers, one repeating an ordinal, or one from a sender
+    /// that is not a producer of the item. A verified message counts as the sender's answer to
+    /// any request outstanding to it. A decoding insert checks the decoded data against the
+    /// committed hash and the id, settles the commitment either way, and returns matching data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
         id: &DataId,
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
-        total_parts: usize,
     ) -> Result<PartsOutcome, SenderFault> {
         if parts.is_empty() {
             return Err(SenderFault::EmptyMessage);
         }
-        if parts.len() > total_parts {
+        if parts.len() > MAX_REQUESTED_PARTS {
             return Err(SenderFault::TooManyParts);
         }
         let Some(item) = self.items.get_mut(id) else {
             return Ok(PartsOutcome::NotWanted);
         };
+        let total_parts = item.producers.len();
+        if parts.len() > total_parts {
+            return Err(SenderFault::TooManyParts);
+        }
         let Some(producer_index) = item.producers.iter().position(|(account, _)| account == sender)
         else {
             return Err(SenderFault::NotAProducer);

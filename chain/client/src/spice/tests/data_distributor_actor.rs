@@ -4,10 +4,12 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, validate_wants,
+    MalformedDataRequest, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
+    SpiceDistributorStateWitness, validate_wants,
 };
-use crate::spice::data_manager::{AssembledDataError, DATA_PARTS_RATIO, DataId, SenderFault};
+use crate::spice::data_manager::{
+    AssembledDataError, DATA_PARTS_RATIO, DataId, MAX_REQUESTED_PARTS, SenderFault,
+};
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
     save_and_record_block,
@@ -1000,7 +1002,7 @@ macro_rules! test_invalid_incoming_partial_data {
 }
 
 test_invalid_incoming_partial_data! {
-    invalid_receipt_proof_from_shard_id(Error::InvalidReceiptFromShardId, receipt_proof_incoming_data, default, {
+    invalid_receipt_proof_from_shard_id(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
             default.id
         else {
@@ -1011,7 +1013,7 @@ test_invalid_incoming_partial_data! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    invalid_receipt_proof_to_shard_id(Error::InvalidReceiptToShardId, receipt_proof_incoming_data, default, {
+    invalid_receipt_proof_to_shard_id(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id: _ } =
             default.id
         else {
@@ -1036,16 +1038,14 @@ test_invalid_incoming_partial_data! {
             .sender(AccountId::from_str("invalid-sender").unwrap())
             .build()
     })
-    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, default, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id }
-            = default.id
-        else {
-            panic!();
-        };
-        let from_shard_id = to_shard_id;
-        SpicePartialDataBuilder::from_verified(default)
-            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
-            .build()
+    sender_is_not_producer(Error::SenderFault(SenderFault::NotAProducer), receipt_proof_incoming_data, default, {
+        // With one producer per shard, the other producer is not one of the source shard.
+        let other_producer = ["test-producer-0", "test-producer-1"]
+            .into_iter()
+            .map(|account| AccountId::from_str(account).unwrap())
+            .find(|account| account != &default.sender)
+            .unwrap();
+        SpicePartialDataBuilder::from_verified(default).sender(other_producer).build()
     })
     node_is_not_recipient(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id: _, block_hash } =

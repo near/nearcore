@@ -45,7 +45,6 @@ impl Liars {
                 id,
                 &fake.commitment,
                 parts_with_ordinals(&fake.parts, &[0, 1, 2]),
-                TOTAL_PARTS,
             );
             assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
         }
@@ -82,7 +81,7 @@ fn answer_requests(
             let ordinals: Vec<u64> = ordinals.iter().copied().collect();
             (honest.commitment.clone(), parts_with_ordinals(&honest.parts, &ordinals))
         });
-        match manager.manager.on_parts_received(&producer, id, &commitment, parts, TOTAL_PARTS) {
+        match manager.manager.on_parts_received(&producer, id, &commitment, parts) {
             Ok(PartsOutcome::Decoded(data)) => {
                 assert_eq!(producer, honest.producer);
                 assert_eq!(data, receipt_data(0, 1));
