@@ -55,8 +55,8 @@ fn track_block_tracks_exactly_the_needed_items_once() {
     let block = &blocks[4];
     let mut manager = TestManager::new(&chain).manager;
 
-    manager.track_block(&block).unwrap();
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block);
+    manager.track_block(&block);
 
     assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
     // Proofs from the shard we apply are produced locally; proofs into the shard we
@@ -77,7 +77,7 @@ fn track_block_skips_items_already_on_disk() {
     save_proof(&chain, block, &receipt_data(0, 1));
     let mut manager = TestManager::new(&chain).manager;
 
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block);
 
     assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
     assert!(manager.items_by_height.is_empty());
@@ -444,7 +444,6 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
         &id,
         &honest_commitment,
         parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
-        TOTAL_PARTS,
     );
     assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
     assert!(manager.is_tracking(&id));

@@ -3,7 +3,7 @@
 mod data_id;
 mod encode;
 mod item;
-mod pending;
+mod orphans;
 mod policy;
 mod pull;
 mod serve;
@@ -14,13 +14,14 @@ pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::{Block, Error};
-use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
-use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
+use near_primitives::spice::partial_data::{
+    SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
+};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
-pub(crate) use pending::PendingPartialData;
+use orphans::OrphanPool;
 pub(crate) use policy::{FetchPolicies, FetchPolicy, ServePolicies, ServePolicy};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
@@ -28,10 +29,19 @@ pub use serve::MalformedDataRequest;
 pub(crate) use serve::{Push, ServeError, ServeOutcome, SpiceDataServer};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
+use std::num::NonZeroUsize;
 use std::ops::Bound;
 
 /// Share of the parts an item is encoded into that suffice to decode it.
 pub const DATA_PARTS_RATIO: f64 = 0.6;
+
+/// Max total number of parts a single batched request may carry, and so a single message
+/// answering it. Must stay above the largest per-shard chunk-producer set.
+// TODO(spice): Bound the outbound bytes per (data_id, requester) too.
+pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
+
+/// Blocks the orphan pool holds data for.
+const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[cfg(test)]
 mod tests;
@@ -41,7 +51,7 @@ mod tests;
 pub(crate) enum SenderFault {
     #[error("message carries no parts")]
     EmptyMessage,
-    #[error("message carries more parts than the commitment has")]
+    #[error("message carries more parts than a message may, or than the item has producers")]
     TooManyParts,
     #[error("message carries the same part ordinal twice")]
     DuplicateOrdinal,
@@ -69,6 +79,35 @@ pub(crate) enum PartsOutcome {
     NotWanted,
 }
 
+/// Outcome of parking data for a block this node has not processed yet.
+#[must_use]
+#[derive(Debug)]
+pub(crate) enum ParkOutcome {
+    /// Held until the block is processed.
+    Parked,
+    /// This node does not need the data whatever the block.
+    NotWanted,
+}
+
+/// Why data was not parked.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ParkError {
+    #[error(transparent)]
+    SenderFault(#[from] SenderFault),
+    #[error(transparent)]
+    Chain(#[from] Error),
+}
+
+/// What a processed block yields.
+#[must_use]
+#[derive(Debug, Default)]
+pub(crate) struct ProcessedBlockOutput {
+    /// Requests for the pullable items, grouped by producer.
+    pub(crate) pull_requests: Vec<PullRequest>,
+    /// Data parked for the block, released unverified against the block's keys.
+    pub(crate) orphans: Vec<SpicePartialData>,
+}
+
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
@@ -91,6 +130,10 @@ pub(crate) struct SpiceDataManager<P: FetchPolicy = FetchPolicies> {
     final_execution_head: Option<BlockHeight>,
     /// Highest consensus final head height seen at a trigger.`None` until the first trigger.
     final_height: Option<BlockHeight>,
+    /// Hashes of the blocks above the final execution head that were processed, by height.
+    processed_blocks: BTreeMap<BlockHeight, HashSet<CryptoHash>>,
+    /// Data for blocks not processed yet; drained at each block's trigger.
+    orphans: OrphanPool,
 }
 
 impl<P: FetchPolicy> SpiceDataManager<P> {
@@ -109,12 +152,9 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
             delivered_items: HashSet::new(),
             final_execution_head: None,
             final_height: None,
+            processed_blocks: BTreeMap::new(),
+            orphans: OrphanPool::new(MAX_ORPHAN_BLOCKS),
         }
-    }
-
-    /// The producers of `id`, in the parts' encoding order.
-    pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.policies.producers(id)
     }
 
     /// Whether an item for `id` exists, in any state.
@@ -123,30 +163,30 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
         self.items.contains_key(id)
     }
 
-    /// Starts tracking every item this node needs from `block` and doesn't already have or
-    /// track, then adds the tracked items `block` makes pullable to `pulls`.
-    /// Idempotent.
-    pub(crate) fn track_block(&mut self, block: &Block) -> Result<(), Error> {
-        self.track_block_items(block.header())?;
-        self.mark_pullable_by(block)
+    /// Whether `block_hash` was processed, as a trigger or a `track_block`, and is above the
+    /// final execution head.
+    pub(crate) fn is_block_processed(&self, block_hash: &CryptoHash) -> bool {
+        self.processed_blocks.values().any(|hashes| hashes.contains(block_hash))
     }
 
-    /// Adds the tracked items `block` makes pullable to `pulls`.
-    fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
-        for id in self.policies.made_pullable_by(block)? {
-            if let Some(item) = self.items.get(&id) {
-                self.pulls.mark_pullable(id, item.height);
-            }
+    /// Records `block` as processed, starts tracking every item this node needs from it and
+    /// doesn't already have or track, then adds the tracked items `block` makes pullable to
+    /// `pulls`. Idempotent. A failed chain read is logged and skips only its own step.
+    pub(crate) fn track_block(&mut self, block: &Block) {
+        let header = block.header();
+        self.processed_blocks.entry(header.height()).or_default().insert(*header.hash());
+        if let Err(err) = self.track_needed_items(block) {
+            tracing::error!(target: "spice_data_distribution", ?err, block_hash = ?header.hash(), "failed to track the block");
         }
-        Ok(())
+        if let Err(err) = self.mark_pullable_by(block) {
+            tracing::error!(target: "spice_data_distribution", ?err, block_hash = ?header.hash(), "failed to add the items the block makes pullable");
+        }
     }
 
-    // TODO(spice-data-distribution): Fold back into `track_block` once data for a block not
-    // yet processed is parked until the block is processed; `on_parts_received` then drops
-    // parts for untracked items without reading the chain.
     /// Starts tracking every item this node needs from `block` and doesn't already have or
-    /// track. Idempotent.
-    pub(crate) fn track_block_items(&mut self, block: &BlockHeader) -> Result<(), Error> {
+    /// track.
+    fn track_needed_items(&mut self, block: &Block) -> Result<(), Error> {
+        let block = block.header();
         let height = block.height();
         // The chain is past the block, so its data can never be applied.
         if self.final_execution_head.is_some_and(|head| height <= head) {
@@ -168,17 +208,45 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
         Ok(())
     }
 
+    /// Adds the tracked items `block` makes pullable to `pulls`.
+    fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
+        for id in self.policies.made_pullable_by(block)? {
+            if let Some(item) = self.items.get(&id) {
+                self.pulls.mark_pullable(id, item.height);
+            }
+        }
+        Ok(())
+    }
+
+    /// Holds `data` until its block is processed. Refuses a message with no parts, and data
+    /// this node does not need whatever the block.
+    // TODO(spice-data-distribution): check witness data against a need check too.
+    pub(crate) fn park(&mut self, data: SpicePartialData) -> Result<ParkOutcome, ParkError> {
+        if !data.has_parts() {
+            return Err(SenderFault::EmptyMessage.into());
+        }
+        if let SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } =
+            data.id()
+        {
+            let id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
+            if !self.policies.may_need(&id)? {
+                return Ok(ParkOutcome::NotWanted);
+            }
+        }
+        self.orphans.insert(data)?;
+        Ok(ParkOutcome::Parked)
+    }
+
     /// The block was processed at `now`: expires the items at or below the final execution
     /// head, drops the items off the canonical chain at or below the consensus final head,
-    /// tracks the items needed from the block, adds the tracked items the block makes
-    /// pullable to `pulls`, removes the delivered items already in the store, and
-    /// returns the requests for the pullable rest, grouped by producer. A failed chain read is
-    /// logged and skips only its own step.
+    /// tracks the block, removes the delivered items already in the store, and returns the
+    /// requests for the pullable rest with the data parked for the block. A failed chain read
+    /// is logged and skips only its own step.
     pub(crate) fn on_block_processed(
         &mut self,
         block_hash: &CryptoHash,
         now: Instant,
-    ) -> Vec<PullRequest> {
+    ) -> ProcessedBlockOutput {
         match self.final_execution_head_height() {
             Ok(height) => self.expire_at_or_below(height),
             Err(err) => {
@@ -192,20 +260,16 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
             }
         }
         match self.chain_store.get_block(block_hash) {
-            Ok(block) => {
-                if let Err(err) = self.track_block_items(block.header()) {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to track the block");
-                }
-                if let Err(err) = self.mark_pullable_by(&block) {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to add the items the block makes pullable");
-                }
-            }
+            Ok(block) => self.track_block(&block),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to read the block");
             }
         }
         self.remove_done_items();
-        self.pulls.to_issue(now, &self.items)
+        ProcessedBlockOutput {
+            pull_requests: self.pulls.to_issue(now, &self.items),
+            orphans: self.orphans.take(block_hash),
+        }
     }
 
     /// Height of the final execution head; the genesis height before the first one is recorded.
@@ -219,27 +283,31 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
 
     /// Handles incoming parts: verifies every part's proof against the commitment before
     /// inserting any; a part failing its proof rejects the whole message and leaves the item
-    /// untouched, as does an empty message, one with more than `total_parts` parts, one
-    /// repeating an ordinal, or one from a sender that is not a producer of the item. A verified message counts as the sender's answer to any request
-    /// outstanding to it. A decoding insert checks the decoded data against the committed hash
-    /// and the id, settles the commitment either way, and returns matching data.
+    /// untouched, as does an empty message, one with more than `MAX_REQUESTED_PARTS` parts or
+    /// more parts than the item has producers, one repeating an ordinal, or one from a sender
+    /// that is not a producer of the item. A verified message counts as the sender's answer to
+    /// any request outstanding to it. A decoding insert checks the decoded data against the
+    /// committed hash and the id, settles the commitment either way, and returns matching data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
         id: &DataId,
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
-        total_parts: usize,
     ) -> Result<PartsOutcome, SenderFault> {
         if parts.is_empty() {
             return Err(SenderFault::EmptyMessage);
         }
-        if parts.len() > total_parts {
+        if parts.len() > MAX_REQUESTED_PARTS {
             return Err(SenderFault::TooManyParts);
         }
         let Some(item) = self.items.get_mut(id) else {
             return Ok(PartsOutcome::NotWanted);
         };
+        let total_parts = item.producers.len();
+        if parts.len() > total_parts {
+            return Err(SenderFault::TooManyParts);
+        }
         let Some(producer_index) = item.producers.iter().position(|(account, _)| account == sender)
         else {
             return Err(SenderFault::NotAProducer);
@@ -284,6 +352,7 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
         };
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
+        self.processed_blocks = self.processed_blocks.split_off(&next_height);
         self.pulls.forget_below(next_height);
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");

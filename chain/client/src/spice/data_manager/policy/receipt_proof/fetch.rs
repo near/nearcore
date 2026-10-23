@@ -1,4 +1,3 @@
-use super::source_producers;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::policy::FetchPolicy;
@@ -118,7 +117,21 @@ impl FetchPolicy for ReceiptProofFetchPolicy {
         Ok(ids)
     }
 
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        source_producers(&self.chain_store, self.epoch_manager.as_ref(), id)
+    /// The destination shard is in the layout of the final head's epoch or the next one.
+    // TODO(spice): Use the shard tracker to check that this node applies the destination.
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        let DataId::ReceiptProof { to_shard, .. } = id;
+        let final_head = self.chain_store.final_head()?;
+        for epoch_id in [final_head.epoch_id, final_head.next_epoch_id] {
+            if self
+                .epoch_manager
+                .get_shard_layout(&epoch_id)?
+                .shard_ids()
+                .any(|shard_id| shard_id == *to_shard)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }

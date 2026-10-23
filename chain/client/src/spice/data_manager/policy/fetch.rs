@@ -9,7 +9,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::sync::Arc;
 
 /// A data type's chain-dependent properties for a node fetching it: relevance, doneness,
-/// who holds the data.
+/// pullability.
 pub(crate) trait FetchPolicy {
     /// The ids of this type that this node needs from `block`, each with its producers in
     /// the parts' encoding order.
@@ -23,8 +23,9 @@ pub(crate) trait FetchPolicy {
     /// The ids of this type that `block` makes pullable, tracked or not.
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
 
-    /// The producers of `id`, in the parts' encoding order.
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error>;
+    /// Whether this node may need `id` from a block it has not processed yet. Reads no
+    /// block, so it holds for any block at or above the final head.
+    fn may_need(&self, id: &DataId) -> Result<bool, Error>;
 }
 
 /// The fetch policies, one per [`DataId`] variant.
@@ -65,7 +66,7 @@ impl FetchPolicy for FetchPolicies {
         self.receipt_proofs.made_pullable_by(block)
     }
 
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.policy(id).producers(id)
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        self.policy(id).may_need(id)
     }
 }

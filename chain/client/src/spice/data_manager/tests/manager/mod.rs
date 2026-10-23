@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod batching;
 mod delivery;
 mod lifecycle;
+mod orphans;
 mod recovery;
 mod retries;
 
@@ -106,8 +107,8 @@ impl FetchPolicy for TestPolicy {
         self.chain_policies.made_pullable_by(block)
     }
 
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        Ok(self.producers_of(id))
+    fn may_need(&self, id: &DataId) -> Result<bool, Error> {
+        self.chain_policies.may_need(id)
     }
 }
 
@@ -208,7 +209,7 @@ impl TestManager {
     }
 
     fn track_block(&mut self, block: &Block) {
-        self.manager.track_block(block).unwrap();
+        self.manager.track_block(block);
     }
 
     fn is_tracking(&self, id: &DataId) -> bool {
@@ -252,7 +253,7 @@ impl TestManager {
             block.header().height(),
             self.certified_height
         );
-        self.manager.on_block_processed(block.hash(), self.clock.now())
+        self.manager.on_block_processed(block.hash(), self.clock.now()).pull_requests
     }
 
     /// Delivers `parts` and asserts the item keeps collecting.
@@ -263,8 +264,7 @@ impl TestManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
     ) {
-        let result =
-            self.manager.on_parts_received(sender, id, commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.on_parts_received(sender, id, commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Collecting);
     }
 
@@ -272,8 +272,7 @@ impl TestManager {
     fn deliver(&mut self, sender: &AccountId, id: &DataId, data: &SpiceData) {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
-        let result =
-            self.manager.on_parts_received(sender, id, &commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.on_parts_received(sender, id, &commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
     }
 

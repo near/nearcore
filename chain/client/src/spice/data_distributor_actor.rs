@@ -6,9 +6,10 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, FetchPolicies, PartsOutcome, PendingPartialData, PullConfig,
-    PullRequest, Push, SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData,
-    SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
+    DATA_PARTS_RATIO, EncodedData, FetchPolicies, MAX_REQUESTED_PARTS, ParkError, ParkOutcome,
+    PartsOutcome, ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError,
+    ServeOutcome, ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart,
+    encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -103,10 +104,6 @@ pub(crate) enum Error {
     InvalidCommitment,
     #[error("decoded data doesn't match commitment hash")]
     InvalidCommitmentHash,
-    #[error("receipt proof id to_shard_id is invalid")]
-    InvalidReceiptToShardId,
-    #[error("receipt proof id from_shard_id is invalid")]
-    InvalidReceiptFromShardId,
     #[error("decoded data doesn't match id")]
     IdAndDataMismatch,
     #[error("data sender is not a validator")]
@@ -125,6 +122,15 @@ pub(crate) enum Error {
     SenderFault(#[from] SenderFault),
     #[error("other error: {0}")]
     Other(&'static str),
+}
+
+impl From<ParkError> for Error {
+    fn from(value: ParkError) -> Self {
+        match value {
+            ParkError::SenderFault(fault) => Error::SenderFault(fault),
+            ParkError::Chain(err) => Error::NearChainError(err),
+        }
+    }
 }
 
 impl From<EpochError> for Error {
@@ -153,12 +159,6 @@ pub const DATA_REQUEST_INTERVAL: Duration = Duration::milliseconds(1000);
 /// This caps the encodes (CPU).
 pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
 
-/// Max total number of parts a single batched request may carry.
-/// This caps the number of parts sent back, not their size. Must stay above the largest
-/// per-shard chunk-producer set.
-// TODO(spice): Bound the outbound bytes per (data_id, requester) too.
-pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
-
 /// Bundles channels for all SPICE-related messages that the network layer dispatches to.
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
 /// message types (contract-{accesses,response}) to validator via injected senders.
@@ -178,9 +178,6 @@ pub struct SpiceDataDistributorActor {
     /// (via SpiceDataDistributorSenderForNetwork) but ultimately handled by the validator actor.
     contract_accesses_validator_sender: Sender<SpiceChunkContractAccessesMessage>,
     contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
-
-    /// Spice Partial Data which we cannot decode or validate yet because of missing corresponding block.
-    pending_partial_data: PendingPartialData,
 
     // TODO(spice): Populate data we are waiting on during actor start.
     waiting_on_data: HashMap<SpiceDataIdentifier, WaitingOnDataEntry>,
@@ -356,8 +353,6 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             | Error::InvalidDecodedWitnessBlockHash
             | Error::InvalidCommitment
             | Error::InvalidCommitmentHash
-            | Error::InvalidReceiptToShardId
-            | Error::InvalidReceiptFromShardId
             | Error::IdAndDataMismatch
             | Error::InvalidPartialDataSignature
             | Error::DecodeError(_)
@@ -440,12 +435,13 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         // manager records the requests below as outstanding on a node that cannot send them.
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
-        let requests = self.data_manager.on_block_processed(&block_hash, self.clock.now());
+        let ProcessedBlockOutput { pull_requests, orphans } =
+            self.data_manager.on_block_processed(&block_hash, self.clock.now());
         if let Some(requester) = me {
-            self.send_pull_requests(requester, requests);
+            self.send_pull_requests(requester, pull_requests);
         }
-        if let Err(err) = self.process_pending_partial_data(&block_hash) {
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
+        if let Err(err) = self.process_orphans(&block_hash, orphans) {
+            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing orphan partial data");
         }
     }
 }
@@ -465,7 +461,6 @@ impl SpiceDataDistributorActor {
         contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
     ) -> Self {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
-        const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
@@ -499,7 +494,6 @@ impl SpiceDataDistributorActor {
             witness_validator_sender,
             contract_accesses_validator_sender,
             contract_code_response_validator_sender,
-            pending_partial_data: PendingPartialData::new(PENDING_PARTIAL_DATA_CAP),
             waiting_on_data: HashMap::new(),
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
             processed_contract_code_requests: LruCache::new(
@@ -641,21 +635,24 @@ impl SpiceDataDistributorActor {
         Ok((recipients, producers))
     }
 
+    /// Parks receipt proofs until their block is processed and witnesses until their block
+    /// is known.
     pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
+        if matches!(data.id(), SpiceDataIdentifier::ReceiptProof { .. })
+            && !self.data_manager.is_block_processed(data.block_hash())
+        {
+            return self.park(data);
+        }
         let block = match self.chain_store.get_block(data.block_hash()) {
             Ok(block) => block,
-            Err(near_chain::Error::DBNotFoundErr(_)) => return self.add_pending_partial_data(data),
+            Err(near_chain::Error::DBNotFoundErr(_)) => return self.park(data),
             Err(err) => return Err(err.into()),
         };
         self.receive_data_with_block(data, &block)
     }
 
-    fn add_pending_partial_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
-        let Some(signer) = self.validator_signer.get() else {
-            return Err(Error::Other("cannot receive data without validator_signer"));
-        };
-        let me = signer.validator_id();
-
+    /// Authenticates `data` against the epochs of the final head and parks it.
+    fn park(&mut self, data: SpicePartialData) -> Result<(), Error> {
         let final_head = self.chain_store.final_head()?;
         let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
         let public_keys =
@@ -672,11 +669,18 @@ impl SpiceDataDistributorActor {
         if !self.possible_producers(id, &possible_epoch_ids)?.contains(data.sender()) {
             return Err(Error::SenderIsNotProducer);
         }
-        if !self.is_pending_data_needed(me, id, &possible_epoch_ids)? {
-            return Err(Error::NodeIsNotRecipient);
+        if let SpiceDataIdentifier::Witness { .. } = id {
+            let Some(signer) = self.validator_signer.get() else {
+                return Err(Error::Other("cannot receive witness data without validator_signer"));
+            };
+            if !self.is_validator_in(signer.validator_id(), &possible_epoch_ids)? {
+                return Err(Error::NodeIsNotRecipient);
+            }
         }
-        self.pending_partial_data.insert(data)?;
-        Ok(())
+        match self.data_manager.park(data)? {
+            ParkOutcome::Parked => Ok(()),
+            ParkOutcome::NotWanted => Err(Error::NodeIsNotRecipient),
+        }
     }
 
     fn receive_data_with_block(
@@ -698,25 +702,10 @@ impl SpiceDataDistributorActor {
         SpiceVerifiedPartialData { id, commitment, parts, sender }: SpiceVerifiedPartialData,
         block: &Block,
     ) -> Result<(), Error> {
-        self.verify_data_id(&id, block)?;
-
-        // Items may not be tracked yet if we received data after the block
-        // became available but before we processed it.
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
-                let producers = self.data_manager.producers(&data_id)?;
-                if !producers.contains(&sender) {
-                    return Err(Error::SenderIsNotProducer);
-                }
-                self.data_manager.track_block_items(block.header())?;
-                match self.data_manager.on_parts_received(
-                    &sender,
-                    &data_id,
-                    &commitment,
-                    parts,
-                    producers.len(),
-                ) {
+                match self.data_manager.on_parts_received(&sender, &data_id, &commitment, parts) {
                     Ok(PartsOutcome::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
                         tracing::debug!(target: "spice_data_distribution", ?data_id, ?commitment, "delivering decoded receipt proof");
                         self.executor_sender
@@ -731,7 +720,13 @@ impl SpiceDataDistributorActor {
                     Err(err) => Err(err.into()),
                 }
             }
-            SpiceDataIdentifier::Witness { shard_id, .. } => {
+            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
+                debug_assert_eq!(block_hash, block.hash());
+                let shard_layout =
+                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+                if !shard_layout.shard_ids().contains(shard_id) {
+                    return Err(Error::InvalidWitnessShardId);
+                }
                 let (_recipients, producers) =
                     self.witness_recipients_and_producers(block, *shard_id)?;
                 if !producers.contains(&sender) {
@@ -846,35 +841,6 @@ impl SpiceDataDistributorActor {
         self.core_reader.endorsement_exists(block_hash, shard_id, me)
     }
 
-    fn verify_data_id(&self, id: &SpiceDataIdentifier, block: &Block) -> Result<(), Error> {
-        match id {
-            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-                let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
-                if !shard_ids.contains(from_shard_id) {
-                    return Err(Error::InvalidReceiptFromShardId);
-                }
-                // TODO(spice-resharding): If to_shard_id may be from the next_epoch this check
-                // needs to be adjusted.
-                if !shard_ids.contains(to_shard_id) {
-                    return Err(Error::InvalidReceiptToShardId);
-                }
-            }
-            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-                let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
-                if !shard_ids.contains(shard_id) {
-                    return Err(Error::InvalidWitnessShardId);
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn possible_producers(
         &self,
         id: &SpiceDataIdentifier,
@@ -902,44 +868,26 @@ impl SpiceDataDistributorActor {
         Ok(possible_producers)
     }
 
-    fn is_pending_data_needed(
-        &self,
-        me: &AccountId,
-        id: &SpiceDataIdentifier,
-        possible_epoch_ids: &[EpochId],
-    ) -> Result<bool, Error> {
-        for epoch_id in possible_epoch_ids {
-            match id {
-                SpiceDataIdentifier::Witness { .. } => {
-                    let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-                    if epoch_info
-                        .validators_iter()
-                        .map(|stake| stake.take_account_id())
-                        .contains(me)
-                    {
-                        return Ok(true);
-                    }
-                }
-                SpiceDataIdentifier::ReceiptProof { to_shard_id, .. } => {
-                    // TODO(spice): Use information in shard_tracker and epoch manager to assess if we
-                    // need this data.
-                    let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                    if shard_layout.shard_ids().contains(to_shard_id) {
-                        return Ok(true);
-                    }
-                }
+    fn is_validator_in(&self, me: &AccountId, epoch_ids: &[EpochId]) -> Result<bool, Error> {
+        for epoch_id in epoch_ids {
+            let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+            if epoch_info.validators_iter().map(|stake| stake.take_account_id()).contains(me) {
+                return Ok(true);
             }
         }
         Ok(false)
     }
 
-    fn process_pending_partial_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let ready_data = self.pending_partial_data.take(block_hash);
-        if ready_data.is_empty() {
+    fn process_orphans(
+        &mut self,
+        block_hash: &CryptoHash,
+        orphans: Vec<SpicePartialData>,
+    ) -> Result<(), Error> {
+        if orphans.is_empty() {
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash)?;
-        for data in ready_data {
+        for data in orphans {
             let data_id = data.id().clone();
             let sender = data.sender().clone();
             if let Err(err) = self.receive_data_with_block(data, &block) {
@@ -948,10 +896,10 @@ impl SpiceDataDistributorActor {
                         self.waiting_on_data.remove(&data_id);
                         tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
                     }
-                    // Pending data was checked against the epochs of the final head, which may
+                    // Parked data was checked against the epochs of the final head, which may
                     // differ from the epoch of its block.
                     Error::InvalidPartialDataSignature | Error::SenderIsNotValidator => {
-                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "pending partial data is invalid for its block");
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "parked partial data is invalid for its block");
                     }
                     _ => {
                         tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");
@@ -1826,7 +1774,7 @@ impl SpiceDataDistributorActor {
         }
         self.start_waiting_on_data(block_hash)?;
         let block = self.chain_store.get_block(block_hash)?;
-        self.data_manager.track_block(&block)?;
+        self.data_manager.track_block(&block);
         Ok(())
     }
 }
