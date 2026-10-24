@@ -1,4 +1,4 @@
-use crate::{EpochManagerHandle, SampleEpoch};
+use crate::{EpochManagerHandle, EpochManagerUpdate, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::{PublicKey, Signature};
 use near_primitives::block::{Block, Tip};
@@ -730,7 +730,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError>;
+    ) -> Result<EpochManagerUpdate, EpochError>;
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(
@@ -1246,7 +1246,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+    ) -> Result<EpochManagerUpdate, EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager.record_block_info(block_info, random_value.0)
     }

@@ -1580,7 +1580,7 @@ impl Chain {
                 BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
-            chain_store_update.merge(epoch_manager_update.into());
+            chain_store_update.merge(epoch_manager_update.store_update.into());
             chain_store_update.commit()?;
         }
 
@@ -1902,19 +1902,16 @@ impl Chain {
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
-        let epoch_to_check = self.protocol_version_check;
+        let protocol_version_check = self.protocol_version_check;
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
-        let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
             block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
+            protocol_version_check,
         )?;
-        if new_head.is_some() {
-            chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
-        }
         chain_update.commit()?;
         self.sandbox_patches.mark_committed(sandbox_patch_gen);
         Ok(new_head)
