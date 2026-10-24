@@ -3,7 +3,7 @@ use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice::boundary::{is_last_pre_spice_block_at_epoch_end, seed_activation_boundary};
+use crate::spice::boundary::seed_activation_boundary;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
@@ -282,8 +282,10 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         let prev_header = self.chain_store_update.get_previous_header(block.header())?;
+        // The last pre-spice block ends a pre-spice epoch whose next epoch is spice.
         let is_last_pre_spice_block = epoch_end.as_ref().is_some_and(|epoch_end| {
-            is_last_pre_spice_block_at_epoch_end(current_protocol_version, epoch_end)
+            !ProtocolFeature::Spice.enabled(current_protocol_version)
+                && ProtocolFeature::Spice.enabled(epoch_end.next_epoch_protocol_version)
         });
         let mut boundary_update = self.chain_store_update.store().store_update();
         seed_activation_boundary(

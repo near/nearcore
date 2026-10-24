@@ -2,12 +2,12 @@
 //! are the first to be certified under spice.
 
 use near_chain_primitives::{ApplyChunksMode, Error};
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochEnd, EpochManagerAdapter};
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ProtocolVersion, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -31,17 +31,6 @@ pub fn is_last_pre_spice_block(
     }
     let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
-}
-
-/// [`is_last_pre_spice_block`] for the last block of an epoch at `epoch_protocol_version`.
-/// Works for a block whose rows are not committed yet, given the `EpochEnd` that
-/// `record_block_info` returned for it.
-pub fn is_last_pre_spice_block_at_epoch_end(
-    epoch_protocol_version: ProtocolVersion,
-    epoch_end: &EpochEnd,
-) -> bool {
-    !ProtocolFeature::Spice.enabled(epoch_protocol_version)
-        && ProtocolFeature::Spice.enabled(epoch_end.next_epoch_protocol_version)
 }
 
 /// Whether this node applies `shard_id`'s chunk of `block` itself, so that it holds
