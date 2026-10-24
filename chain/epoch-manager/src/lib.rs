@@ -460,8 +460,6 @@ pub struct EpochManager {
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
     /// Cache of block information.
     blocks_info: SyncLruCache<CryptoHash, Arc<BlockInfo>>,
-    /// Cache of epoch id to epoch start height
-    epoch_id_to_start: SyncLruCache<EpochId, BlockHeight>,
     /// Epoch validators ordered by `block_producer_settlement`.
     epoch_validators_ordered: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
     /// Unique validators ordered by `block_producer_settlement`.
@@ -588,7 +586,6 @@ impl EpochManager {
             reward_calculator,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
-            epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -1381,8 +1378,6 @@ impl EpochManager {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
 
-                // Deliberately after every fallible step, so a failed record leaves no stale
-                // `epoch_id_to_start` entry. Safe here because nothing above reads it back.
                 if is_epoch_start {
                     self.save_epoch_start(
                         &mut store_update,
@@ -2157,7 +2152,6 @@ impl EpochManager {
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
         store_update.set_epoch_start(epoch_id, epoch_start);
-        self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
 
@@ -2165,8 +2159,7 @@ impl EpochManager {
     /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
     /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
+        self.store.get_epoch_start(epoch_id)
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`
