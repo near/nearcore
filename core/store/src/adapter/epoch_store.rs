@@ -14,6 +14,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct EpochStoreAdapter {
@@ -47,9 +48,9 @@ impl EpochStoreAdapter {
     /// Errors
     ///   EpochError::IOErr if storage returned an error
     ///   EpochError::MissingBlock if block is not in storage
-    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochError> {
+    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.store
-            .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
+            .caching_get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
             .ok_or(EpochError::MissingBlock(*hash))
     }
 

@@ -64,7 +64,7 @@ mod validator_selection;
 mod validator_stats;
 
 const EPOCH_CACHE_SIZE: usize = 50;
-const BLOCK_CACHE_SIZE: usize = 1000;
+const CHUNK_VALIDATORS_CACHE_SIZE: usize = 1000;
 const CHUNK_PRODUCER_BLACKLIST_CACHE_SIZE: usize = 128;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
@@ -473,8 +473,6 @@ pub struct EpochManager {
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
-    /// Cache of block information.
-    blocks_info: SyncLruCache<CryptoHash, Arc<BlockInfo>>,
     /// Cache of epoch id to epoch start height
     epoch_id_to_start: SyncLruCache<EpochId, BlockHeight>,
     /// Epoch validators ordered by `block_producer_settlement`.
@@ -602,12 +600,11 @@ impl EpochManager {
             config,
             reward_calculator,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
-            blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
-            chunk_validators_cache: SyncLruCache::new(BLOCK_CACHE_SIZE),
+            chunk_validators_cache: SyncLruCache::new(CHUNK_VALIDATORS_CACHE_SIZE),
             chunk_producer_blacklists: SyncLruCache::new(CHUNK_PRODUCER_BLACKLIST_CACHE_SIZE),
             epoch_info_aggregator,
             #[cfg(test)]
@@ -1289,11 +1286,10 @@ impl EpochManager {
         let current_hash = *block_info.hash();
         let result = self.record_block_info_impl(block_info, rng_seed);
         if result.is_err() {
-            // Callers drop the store update on error, so the entries cached alongside it must
-            // go too, or other readers see values that were never written. Popping a key that
-            // does hold a committed value is harmless: both caches are read-through, so the
-            // next read loads it from the store again.
-            self.blocks_info.pop(&current_hash);
+            // Callers drop the store update on error, so the entry cached alongside it must
+            // go too, or other readers see a value that was never written. Popping a key that
+            // does hold a committed value is harmless: the cache is read-through, so the next
+            // read loads it from the store again.
             self.epochs_info.pop(&EpochId(current_hash));
         }
         result
@@ -1424,10 +1420,6 @@ impl EpochManager {
                         block_info.height(),
                     )?;
                 }
-
-                // `check_protocol_version` reads this before commit, while the cache holds
-                // the only readable copy. Keep it most recently used.
-                self.blocks_info.put(current_hash, block_info);
             }
         }
         Ok(EpochManagerUpdate { store_update, epoch_end })
@@ -2159,12 +2151,11 @@ impl EpochManager {
         Ok(())
     }
 
-    /// Whether the block was already recorded, asked of the store rather than the
-    /// `blocks_info` cache: callers can drop the returned update even after a successful
-    /// record, so a cache hit does not mean the rows were written. Trade-off: a second
-    /// recorder of the same block between a record returning and its caller committing is
-    /// no longer deduplicated. Recording is deterministic and the writes are insert-only,
-    /// so that costs duplicate work, not correctness.
+    /// Whether the block's `BlockInfo` is committed. Callers can drop the returned update
+    /// even after a successful record, and then the block counts as not recorded.
+    /// Trade-off: a second recorder of the same block between a record returning and its
+    /// caller committing is not deduplicated. Recording is deterministic and the writes
+    /// are insert-only, so that costs duplicate work, not correctness.
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
         match self.store.get_block_info(hash) {
             Ok(_) => Ok(true),
@@ -2174,15 +2165,7 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(*hash, |hash| self.store.get_block_info(hash).map(Arc::new))
-    }
-
-    /// Read without changing the cache: a full-epoch walk must not evict uncommitted blocks.
-    fn peek_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        if let Some(block_info) = self.blocks_info.lock().peek(hash) {
-            return Ok(Arc::clone(block_info));
-        }
-        self.store.get_block_info(hash).map(Arc::new)
+        self.store.get_block_info(hash)
     }
 
     fn save_block_info(
@@ -2191,7 +2174,6 @@ impl EpochManager {
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
         store_update.set_block_info(&block_info);
-        self.blocks_info.put(*block_info.hash(), block_info);
         Ok(())
     }
 
@@ -2265,7 +2247,7 @@ impl EpochManager {
         if last_block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(self.epoch_info_aggregator.clone());
         }
-        self.epoch_info_aggregator_upto_block(self.peek_block_info(last_block_hash)?)
+        self.epoch_info_aggregator_upto_block(self.get_block_info(last_block_hash)?)
     }
 
     /// Like [`Self::get_epoch_info_aggregator_upto_last`], but takes the block itself, so it
@@ -2309,7 +2291,7 @@ impl EpochManager {
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
         }
-        self.aggregate_epoch_info_from(self.peek_block_info(block_hash)?).map(Some)
+        self.aggregate_epoch_info_from(self.get_block_info(block_hash)?).map(Some)
     }
 
     /// The walk of [`Self::aggregate_epoch_info_upto`], starting at `block_info`, which must
@@ -2343,7 +2325,7 @@ impl EpochManager {
             }
 
             let prev_hash = *block_info.prev_hash();
-            let prev_block_info = match self.peek_block_info(&prev_hash) {
+            let prev_block_info = match self.get_block_info(&prev_hash) {
                 Ok(info) => Some(info),
                 Err(EpochError::MissingBlock(_)) => None,
                 Err(e) => return Err(e),
@@ -2415,7 +2397,7 @@ impl EpochManager {
             return None;
         }
         let anchor = *prev_block_info.prev_hash();
-        let anchor_block_info = self.peek_block_info(&anchor).ok()?;
+        let anchor_block_info = self.get_block_info(&anchor).ok()?;
         if anchor_block_info.epoch_id() != epoch_id {
             return None;
         }

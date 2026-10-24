@@ -15,8 +15,8 @@ use crate::test_utils::{
     setup_default_epoch_manager, setup_default_epoch_manager_at_version,
 };
 use crate::{
-    BLOCK_CACHE_SIZE, ChunkProducerBlacklist, EpochManager, EpochManagerAdapter,
-    EpochManagerHandle, compute_chunk_producer_blacklist,
+    ChunkProducerBlacklist, EpochManager, EpochManagerAdapter, EpochManagerHandle,
+    compute_chunk_producer_blacklist,
 };
 use crate::{SampleEpoch, SeedAnchor};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -1196,19 +1196,19 @@ fn seed_walk_skips_fork_basis_behind_sync_point() {
     assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
 }
 
-// A late block can move the sync point past the canonical basis. Blocks recorded on that
-// basis must keep their uncommitted `BlockInfo` readable.
+// A late block can move the sync point past the canonical basis. Blocks on that basis
+// must still record.
 enum ForkOrder {
     CanonicalFirst,
     OrphanFirst,
 }
 
-/// The orphan advances the sync point past the canonical basis. Leave canonical records
-/// uncommitted to check that they remain readable, as required during block processing.
+/// The orphan advances the sync point past the canonical basis. Canonical records must
+/// succeed without an epoch walk.
 fn record_fork_behind_sync_point(order: ForkOrder) {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    const TIP: u64 = BLOCK_CACHE_SIZE as u64 + 200;
+    const TIP: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 200;
     let h = height_hashes(TIP);
     record_steady_chain(&mut em, &h);
     let tip = h[TIP as usize];
@@ -1235,15 +1235,11 @@ fn record_fork_behind_sync_point(order: ForkOrder) {
                 vec![true],
                 PROTOCOL_VERSION,
             );
-            let uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-            // `check_protocol_version` makes this read before commit.
-            assert!(
-                em.is_next_block_epoch_start(&cur).is_ok(),
-                "the uncommitted BlockInfo must stay readable"
-            );
+            let update = em.record_block_info(block_info, [0; 32]).unwrap();
+            assert!(update.epoch_end.is_none(), "the block must not end the epoch");
             let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
             assert_eq!(walked, 0, "the basis was computed for the tip, so it must not be walked");
-            uncommitted.store_update.commit();
+            update.store_update.commit();
         };
 
     match order {
@@ -1269,11 +1265,11 @@ fn fork_behind_sync_point_orphan_first() {
     record_fork_behind_sync_point(ForkOrder::OrphanFirst);
 }
 
-// The first block of an epoch is read back inside `record_block_info`, before commit.
+// Inside `record_block_info`, the first block of an epoch is its own epoch first block.
 #[test]
 fn epoch_boundary_fork_records_canonical_first_block() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    const EPOCH_LENGTH: u64 = BLOCK_CACHE_SIZE as u64 + 300;
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
     let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
     let last = EPOCH_LENGTH;
     let h = height_hashes(last);
@@ -1297,22 +1293,23 @@ fn epoch_boundary_fork_records_canonical_first_block() {
         vec![true],
         PROTOCOL_VERSION,
     );
-    let _uncommitted = em
+    let update = em
         .record_block_info(block_info, [0; 32])
         .expect("the canonical first block of the epoch must record");
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    let block_info = em.get_block_info(&b).expect("the uncommitted BlockInfo must stay readable");
+    update.store_update.commit();
+    let block_info = em.get_block_info(&b).unwrap();
     assert_eq!(*block_info.epoch_first_block(), b);
     assert_ne!(block_info.epoch_id(), em.get_block_info(&p).unwrap().epoch_id());
     assert_eq!(walked, 0, "a basis in the previous epoch must not be walked");
 }
 
 // Same-height siblings require equivocation. Recording the second sibling finalizes
-// the epoch, which must read its uncommitted `BlockInfo`.
+// the epoch from its `BlockInfo` before commit.
 #[test]
 fn epoch_last_block_sibling_behind_sync_point_records() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    const EPOCH_LENGTH: u64 = BLOCK_CACHE_SIZE as u64 + 300;
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
     let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
     let last = EPOCH_LENGTH;
     let h = height_hashes(last - 1);
@@ -1341,69 +1338,17 @@ fn epoch_last_block_sibling_behind_sync_point_records() {
         vec![true],
         PROTOCOL_VERSION,
     );
-    let _uncommitted =
+    let update =
         em.record_block_info(block_info, [0; 32]).expect("the sibling last block must record");
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    assert!(em.is_next_block_epoch_start(&b).unwrap(), "b must be the last block of epoch 0");
-    // Finalization reads the uncommitted `b` after the walk.
-    assert!(walked > BLOCK_CACHE_SIZE, "the seeding walk must outrun the cache, walked {walked}");
-}
-
-// Exercise the full epoch walk directly; cached blacklists bypass it in the fork tests.
-#[test]
-fn aggregator_walk_leaves_block_info_cache_alone() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    const TIP: u64 = BLOCK_CACHE_SIZE as u64 + 200;
-    let h = height_hashes(TIP);
-    record_steady_chain(&mut em, &h);
-    let pending = hash(b"recorded, not committed");
-    let block_info = block_info_with_final_and_mask(
-        &em,
-        h[TIP as usize],
-        pending,
-        TIP + 1,
-        h[TIP as usize - 1],
-        TIP - 1,
-        vec![true],
-        PROTOCOL_VERSION,
+    assert!(update.epoch_end.is_some(), "b must be the last block of epoch 0");
+    // Finalization runs on `b` after the walk.
+    // The blacklist is empty by rule for the first EARLY_KICKOUT_EPOCH_GRACE_BLOCKS blocks
+    // of an epoch, so only a later anchor walks.
+    assert!(
+        walked > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS as usize,
+        "the seeding walk must cover the epoch, walked {walked}"
     );
-    let _uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-    assert_eq!(em.epoch_info_aggregator.last_block_hash, h[TIP as usize - 1]);
-
-    let cached = |em: &EpochManager| -> Vec<CryptoHash> {
-        em.blocks_info.lock().iter().map(|(hash, _)| *hash).collect()
-    };
-    let cached_before = cached(&em);
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-    em.get_epoch_info_aggregator_upto_last(&h[TIP as usize - 2]).unwrap();
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-
-    assert!(walked > BLOCK_CACHE_SIZE, "the walk must outrun the cache, walked {walked}");
-    assert_eq!(cached(&em), cached_before, "the walk must not insert, evict or reorder entries");
-    assert!(em.get_block_info(&pending).is_ok());
-}
-
-#[test]
-fn record_block_info_leaves_new_block_most_recently_used() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    let h = height_hashes(5);
-    record_steady_chain(&mut em, &h);
-    let pending = hash(b"recorded, not committed");
-    let block_info = block_info_with_final_and_mask(
-        &em,
-        h[5],
-        pending,
-        6,
-        h[4],
-        4,
-        vec![true],
-        PROTOCOL_VERSION,
-    );
-    let _uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-    let most_recent = em.blocks_info.lock().iter().next().map(|(hash, _)| *hash);
-    assert_eq!(most_recent, Some(pending));
 }
 
 fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash]) -> CryptoHash {
@@ -1850,7 +1795,7 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
 // update, so a surviving entry serves other readers a block that was never written.
 // Reachable after epoch sync, where the seeder fails with `MissingBlock`.
 #[test]
-fn record_block_info_failure_does_not_poison_block_info_cache() {
+fn record_block_info_failure_leaves_no_block_info() {
     let mut fx = epoch_sync_fixture();
 
     // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
@@ -1863,9 +1808,10 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
         .expect_err("the seeder walk must fail on the uninstalled aggregator position");
     assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
 
-    let err = fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
-        "a discarded record must not leave the block in the cache, or the retry is skipped",
-    );
+    let err =
+        fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
+            "a discarded record must not leave a block info row, or the retry is skipped",
+        );
     assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
 
     let err = fx
@@ -1881,7 +1827,7 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
 // boundary derives has no `EpochInfo` and the record fails where the epoch-start write used
 // to precede it. Not a state epoch sync can produce.
 #[test]
-fn record_block_info_failure_does_not_poison_epoch_start_cache() {
+fn record_block_info_failure_leaves_no_epoch_start() {
     let mut fx = epoch_sync_fixture();
 
     // What the boundary derives: the hash of the block before the prev epoch's first.
@@ -1904,7 +1850,7 @@ fn record_block_info_failure_does_not_poison_epoch_start_cache() {
     fx.em
         .get_block_info(&child)
         .map(|_| ())
-        .expect_err("a discarded record must not leave the block in the cache");
+        .expect_err("a discarded record must not leave a block info row");
 
     let err = fx
         .em
