@@ -851,11 +851,10 @@ impl EpochManager {
 
     fn collect_blocks_info(
         &self,
-        last_block_info: &BlockInfo,
-        last_block_hash: &CryptoHash,
+        last_block_info: &Arc<BlockInfo>,
     ) -> Result<EpochSummary, EpochError> {
         let epoch_info = self.get_epoch_info(last_block_info.epoch_id())?;
-        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_info(last_block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
         let EpochInfoAggregator {
@@ -864,7 +863,7 @@ impl EpochManager {
             all_proposals,
             version_tracker,
             ..
-        } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
+        } = self.epoch_info_aggregator_upto_block(Arc::clone(last_block_info))?;
         let mut proposals = vec![];
 
         let total_block_producer_stake: Balance = epoch_info
@@ -949,8 +948,8 @@ impl EpochManager {
             proposals.push(proposal.clone());
         }
 
-        let prev_epoch_last_block_hash =
-            *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
+        // The id of epoch T+1 is the hash of the last block of epoch T-1.
+        let prev_epoch_last_block_hash = next_epoch_id.0;
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
         // On spice epochs, chunk endorsements are accumulated per-validator on
@@ -1128,16 +1127,15 @@ impl EpochManager {
         Ok(can_reshard)
     }
 
-    /// Finalize epoch (T), where given last block hash is given
+    /// Finalize epoch (T), where `block_info` is its last block.
     /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        block_info: &BlockInfo,
-        last_block_hash: &CryptoHash,
+        block_info: &Arc<BlockInfo>,
         rng_seed: RngSeed,
     ) -> Result<(), EpochError> {
-        let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
+        let epoch_summary = self.collect_blocks_info(block_info)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
         let epoch_config = self.get_epoch_config(epoch_protocol_version);
@@ -1156,9 +1154,8 @@ impl EpochManager {
         } = epoch_summary;
 
         let (validator_reward, minted_amount) = {
-            let last_epoch_last_block_hash =
-                *self.get_block_info(block_info.epoch_first_block())?.prev_hash();
-            let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
+            // The id of epoch T+1 is the hash of the last block of epoch T-1.
+            let last_block_in_last_epoch = self.get_block_info(&next_epoch_id.0)?;
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
@@ -1243,7 +1240,7 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
-        let next_next_epoch_id = EpochId(*last_block_hash);
+        let next_next_epoch_id = EpochId(*block_info.hash());
         tracing::debug!(
             target: "epoch_manager",
             next_next_epoch_height = %next_next_epoch_info.epoch_height(),
@@ -1385,7 +1382,7 @@ impl EpochManager {
 
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
-                    self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+                    self.finalize_epoch(&mut store_update, &block_info, rng_seed)?;
                 }
 
                 // Deliberately after every fallible step, so a failed record leaves no stale
@@ -1603,11 +1600,11 @@ impl EpochManager {
         }
         let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
         let parent_info = self.get_block_info(parent_hash)?;
-        let epoch_first_block = parent_info.epoch_first_block();
+        let epoch_first_block_info = self.get_block_info(parent_info.epoch_first_block())?;
         self.is_next_block_in_next_epoch_impl(
             block_height,
             last_final_block_height,
-            epoch_first_block,
+            &epoch_first_block_info,
         )
     }
 
@@ -1629,7 +1626,7 @@ impl EpochManager {
             return Ok(false);
         }
         let parent_info = self.get_block_info(parent_hash)?;
-        let epoch_first_block = parent_info.epoch_first_block();
+        let epoch_first_block_info = self.get_block_info(parent_info.epoch_first_block())?;
         // At block_height+1, last_final_height is at most block_height-1.
         // This can lead to false positive result, if previous block doesn't get finalized
         // before the next block is produced, but it will never give a false negative.
@@ -1637,7 +1634,7 @@ impl EpochManager {
         self.is_next_block_in_next_epoch_impl(
             block_height + 1,
             max_last_final_height,
-            epoch_first_block,
+            &epoch_first_block_info,
         )
     }
 
@@ -1982,9 +1979,8 @@ impl EpochManager {
         &self,
         block_height: BlockHeight,
         last_final_height: BlockHeight,
-        epoch_first_block: &CryptoHash,
+        epoch_first_block_info: &BlockInfo,
     ) -> Result<bool, EpochError> {
-        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
         let protocol_version =
             self.get_epoch_info(&epoch_first_block_info.epoch_id())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
@@ -2015,10 +2011,19 @@ impl EpochManager {
                 return Ok(false);
             }
         }
+        // The first block of an epoch reads itself here during its own record, before commit.
+        if block_info.epoch_first_block() == block_info.hash() {
+            return self.is_next_block_in_next_epoch_impl(
+                block_info.height(),
+                block_info.last_finalized_height(),
+                block_info,
+            );
+        }
+        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         self.is_next_block_in_next_epoch_impl(
             block_info.height(),
             block_info.last_finalized_height(),
-            block_info.epoch_first_block(),
+            &epoch_first_block_info,
         )
     }
 
@@ -2045,6 +2050,10 @@ impl EpochManager {
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
     fn get_next_epoch_id_from_info(&self, block_info: &BlockInfo) -> Result<EpochId, EpochError> {
+        // The first block of an epoch reads itself here during its own record, before commit.
+        if block_info.epoch_first_block() == block_info.hash() {
+            return Ok(EpochId(*block_info.prev_hash()));
+        }
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))
     }
@@ -2207,14 +2216,24 @@ impl EpochManager {
         &self,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochInfoAggregator, EpochError> {
-        if let Some((mut aggregator, replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
-            if !replace {
-                aggregator.merge_prefix(&self.epoch_info_aggregator);
-            }
-            Ok(aggregator)
-        } else {
-            Ok(self.epoch_info_aggregator.clone())
+        if last_block_hash == &self.epoch_info_aggregator.last_block_hash {
+            return Ok(self.epoch_info_aggregator.clone());
         }
+        self.epoch_info_aggregator_upto_block(self.peek_block_info(last_block_hash)?)
+    }
+
+    /// Like [`Self::get_epoch_info_aggregator_upto_last`], but takes the block itself, so it
+    /// also works for a block that is not committed yet. The block must not be the sync point
+    /// `self.epoch_info_aggregator.last_block_hash`.
+    fn epoch_info_aggregator_upto_block(
+        &self,
+        block_info: Arc<BlockInfo>,
+    ) -> Result<EpochInfoAggregator, EpochError> {
+        let (mut aggregator, replace) = self.aggregate_epoch_info_from(block_info)?;
+        if !replace {
+            aggregator.merge_prefix(&self.epoch_info_aggregator);
+        }
+        Ok(aggregator)
     }
 
     /// Aggregates epoch info between last final block and given block.
@@ -2244,14 +2263,21 @@ impl EpochManager {
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
         }
+        self.aggregate_epoch_info_from(self.peek_block_info(block_hash)?).map(Some)
+    }
 
-        let mut block_info = self.peek_block_info(block_hash)?;
+    /// The walk of [`Self::aggregate_epoch_info_upto`], starting at `block_info`, which must
+    /// not be the sync point.
+    fn aggregate_epoch_info_from(
+        &self,
+        mut block_info: Arc<BlockInfo>,
+    ) -> Result<(EpochInfoAggregator, bool), EpochError> {
         let epoch_id = *block_info.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
 
-        let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
-        Ok(Some(loop {
+        let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_info.hash());
+        Ok(loop {
             #[cfg(test)]
             {
                 self.epoch_info_aggregator_loop_counter
@@ -2318,7 +2344,7 @@ impl EpochManager {
 
             // A missing parent is valid only if the walk stops before reaching it.
             block_info = prev_block_info.ok_or(EpochError::MissingBlock(prev_hash))?;
-        }))
+        })
     }
 
     /// Chunk producers of the block built on `prev_block_info`, read from the rows seeded at
