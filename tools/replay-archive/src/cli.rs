@@ -434,7 +434,7 @@ impl ReplayController {
             self.chain_store.get_block_height(block.header().last_final_block())?;
         let current_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let store_update = self.epoch_manager.add_validator_proposals(
+        let store_update = self.epoch_manager.record_block_info(
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;

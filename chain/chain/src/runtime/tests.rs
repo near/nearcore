@@ -195,7 +195,7 @@ impl TestEnv {
         }
 
         epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     genesis_hash,
                     0,
@@ -375,7 +375,7 @@ impl TestEnv {
             self.last_shard_proposals.insert(shard_id, proposals);
         }
         self.epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     new_hash,
                     new_height,
@@ -889,7 +889,7 @@ fn test_state_sync() {
         };
         new_env
             .epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     cur_hash,
                     i,

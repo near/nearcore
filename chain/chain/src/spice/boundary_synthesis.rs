@@ -806,7 +806,7 @@ mod tests {
         let block_info =
             BlockInfo::from_header(header, last_finalized_height, pre_spice_protocol_version());
         let epoch_manager_update =
-            epoch_manager.add_validator_proposals(block_info, *header.random_value()).unwrap();
+            epoch_manager.record_block_info(block_info, *header.random_value()).unwrap();
         let mut store_update = chain.chain_store.store_update();
         store_update.save_block_header(header.clone()).unwrap();
         store_update.merge(epoch_manager_update.into());

@@ -37,10 +37,8 @@ pub(crate) fn save_and_record_block(
     store_update.save_block_header(block.header().clone()).unwrap();
     let block_info =
         BlockInfo::from_header(block.header(), last_finalized_height, protocol_version);
-    let epoch_manager_update = chain
-        .epoch_manager
-        .add_validator_proposals(block_info, *block.header().random_value())
-        .unwrap();
+    let epoch_manager_update =
+        chain.epoch_manager.record_block_info(block_info, *block.header().random_value()).unwrap();
     store_update.merge(epoch_manager_update.into());
     store_update.commit().unwrap();
 }

@@ -281,7 +281,7 @@ impl GenesisBuilder {
 
         store_update.merge(
             self.epoch_manager
-                .add_validator_proposals(
+                .record_block_info(
                     BlockInfo::from_header(
                         genesis.header(),
                         0,

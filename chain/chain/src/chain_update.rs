@@ -266,9 +266,8 @@ impl<'a> ChainUpdate<'a> {
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let block_info =
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version);
-        let epoch_manager_update = self
-            .epoch_manager
-            .add_validator_proposals(block_info, *block.header().random_value())?;
+        let epoch_manager_update =
+            self.epoch_manager.record_block_info(block_info, *block.header().random_value())?;
         self.chain_store_update.merge(epoch_manager_update.into());
 
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
