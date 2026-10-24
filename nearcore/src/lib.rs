@@ -21,7 +21,7 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Chain, ChainGenesis};
-use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{AdversarialMode, MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_writer::{
@@ -54,6 +54,7 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -388,6 +389,27 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+/// Returned when a node with adversarial behavior starts without `ADVERSARY_CONSENT=1`.
+#[derive(thiserror::Error, Debug)]
+#[error("adversarial_mode is {0:?}, set ADVERSARY_CONSENT=1 to start the node")]
+pub struct MissingAdversaryConsentError(pub AdversarialMode);
+
+/// Refuses to start a node with adversarial behavior unless `ADVERSARY_CONSENT=1` is set.
+fn check_adversary_consent(adversarial_mode: AdversarialMode) -> anyhow::Result<()> {
+    if adversarial_mode == AdversarialMode::None {
+        return Ok(());
+    }
+    tracing::error!(
+        target: "neard",
+        ?adversarial_mode,
+        "this node has adversarial behavior enabled, do not use in production"
+    );
+    if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+        return Err(MissingAdversaryConsentError(adversarial_mode).into());
+    }
+    Ok(())
+}
+
 pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
@@ -395,6 +417,7 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    check_adversary_consent(config.config.adversarial_mode)?;
     if config.config.enable_compiler_daemon {
         // Keep using the running executable's inode after a rename-over binary
         // upgrade. Resolving this symlink up front would leave a stale deleted
@@ -544,7 +567,10 @@ pub async fn start_with_config_and_synchronization_impl(
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
+    let adv = near_client::adversarial::Controls::new(
+        config.client_config.archive,
+        config.config.adversarial_mode,
+    );
 
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
@@ -615,6 +641,7 @@ pub async fn start_with_config_and_synchronization_impl(
         shard_tracker.clone(),
         config.client_config.gc.clone(),
         storage.is_local_archive(),
+        config.config.adversarial_mode,
     ));
 
     let resharding_handle = ReshardingHandle::new();
@@ -734,6 +761,7 @@ pub async fn start_with_config_and_synchronization_impl(
         maybe_split_store.clone(),
         config.client_config.chunk_request_retry_period,
         config.client_config.chunks_cache_height_horizon,
+        config.config.adversarial_mode,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
@@ -828,8 +856,8 @@ pub async fn start_with_config_and_synchronization_impl(
             rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
             block_notification_watch_receiver,
-            #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
+            config.config.adversarial_mode,
             Arc::new(entity_debug_handler),
             sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),
@@ -885,4 +913,24 @@ pub async fn start_with_config_and_synchronization_impl(
         resharding_handle,
         shard_tracker,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MissingAdversaryConsentError, check_adversary_consent};
+    use near_chain_configs::AdversarialMode;
+    use std::env;
+
+    #[test]
+    fn test_check_adversary_consent() {
+        assert!(check_adversary_consent(AdversarialMode::None).is_ok());
+        let has_consent = env::var("ADVERSARY_CONSENT").as_deref() == Ok("1");
+        match check_adversary_consent(AdversarialMode::Rpc) {
+            Ok(()) => assert!(has_consent),
+            Err(err) => {
+                assert!(!has_consent);
+                assert!(err.is::<MissingAdversaryConsentError>());
+            }
+        }
+    }
 }
