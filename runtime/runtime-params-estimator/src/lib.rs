@@ -248,6 +248,17 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
         Cost::ActionDeterministicStateInitPerByteSendNotSir,
         action_costs::deterministic_state_init_byte_send,
     ),
+    (Cost::ActionUniversalStateInitPerByte, action_costs::universal_state_init_byte_total),
+    (Cost::ActionUniversalStateInitPerByteExec, action_costs::universal_state_init_byte_exec),
+    (Cost::ActionUniversalStateInitPerByteSendSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerByteSendNotSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerEntry, action_costs::universal_state_init_entry_total),
+    (Cost::ActionUniversalStateInitPerEntryExec, action_costs::universal_state_init_entry_exec),
+    (Cost::ActionUniversalStateInitPerEntrySendSir, action_costs::universal_state_init_entry_send),
+    (
+        Cost::ActionUniversalStateInitPerEntrySendNotSir,
+        action_costs::universal_state_init_entry_send,
+    ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::OpFloat, adversarial_float_nan_canonicalization),
@@ -1208,21 +1219,28 @@ fn universal_state_init_to_account_id_base(ctx: &mut EstimatorContext) -> GasCos
     );
     ctx.cached.universal_state_init_to_account_id_base.insert(cost).clone()
 }
+/// The length of the state init that the dense functions of the estimator contract derive an
+/// id from, see `dense_state_init` there.
+const UNIVERSAL_STATE_INIT_DENSE_BYTES: u64 = 2 + 4 + 852 * 12 + 4;
+
 fn universal_state_init_to_account_id_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base = universal_state_init_to_account_id_base(ctx);
     // inside the WASM function, there are 10k calls to the host function.
     let base_call_num = 10_000;
-    // each call derives an id from a 10kiB state init
-    let iteration_bytes = 10 * 1024;
-    let total_bytes = base_call_num * iteration_bytes;
-    let byte = fn_cost(
-        ctx,
-        "universal_state_init_to_account_id_10kib_10k",
-        ExtCosts::universal_state_init_to_account_id_byte,
-        total_bytes,
-    );
-    // subtract the base cost, which `fn_cost` has already spread over the bytes
-    byte - base / iteration_bytes
+    let total_bytes = base_call_num * UNIVERSAL_STATE_INIT_DENSE_BYTES;
+    // Two shapes of the same entries. The sorted payload is canonical, so it is decoded,
+    // re-encoded and hashed. The unsorted one is also sorted while it is decoded, and
+    // rejected before it is hashed. Neither is the slower one for certain, so charge for
+    // whichever is.
+    let mut byte = |method: &str| {
+        let cost =
+            fn_cost(ctx, method, ExtCosts::universal_state_init_to_account_id_byte, total_bytes);
+        // subtract the base cost, which `fn_cost` has already spread over the bytes
+        cost - base.clone() / UNIVERSAL_STATE_INIT_DENSE_BYTES
+    };
+    let sorted = byte("universal_state_init_to_account_id_10kib_10k");
+    let unsorted = byte("universal_state_init_to_account_id_10kib_10k_unsorted");
+    std::cmp::max(sorted, unsorted)
 }
 
 fn sha3_256_base(ctx: &mut EstimatorContext) -> GasCost {
