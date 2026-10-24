@@ -160,8 +160,8 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let epoch_manager = client.epoch_manager.as_ref();
         let chain = &client.chain;
         let head = node.head();
-        // GC deletes the `BlockInfo` of blocks below the tail.
-        let start_height = (chain.genesis().height() + 1).max(chain.tail());
+        // GC deletes the `BlockInfo` of blocks at and below the tail.
+        let start_height = chain.tail() + 1;
         let epoch_ids = epoch_ids_since_genesis(client);
 
         'validator: for w in 1..epoch_ids.len() {
