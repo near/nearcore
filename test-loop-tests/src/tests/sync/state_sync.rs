@@ -23,11 +23,11 @@
 // - Manual genesis pattern: required because `TestEpochConfigBuilder::from_genesis(&genesis)` needs
 //   the genesis to derive the epoch config with shuffling enabled. Can't use the auto-setup path.
 
-use super::util::collect_distinct_epoch_ids;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::epoch_ids_since_genesis;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -101,7 +101,7 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 /// (`get_prev_shard_id_from_prev_hash`, `cared_about_shard_prev_epoch_from_prev_block`).
 pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
-    let epoch_ids = collect_distinct_epoch_ids(client);
+    let epoch_ids = epoch_ids_since_genesis(client);
 
     assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
 
@@ -160,8 +160,9 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let epoch_manager = client.epoch_manager.as_ref();
         let chain = &client.chain;
         let head = node.head();
-        let genesis_height = chain.genesis().height();
-        let epoch_ids = collect_distinct_epoch_ids(client);
+        // GC deletes the `BlockInfo` of blocks below the tail.
+        let start_height = (chain.genesis().height() + 1).max(chain.tail());
+        let epoch_ids = epoch_ids_since_genesis(client);
 
         'validator: for w in 1..epoch_ids.len() {
             let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
@@ -195,7 +196,7 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                 }
 
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                for height in (genesis_height + 1)..=head.height {
+                for height in start_height..=head.height {
                     let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
                     if epoch_manager.get_epoch_id(&hash).unwrap() != *new_epoch {
                         continue;

@@ -1,7 +1,9 @@
 use crate::setup::state::NodeExecutionData;
 use near_async::test_loop::data::TestLoopData;
+use near_client::Client;
 use near_client::client_actor::ClientActor;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, EpochId};
+use near_store::adapter::StoreAdapter;
 
 pub(crate) mod account;
 pub(crate) mod cloud_archival;
@@ -30,6 +32,20 @@ pub(crate) fn get_node_data<'a>(
         }
     }
     panic!("client not found");
+}
+
+/// Epoch ids from the first epoch after genesis up to `client`'s current epoch, in order.
+/// Follows `EpochSummary`, which GC keeps: the summary of epoch T stores the last block of
+/// T-1, whose hash is the id of T+1.
+pub(crate) fn epoch_ids_since_genesis(client: &Client) -> Vec<EpochId> {
+    let epoch_store = client.chain.chain_store.store().epoch_store();
+    let current_epoch_id = client.chain.head().unwrap().epoch_id;
+    let mut epoch_ids = vec![EpochId::default()];
+    while *epoch_ids.last().unwrap() != current_epoch_id {
+        let summary = epoch_store.get_epoch_validator_info(epoch_ids.last().unwrap()).unwrap();
+        epoch_ids.push(EpochId(summary.prev_epoch_last_block_hash));
+    }
+    epoch_ids
 }
 
 /// Retrieves the client actor of the node having account_id equal to `client_account_id`.
