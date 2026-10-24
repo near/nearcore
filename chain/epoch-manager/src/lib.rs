@@ -392,6 +392,21 @@ pub(crate) fn blacklist_for_epoch(
     compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
 }
 
+/// Result of [`EpochManager::record_block_info`]: the writes to commit, plus what callers
+/// need to know about the block before the commit.
+pub struct EpochManagerUpdate {
+    pub store_update: EpochStoreUpdateAdapter<'static>,
+    /// Set when the block is the last block of its epoch, i.e. when
+    /// `is_next_block_epoch_start` holds for it.
+    pub epoch_end: Option<EpochEnd>,
+}
+
+/// Protocol versions of the two epochs after the epoch that a block ends.
+pub struct EpochEnd {
+    pub next_epoch_protocol_version: ProtocolVersion,
+    pub next_next_epoch_protocol_version: ProtocolVersion,
+}
+
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.
@@ -1134,7 +1149,7 @@ impl EpochManager {
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &Arc<BlockInfo>,
         rng_seed: RngSeed,
-    ) -> Result<(), EpochError> {
+    ) -> Result<EpochEnd, EpochError> {
         let epoch_summary = self.collect_blocks_info(block_info)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
@@ -1251,15 +1266,19 @@ impl EpochManager {
         );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
+        let epoch_end = EpochEnd {
+            next_epoch_protocol_version: next_epoch_info.protocol_version(),
+            next_next_epoch_protocol_version: next_next_epoch_info.protocol_version(),
+        };
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
-        Ok(())
+        Ok(epoch_end)
     }
 
     pub fn record_block_info(
         &mut self,
         block_info: BlockInfo,
         rng_seed: RngSeed,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+    ) -> Result<EpochManagerUpdate, EpochError> {
         // Check that genesis block doesn't have any proposals.
         let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
         assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
@@ -1285,11 +1304,15 @@ impl EpochManager {
         &mut self,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+    ) -> Result<EpochManagerUpdate, EpochError> {
         let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
+        let epoch_end;
         // Check that we didn't record this block yet.
-        if !self.has_block_info(&current_hash)? {
+        if self.has_block_info(&current_hash)? {
+            // Header sync records blocks before block processing records them again.
+            epoch_end = self.get_epoch_end(&current_hash)?;
+        } else {
             if block_info.is_genesis() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals_iter().len(), 0);
@@ -1321,6 +1344,11 @@ impl EpochManager {
                         shard_layout: &genesis_shard_layout,
                     },
                 )?;
+                // Both epochs after genesis use the genesis epoch info, saved above.
+                epoch_end = Some(EpochEnd {
+                    next_epoch_protocol_version: genesis_epoch_info.protocol_version(),
+                    next_next_epoch_protocol_version: genesis_epoch_info.protocol_version(),
+                });
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
@@ -1381,9 +1409,11 @@ impl EpochManager {
                 }
 
                 // If this is the last block in the epoch, finalize this epoch.
-                if self.is_next_block_in_next_epoch(&block_info)? {
-                    self.finalize_epoch(&mut store_update, &block_info, rng_seed)?;
-                }
+                epoch_end = if self.is_next_block_in_next_epoch(&block_info)? {
+                    Some(self.finalize_epoch(&mut store_update, &block_info, rng_seed)?)
+                } else {
+                    None
+                };
 
                 // Deliberately after every fallible step, so a failed record leaves no stale
                 // `epoch_id_to_start` entry. Safe here because nothing above reads it back.
@@ -1400,7 +1430,23 @@ impl EpochManager {
                 self.blocks_info.put(current_hash, block_info);
             }
         }
-        Ok(store_update)
+        Ok(EpochManagerUpdate { store_update, epoch_end })
+    }
+
+    /// [`EpochEnd`] of a block whose rows are committed.
+    fn get_epoch_end(&self, block_hash: &CryptoHash) -> Result<Option<EpochEnd>, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        if !self.is_next_block_in_next_epoch(&block_info)? {
+            return Ok(None);
+        }
+        let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
+        let next_next_epoch_id = EpochId(*block_hash);
+        Ok(Some(EpochEnd {
+            next_epoch_protocol_version: self.get_epoch_info(&next_epoch_id)?.protocol_version(),
+            next_next_epoch_protocol_version: self
+                .get_epoch_info(&next_next_epoch_id)?
+                .protocol_version(),
+        }))
     }
 
     /// Returns settlement of all block producers in current epoch

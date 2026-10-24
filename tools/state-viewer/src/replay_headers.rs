@@ -51,6 +51,7 @@ pub(crate) fn replay_headers(
             epoch_manager_replay
                 .record_block_info(block_info, *header.random_value())
                 .unwrap()
+                .store_update
                 .commit();
 
             if epoch_manager

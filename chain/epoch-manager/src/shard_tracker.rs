@@ -722,6 +722,7 @@ mod tests {
                 [0; 32],
             )
             .unwrap()
+            .store_update
             .commit();
     }
 
