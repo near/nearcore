@@ -449,7 +449,7 @@ pub fn record_block_with_final_and_mask_at_version(
         chunk_mask,
         protocol_version,
     );
-    em.record_block_info(block_info, [0; 32]).unwrap().commit();
+    em.record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
 }
 
 pub fn block_info_with_final_and_mask(
@@ -535,6 +535,7 @@ pub fn record_block_with_final_block_hash(
             [0; 32],
         )
         .unwrap()
+        .store_update
         .commit();
 }
 
@@ -588,6 +589,7 @@ pub fn record_block_with_version(
             [0; 32],
         )
         .unwrap()
+        .store_update
         .commit();
 }
 
@@ -651,5 +653,5 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit();
+    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
 }

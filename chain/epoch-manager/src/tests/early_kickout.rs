@@ -1243,7 +1243,7 @@ fn record_fork_behind_sync_point(order: ForkOrder) {
             );
             let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
             assert_eq!(walked, 0, "the basis was computed for the tip, so it must not be walked");
-            uncommitted.commit();
+            uncommitted.store_update.commit();
         };
 
     match order {
@@ -1947,8 +1947,8 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
     em.record_block_info(block_info(), [0; 32]).map(|_| ()).expect("first record must succeed");
 
     // Pre-fix the cached entry made this a no-op that returned an empty update.
-    let store_update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
-    store_update.commit();
+    let update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
+    update.store_update.commit();
     em.store.get_block_info(&b1).expect("the retry must write the row it skipped before");
 }
 

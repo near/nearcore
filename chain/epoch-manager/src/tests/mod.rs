@@ -938,6 +938,7 @@ fn test_expected_chunks() {
                 rng_seed,
             )
             .unwrap()
+            .store_update
             .commit();
         prev_block = *curr_block;
 
@@ -1022,6 +1023,7 @@ fn test_expected_chunks_prev_block_not_produced() {
                     rng_seed,
                 )
                 .unwrap()
+                .store_update
                 .commit();
             prev_block = *curr_block;
         }
@@ -2444,6 +2446,7 @@ fn test_final_block_consistency() {
             [0; 32],
         )
         .unwrap()
+        .store_update
         .commit();
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
@@ -3543,7 +3546,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
             num_validators,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3607,7 +3610,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
             num_validators,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3833,6 +3836,7 @@ fn record_seeded_block(
         [0; 32],
     )
     .unwrap()
+    .store_update
     .commit();
 }
 
