@@ -1263,6 +1263,13 @@ impl EpochManager {
         block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+        // Check that genesis block doesn't have any proposals.
+        let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
+        assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
+        tracing::debug!(target: "epoch_manager",
+            height = block_info.height(),
+            proposals = ?prev_validator_proposals,
+            "record_block_info");
         let current_hash = *block_info.hash();
         let result = self.record_block_info_impl(block_info, rng_seed);
         if result.is_err() {
@@ -1947,23 +1954,6 @@ impl EpochManager {
             epoch_height,
             validator_reward_paid_prev_epoch: cur_epoch_info.validator_reward().clone(),
         })
-    }
-
-    pub fn add_validator_proposals(
-        &mut self,
-        block_info: BlockInfo,
-        random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
-        // Check that genesis block doesn't have any proposals.
-        let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
-        assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
-        tracing::debug!(target: "epoch_manager",
-            height = block_info.height(),
-            proposals = ?prev_validator_proposals,
-            "add_validator_proposals");
-        // Deal with validator proposals and epoch finishing.
-        let rng_seed = random_value.0;
-        self.record_block_info(block_info, rng_seed)
     }
 
     /// Get minimum stake allowed at current block. Attempts to stake with a lower stake will be

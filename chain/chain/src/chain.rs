@@ -1576,7 +1576,7 @@ impl Chain {
                 chain_store_update.get_block_height(header.last_final_block())?;
             let current_protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-            let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            let epoch_manager_update = self.epoch_manager.record_block_info(
                 BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
