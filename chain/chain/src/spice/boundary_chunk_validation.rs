@@ -6,6 +6,7 @@ use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::boundary_synthesis::{
     PreSpiceChunkApplyBlocks, execution_result_from_pre_spice_child,
     get_incoming_receipt_blocks_for_shard, get_last_new_chunk_block_and_old_chunk_blocks,
+    validate_undelivered_receipt_proofs,
 };
 use crate::spice::chunk_validation::SpicePreValidationOutput;
 use crate::stateless_validation::chunk_validation::validate_source_receipt_proofs;
@@ -26,8 +27,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::state_witness::SpiceBoundaryChunkStateWitness;
 use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::PartialStorage;
-use node_runtime::SignedValidPeriodTransactions;
 use tracing::Span;
 
 /// An old-chunk replay of a boundary witness: an on-chain block paired with the
@@ -173,7 +174,14 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
             state_patch: Default::default(),
         },
     };
-    Ok(SpicePreValidationOutput { new_chunk_data, boundary_replays })
+    let undelivered_receipts = validate_undelivered_receipt_proofs(
+        store,
+        epoch_manager,
+        block,
+        shard_id,
+        &state_witness.undelivered_receipt_proofs,
+    )?;
+    Ok(SpicePreValidationOutput { new_chunk_data, boundary_replays, undelivered_receipts })
 }
 
 /// Replays the witness's old-chunk transitions on top of the main transition's
@@ -223,12 +231,14 @@ pub(super) fn replay_boundary_implicit_transitions(
 /// is missing.
 mod tests {
     use super::*;
-    use crate::spice::boundary_synthesis::boundary_state_witness;
+    use crate::spice::boundary_synthesis::{
+        boundary_state_witness, get_undelivered_receipt_carriers,
+    };
     use crate::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
     use crate::spice::chunk_validation::tests::assert_invalid_witness;
     use crate::spice::tests::pre_spice::{
-        build_pre_spice_block_with_chunks, grow_to_last_pre_spice_block, save_and_record_block,
-        setup_pre_spice_chain,
+        add_pre_spice_block, build_pre_spice_block_with_chunks, grow_to_last_pre_spice_block,
+        save_and_record_block, setup_pre_spice_chain,
     };
     use near_o11y::testonly::init_test_logger;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -266,6 +276,11 @@ mod tests {
         "test1".parse().unwrap()
     }
 
+    /// An account on the shard other than the test receiver's.
+    fn other_receiver() -> AccountId {
+        "test0".parse().unwrap()
+    }
+
     /// A staggered gap straddling the anchor, ending at the last pre-spice block:
     /// full block -> mid-range (other new, target missing) -> anchor (target
     /// new, other missing) -> boundary block (everything missing).
@@ -284,6 +299,7 @@ mod tests {
         let target_shard_id = shard_layout.account_id_to_shard_id(&test_receiver());
         let other_shard_id =
             shard_layout.shard_ids().find(|shard_id| shard_id != &target_shard_id).unwrap();
+        assert_eq!(shard_layout.account_id_to_shard_id(&other_receiver()), other_shard_id);
 
         let mid_range_block = add_block(&mut chain, &full_block, other_shard_id);
         let last_new_chunk_block = add_block(&mut chain, &mid_range_block, target_shard_id);
@@ -302,31 +318,47 @@ mod tests {
         }
     }
 
+    /// The receipts a chunk sends, see [`outgoing_receipts`].
+    struct OutgoingReceipts {
+        receipts: Vec<Receipt>,
+        /// The receipts root the chunk's successor commits to.
+        root: CryptoHash,
+        /// The proofs of the receipts, by target shard.
+        proofs: Vec<ReceiptProof>,
+    }
+
+    impl OutgoingReceipts {
+        /// The proof of the receipts to shard `to_shard_id`.
+        fn proof_to(self, to_shard_id: ShardId) -> ReceiptProof {
+            self.proofs.into_iter().find(|proof| proof.1.to_shard_id == to_shard_id).unwrap()
+        }
+    }
+
     /// The receipts a chunk of `from_shard_id` included at `height`, in the block
-    /// following `prev_block_hash`, sends to the test receiver, with the receipts
-    /// root that chunk's successor commits to and their proof.
+    /// following `prev_block_hash`, sends: one to the test receiver and one to the
+    /// other receiver.
     fn outgoing_receipts(
         chain: &Chain,
         from_shard_id: ShardId,
         prev_block_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> (Vec<Receipt>, CryptoHash, ReceiptProof) {
+    ) -> OutgoingReceipts {
         let shard_layout =
             chain.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
         let from_shard_index: u64 = from_shard_id.into();
         let deposit = 100 * u128::from(height) + u128::from(from_shard_index);
-        let receipts =
-            vec![Receipt::new_balance_refund(&test_receiver(), Balance::from_yoctonear(deposit))];
+        let amount = Balance::from_yoctonear(deposit);
+        let receipts = vec![
+            Receipt::new_balance_refund(&test_receiver(), amount),
+            Receipt::new_balance_refund(&other_receiver(), amount),
+        ];
         let (root, proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
             &shard_layout,
             from_shard_id,
             receipts.clone(),
         )
         .unwrap();
-        let target_shard_id = shard_layout.account_id_to_shard_id(&test_receiver());
-        let proof =
-            proofs.into_iter().find(|proof| proof.1.to_shard_id == target_shard_id).unwrap();
-        (receipts, root, proof)
+        OutgoingReceipts { receipts, root, proofs }
     }
 
     /// Fabricates, saves and records the next block. `new_chunk_shard` gets a new
@@ -348,8 +380,8 @@ mod tests {
                 if new_chunk_shard != Some(shard_id) {
                     return carried.clone();
                 }
-                let (_, receipts_root, _) =
-                    outgoing_receipts(chain, shard_id, prev_block.hash(), height);
+                let receipts_root =
+                    outgoing_receipts(chain, shard_id, prev_block.hash(), height).root;
                 let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
                     *prev_block.hash(),
                     CryptoHash::default(),
@@ -412,6 +444,7 @@ mod tests {
                         block.header().prev_hash(),
                         block.header().height(),
                     )
+                    .proof_to(self.target_shard_id)
                     .0
                 })
                 .collect()
@@ -437,15 +470,23 @@ mod tests {
                 .sources()
                 .into_iter()
                 .map(|(block, shard_id)| {
-                    let (_, _, proof) = outgoing_receipts(
+                    let proof = outgoing_receipts(
                         &self.chain,
                         shard_id,
                         block.header().prev_hash(),
                         block.header().height(),
-                    );
+                    )
+                    .proof_to(self.target_shard_id);
                     (self.chunk_hash(block, shard_id), proof)
                 })
                 .collect();
+            let undelivered_receipt_proof = outgoing_receipts(
+                &self.chain,
+                self.target_shard_id,
+                self.last_new_chunk_block.header().prev_hash(),
+                self.last_new_chunk_block.header().height(),
+            )
+            .proof_to(self.other_shard_id);
             SpiceBoundaryChunkStateWitness {
                 chunk_id: SpiceChunkId {
                     block_hash: *self.boundary_block.hash(),
@@ -461,6 +502,10 @@ mod tests {
                     base_state: PartialState::TrieValues(vec![]),
                     post_state_root,
                 }],
+                undelivered_receipt_proofs: HashMap::from([(
+                    self.chunk_hash(&self.last_new_chunk_block, self.target_shard_id),
+                    vec![undelivered_receipt_proof],
+                )]),
             }
         }
 
@@ -492,18 +537,27 @@ mod tests {
                 .sources()
                 .into_iter()
                 .map(|(block, shard_id)| {
-                    let (_, _, proof) = outgoing_receipts(
+                    let proof = outgoing_receipts(
                         &self.chain,
                         shard_id,
                         block.header().prev_hash(),
                         block.header().height(),
-                    );
+                    )
+                    .proof_to(self.target_shard_id);
                     (*block.hash(), proof)
                 })
                 .collect();
+            // The anchor's chunk body carries what the target's previous chunk produced.
+            let carried_receipts = outgoing_receipts(
+                &self.chain,
+                self.target_shard_id,
+                self.last_new_chunk_block.header().prev_hash(),
+                self.last_new_chunk_block.header().height(),
+            )
+            .receipts;
             let target_shard_id = self.target_shard_id;
             let mut store_update = self.chain.chain_store.store_update();
-            store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], vec![]));
+            store_update.save_chunk(ShardChunk::new(anchor_chunk_header, vec![], carried_receipts));
             for (block_hash, proof) in incoming_receipts {
                 store_update.save_incoming_receipt(
                     &block_hash,
@@ -864,5 +918,202 @@ mod tests {
 
         let err = boundary_chain.producer_witness().unwrap_err();
         assert!(err.to_string().contains("source receipt proofs hash to"), "{err}");
+    }
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_undelivered_receipts_across_several_carrying_chunks() {
+        init_test_logger();
+        let mut chain = setup_pre_spice_chain(2);
+        let (last_pre_spice_block, _) = grow_to_last_pre_spice_block(&mut chain);
+        let mut full_block = last_pre_spice_block;
+        for _ in 0..3 {
+            full_block = chain.get_block(full_block.header().prev_hash()).unwrap();
+        }
+        let shard_layout =
+            chain.epoch_manager.get_shard_layout(full_block.header().epoch_id()).unwrap();
+        // Of the fabricated receipts, those to the test receiver cross shards, so its
+        // shard is the target; those to the other receiver stay on the source.
+        let target_shard_id = shard_layout.account_id_to_shard_id(&test_receiver());
+        let source_shard_id =
+            shard_layout.shard_ids().find(|shard_id| shard_id != &target_shard_id).unwrap();
+        let target_last_chunk_block = add_block(&mut chain, &full_block, target_shard_id);
+        let first_carrier_block = add_block(&mut chain, &target_last_chunk_block, source_shard_id);
+        let boundary_block = add_block(&mut chain, &first_carrier_block, source_shard_id);
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), boundary_block.hash()).unwrap()
+        );
+        let epoch_manager = chain.epoch_manager.as_ref();
+
+        let carriers = get_undelivered_receipt_carriers(
+            &chain.chain_store,
+            epoch_manager,
+            &boundary_block,
+            source_shard_id,
+        )
+        .unwrap();
+        let carrier_blocks = [&boundary_block, &first_carrier_block];
+        assert_eq!(
+            carriers
+                .iter()
+                .map(|carrier| *carrier.chunk_header.prev_block_hash())
+                .collect::<Vec<_>>(),
+            carrier_blocks.map(|block| *block.header().prev_hash()).to_vec(),
+            "both source chunks after the target's last chunk carry, newest first",
+        );
+        for carrier in &carriers {
+            assert_eq!(carrier.target_shard_ids, vec![target_shard_id]);
+        }
+        // The target's own chunk predates nothing the source missed.
+        assert!(
+            get_undelivered_receipt_carriers(
+                &chain.chain_store,
+                epoch_manager,
+                &boundary_block,
+                target_shard_id,
+            )
+            .unwrap()
+            .is_empty()
+        );
+
+        let proofs: HashMap<ChunkHash, Vec<ReceiptProof>> = carrier_blocks
+            .iter()
+            .zip(&carriers)
+            .map(|(block, carrier)| {
+                let proof = outgoing_receipts(
+                    &chain,
+                    source_shard_id,
+                    block.header().prev_hash(),
+                    block.header().height(),
+                )
+                .proof_to(target_shard_id);
+                (carrier.chunk_header.chunk_hash().clone(), vec![proof])
+            })
+            .collect();
+        let expected_receipts: Vec<Receipt> = carrier_blocks
+            .iter()
+            .flat_map(|block| {
+                outgoing_receipts(
+                    &chain,
+                    source_shard_id,
+                    block.header().prev_hash(),
+                    block.header().height(),
+                )
+                .proof_to(target_shard_id)
+                .0
+            })
+            .collect();
+        assert_eq!(expected_receipts.len(), 2);
+        assert_eq!(
+            validate_undelivered_receipt_proofs(
+                &chain.chain_store,
+                epoch_manager,
+                &boundary_block,
+                source_shard_id,
+                &proofs,
+            )
+            .unwrap(),
+            expected_receipts,
+        );
+
+        // Dropping the older carrier's proof is rejected.
+        let mut missing_older = proofs;
+        missing_older.remove(carriers[1].chunk_header.chunk_hash());
+        assert_invalid_witness(
+            validate_undelivered_receipt_proofs(
+                &chain.chain_store,
+                epoch_manager,
+                &boundary_block,
+                source_shard_id,
+                &missing_older,
+            ),
+            "undelivered receipt proofs cover",
+        );
+    }
+
+    /// A carrier targets exactly the shards whose last pre-spice chunk precedes it.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_carrier_targets_exclude_shards_with_chunk_at_or_after_carrier() {
+        init_test_logger();
+        let mut chain = setup_pre_spice_chain(3);
+        let (last_pre_spice_block, _) = grow_to_last_pre_spice_block(&mut chain);
+        let mut full_block = last_pre_spice_block;
+        for _ in 0..3 {
+            full_block = chain.get_block(full_block.header().prev_hash()).unwrap();
+        }
+        let shard_layout =
+            chain.epoch_manager.get_shard_layout(full_block.header().epoch_id()).unwrap();
+        let [source_shard_id, early_stopped_shard_id, late_stopped_shard_id]: [ShardId; 3] =
+            shard_layout.shard_ids().collect::<Vec<_>>().try_into().unwrap();
+
+        // The early stopped shard's last chunk is at the full block, the late stopped
+        // shard's at the block after the first carrier.
+        let first_carrier_block = add_pre_spice_block(&mut chain, &full_block, &[source_shard_id]);
+        let same_height_block = add_pre_spice_block(
+            &mut chain,
+            &first_carrier_block,
+            &[source_shard_id, late_stopped_shard_id],
+        );
+        let boundary_block =
+            add_pre_spice_block(&mut chain, &same_height_block, &[source_shard_id]);
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), boundary_block.hash()).unwrap()
+        );
+
+        let carriers = get_undelivered_receipt_carriers(
+            &chain.chain_store,
+            chain.epoch_manager.as_ref(),
+            &boundary_block,
+            source_shard_id,
+        )
+        .unwrap();
+        let targets_by_carrier_prev_block: Vec<(CryptoHash, Vec<ShardId>)> = carriers
+            .iter()
+            .map(|carrier| {
+                (*carrier.chunk_header.prev_block_hash(), carrier.target_shard_ids.clone())
+            })
+            .collect();
+        let expected_targets_by_carrier_prev_block = vec![
+            (
+                *boundary_block.header().prev_hash(),
+                vec![early_stopped_shard_id, late_stopped_shard_id],
+            ),
+            (*same_height_block.header().prev_hash(), vec![early_stopped_shard_id]),
+            (*first_carrier_block.header().prev_hash(), vec![early_stopped_shard_id]),
+        ];
+        assert_eq!(targets_by_carrier_prev_block, expected_targets_by_carrier_prev_block);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_boundary_witness_rejected_without_undelivered_receipt_proof() {
+        let boundary_chain = setup_boundary_chain();
+        let mut witness = boundary_chain.witness();
+        witness.undelivered_receipt_proofs.clear();
+
+        assert_invalid_witness(
+            boundary_chain.run_pre_validation(&witness),
+            "undelivered receipt proofs cover",
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_boundary_witness_rejected_for_tampered_undelivered_receipt_proof() {
+        let boundary_chain = setup_boundary_chain();
+        let mut witness = boundary_chain.witness();
+        for proofs in witness.undelivered_receipt_proofs.values_mut() {
+            for proof in proofs {
+                proof.0.push(Receipt::new_balance_refund(
+                    &"smuggled".parse().unwrap(),
+                    Balance::from_near(1),
+                ));
+            }
+        }
+
+        assert_invalid_witness(
+            boundary_chain.run_pre_validation(&witness),
+            "doesn't match outgoing receipts root",
+        );
     }
 }

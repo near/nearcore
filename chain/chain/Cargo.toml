@@ -47,7 +47,7 @@ near-o11y.workspace = true
 near-pool.workspace = true
 near-primitives = { workspace = true, features = ["solomon", "rand"] }
 near-store.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 near-parameters.workspace = true
 near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
@@ -68,7 +68,7 @@ test_features = [
     "near-vm-runner/test_features",
     "near-primitives/test_features",
     "near-store/test_features",
-    "node-runtime/test_features",
+    "near-runtime/test_features",
 ]
 shadow_chunk_validation = []
 protocol_feature_spice = [
@@ -89,7 +89,7 @@ nightly = [
     "near-primitives/nightly",
     "near-store/nightly",
     "near-vm-runner/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]
 protocol_schema = [

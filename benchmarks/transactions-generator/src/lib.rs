@@ -16,7 +16,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
     QueryResponse, QueryResponseKind,
 };
-use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
+use near_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;

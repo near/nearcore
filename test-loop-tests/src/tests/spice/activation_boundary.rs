@@ -7,11 +7,15 @@ use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;
-use near_chain::spice::boundary_synthesis::execution_result_and_receipt_proofs_from_pre_spice_apply;
-use near_chain::{Block, ChainStoreAccess};
+use near_chain::spice::boundary_synthesis::{
+    execution_result_and_receipt_proofs_from_pre_spice_apply, get_undelivered_receipt_proofs,
+    get_undelivered_receipts,
+};
+use near_chain::{Block, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::test_utils::pre_spice_protocol_version;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, Gas, ShardId};
@@ -19,6 +23,7 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::Arc;
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
@@ -589,4 +594,325 @@ fn test_protocol_upgrade_to_spice_view_queries() {
         outcome_height(&receipt_outcome) > boundary_height,
         "the boundary transaction's receipt must have executed under spice",
     );
+}
+
+/// Runs until the rpc node knows the height of the first spice block, and returns it.
+fn run_until_estimated_first_spice_height(env: &mut TestLoopEnv) -> BlockHeight {
+    let estimated_first_spice_height = |node: &TestLoopNode<'_>| {
+        node.client()
+            .epoch_manager
+            .get_estimated_protocol_upgrade_block_height(node.head().last_block_hash)
+            .unwrap()
+    };
+    env.rpc_runner()
+        .run_until(|node| estimated_first_spice_height(node).is_some(), Duration::seconds(100));
+    estimated_first_spice_height(&env.rpc_node()).unwrap()
+}
+
+/// Drops `shard_index`'s chunk at every height `pattern` marks 'x'. The pattern covers
+/// the last `pattern.len()` pre-spice heights, oldest first.
+fn drop_chunks_marked_missing(env: TestLoopEnv, shard_index: usize, pattern: &str) -> TestLoopEnv {
+    let first_height_offset = -(pattern.len() as i64);
+    pattern.chars().enumerate().filter(|(_, presence)| *presence == 'x').fold(
+        env,
+        |env, (position, _)| {
+            let offset = first_height_offset + position as i64;
+            env.drop(DropCondition::ProtocolUpgradeChunkRange(
+                ProtocolFeature::Spice.protocol_version(),
+                HashMap::from([(shard_index, offset..offset + 1)]),
+            ))
+        },
+    )
+}
+
+/// The chunk presence of `shard_index` at `heights`: 'x' missing, '.' present.
+fn observed_chunk_pattern(
+    chain: &Chain,
+    shard_index: usize,
+    heights: Range<BlockHeight>,
+) -> String {
+    heights
+        .map(|height| {
+            let block = chain.get_block_by_height(height).unwrap();
+            if block.chunks()[shard_index].is_new_chunk(height) { '.' } else { 'x' }
+        })
+        .collect()
+}
+
+/// Receipts sent pre-spice to a shard that misses chunks before the boundary are pending
+/// for it at the last pre-spice block, carried by the sending shard's chunks after its
+/// last one, and applied exactly once by its first spice chunk; across missing-chunk
+/// patterns on both shards, including gaps on the sending shard.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_applies_each_receipt_once_with_mixed_missing_chunks() {
+    init_test_logger();
+    // Chunks of each shard at heights H-4, H-3, H-2, H-1, where H is the first spice
+    // height: 'x' missing, '.' present. Then the number of receipts each shard's
+    // boundary result carries for a shard that missed them, counting gas refunds and
+    // receipts forwarded from the outgoing buffer.
+    //   (low shard, upper shard, undelivered from low, undelivered from upper)
+    let chunk_patterns = [
+        ("....", "...x", 2, 0),
+        ("...x", "....", 0, 2),
+        ("....", ".x.x", 3, 0),
+        ("x.x.", ".x.x", 0, 0),
+        ("..x.", "x..x", 3, 0),
+        (".xx.", "x.xx", 0, 0),
+        ("xx..", "..xx", 1, 0),
+        ("...x", ".xxx", 2, 0),
+    ];
+    // Long enough that transfers can start 7 heights before the first spice block.
+    let epoch_length: BlockHeightDelta = 10;
+    let amount = Balance::from_near(1);
+    let heights_with_transfers: u64 = 7;
+    // The shard layout splits at "test1": "low..." sorts before it, "upper..." after it.
+    let low_sender = create_account_id("low_sender");
+    let upper_sender = create_account_id("upper_sender");
+    let low_target_from_low = create_account_id("low_target_from_low");
+    let low_target_from_upper = create_account_id("low_target_from_upper");
+    let upper_target_from_upper = create_account_id("upper_target_from_upper");
+    let upper_target_from_low = create_account_id("upper_target_from_low");
+    let transfers = [
+        (&low_sender, &low_target_from_low),
+        (&low_sender, &upper_target_from_low),
+        (&upper_sender, &upper_target_from_upper),
+        (&upper_sender, &low_target_from_upper),
+    ];
+
+    for (
+        low_shard_pattern,
+        upper_shard_pattern,
+        expected_undelivered_from_low_shard,
+        expected_undelivered_from_upper_shard,
+    ) in chunk_patterns
+    {
+        let env = TestLoopBuilder::new()
+            .validators(2, 2)
+            .enable_rpc()
+            .num_shards(2)
+            .epoch_length(epoch_length)
+            .protocol_version(pre_spice_protocol_version())
+            .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+                ProtocolFeature::Spice.protocol_version(),
+            ))
+            .add_user_account(&low_sender, Balance::from_near(100))
+            .add_user_account(&upper_sender, Balance::from_near(100))
+            .add_user_account(&low_target_from_low, Balance::from_near(100))
+            .add_user_account(&low_target_from_upper, Balance::from_near(100))
+            .add_user_account(&upper_target_from_upper, Balance::from_near(100))
+            .add_user_account(&upper_target_from_low, Balance::from_near(100))
+            .delay_warmup()
+            .build();
+        let shard_layout = {
+            let node = env.rpc_node();
+            node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap()
+        };
+        let low_shard_id = shard_layout.account_id_to_shard_id(&low_sender);
+        let upper_shard_id = shard_layout.account_id_to_shard_id(&upper_sender);
+        assert_ne!(low_shard_id, upper_shard_id);
+        for (account, expected_shard_id) in [
+            (&low_target_from_low, low_shard_id),
+            (&low_target_from_upper, low_shard_id),
+            (&upper_target_from_upper, upper_shard_id),
+            (&upper_target_from_low, upper_shard_id),
+        ] {
+            assert_eq!(shard_layout.account_id_to_shard_id(account), expected_shard_id);
+        }
+        let low_shard_index = shard_layout.get_shard_index(low_shard_id).unwrap();
+        let upper_shard_index = shard_layout.get_shard_index(upper_shard_id).unwrap();
+        let env = drop_chunks_marked_missing(env, low_shard_index, low_shard_pattern);
+        let mut env =
+            drop_chunks_marked_missing(env, upper_shard_index, upper_shard_pattern).warmup();
+
+        let first_spice_height = run_until_estimated_first_spice_height(&mut env);
+        let initial_target_balances: Vec<Balance> = transfers
+            .iter()
+            .map(|(_, target)| env.rpc_node().view_account_query(target).unwrap().amount)
+            .collect();
+        let mut tx_hashes = Vec::new();
+        for height in first_spice_height - heights_with_transfers..first_spice_height {
+            env.rpc_runner().run_until_head_height(height);
+            for (sender, target) in &transfers {
+                let tx = env.rpc_node().tx_send_money(sender, target, amount);
+                tx_hashes.push(env.rpc_node().submit_tx(tx));
+            }
+        }
+        for tx_hash in &tx_hashes {
+            env.rpc_runner().run_until_outcome_available(*tx_hash, Duration::seconds(30));
+            let receipt_id = env.rpc_node().tx_receipt_id(*tx_hash);
+            env.rpc_runner().run_until_outcome_available(receipt_id, Duration::seconds(30));
+        }
+        env.rpc_runner().run_until_certified(first_spice_height);
+
+        let node = env.rpc_node();
+        let chain = &node.client().chain;
+        let epoch_manager = chain.epoch_manager.as_ref();
+        let first_spice = chain.get_block_by_height(first_spice_height).unwrap();
+        let last_pre_spice = chain.get_block(first_spice.header().prev_hash()).unwrap();
+        assert!(is_last_pre_spice_block(epoch_manager, last_pre_spice.hash()).unwrap());
+        let pattern_heights = first_spice_height - 4..first_spice_height;
+        assert_eq!(
+            observed_chunk_pattern(chain, low_shard_index, pattern_heights.clone()),
+            low_shard_pattern,
+        );
+        assert_eq!(
+            observed_chunk_pattern(chain, upper_shard_index, pattern_heights),
+            upper_shard_pattern,
+        );
+        let patterns = format!("patterns {low_shard_pattern} / {upper_shard_pattern}");
+        let shard_layout =
+            epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+        let last_included_height =
+            |shard_index: usize| last_pre_spice.chunks()[shard_index].height_included();
+        let low_shard = (low_shard_id, low_shard_index);
+        let upper_shard = (upper_shard_id, upper_shard_index);
+        let mut undelivered_receipt_ids_by_receiving_shard: HashMap<ShardId, Vec<CryptoHash>> =
+            HashMap::new();
+        for (
+            (source_shard_id, source_shard_index),
+            (target_shard_id, target_shard_index),
+            expected_undelivered_receipts,
+        ) in [
+            (low_shard, upper_shard, expected_undelivered_from_low_shard),
+            (upper_shard, low_shard, expected_undelivered_from_upper_shard),
+        ] {
+            // The source's chunks after the target's last one carry what the target
+            // missed, each with one proof to the target.
+            let target_last_included_height = last_included_height(target_shard_index);
+            let expected_carriers: HashSet<ChunkHash> = (target_last_included_height + 1
+                ..first_spice_height)
+                .filter_map(|height| {
+                    let block = chain.get_block_by_height(height).unwrap();
+                    let chunks = block.chunks();
+                    let chunk_header = &chunks[source_shard_index];
+                    chunk_header.is_new_chunk(height).then(|| chunk_header.chunk_hash().clone())
+                })
+                .collect();
+            let undelivered_receipt_proofs = get_undelivered_receipt_proofs(
+                &chain.chain_store,
+                epoch_manager,
+                &last_pre_spice,
+                source_shard_id,
+            )
+            .unwrap();
+            assert_eq!(
+                undelivered_receipt_proofs.keys().cloned().collect::<HashSet<_>>(),
+                expected_carriers,
+                "{patterns}: the carriers of shard {source_shard_id} must be its chunks after \
+                 shard {target_shard_id}'s last one",
+            );
+            for proofs in undelivered_receipt_proofs.values() {
+                assert_eq!(
+                    proofs.len(),
+                    1,
+                    "{patterns}: one proof per target that missed the chunk"
+                );
+                assert_eq!(proofs[0].1.to_shard_id, target_shard_id);
+            }
+
+            let undelivered_receipts = get_undelivered_receipts(
+                &chain.chain_store,
+                epoch_manager,
+                &last_pre_spice,
+                source_shard_id,
+            )
+            .unwrap();
+            assert_eq!(
+                undelivered_receipts.len(),
+                expected_undelivered_receipts,
+                "{patterns}: undelivered receipts from shard {source_shard_id}",
+            );
+            for receipt in &undelivered_receipts {
+                let receipt_outcome = chain.get_execution_outcome(receipt.receipt_id()).unwrap();
+                assert_eq!(
+                    receipt_outcome.block_hash,
+                    *first_spice.hash(),
+                    "{patterns}: an undelivered receipt must execute in the first spice block",
+                );
+                undelivered_receipt_ids_by_receiving_shard
+                    .entry(shard_layout.account_id_to_shard_id(receipt.receiver_id()))
+                    .or_default()
+                    .push(*receipt.receipt_id());
+            }
+        }
+        for (receiving_shard_id, undelivered_receipt_ids) in
+            undelivered_receipt_ids_by_receiving_shard
+        {
+            // The receipts were pending for the receiving shard at the boundary: sent
+            // after its last pre-spice chunk, so no pre-spice chunk of it applied them.
+            let receiving_shard_index = shard_layout.get_shard_index(receiving_shard_id).unwrap();
+            let receiving_last_included_height = last_included_height(receiving_shard_index);
+            assert!(receiving_last_included_height < last_pre_spice.header().height());
+            let pending_receipt_ids: HashSet<CryptoHash> = get_incoming_receipts_for_shard(
+                &chain.chain_store,
+                epoch_manager,
+                receiving_shard_id,
+                &shard_layout,
+                *last_pre_spice.hash(),
+                receiving_last_included_height,
+                ReceiptFilter::TargetShard,
+            )
+            .unwrap()
+            .iter()
+            .flat_map(|response| response.1.iter())
+            .flat_map(|proof| proof.0.iter())
+            .map(|receipt| *receipt.receipt_id())
+            .collect();
+            for receipt_id in &undelivered_receipt_ids {
+                assert!(
+                    pending_receipt_ids.contains(receipt_id),
+                    "{patterns}: receipt {receipt_id} carried to shard {receiving_shard_id} must \
+                     be pending for it at the boundary",
+                );
+            }
+
+            // A validator that did not apply the receiving shard's first spice chunk
+            // endorsed its certified result, so it validated the delivery from the witness.
+            let certified = chain
+                .spice_core_reader
+                .get_execution_results_by_shard_id(first_spice.header())
+                .unwrap()
+                .remove(&receiving_shard_id)
+                .unwrap();
+            let shard_uid = ShardUId::from_shard_id_and_layout(receiving_shard_id, &shard_layout);
+            let stateless_endorsers = env
+                .node_datas
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    env.node(*index)
+                        .client()
+                        .chain
+                        .chain_store
+                        .get_chunk_extra(first_spice.hash(), &shard_uid)
+                        .is_err()
+                })
+                .filter(|(_, data)| {
+                    chain
+                        .spice_core_reader
+                        .get_endorsement(first_spice.hash(), receiving_shard_id, &data.account_id)
+                        .is_some_and(|endorsement| {
+                            endorsement.execution_result_hash == certified.compute_hash()
+                        })
+                })
+                .count();
+            assert!(
+                stateless_endorsers > 0,
+                "{patterns}: no validator endorsed shard {receiving_shard_id}'s first spice chunk from its witness",
+            );
+        }
+
+        let expected_target_balance_increase =
+            amount.checked_mul(heights_with_transfers as u128).unwrap();
+        for ((_, target), initial_balance) in transfers.iter().zip(&initial_target_balances) {
+            let final_balance = node.view_account_query(target).unwrap().amount;
+            assert_eq!(
+                final_balance.checked_sub(*initial_balance).unwrap(),
+                expected_target_balance_increase,
+                "{patterns}: {target} must receive each transfer exactly once",
+            );
+        }
+        assert_boundary_results_validated(&env, &last_pre_spice);
+    }
 }

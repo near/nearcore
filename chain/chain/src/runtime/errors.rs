@@ -3,21 +3,21 @@ use crate::near_chain_primitives::error::QueryError;
 #[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {
     pub fn from_call_function_error(
-        error: node_runtime::state_viewer::errors::CallFunctionError,
+        error: near_runtime::state_viewer::errors::CallFunctionError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::CallFunctionError::InvalidAccountId {
+            near_runtime::state_viewer::errors::CallFunctionError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::CallFunctionError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::CallFunctionError::InternalError {
+            near_runtime::state_viewer::errors::CallFunctionError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
-            node_runtime::state_viewer::errors::CallFunctionError::VMError {
+            near_runtime::state_viewer::errors::CallFunctionError::VMError {
                 error,
                 error_message,
             } => Self::ContractExecutionError { error_message, error, block_height, block_hash },
@@ -25,113 +25,113 @@ impl QueryError {
     }
 
     pub fn from_view_account_error(
-        error: node_runtime::state_viewer::errors::ViewAccountError,
+        error: near_runtime::state_viewer::errors::ViewAccountError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::ViewAccountError::InvalidAccountId {
+            near_runtime::state_viewer::errors::ViewAccountError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccountError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccountError::InternalError {
+            near_runtime::state_viewer::errors::ViewAccountError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
         }
     }
 
     pub fn from_view_contract_code_error(
-        error: node_runtime::state_viewer::errors::ViewContractCodeError,
+        error: near_runtime::state_viewer::errors::ViewContractCodeError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::ViewContractCodeError::InvalidAccountId {
+            near_runtime::state_viewer::errors::ViewContractCodeError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
+            near_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
+            near_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
                 contract_account_id,
             } => Self::NoContractCode { contract_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewContractCodeError::NoGlobalContractCode {
+            near_runtime::state_viewer::errors::ViewContractCodeError::NoGlobalContractCode {
                 identifier,
             } => Self::NoGlobalContractCode { identifier, block_height, block_hash },
         }
     }
 
     pub fn from_view_state_error(
-        error: node_runtime::state_viewer::errors::ViewStateError,
+        error: near_runtime::state_viewer::errors::ViewStateError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::ViewStateError::InvalidAccountId {
+            near_runtime::state_viewer::errors::ViewStateError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
+            near_runtime::state_viewer::errors::ViewStateError::InternalError { error_message } => {
                 Self::InternalError { error_message, block_height, block_hash }
             }
-            node_runtime::state_viewer::errors::ViewStateError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::ViewStateError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
+            near_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
                 requested_account_id,
             } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
-            err @ (node_runtime::state_viewer::errors::ViewStateError::ProofUnsupportedWithPagination
-            | node_runtime::state_viewer::errors::ViewStateError::AfterKeyOutsidePrefix) => {
+            err @ (near_runtime::state_viewer::errors::ViewStateError::ProofUnsupportedWithPagination
+            | near_runtime::state_viewer::errors::ViewStateError::AfterKeyOutsidePrefix) => {
                 Self::InternalError { error_message: err.to_string(), block_height, block_hash }
             }
         }
     }
 
     pub fn from_view_access_key_error(
-        error: node_runtime::state_viewer::errors::ViewAccessKeyError,
+        error: near_runtime::state_viewer::errors::ViewAccessKeyError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
+            near_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccessKeyError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::ViewAccessKeyError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
+            near_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::UnknownAccessKey { public_key, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccessKeyError::TooManyAccessKeys {
+            near_runtime::state_viewer::errors::ViewAccessKeyError::TooManyAccessKeys {
                 requested_account_id,
                 limit,
             } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
+            near_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
         }
     }
 
     pub fn from_view_gas_key_nonces_error(
-        error: node_runtime::state_viewer::errors::ViewGasKeyNoncesError,
+        error: near_runtime::state_viewer::errors::ViewGasKeyNoncesError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     ) -> Self {
         match error {
-            node_runtime::state_viewer::errors::ViewGasKeyNoncesError::InvalidAccountId {
+            near_runtime::state_viewer::errors::ViewGasKeyNoncesError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewGasKeyNoncesError::AccountDoesNotExist {
+            near_runtime::state_viewer::errors::ViewGasKeyNoncesError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+            near_runtime::state_viewer::errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
                 public_key,
             } => Self::UnknownGasKey { public_key, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewGasKeyNoncesError::InternalError {
+            near_runtime::state_viewer::errors::ViewGasKeyNoncesError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
         }
