@@ -155,11 +155,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
     ///  - `last_final_block_hash`: hash of the last final block after this block is produced
+    ///  - `prev_last_certified_block_epoch_id`: on SPICE, the same field of the block
     fn is_produced_block_last_in_epoch(
         &self,
         block_height: BlockHeight,
         parent_hash: &CryptoHash,
         last_final_block_hash: &CryptoHash,
+        prev_last_certified_block_epoch_id: Option<&EpochId>,
     ) -> Result<bool, EpochError>;
 
     /// Returns true if the block after the one being produced will be the last in the epoch.
@@ -1069,12 +1071,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         block_height: BlockHeight,
         parent_hash: &CryptoHash,
         last_final_block_hash: &CryptoHash,
+        prev_last_certified_block_epoch_id: Option<&EpochId>,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.is_produced_block_last_in_epoch(
             block_height,
             parent_hash,
             last_final_block_hash,
+            prev_last_certified_block_epoch_id,
         )
     }
 

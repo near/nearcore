@@ -200,6 +200,7 @@ pub fn validate_block_shard_split(
         header.height(),
         header.prev_hash(),
         header.last_final_block(),
+        header.prev_last_certified_block_epoch_id(),
     )?;
 
     let expected_shard_split = if is_last_block {
