@@ -961,13 +961,15 @@ impl Secp256K1Signature {
         &self,
         msg: [u8; 32],
     ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
-        let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::from_compact(
-            &self.0[0..64],
-            secp256k1::ecdsa::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
-        )
-        .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
-            error_message: err.to_string(),
-        })?;
+        let recovery_id =
+            secp256k1::ecdsa::RecoveryId::from_i32(i32::from(self.0[64])).map_err(|err| {
+                crate::errors::ParseSignatureError::InvalidData { error_message: err.to_string() }
+            })?;
+        let recoverable_sig =
+            secp256k1::ecdsa::RecoverableSignature::from_compact(&self.0[0..64], recovery_id)
+                .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                    error_message: err.to_string(),
+                })?;
         let msg = Message::from_slice(&msg).unwrap();
 
         let res = SECP256K1
@@ -1364,6 +1366,25 @@ mod tests {
     fn regression_signature_verification_originally_failed() {
         let signature = Signature::from_parts(KeyType::SECP256K1, &[4; 65]).unwrap();
         let _ = signature.verify(&[], &PublicKey::empty(KeyType::SECP256K1));
+    }
+
+    #[test]
+    fn secp256k1_recover_rejects_invalid_recovery_id() {
+        use super::Secp256K1Signature;
+        // The last byte of a secp256k1 signature is the recovery id, valid only
+        // in 0..=3. A signature carrying any other value is constructible from
+        // untrusted bytes (borsh / FromStr / From<[u8; 65]>), so `recover` must
+        // surface an error instead of panicking - exactly how `verify` already
+        // handles the very same byte.
+        for bad_v in [4u8, 5, 42, 255] {
+            let mut bytes = [0u8; 65];
+            bytes[64] = bad_v;
+            let signature = Secp256K1Signature::from(bytes);
+            assert!(
+                signature.recover([0u8; 32]).is_err(),
+                "recover must reject recovery id {bad_v} without panicking",
+            );
+        }
     }
 
     #[cfg(feature = "rand")]
