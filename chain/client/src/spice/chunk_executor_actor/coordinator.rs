@@ -427,25 +427,30 @@ impl ChunkExecutorActor {
     /// State sync for an epoch hands out the state as of that epoch's first block, which under
     /// spice exists only once that block's chunks have executed - which is now, for every shard
     /// this node tracks. The snapshot is created here and announced to the network later, once
-    /// the chunks are certified; see `advertise_snapshot_if_certified`.
+    /// the chunks are certified.
     fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
-        if !self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+
+        let Some(sync_hash) =
+            self.chain_store.get_current_epoch_sync_hash(block.header().epoch_id())
+        else {
+            return Ok(());
+        };
+
+        let tries = self.runtime_adapter.get_tries();
+        if tries.get_flat_storage_manager().snapshot_hash_wanted() == Some(sync_hash)
+            || tries.store().get_state_snapshot_hash().ok() == Some(sync_hash)
+        {
             return Ok(());
         }
-        // `finalize_block` is idempotent and can run again for a block already finalized, on
-        // startup recovery among others. Only ask for the snapshot the first time, or the
-        // actor would tear the checkpoint down and rebuild it.
-        if self.chain_store.spice_execution_head()?.height >= block.header().height() {
-            return Ok(());
-        }
+
         request_state_snapshot(
             snapshot_callbacks,
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
             &self.chain_store,
-            &self.runtime_adapter.get_tries(),
-            block.clone(),
+            &tries,
+            self.chain_store.get_block(&sync_hash)?,
         )
     }
 
