@@ -1,4 +1,13 @@
 use super::*;
+use near_chain::test_utils::{
+    get_chain_with_genesis_and_epoch_config_store, produce_spice_block_certifying_parent,
+};
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
+use near_chain_configs::{GCConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
+use near_primitives::shard_layout::ShardLayout;
+use num_rational::Rational32;
 
 /// The chain's serve policy with the fixed producers in place of the chain's single chunk
 /// producer.
@@ -168,4 +177,90 @@ fn a_shard_outside_the_layout_is_refused() {
 
     assert_matches!(unknown_from, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
     assert_matches!(unknown_to, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_proof_from_an_epochs_first_block_is_served_through_the_next_epoch_until_gc_collects_it() {
+    let genesis = TestGenesisBuilder::new()
+        .shard_layout(ShardLayout::multi_shard(2, 0))
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &[],
+        ))
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let mut chain = get_chain_with_genesis_and_epoch_config_store(
+        Clock::real(),
+        genesis,
+        epoch_config_store,
+        MIN_GC_NUM_EPOCHS_TO_KEEP,
+    );
+    let genesis_block = chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
+    // Far enough from genesis that GC collects blocks while the proof is still served.
+    let mut epochs_entered = 0;
+    while epochs_entered < MIN_GC_NUM_EPOCHS_TO_KEEP {
+        let next_block = produce_spice_block_certifying_parent(&mut chain, &block);
+        if next_block.header().epoch_id() != block.header().epoch_id() {
+            epochs_entered += 1;
+        }
+        block = next_block;
+    }
+    // No state sync or catch-up into an epoch applies from before the epoch's first block.
+    let proof_block = block.clone();
+    let prev_epoch_start =
+        chain.epoch_manager.get_epoch_start_height(proof_block.header().prev_hash()).unwrap();
+    let id = receipt_id(&proof_block, 0, 1);
+    save_proof(&chain, &proof_block, &receipt_data(0, 1));
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(proof_block.header().epoch_id(), ShardId::new(0))
+        .unwrap()
+        .swap_remove(0);
+    let mut server = SpiceDataServer::new(
+        chain.chain_store.store().chain_store(),
+        chain.epoch_manager.clone(),
+        ServePolicies::new(chain.chain_store.store().chain_store(), chain.epoch_manager.clone()),
+    );
+    let gc_config = GCConfig { gc_blocks_limit: 100, ..GCConfig::default() };
+
+    // Served while the head is in the next epoch, as far as a node syncing into the proof's
+    // epoch lags the producer.
+    let next_epoch_id = loop {
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+        if block.header().epoch_id() != proof_block.header().epoch_id() {
+            break *block.header().epoch_id();
+        }
+    };
+    while block.header().epoch_id() == &next_epoch_id {
+        chain.clear_data(&gc_config).unwrap();
+        assert_eq!(chain.chain_store.tail(), prev_epoch_start - 1, "gc lags the head");
+        let served = server.requested_parts(&producer, &id, &ordinals(&[0]));
+        assert_matches!(
+            served,
+            Ok(ServeOutcome::Parts { .. }),
+            "not served with head at {}",
+            block.header().height()
+        );
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+    }
+
+    let max_height =
+        proof_block.header().height() + (MIN_GC_NUM_EPOCHS_TO_KEEP + 1) * chain.epoch_length;
+    while chain.chain_store.receipt_proof_exists(
+        proof_block.hash(),
+        ShardId::new(1),
+        ShardId::new(0),
+    ) {
+        assert!(block.header().height() < max_height, "gc never collected the proof");
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+        chain.clear_data(&gc_config).unwrap();
+    }
+    let served = server.requested_parts(&producer, &id, &ordinals(&[0]));
+    assert_matches!(served, Ok(ServeOutcome::NotStored) | Err(ServeError::Chain(_)));
 }

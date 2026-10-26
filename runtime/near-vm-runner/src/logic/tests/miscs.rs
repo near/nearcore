@@ -3,10 +3,11 @@ use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use hex::FromHex;
-use near_parameters::ExtCosts;
+use near_parameters::{ExtCosts, ParameterCost};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
+use near_primitives_core::types::{AccountId, Gas};
+use near_primitives_core::universal_state_init::StateInitError;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
@@ -146,7 +147,10 @@ fn test_universal_state_init_to_account_id() {
     let mut logic = logic_builder.build();
 
     let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
-    logic.universal_state_init_to_account_id(state_init.len, state_init.ptr, 0).unwrap();
+    assert_eq!(
+        logic.universal_state_init_to_account_id(state_init.len, state_init.ptr, 0).unwrap(),
+        0
+    );
 
     let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
     logic.assert_read_register(expected.as_bytes(), 0);
@@ -174,7 +178,7 @@ fn test_universal_state_init_to_account_id_from_register() {
     logic.wrapped_internal_write_register(1, &EMPTY_STATE_INIT).unwrap();
     reset_costs_counter();
 
-    logic.universal_state_init_to_account_id(u64::MAX, 1, 0).unwrap();
+    assert_eq!(logic.universal_state_init_to_account_id(u64::MAX, 1, 0).unwrap(), 0);
 
     let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
     logic.assert_read_register(expected.as_bytes(), 0);
@@ -192,17 +196,75 @@ fn test_universal_state_init_to_account_id_from_register() {
     });
 }
 
-/// The derivation commits to the bytes as given and looks at nothing else, so a
-/// string that is not a state init still maps to an account id. That account is
-/// unusable, which the state-init receipt's own validation catches.
+/// Bytes the host rejects have no account id: the call returns an exit status
+/// saying why and leaves the register alone. The size terms are still charged, since
+/// the host did the check.
 #[test]
-fn test_universal_state_init_to_account_id_accepts_any_bytes() {
+fn test_universal_state_init_to_account_id_rejects_invalid() {
+    for (error, status) in [(StateInitError::Malformed, 1), (StateInitError::NonCanonical, 2)] {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.ext.state_init_error = Some(error);
+        let mut logic = logic_builder.build();
+
+        let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
+        reset_costs_counter();
+        assert_eq!(
+            logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap(),
+            status,
+            "{error:?}"
+        );
+        assert!(logic.registers().get_len(0).is_none(), "register must stay untouched");
+
+        assert_costs(map! {
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: garbage.len,
+            ExtCosts::universal_state_init_to_account_id_base: 1,
+            ExtCosts::universal_state_init_to_account_id_byte: garbage.len,
+        });
+    }
+}
+
+/// Before `CanonicalUniversalStateInit` the derivation commits to the bytes as given and
+/// looks at nothing else, so a string that is not a state init still maps to an account id
+/// and the status is `0`. That account is unusable, which the state-init receipt's own
+/// validation catches.
+#[test]
+fn test_universal_state_init_to_account_id_before_canonical_accepts_any_bytes() {
     let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.canonical_universal_state_init = false;
+    // What the host would say, if it were asked.
+    logic_builder.ext.state_init_error = Some(StateInitError::Malformed);
     let mut logic = logic_builder.build();
 
     let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
-    logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap();
+    assert_eq!(logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap(), 0);
     logic.assert_read_register(GARBAGE_ACCOUNT_ID.as_bytes(), 0);
+    assert_eq!(logic_builder.ext.check_state_init_calls.get(), 0, "nothing to check yet");
+}
+
+/// The per-byte fee is charged before the host is asked to decode, so a call that
+/// cannot afford its bytes never reaches the check.
+#[test]
+fn test_universal_state_init_to_account_id_pays_before_checking() {
+    let gas_limit = 10u64.pow(13);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
+    // Priced so that the payload's ten bytes alone exhaust the whole limit.
+    let per_byte = Gas::from_gas(gas_limit / EMPTY_STATE_INIT.len() as u64 + 1);
+    logic_builder.config.ext_costs.costs[ExtCosts::universal_state_init_to_account_id_byte] =
+        ParameterCost::new(per_byte, per_byte.as_gas());
+    let mut logic = logic_builder.build();
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    logic
+        .universal_state_init_to_account_id(state_init.len, state_init.ptr, 0)
+        .expect_err("the per-byte fee should exhaust the gas");
+    assert_eq!(
+        logic_builder.ext.check_state_init_calls.get(),
+        0,
+        "the host must not be asked to decode before the bytes are paid for"
+    );
 }
 
 #[test]

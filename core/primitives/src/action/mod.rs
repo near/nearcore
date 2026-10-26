@@ -490,14 +490,13 @@ impl Action {
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
             // A state init that does not decode carries no keys as far as this is
             // concerned; it is rejected by action validation before it can run.
-            Action::UniversalStateInit(a) => {
-                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+            Action::UniversalStateInit(a) => UniversalStateInit::from_raw_lenient(&a.state_init)
+                .is_ok_and(|state_init| {
                     state_init
                         .access_keys()
                         .iter()
                         .any(|handle| handle.key_type().is_post_quantum())
-                })
-            }
+                }),
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
             Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),

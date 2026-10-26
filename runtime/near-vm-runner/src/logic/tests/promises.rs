@@ -11,6 +11,7 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, Gas, GasWeight};
+use near_primitives_core::universal_state_init::DecodeMode;
 
 fn test_public_key() -> PublicKey {
     "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
@@ -519,11 +520,11 @@ fn test_promise_batch_action_universal_state_init() {
         "unexpected action gas usage {profile:?}"
     );
     // action_universal_state_init_per_byte, over the payload's own length
-    //    send 0.000_072 per byte
-    //    exec 0.000_070 per byte
+    //    send 0.000_078 per byte
+    //    exec 0.000_074 per byte
     assert_eq!(
         profile.actions_profile[ActionCosts::universal_state_init_byte].as_gas(),
-        72_000_000 * EMPTY_STATE_INIT.len() as u64,
+        78_000_000 * EMPTY_STATE_INIT.len() as u64,
         "unexpected action gas usage {profile:?}"
     );
     // action_add_full_access_key, one per installed key
@@ -534,20 +535,20 @@ fn test_promise_batch_action_universal_state_init() {
         101_765_125_000,
         "unexpected action gas usage {profile:?}"
     );
-    // action_universal_state_init_per_entry has no send fee, so it contributes
-    // nothing to the burnt profile however many entries there are; its 0.2 Tgas
-    // exec half shows up in `used_gas` below.
+    // action_universal_state_init_per_entry, one send fee per entry (two here)
+    //    send 3.1 Ggas
+    //    exec 200 Ggas, which shows up in `used_gas` below
     assert_eq!(
         profile.actions_profile[ActionCosts::universal_state_init_entry].as_gas(),
-        0,
+        2 * 3_100_000_000,
         "unexpected action gas usage {profile:?}"
     );
     // Pins the exec halves too, including the two per-entry terms the burnt
     // profile cannot show. The action terms account for
-    //   base  7.930 Tgas + byte 1.42 Ggas + entry 400 Ggas + key 203.53 Ggas
-    //   = 8_534_950_250_000
+    //   base  7.930 Tgas + byte 1.52 Ggas + entry 406.2 Ggas + key 203.53 Ggas
+    //   = 8_541_250_250_000
     // and the remaining ~246 Ggas is the ext costs of getting here.
-    assert_eq!(logic.used_gas().unwrap(), 8_781_142_525_081, "{profile:?}");
+    assert_eq!(logic.used_gas().unwrap(), 8_787_442_525_081, "{profile:?}");
 
     assert_eq!(
         logic_builder.ext.action_log,
@@ -603,10 +604,40 @@ fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
         "the state init must not reach the host before its bytes are paid for"
     );
     assert_eq!(
-        logic_builder.ext.state_init_counts_calls.get(),
+        logic_builder.ext.state_init_send_counts_calls.get(),
         0,
         "the host must not be asked to decode before the bytes are paid for"
     );
+}
+
+/// The host asks for the counts in the mode its protocol version calls for, so the
+/// charge for a payload that is not canonical changes only when the feature does.
+#[test]
+fn test_promise_batch_action_universal_state_init_asks_for_the_configured_mode() {
+    for (canonical, expected_mode) in [(false, DecodeMode::Lenient), (true, DecodeMode::Strict)] {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.canonical_universal_state_init = canonical;
+        let mut logic = logic_builder.build();
+
+        let index =
+            promise_batch_create(&mut logic, &"rick.test").expect("should create a promise");
+        let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+        let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+        logic
+            .promise_batch_action_universal_state_init(
+                index,
+                state_init.len,
+                state_init.ptr,
+                amount.ptr,
+            )
+            .expect("should attach the action");
+
+        assert_eq!(
+            logic_builder.ext.state_init_send_counts_mode.get(),
+            Some(expected_mode),
+            "canonical_universal_state_init: {canonical}"
+        );
+    }
 }
 
 #[test]
