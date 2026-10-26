@@ -778,7 +778,7 @@ fn test_apply_ecc_missing_contract() {
     }
     let contract_id: AccountId = "missing.near".parse().unwrap();
     let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
-    assert_eq!(err, InvalidTxError::InvalidSignerId { signer_id: contract_id.to_string() });
+    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
 }
 
 /// An ECC to a contract that can't pay for its fees is rejected.
