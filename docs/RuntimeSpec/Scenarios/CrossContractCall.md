@@ -58,16 +58,18 @@ FunctionCallPermission {
 
 This scenario might arise when someone Alice's parent has given them a restricted access to `alice_near` account by
 creating an access key that can be used strictly for trip management.
-This access key allows up to `3000` tokens to be spent (which includes token transfers and payments for gas), it can
-be only used to call `travel_agency` and it can be only used with the `reserve_trip` and `cancel_trip` methods.
-The way runtime treats this case is almost exactly the same as the previous one, with the only difference on how it verifies
-the signature of on the signed transaction, and that it also checks for allowance to not be exceeded.
+This access key allows up to `3000` tokens to be spent on gas. It cannot be used to transfer tokens or to attach a
+deposit. It can be only used to call `travel_agency` and it can be only used with the `reserve_trip` and `cancel_trip`
+methods. A transaction signed with this key must have exactly one `FunctionCall` action with zero deposit. The
+transaction above attaches 100 tokens, so with this key it would be rejected with `DepositWithFunctionCall`.
+The runtime verifies the signature the same way as for a full access key. It also checks the receiver, the method name,
+the zero deposit, and that the allowance is not exceeded.
 
 Finally, in the last scenario, Alice does not have an account (or the existence of `alice_near` is irrelevant). However,
 alice has full or restricted access key directly on `travel_agency` account. In that case `signer_id == receiver_id` in the
 `Transaction` object and runtime will convert transaction to the first receipt and apply that receipt in the same block.
 
-This section will focus on the first scenario, since the other two are the same with some minor differences.
+This section will focus on the first scenario. The third one differs only in minor ways. The second one works the same way for a call that attaches no deposit.
 
 ## Transaction to receipt
 
