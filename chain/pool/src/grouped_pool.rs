@@ -101,6 +101,25 @@ impl<T: PoolItem> GroupedPool<T> {
         InsertTransactionResult::Success
     }
 
+    /// If `item` is in the pool, takes its pooled copy out of its group and lets `place` put it
+    /// back, like `insert_with` does for a new item. Neither the size nor the number of items
+    /// changes. Returns whether the item is in the pool.
+    pub(crate) fn move_in_group(
+        &mut self,
+        item: &T,
+        place: impl FnOnce(PoolKey, &mut VecDeque<T>, T),
+    ) -> bool {
+        let key = item.group_id().key(&self.key_seed);
+        let item_hash = item.hash();
+        let Some(group) = self.groups.get_mut(&key) else { return false };
+        let Some(index) = group.iter().position(|pooled| pooled.hash() == item_hash) else {
+            return false;
+        };
+        let pooled = group.remove(index).expect("the index was just found");
+        place(key, group, pooled);
+        true
+    }
+
     /// Removes the items with given hashes from the pool. Each of them comes with the group it
     /// is in.
     ///

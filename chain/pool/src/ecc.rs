@@ -6,7 +6,7 @@ use crate::item::{GroupId, PoolItem};
 use crate::types::PoolKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{EccTransaction, ValidatedEcc};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// The group of an ECC: the ECCs to one contract are in one group.
 pub(crate) fn group_id(ecc: &EccTransaction) -> GroupId<'_> {
@@ -39,7 +39,9 @@ impl GroupedPool<ValidatedEcc> {
     /// Puts back ECCs that were taken out of the pool, e.g. because their chunk missed a block.
     /// The ECCs are expected in the order of arrival. They go ahead of everything waiting for
     /// their contract, including ECCs put back earlier, and keep their order among themselves.
-    /// So when several batches are put back, the newest one has to go first.
+    /// So when several batches are put back, the newest one has to go first. An ECC that is in
+    /// the pool already, e.g. because it was submitted again, is moved to the front with the
+    /// others.
     ///
     /// The ECCs are admitted one by one in this order. An ECC that does not fit is refused, and
     /// a smaller one after it may still fit. Returns the number of ECCs that were added or are
@@ -51,13 +53,20 @@ impl GroupedPool<ValidatedEcc> {
     ) -> usize {
         // For each group, how many ECCs of this batch were already put at its front.
         let mut put_back: HashMap<PoolKey, usize> = HashMap::new();
+        let mut put_back_at_front = |key, group: &mut VecDeque<ValidatedEcc>, ecc| {
+            let behind = put_back.entry(key).or_default();
+            group.insert(*behind, ecc);
+            *behind += 1;
+        };
+        // An ECC that is in the batch twice stays where its first copy was put.
+        let mut seen = HashSet::new();
         eccs.into_iter()
             .map(|ecc| {
-                self.insert_with(ecc, size_limit, |key, group, ecc| {
-                    let behind = put_back.entry(key).or_default();
-                    group.insert(*behind, ecc);
-                    *behind += 1;
-                })
+                if !seen.insert(ecc.get_hash()) || self.move_in_group(&ecc, &mut put_back_at_front)
+                {
+                    return InsertTransactionResult::Duplicate;
+                }
+                self.insert_with(ecc, size_limit, &mut put_back_at_front)
             })
             .filter(|result| *result != InsertTransactionResult::NoSpaceLeft)
             .count()
@@ -182,6 +191,63 @@ mod tests {
         let mut groups = drain_groups(&mut pool);
         groups.sort();
         assert_eq!(groups, vec![vec![1, 2, 3], vec![1, 2, 3, 4, 5]]);
+    }
+
+    /// An ECC of the batch that is in the pool already goes to the front with the rest of the
+    /// batch, and the batch keeps its order.
+    #[test]
+    fn test_put_back_batch_with_an_ecc_that_is_in_the_pool_already() {
+        let mut pool = new_pool();
+        insert_all(&mut pool, [ecc("a.near", 1), ecc("a.near", 3)]);
+
+        let batch = [ecc("a.near", 1), ecc("a.near", 2)];
+        assert_eq!(pool.reintroduce_items(batch, None), 2);
+
+        assert_eq!(drain_groups(&mut pool), vec![vec![1, 2, 3]]);
+    }
+
+    /// Wherever an ECC of the batch is in its group, it goes to the front with the rest of the
+    /// batch. The other groups and the accounting are not affected.
+    #[test]
+    fn test_put_back_batch_moves_the_ecc_that_is_in_the_pool_already() {
+        let mut pool = new_pool();
+        insert_all(&mut pool, [ecc("a.near", 3), ecc("a.near", 1), ecc("b.near", 1)]);
+        let (len, size) = (pool.len(), pool.size());
+
+        let batch = [ecc("a.near", 2), ecc("a.near", 1)];
+        assert_eq!(pool.reintroduce_items(batch, None), 2);
+
+        assert_eq!(pool.len(), len + 1);
+        assert_eq!(pool.size(), size + ecc("a.near", 2).get_size());
+        let mut groups = drain_groups(&mut pool);
+        groups.sort();
+        assert_eq!(groups, vec![vec![1], vec![2, 1, 3]]);
+    }
+
+    /// An ECC that is in the batch twice is put back once, and does not disturb the order.
+    #[test]
+    fn test_put_back_batch_with_a_repeated_ecc() {
+        let mut pool = new_pool();
+        insert_all(&mut pool, [ecc("a.near", 3)]);
+
+        let batch = [ecc("a.near", 1), ecc("a.near", 2), ecc("a.near", 1)];
+        assert_eq!(pool.reintroduce_items(batch, None), 3);
+
+        assert_eq!(pool.len(), 3);
+        assert_eq!(drain_groups(&mut pool), vec![vec![1, 2, 3]]);
+    }
+
+    /// Putting a batch back never pushes out an ECC that is in the pool already.
+    #[test]
+    fn test_put_back_batch_keeps_the_ecc_that_is_in_the_pool_already_when_there_is_no_space() {
+        let mut pool = new_pool();
+        insert_all(&mut pool, [ecc("a.near", 1)]);
+        let limit = Some(pool.size());
+
+        let batch = [ecc("a.near", 2), ecc("a.near", 1)];
+        assert_eq!(pool.reintroduce_items(batch, limit), 1);
+
+        assert_eq!(drain_groups(&mut pool), vec![vec![1]]);
     }
 
     /// When a batch does not fit, the earliest ECCs get the space.
