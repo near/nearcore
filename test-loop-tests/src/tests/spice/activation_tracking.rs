@@ -276,10 +276,10 @@ fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activati
 /// The upgrade with the validator set changing exactly at activation: one validator
 /// joins in the first spice epoch and one leaves after the last pre-spice epoch. The
 /// joiner tracks only the shard it produces for under spice, caught up through state sync
-/// in the last pre-spice epoch. The boundary bootstrap cannot tell a shard caught up that
-/// way from one still syncing and skips it either way, so the joiner executes its first
-/// spice chunk from the receipts the pre-spice producers send and the boundary results
-/// certified on chain, not from a boundary step of its own.
+/// in the last pre-spice epoch. The boundary bootstrap does not check catch-up progress,
+/// so it treats the shard as not caught up and skips it. The joiner therefore executes its
+/// first spice chunk from the receipts the pre-spice producers send and the boundary
+/// results certified on chain, not from a boundary step of its own.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_with_validator_set_change_at_activation() {
