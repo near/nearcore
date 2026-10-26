@@ -488,26 +488,25 @@ impl SnapshotHostsCache {
     }
 
     /// Verifies the signatures and inserts verified data to the cache.
-    /// Infos from `validators` take reserved slots.
+    /// Infos from the nodes returned by `load_validators` take reserved slots.
     /// Returns the data inserted, which is what should be broadcast, and optionally a
     /// verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
         self: &Self,
         data: Vec<Arc<SnapshotHostInfo>>,
-        validators: &HashSet<PeerId>,
+        load_validators: impl Fn() -> HashSet<PeerId>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Execute verification on the rayon threadpool.
-        let (data, err) = self.verify(data, validators).await;
+        let (data, err) = self.verify(data, &load_validators()).await;
         if data.is_empty() {
             return (vec![], err);
         }
-        // Insert the successfully verified data. A concurrent insert may have stored a fresher
-        // info for the same host or taken the free slots during verification, so both are
-        // checked again. Unlisted validators' hosts are removed under the same lock, so that
-        // concurrent inserts carrying different nodes for one validator can't each keep theirs.
+        // Reload validators and recheck the cache under the lock before inserting, since
+        // both may have changed during verification.
         let mut inner = self.0.lock();
-        inner.remove_unlisted_validator_hosts(validators);
+        let validators = load_validators();
+        inner.remove_unlisted_validator_hosts(&validators);
         let data = data
             .into_iter()
             .filter_map(|d| {
