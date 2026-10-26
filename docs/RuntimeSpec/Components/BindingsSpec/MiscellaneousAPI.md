@@ -35,8 +35,9 @@ If `len == u64::MAX` then treats the string as null-terminated with character `'
 ###### Panics
 
 - If string extends outside the memory of the guest with `MemoryAccessViolation`;
-- If string is not UTF-8 returns `BadUtf8`.
-- If string length without null-termination symbol is larger than `config.max_log_len` returns `BadUtf8`.
+- If string is not UTF-8 returns `BadUTF8`.
+- If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+  larger than `max_total_log_length` (16,384 bytes), returns `TotalLogLengthExceeded`.
 
 ---
 
@@ -55,8 +56,10 @@ If `len == u64::MAX` then treats the string as null-terminated with character `'
 ###### Panics
 
 - If string extends outside the memory of the guest with `MemoryAccessViolation`;
-- If string is not UTF-8 returns `BadUtf8`.
-- If string length without null-termination symbol is larger than `config.max_log_len` returns `BadUtf8`.
+- If string is not UTF-8 returns `BadUTF8`.
+- If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+  larger than `max_total_log_length` (16,384 bytes), returns `TotalLogLengthExceeded`.
+- If this function call already has `max_number_logs` (100) logs, returns `NumberOfLogsExceeded`.
 
 ---
 

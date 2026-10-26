@@ -274,19 +274,23 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ```rust
 promise_batch_action_stake(promise_idx: u64,
                            amount_ptr: u64,
-                           bls_public_key_len: u64,
-                           bls_public_key_ptr: u64)
+                           public_key_len: u64,
+                           public_key_ptr: u64)
 ```
 
 Appends `Stake` action to the batch of actions for the given promise pointed by `promise_idx`.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R52
 
+The staking key must be an ED25519 public key whose bytes decode to a valid, torsion-free curve point.
+Normally generated ED25519 keys meet this rule. If any other key is used, the host call still succeeds.
+The function call then fails with `NewReceiptValidationError` (`UnsuitableStakingKey`) after the method returns.
+
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
 - If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
-- If the given BLS public key is not a valid BLS public key (e.g. wrong length) `InvalidPublicKey`.
-- If `amount_ptr + 16` or `bls_public_key_len + bls_public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
+- If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with `InvalidPublicKey`.
+- If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
 ---

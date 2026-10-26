@@ -16,7 +16,9 @@ version 85).
 
 Contracts can also verify ML-DSA-65 signatures on-chain through the
 `ml_dsa_verify` host function (§7), which is gated separately from the
-transaction-signature work.
+transaction-signature work. From protocol version 87 (nearcore 2.14.0),
+contracts can import `ml_dsa_verify`. Before that version, every call to a
+contract that imports it fails with a link error.
 
 Scope of the integration: transaction signing, access keys, and the
 `ml_dsa_verify` host function. Validator keys, block/chunk signatures, and
@@ -166,6 +168,10 @@ integration:
   full mechanism.
 
 ### 7. `ml_dsa_verify` host function
+
+From protocol version 87 (nearcore 2.14.0), contracts can import
+`ml_dsa_verify`. Before that version, every call to a contract that imports it
+fails with a link error.
 
 Contracts verify ML-DSA-65 signatures on-chain through `ml_dsa_verify`:
 
