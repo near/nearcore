@@ -19,6 +19,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -137,53 +138,66 @@ impl SocketOptions {
     }
 }
 
+/// How messages are encoded on a connection, and which encodings are accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionEncoding {
+    /// Send and accept protobuf only, like 2.14 and older releases.
+    ProtobufOnly,
+    /// Send borsh when the peer supports it, accept both borsh and protobuf.
+    PreferBorsh,
+    /// Send and accept borsh only.
+    BorshOnly,
+}
+
+/// Which format is used to sign structs, and which signed formats are accepted.
+/// Some structs are currently signed over protobuf-serialized bytes,
+/// this will be migrated to signing over borsh-serialized bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignedStructFormat {
+    /// Sign with protobuf, accept protobuf only.
+    ProtobufOnly,
+    /// Sign with protobuf, accept both protobuf and borsh.
+    AcceptBorsh,
+    /// Sign with borsh, accept both protobuf and borsh.
+    SendBorsh,
+    /// Sign with borsh, accept borsh only.
+    BorshOnly,
+}
+
 /// Controls the transition of the network protocol from protobuf to borsh serialization.
 ///
-/// It applies to two things: the serialization of messages sent on a connection and the
-/// serialization of structs signed over protobuf-serialized bytes. The transition is rolled out
-/// over a few releases, see the presets below.
+/// It applies to two things: the serialization of messages sent on a connection and the signatures
+/// of structs signed over serialized bytes. The transition is rolled out over a few releases, see
+/// the presets below.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetworkTransitionConfig {
-    /// Try to use borsh serialization when both peers support it. `false` means using only
-    /// protobuf.
-    pub prefer_borsh: bool,
-    /// Whether we accept messages serialized with protobuf, received on a connection.
-    pub allow_protobuf_on_connection: bool,
-    /// Sign structs using the borsh serialization format instead of protobuf.
-    pub sign_with_borsh: bool,
-    /// Whether we accept protobuf-signed structs.
-    pub allow_protobuf_signed_structs: bool,
+    /// Encoding of messages on a connection.
+    pub connection_encoding: ConnectionEncoding,
+    /// Encoding of signed structs.
+    pub signed_struct_format: SignedStructFormat,
 }
 
 impl NetworkTransitionConfig {
-    /// Uses only protobuf on connections, like 2.14 and older releases.
+    /// Uses only protobuf, like 2.14 and older releases.
     pub const PROTOBUF_ONLY: Self = Self {
-        prefer_borsh: false,
-        allow_protobuf_on_connection: true,
-        sign_with_borsh: false,
-        allow_protobuf_signed_structs: true,
+        connection_encoding: ConnectionEncoding::ProtobufOnly,
+        signed_struct_format: SignedStructFormat::ProtobufOnly,
     };
     /// Full support for borsh, which is used when both peers support it.
     /// Structs are still signed using protobuf.
     pub const RELEASE_2_15: Self = Self {
-        prefer_borsh: true,
-        allow_protobuf_on_connection: true,
-        sign_with_borsh: false,
-        allow_protobuf_signed_structs: true,
+        connection_encoding: ConnectionEncoding::PreferBorsh,
+        signed_struct_format: SignedStructFormat::AcceptBorsh,
     };
     /// Protobuf messages are banned on connections, structs are signed using borsh.
     pub const RELEASE_2_16: Self = Self {
-        prefer_borsh: true,
-        allow_protobuf_on_connection: false,
-        sign_with_borsh: true,
-        allow_protobuf_signed_structs: true,
+        connection_encoding: ConnectionEncoding::BorshOnly,
+        signed_struct_format: SignedStructFormat::SendBorsh,
     };
     /// Protobuf-signed structs are banned.
     pub const RELEASE_2_17: Self = Self {
-        prefer_borsh: true,
-        allow_protobuf_on_connection: false,
-        sign_with_borsh: true,
-        allow_protobuf_signed_structs: false,
+        connection_encoding: ConnectionEncoding::BorshOnly,
+        signed_struct_format: SignedStructFormat::BorshOnly,
     };
     /// Preset used by the current release.
     pub const CURRENT: Self = Self::RELEASE_2_15;
@@ -346,17 +360,11 @@ impl NetworkConfig {
         if let Some(v) = overrides.routing_graph_max_edges {
             self.routing_graph_max_edges = v;
         }
-        if let Some(v) = overrides.prefer_borsh {
-            self.transition.prefer_borsh = v;
+        if let Some(v) = overrides.connection_encoding {
+            self.transition.connection_encoding = v;
         }
-        if let Some(v) = overrides.allow_protobuf_on_connection {
-            self.transition.allow_protobuf_on_connection = v;
-        }
-        if let Some(v) = overrides.sign_with_borsh {
-            self.transition.sign_with_borsh = v;
-        }
-        if let Some(v) = overrides.allow_protobuf_signed_structs {
-            self.transition.allow_protobuf_signed_structs = v;
+        if let Some(v) = overrides.signed_struct_format {
+            self.transition.signed_struct_format = v;
         }
     }
 
@@ -710,6 +718,7 @@ impl std::ops::Deref for VerifiedConfig {
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
+    use crate::config::{ConnectionEncoding, SignedStructFormat};
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
@@ -720,6 +729,7 @@ mod test {
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
+    use serde_json::from_str;
 
     #[test]
     fn test_network_config() {
@@ -821,6 +831,16 @@ mod test {
                 &after.routing_graph_max_edges,
                 &overrides.routing_graph_max_edges
             ));
+            assert!(check_override_field(
+                &before.transition.connection_encoding,
+                &after.transition.connection_encoding,
+                &overrides.connection_encoding
+            ));
+            assert!(check_override_field(
+                &before.transition.signed_struct_format,
+                &after.transition.signed_struct_format,
+                &overrides.signed_struct_format
+            ));
         };
         let no_overrides = NetworkConfigOverrides::default();
         let mut overrides = NetworkConfigOverrides::default();
@@ -833,6 +853,8 @@ mod test {
         overrides.routing_graph_max_edges_per_source = Some(20_000);
         overrides.routing_graph_max_peers = Some(30_000);
         overrides.routing_graph_max_edges = Some(40_000);
+        overrides.connection_encoding = Some(ConnectionEncoding::BorshOnly);
+        overrides.signed_struct_format = Some(SignedStructFormat::SendBorsh);
 
         let nc_before =
             config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
@@ -846,6 +868,19 @@ mod test {
         nc_after.override_config(overrides.clone());
         check_fields(&nc_before, &nc_after, &overrides);
         assert!(nc_after.verify().is_ok());
+    }
+
+    #[test]
+    fn test_network_transition_overrides_json() {
+        let overrides: NetworkConfigOverrides = from_str(
+            r#"{
+                "connection_encoding": "BorshOnly",
+                "signed_struct_format": "SendBorsh"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(overrides.connection_encoding, Some(ConnectionEncoding::BorshOnly));
+        assert_eq!(overrides.signed_struct_format, Some(SignedStructFormat::SendBorsh));
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the
