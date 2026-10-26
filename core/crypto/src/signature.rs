@@ -1371,11 +1371,6 @@ mod tests {
     #[test]
     fn secp256k1_recover_rejects_invalid_recovery_id() {
         use super::Secp256K1Signature;
-        // The last byte of a secp256k1 signature is the recovery id, valid only
-        // in 0..=3. A signature carrying any other value is constructible from
-        // untrusted bytes (borsh / FromStr / From<[u8; 65]>), so `recover` must
-        // surface an error instead of panicking - exactly how `verify` already
-        // handles the very same byte.
         for bad_v in [4u8, 5, 42, 255] {
             let mut bytes = [0u8; 65];
             bytes[64] = bad_v;
