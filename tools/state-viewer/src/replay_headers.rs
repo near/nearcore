@@ -17,7 +17,7 @@ use std::path::Path;
 
 /// Replays the headers for the blocks between `start_height` and `end-height`.
 /// If `start_height` is not set, uses the genesis height. If `end_height` is not set, uses the chain head.
-/// The headers are replayed by updating the [`EpochManager`] with the headers (by calling `add_validator_proposals`)
+/// The headers are replayed by updating the [`EpochManager`] with the headers (by calling `record_block_info`)
 /// and then comparing the resulting validator information ([`EpochValidatorInfo`]) in the original operation of
 /// the chain (from the read-only store) and from the replay of the headers.
 pub(crate) fn replay_headers(
@@ -49,7 +49,7 @@ pub(crate) fn replay_headers(
 
             let block_info = get_block_info(&header, &chain_store, epoch_manager.as_ref());
             epoch_manager_replay
-                .add_validator_proposals(block_info, *header.random_value())
+                .record_block_info(block_info, *header.random_value())
                 .unwrap()
                 .commit();
 

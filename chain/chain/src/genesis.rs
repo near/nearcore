@@ -132,9 +132,7 @@ impl Chain {
             genesis_protocol_version,
         );
         store_update.merge(
-            epoch_manager
-                .add_validator_proposals(block_info, *genesis.header().random_value())?
-                .into(),
+            epoch_manager.record_block_info(block_info, *genesis.header().random_value())?.into(),
         );
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());

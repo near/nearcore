@@ -98,7 +98,7 @@ fn do_fork(
         let final_height =
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::from_header(block.header(), final_height, PROTOCOL_VERSION),
                 *block.header().random_value(),
             )
@@ -756,7 +756,7 @@ fn add_block(
         .insert(height, Some(*block.header().hash()));
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
-        .add_validator_proposals(
+        .record_block_info(
             BlockInfo::from_header(
                 block.header(),
                 block.header().height().saturating_sub(2),
