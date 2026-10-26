@@ -4,9 +4,18 @@ use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use near_parameters::ExtCosts;
-use p256::ecdsa::SigningKey;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use std::collections::HashMap;
+
+fn p256_test_signing_key() -> SigningKey {
+    let secret_key: [u8; 32] = [
+        0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
+        0x93, 0x4e, 0x50, 0xc3, 0xdb, 0x36, 0xe8, 0x9b, 0x12, 0x7b, 0x8a, 0x62, 0x2b, 0x12, 0x0f,
+        0x67, 0x21,
+    ];
+    SigningKey::from_bytes(&secret_key.into()).unwrap()
+}
 
 /// Deterministic key-pair plus arbitrary 32-byte prehash. RustCrypto's `p256`
 /// uses deterministic RFC6979 nonces by default, so calling `sign_prehash` on
@@ -15,16 +24,11 @@ use std::collections::HashMap;
 /// caller supplies a prehashed digest — so tests sign and verify the same raw
 /// bytes.
 fn p256_test_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let secret_key: [u8; 32] = [
-        0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
-        0x93, 0x4e, 0x50, 0xc3, 0xdb, 0x36, 0xe8, 0x9b, 0x12, 0x7b, 0x8a, 0x62, 0x2b, 0x12, 0x0f,
-        0x67, 0x21,
-    ];
     let message = vec![7u8; 32];
-    let signing_key = SigningKey::from_bytes(&secret_key.into()).unwrap();
-    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&message).unwrap();
+    let signing_key = p256_test_signing_key();
+    let signature: Signature = signing_key.sign_prehash(&message).unwrap();
     let signature_bytes = signature.to_vec();
-    let public_key = p256::ecdsa::VerifyingKey::from(&signing_key).to_encoded_point(true);
+    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true);
     let public_key_bytes = public_key.as_bytes().to_vec();
     (signature_bytes, message, public_key_bytes)
 }
@@ -154,7 +158,7 @@ fn test_p256_verify_wrong_public_key() {
         0x10, 0x21,
     ];
     let other_signing_key = SigningKey::from_bytes(&other_secret.into()).unwrap();
-    let other_public = p256::ecdsa::VerifyingKey::from(&other_signing_key).to_encoded_point(true);
+    let other_public = VerifyingKey::from(&other_signing_key).to_encoded_point(true);
     let other_public_bytes = other_public.as_bytes().to_vec();
 
     let (signature, message, _) = p256_test_vectors();
@@ -300,10 +304,9 @@ fn test_p256_verify_long_message() {
     ];
     let signing_key = SigningKey::from_bytes(&secret_key.into()).unwrap();
     let message: Vec<u8> = (0..256u16).map(|i| (i & 0xff) as u8).collect();
-    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&message).unwrap();
+    let signature: Signature = signing_key.sign_prehash(&message).unwrap();
     let signature = signature.to_vec();
-    let public_key =
-        p256::ecdsa::VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
 
     check_p256_verify(
         signature.len() as u64,
@@ -442,6 +445,89 @@ fn test_p256_verify_register_signature_invalid_length() {
             ExtCosts::read_register_base: 1,
             ExtCosts::read_register_byte: 1,
             ExtCosts::p256_verify_base: 1,
+        },
+    );
+}
+
+// The 16-byte minimum comes from `bits2field` in ecdsa 0.16 (via p256 0.13).
+// ecdsa 0.17 (p256 0.14) zero-pads shorter messages instead.
+#[test]
+fn test_p256_verify_empty_message_rejects_signature_over_zero_padded_digest() {
+    let signing_key = p256_test_signing_key();
+    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let message = vec![7u8; 0];
+    let mut zero_padded_digest = [0u8; 32];
+    zero_padded_digest[32 - message.len()..].copy_from_slice(&message);
+    let signature: Signature = signing_key.sign_prehash(&zero_padded_digest).unwrap();
+    let signature_over_zero_padded_digest = signature.to_vec();
+
+    check_p256_verify(
+        signature_over_zero_padded_digest.len() as u64,
+        &signature_over_zero_padded_digest,
+        message.len() as u64,
+        &message,
+        public_key.len() as u64,
+        &public_key,
+        Ok(0),
+        map! {
+            ExtCosts::read_memory_byte: (signature_over_zero_padded_digest.len() + public_key.len()) as u64,
+            ExtCosts::read_memory_base: 3,
+            ExtCosts::p256_verify_base: 1,
+            ExtCosts::p256_verify_byte: 0,
+        },
+    );
+}
+
+#[test]
+fn test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest() {
+    let signing_key = p256_test_signing_key();
+    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let message = vec![7u8; 15];
+    let mut zero_padded_digest = [0u8; 32];
+    zero_padded_digest[32 - message.len()..].copy_from_slice(&message);
+    let signature: Signature = signing_key.sign_prehash(&zero_padded_digest).unwrap();
+    let signature_over_zero_padded_digest = signature.to_vec();
+
+    check_p256_verify(
+        signature_over_zero_padded_digest.len() as u64,
+        &signature_over_zero_padded_digest,
+        message.len() as u64,
+        &message,
+        public_key.len() as u64,
+        &public_key,
+        Ok(0),
+        map! {
+            ExtCosts::read_memory_byte: (signature_over_zero_padded_digest.len() + message.len() + public_key.len()) as u64,
+            ExtCosts::read_memory_base: 3,
+            ExtCosts::p256_verify_base: 1,
+            ExtCosts::p256_verify_byte: message.len() as u64,
+        },
+    );
+}
+
+#[test]
+fn test_p256_verify_16_byte_message_accepts_signature_over_zero_padded_digest() {
+    let signing_key = p256_test_signing_key();
+    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let message = vec![7u8; 16];
+    let mut zero_padded_digest = [0u8; 32];
+    zero_padded_digest[32 - message.len()..].copy_from_slice(&message);
+    let signature: Signature = signing_key.sign_prehash(&zero_padded_digest).unwrap();
+    let signature_over_zero_padded_digest = signature.to_vec();
+
+    check_p256_verify(
+        signature_over_zero_padded_digest.len() as u64,
+        &signature_over_zero_padded_digest,
+        message.len() as u64,
+        &message,
+        public_key.len() as u64,
+        &public_key,
+        Ok(1),
+        map! {
+            ExtCosts::read_memory_byte: (signature_over_zero_padded_digest.len() + message.len() + public_key.len()) as u64,
+            ExtCosts::read_memory_base: 3,
+            ExtCosts::p256_verify_base: 1,
+            ExtCosts::p256_verify_byte: message.len() as u64,
         },
     );
 }
