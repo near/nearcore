@@ -2154,11 +2154,17 @@ impl Runtime {
                         maybe_validation_error,
                     );
                     let err = match verified {
-                        // TODO(ecc): execute external contract calls: run the method with
-                        // `ExecutionMode::External { gas_price, fee_gas: cost.gas_burnt }`,
-                        // record the fees and the gas of the call in the outcome, and write
-                        // the balance the call leaves back to the contract if it accepts the
-                        // call. Until then, every call is rejected and pays nothing.
+                        // TODO(ecc): execute external contract calls:
+                        // - run the method with `ExecutionMode::External { fee_gas:
+                        //   cost.gas_burnt }` and the contract's balance;
+                        // - if the contract accepts the call, charge `cost.burnt_amount` plus
+                        //   the cost of the gas the call used, at the same gas price, from the
+                        //   balance the call leaves, and reject the call with
+                        //   `NotEnoughBalance` if it falls short. The VM doesn't deal with the
+                        //   cost of the gas at all, so this check is what makes the contract
+                        //   pay;
+                        // - record the fees and the gas of the call in the outcome.
+                        // Until then, every call is rejected and pays nothing.
                         Ok(_cost) => InvalidTxError::InvalidTransactionVersion,
                         Err(RuntimeError::InvalidTxError(err)) => err,
                         Err(err) => return Err(err),
