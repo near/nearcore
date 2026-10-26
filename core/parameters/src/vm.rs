@@ -249,7 +249,7 @@ pub struct Config {
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past protocol version 87, where the feature is enabled.
+    // past protocol version 88, where the feature is enabled.
     pub universal_accounts: bool,
 
     /// Enable the `CanonicalUniversalStateInit` protocol feature: a universal state init is

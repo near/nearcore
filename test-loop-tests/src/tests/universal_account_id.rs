@@ -21,6 +21,7 @@ use near_crypto::{
 };
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
+use near_parameters::cost::{universal_state_init_content_terms, universal_state_init_size_terms};
 use near_primitives::account::{AccessKey, AccountState};
 use near_primitives::action::{
     Action, AddKeyAction, GlobalContractDeployMode, GlobalContractIdentifier, StakeAction,
@@ -34,7 +35,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{DeployContractAction, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance, Gas, ProtocolVersion};
-use near_parameters::cost::{universal_state_init_content_terms, universal_state_init_size_terms};
 use near_primitives::universal_state_init::{
     DecodeMode, RawStateInit, UniversalStateInit, UniversalStateInitCounts, UniversalStateInitV1,
     state_init_counts, state_init_send_counts,
