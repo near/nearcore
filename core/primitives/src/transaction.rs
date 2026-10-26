@@ -594,8 +594,8 @@ const ECC_VERSION: u8 = 0;
 /// Name of the contract method an [`EccTransaction`] calls. Only an external call or a view
 /// call can run it; an ordinary `FunctionCall` action to it fails.
 ///
-/// The `__nightly_` prefix is temporary; the final name will be chosen when the feature is
-/// stabilized.
+/// TODO(ecc): The `__nightly_` prefix is temporary; the final name will be chosen when the feature
+/// is stabilized.
 pub const ECC_METHOD_NAME: &str = "__nightly_external_call";
 
 /// An external contract call (ECC): a call that carries no signer, public key, nonce or
