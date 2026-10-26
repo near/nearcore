@@ -1,6 +1,6 @@
 # Resharding V2
 
-**DISCLAIMER**: This document describes Resharding V2 and it may not be up to date with recent changes to `nearcore`.
+**DISCLAIMER**: This document describes Resharding V2, which `nearcore` no longer implements. nearcore 2.5.0 (protocol version 75) replaced it with Resharding V3, and nearcore 2.7.0 removed the Resharding V2 code. From protocol version 85 (nearcore 2.13.0), dynamic resharding chooses shard splits automatically, up to the `max_number_of_shards` limit in the epoch config. See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md) for the current design.
 
 ## Resharding
 
@@ -21,37 +21,35 @@ The resharding is described in more detail in the following NEPs:
 The shard layout determines the number of shards and the assignment of accounts
  to shards (as single account cannot be split between shards).
 
-There are two versions of the ShardLayout enum.
+There are four versions of the ShardLayout enum.
 
 * v0 - maps the account to a shard taking hash of the account id modulo number of shards
 * v1 - maps the account to a shard by looking at a set of predefined boundary accounts
 and selecting the shard where the accounts fits by using alphabetical order
-
-At the time of writing there are three pre-defined shard layouts but more can
-be added in the future.
-
-* v0 - The first shard layout that contains only a single shard encompassing all the accounts.
-* simple nightshade - Splits the accounts into 4 shards.
-* simple nightshade v2 - Splits the accounts into 5 shards.
+* v2 - uses boundary accounts like v1, but the shard ids do not need to be contiguous
+* v3 - uses boundary accounts like v2, and also keeps the full history of shard splits. Dynamic resharding creates v3 layouts.
 
 **IMPORTANT**: Using alphabetical order applies to the full account name, so ``a.near`` could belong to
  shard 0, while ``z.a.near`` to shard 3.
 
-Currently in mainnet & testnet, we use the fixed shard split (which is defined in ``get_simple_nightshade_layout``):
-
-``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]``
-
-In the near future we are planning on switching to simple nightshade v2 (which is defined in ``get_simple_nightshade_layout_v2``)
-
-``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]``
+Mainnet and testnet use a v3 shard layout with 10 shards. From protocol version 85 (nearcore 2.13.0),
+dynamic resharding can split a shard at an epoch boundary. Both networks allow at most 10 shards
+(``max_number_of_shards`` in the epoch config), so no further split happens until a later protocol
+version raises that limit. Read the current layout from the ``EXPERIMENTAL_protocol_config`` RPC method
+(field ``shard_layout``) instead of relying on a fixed list.
 
 ## Shard layout changes
 
-Shard Layout is determined at epoch level in the AllEpochConfig based on the protocol version of the epoch.
+Before protocol version 85, the shard layout of an epoch comes from the epoch config of its
+protocol version in the ``AllEpochConfig``. To change the shard layout, developers had to
+choose the new shard layout by hand and set it for a new protocol version.
 
-The shard layout can change at the epoch boundary. Currently in order to change the
-shard layout it is necessary to manually determine the new shard layout and setting it
-for the desired protocol version in the ``AllEpochConfig``.
+From protocol version 85, the shard layout of each epoch is stored in its ``EpochInfo``. At the
+end of epoch ``T``, the epoch manager computes the shard layout of epoch ``T+2``. It splits at most
+one shard, based on the split proposals in the chunk headers of the last block of epoch ``T``.
+See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md) for the details.
+
+In both cases, the shard layout can change only at an epoch boundary.
 
 ### Deeper technical details
 
@@ -100,20 +98,25 @@ The resharding will be initiated by having it included in a dedicated protocol v
 
 ### Monitoring
 
+The metrics in this section are the current ones, which Resharding V3 and dynamic resharding use.
+
 Resharding exposes a number of metrics and logs that allow for monitoring the resharding process as it is happening. Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation.
 
-* near_resharding_status is the primary metric that should be used for tracking the progress of resharding. It's tagged with a shard_uid label of the parent shard. It's set to corresponding ReshardingStatus enum and can take one of the following values
-  * 0 - Scheduled - resharding is scheduled and waiting to be executed.
-  * 1 - Building - resharding is running. Only one shard at a time can be in that state while the rest will be either finished or waiting in the Scheduled state.
-  * 2 - Finished - resharding is finished.
-  * -1 - Failed - resharding failed and manual recovery action is required. The node will operate as usual until the end of the epoch but will then stop being able to process blocks.
-* near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both metrics should progress with the near_resharding_status as follows.
-  * While in the Scheduled state both metrics should remain 0.
-  * While in the Building state both metrics should be gradually increasing.
-  * While in the Finished state both metrics should remain at the same value.
-* near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks.
+* near_resharding_status is the primary metric that should be used for tracking the progress of resharding. It's tagged with a shard_uid label of the parent shard. No series is exported for a shard until a resharding is scheduled for it. It's set to corresponding ReshardingStatus enum and can take one of the following values
+  * -2 - Cancelled - resharding stopped before it completed, for example on node shutdown or when the child shards are no longer tracked.
+  * -1 - Failed - resharding failed at some stage.
+  * 1 - Scheduled - the node received the resharding event and waits for the resharding block to become final.
+  * 2 - Splitting flat storage - the flat storage of the parent shard is being split.
+  * 3 - Catching up - the flat storage of the child shards is catching up.
+  * 4 - Resharding trie state - the State column is being rewritten for the child shards.
+  * 5 - Done - resharding finished.
+* near_flat_storage_resharding_split_shard_processed_batches and near_flat_storage_resharding_split_shard_processed_bytes show the progress of the flat storage split. near_flat_storage_resharding_split_shard_batch_size is the size in bytes of each batch. near_flat_storage_resharding_status shows the flat storage resharding status of each shard.
+* near_state_col_resharding_processed_batches shows the progress of rewriting the State column.
+* near_resharding_start_timestamp_seconds is the Unix time when the resharding started. near_resharding_total_duration_seconds is the total time from the start until the State column step finishes. near_resharding_memtrie_split_duration_seconds is the time of the memtrie split at the resharding block. This split runs during block processing, so a slow split delays the block.
 
-Here are some example metric values when finished for different shards and networks. The duration column reflects the duration of the building phase. Those were captured in production like environment in November 2023 and actual times at the time of resharding in production may be slightly higher.
+The monitoring section of [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md#8-monitoring) also lists the metrics of the earlier steps, from the split proposal to the memtrie preload.
+
+The tables and screenshots below are Resharding V2 history. They use Resharding V2 metrics, which no longer exist. The duration column reflects how long Resharding V2 took to build the state of the new shards. The values were captured in a production-like environment before the Resharding V2 rollout.
 
 | mainnet | duration | batch count | batch size |
 | ------- | -------- | ----------- | ---------- |
@@ -156,11 +159,15 @@ The resharding config can be adjusted at runtime, without restarting the node. T
 
 ### Localize resharding to a single shard
 
+Resharding V3 implements this: it changes only the data of the shard that is split. The text below is the original plan.
+
 Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version.
 
 This can be improved by changing how ShardUId works e.g. removing the version and instead using globally unique shard ids.
 
 ### Dynamic resharding
+
+Dynamic resharding is implemented from protocol version 85 (nearcore 2.13.0). See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md). The text below is the original plan.
 
 The current implementation relies on having the shard layout determined offline and manually added to the node implementation.
 

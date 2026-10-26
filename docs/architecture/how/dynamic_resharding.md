@@ -121,7 +121,7 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 
 ### 2.6 Validator Assignment Across Resharding
 
-Gated by `ProtocolFeature::StickyReshardingValidatorAssignment` (protocol version 153). Without the feature, an epoch with a layout change reassigns all chunk producers from scratch by `ShardIndex`, forcing every producer to potentially state-sync a different shard. With the feature, `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
+Gated by `ProtocolFeature::StickyReshardingValidatorAssignment` (protocol version 85). Without the feature, an epoch with a layout change reassigns all chunk producers from scratch by `ShardIndex`, forcing every producer to potentially state-sync a different shard. With the feature, `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
 
 - **`CarryOver`**: layouts equal — copy the prev assignment by `ShardIndex`.
 - **`StickyResharding`**: feature on and `new_layout` is derived from `prev_layout` — preserve the prev assignment by `ShardId`. Unchanged shards keep their chunk producers; a parent that splits has its producers distributed across its children via greedy stake-balanced bin-packing (`bin_pack_into_children` in `chain/epoch-manager/src/shard_assignment.rs`).
@@ -229,7 +229,7 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ## 6. Memtrie Pre-loading for Dynamic Resharding
 
-The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but we have an entire epoch (~12 hours on mainnet) between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
+The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but an entire epoch (about 7 hours on mainnet) passes between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
 
 ### Timeline
 
