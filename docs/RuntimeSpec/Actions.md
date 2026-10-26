@@ -42,12 +42,12 @@ pub struct CreateAccountAction {}
 
 If `receiver_id` is an implicit account ID, the action fails with `OnlyImplicitAccountCreationAllowed`. Implicit
 account IDs are NEAR-implicit IDs (64 lowercase hex characters), `0x` ETH-implicit IDs, `0s` deterministic IDs and,
-from protocol version 87, `0u` universal IDs. These accounts are created in other ways:
+from protocol version 88, `0u` universal IDs. These accounts are created in other ways:
 
 - A NEAR-implicit, ETH-implicit or deterministic account is created by a `Transfer` to its ID, when the `Transfer` is
   the only action of a receipt that is not a refund.
 - A deterministic account can also be created by `DeterministicStateInit`.
-- From protocol version 87, a universal account is created by `UniversalStateInit`, or by a `Transfer` that is not a
+- From protocol version 88, a universal account is created by `UniversalStateInit`, or by a `Transfer` that is not a
   refund. That `Transfer` may be batched with other actions.
 
 **Outcome**:
