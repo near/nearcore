@@ -421,18 +421,17 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Requests a state snapshot of the state `block` left behind, if `block` is the first
-    /// block of its epoch.
+    /// Requests a state snapshot of the epoch's sync block, if `block` is about to move the
+    /// final execution head past it.
     ///
-    /// State sync for an epoch hands out the state as of that epoch's first block, which under
-    /// spice exists only once that block's chunks have executed - which is now, for every shard
-    /// this node tracks. The snapshot is created here and announced to the network later, once
+    /// State sync for an epoch hands out the state as of that epoch's first block.
+    /// The snapshot is created here and announced to the network later, once
     /// the chunks are certified.
     fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
 
-        let Some(sync_hash) =
-            self.chain_store.get_current_epoch_sync_hash(block.header().epoch_id())
+        let last_final = self.chain_store.get_block_header(block.header().last_final_block())?;
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(last_final.epoch_id())
         else {
             return Ok(());
         };
