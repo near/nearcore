@@ -10,5 +10,6 @@ mod key_rotation;
 mod light_client;
 mod malicious_chunk_producer;
 mod pre_activation;
+mod receipt_proof_push;
 mod resharding;
 mod utils;

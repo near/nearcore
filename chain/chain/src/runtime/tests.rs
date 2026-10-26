@@ -52,13 +52,13 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};

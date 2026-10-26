@@ -462,7 +462,7 @@ impl FeeHelper {
             .checked_add(receipt.send_fee(sir))
             .unwrap()
             .checked_add(
-                node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver)
+                near_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver)
                     .unwrap(),
             )
             .unwrap()

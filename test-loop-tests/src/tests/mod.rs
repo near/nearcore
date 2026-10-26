@@ -4,6 +4,7 @@ mod backfill_receipt_to_tx;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
+mod block_header_v7_before_spice;
 mod bug_repro;
 mod cache_warming;
 mod catching_up;

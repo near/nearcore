@@ -100,12 +100,12 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -935,6 +935,18 @@ impl Chain {
                 header_is_spice = %header.is_spice(),
                 %epoch_protocol_version,
                 "header spice-ness does not match its epoch"
+            );
+            return Err(Error::InvalidProtocolVersion);
+        }
+        // Honest nodes never produce V7. Before this feature, nodes accept V7 in non-spice epochs
+        // as if it were V6, so the rejection is gated to keep agreement with those nodes.
+        if ProtocolFeature::RejectBlockHeaderV7BeforeSpice.enabled(epoch_protocol_version)
+            && matches!(header, BlockHeader::BlockHeaderV7(_))
+        {
+            tracing::warn!(
+                target: "chain",
+                %epoch_protocol_version,
+                "block header v7 is not valid in this epoch"
             );
             return Err(Error::InvalidProtocolVersion);
         }

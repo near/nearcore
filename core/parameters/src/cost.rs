@@ -941,7 +941,7 @@ pub fn gas_key_add_key_exec_fee(
 ///
 /// Together with [`universal_state_init_content_terms`] this is the action's whole
 /// fee, as `(cost, units)` pairs. Both sides of the protocol walk these two lists:
-/// `node_runtime::config` sums them into the send and exec fee, and the VM charges
+/// `near_runtime::config` sums them into the send and exec fee, and the VM charges
 /// the size terms before it hands a contract's bytes to the host and the content
 /// terms once the counts come back. A term added here is picked up by both, so what
 /// a contract prepays cannot drift from what the action is charged when it runs.

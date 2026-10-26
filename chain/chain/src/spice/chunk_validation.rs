@@ -26,8 +26,8 @@ use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::PartialStorage;
-use node_runtime::SignedValidPeriodTransactions;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::Span;
@@ -37,6 +37,10 @@ pub struct SpicePreValidationOutput {
     /// Old-chunk replays of a boundary witness, oldest first; empty for a regular
     /// witness.
     pub(super) boundary_replays: Vec<BoundaryReplay>,
+    /// Receipts a boundary witness's shard sent that their targets never applied
+    /// pre-spice, committed to after the main transition's outgoing receipts; empty
+    /// for a regular witness.
+    pub(super) undelivered_receipts: Vec<Receipt>,
 }
 
 pub fn spice_pre_validate_chunk_state_witness(
@@ -187,7 +191,11 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(SpicePreValidationOutput { new_chunk_data, boundary_replays: Vec::new() })
+    Ok(SpicePreValidationOutput {
+        new_chunk_data,
+        boundary_replays: Vec::new(),
+        undelivered_receipts: Vec::new(),
+    })
 }
 
 #[tracing::instrument(
@@ -216,8 +224,9 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
     // the same witnesses.
-    let SpicePreValidationOutput { new_chunk_data, boundary_replays } = pre_validation_output;
-    let (chunk_extra, outgoing_receipts) = {
+    let SpicePreValidationOutput { new_chunk_data, boundary_replays, undelivered_receipts } =
+        pre_validation_output;
+    let (chunk_extra, mut outgoing_receipts) = {
         let gas_limit = new_chunk_data.gas_limit;
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
@@ -244,6 +253,7 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice-resharding): Handle possible resharding transitions.
 
+    outgoing_receipts.extend(undelivered_receipts);
     let shard_layout = match &state_witness {
         SpiceChunkStateWitness::V1(_) => epoch_manager.get_shard_layout(&epoch_id)?,
         SpiceChunkStateWitness::Boundary(_) => {

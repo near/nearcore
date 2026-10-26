@@ -24,7 +24,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
-    (88, include_config!("88.yaml")),
+    (89, include_config!("89.yaml")),
     (129, include_config!("129.yaml")),
     (150, include_config!("150.yaml")),
     (155, include_config!("155.yaml")),

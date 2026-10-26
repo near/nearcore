@@ -1,5 +1,7 @@
-use super::DataId;
+use super::source_producers;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
+use crate::spice::data_manager::DataId;
+use crate::spice::data_manager::policy::FetchPolicy;
 use near_chain::spice::boundary::shards_applied_itself;
 use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
@@ -14,31 +16,17 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
-/// Policy to query a fetchable data type's chain-dependent properties: relevance,
-/// doneness, who holds the data, etc.
-pub(crate) trait DataPolicy {
-    /// The ids of this type that this node needs from `block`, each with its producers in
-    /// the parts' encoding order.
-    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
-    // witnesses move onto the engine (#16275).
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error>;
-
-    /// Whether the durable artifact this item exists to obtain is already in the store.
-    fn is_done(&self, id: &DataId) -> bool;
-
-    /// The ids of this type that `block` makes pullable, tracked or not.
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error>;
-}
-
-/// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
-/// the destination shard in the next block; done once the proof is persisted.
-pub(crate) struct ReceiptProofPolicy {
+/// Implements `FetchPolicy` for the receipt proofs.
+/// Needed are the proofs from shards we did not apply locally for the previous block.
+/// Done once the proof is persisted.
+/// Pullable are proofs from every chunk certified in a block.
+pub(crate) struct ReceiptProofFetchPolicy {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
 }
 
-impl ReceiptProofPolicy {
+impl ReceiptProofFetchPolicy {
     pub(crate) fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -81,7 +69,7 @@ struct NeededShards {
     destinations: Vec<ShardId>,
 }
 
-impl DataPolicy for ReceiptProofPolicy {
+impl FetchPolicy for ReceiptProofFetchPolicy {
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
         let NeededShards { sources, destinations } = self.needed_shards(block)?;
         // TODO(spice-resharding): Handle resharding
@@ -128,5 +116,9 @@ impl DataPolicy for ReceiptProofPolicy {
             }
         }
         Ok(ids)
+    }
+
+    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        source_producers(&self.chain_store, self.epoch_manager.as_ref(), id)
     }
 }

@@ -991,6 +991,16 @@ impl PeerManagerActor {
                     return NetworkResponses::NoResponse;
                 }
 
+                // Don't advertise the snapshot if we don't know our public address yet, so that
+                // every advertisement carries one.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    tracing::warn!(
+                        target: "network",
+                        "skipping snapshot host info broadcast: own public address is not known"
+                    );
+                    return NetworkResponses::NoResponse;
+                };
+
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         shards_len = shards.len(),
@@ -1029,6 +1039,7 @@ impl PeerManagerActor {
                     sync_hash,
                     epoch_height,
                     shards,
+                    addr,
                     &self.state.config.node_key,
                 ));
 
@@ -1707,10 +1718,10 @@ impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
                     .get_hosts()
                     .iter()
                     .map(|h| SnapshotHostInfoView {
-                        peer_id: h.peer_id.clone(),
-                        sync_hash: h.sync_hash,
-                        epoch_height: h.epoch_height,
-                        shards: h.shards.clone().into_iter().map(Into::into).collect(),
+                        peer_id: h.peer_id().clone(),
+                        sync_hash: h.sync_hash(),
+                        epoch_height: h.epoch_height(),
+                        shards: h.shards().iter().copied().map(Into::into).collect(),
                     })
                     .collect::<Vec<_>>(),
             }),

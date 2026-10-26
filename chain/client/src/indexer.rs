@@ -30,7 +30,7 @@ use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
     ReceiptView, StateChangesView, TransactionEnvelopeView,
 };
-use node_runtime::config::calculate_tx_cost;
+use near_runtime::config::calculate_tx_cost;
 use std::collections::HashMap;
 
 const INDEXER: &str = "indexer";

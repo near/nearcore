@@ -3,7 +3,9 @@
 
 use crate::Chain;
 use crate::spice::boundary::applies_chunk_itself;
-use crate::stateless_validation::chunk_validation::validate_source_receipt_proofs;
+use crate::stateless_validation::chunk_validation::{
+    validate_receipt_proof, validate_source_receipt_proofs,
+};
 use crate::store::utils::get_chunk_clone_from_header;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -11,20 +13,22 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::sharding::ReceiptProof;
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::spice::state_witness::SpiceBoundaryChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
+use near_primitives::types::{BlockHeight, ChunkExecutionResult, ShardId, SpiceChunkId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// The `ChunkExecutionResult` of shard `shard_id` of the last pre-spice block `block`,
@@ -60,17 +64,16 @@ pub fn execution_result_and_receipt_proofs_from_pre_spice_apply(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunks = block.chunks();
     let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    let mut inclusion_header = Arc::new(block.header().clone());
-    while inclusion_header.height() > chunk_header.height_included() {
-        inclusion_header = chain_store.get_block_header(inclusion_header.prev_hash())?;
-    }
-    assert_eq!(
-        inclusion_header.height(),
-        chunk_header.height_included(),
-        "chunk inclusion height is not on the ancestry of its block"
-    );
-    let outgoing_receipts =
-        chain_store.get_outgoing_receipts(inclusion_header.hash(), shard_id)?.to_vec();
+    let inclusion_block_hash =
+        chunk_inclusion_block_hash(chain_store, block.header(), chunk_header.height_included())?;
+    let mut outgoing_receipts =
+        chain_store.get_outgoing_receipts(&inclusion_block_hash, shard_id)?.to_vec();
+    outgoing_receipts.extend(get_undelivered_receipts(
+        chain_store,
+        epoch_manager,
+        block,
+        shard_id,
+    )?);
 
     let next_shard_layout = epoch_manager.get_shard_layout_from_prev_block(block.hash())?;
     let (outgoing_receipts_root, receipt_proofs) =
@@ -83,6 +86,186 @@ pub fn execution_result_and_receipt_proofs_from_pre_spice_apply(
         ChunkExecutionResult { chunk_extra: chunk_extra.as_ref().clone(), outgoing_receipts_root },
         receipt_proofs,
     ))
+}
+
+fn chunk_inclusion_block_hash(
+    chain_store: &ChainStoreAdapter,
+    header: &BlockHeader,
+    height_included: BlockHeight,
+) -> Result<CryptoHash, Error> {
+    let mut header = Arc::new(header.clone());
+    while header.height() > height_included {
+        header = chain_store.get_block_header(header.prev_hash())?;
+    }
+    assert_eq!(
+        header.height(),
+        height_included,
+        "chunk inclusion height is not on the ancestry of its block"
+    );
+    Ok(*header.hash())
+}
+
+/// A chunk of a shard that carried receipts some target shards never applied pre-spice.
+pub struct UndeliveredReceiptCarrier {
+    /// Commits, through its `prev_outgoing_receipts_root`, to the carried receipts: those
+    /// its shard's previous chunk produced.
+    pub chunk_header: ShardChunkHeader,
+    /// The targets whose last pre-spice chunk precedes the chunk, in the order of the
+    /// boundary shard layout.
+    pub target_shard_ids: Vec<ShardId>,
+}
+
+/// The chunks of shard `shard_id` whose carried receipts some target has not applied by
+/// the end of the last pre-spice `block`, newest first.
+pub fn get_undelivered_receipt_carriers(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<Vec<UndeliveredReceiptCarrier>, Error> {
+    // TODO(spice-resharding): the targets are the boundary block's shards; a resharding
+    // between a carrying chunk and the boundary changes them.
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    let chunks = block.chunks();
+    let mut target_last_included_heights = Vec::new();
+    for target_shard_id in shard_layout.shard_ids() {
+        let target_shard_index = shard_layout.get_shard_index(target_shard_id)?;
+        let chunk_header =
+            chunks.get(target_shard_index).ok_or(Error::InvalidShardId(target_shard_id))?;
+        target_last_included_heights.push((target_shard_id, chunk_header.height_included()));
+    }
+    let lowest_last_included_height = target_last_included_heights
+        .iter()
+        .map(|(_, height)| *height)
+        .min()
+        .expect("a shard layout has at least one shard");
+
+    let mut carriers = Vec::new();
+    let mut current = chain_store.get_block(block.hash())?;
+    while current.header().height() > lowest_last_included_height {
+        let height = current.header().height();
+        let current_shard_layout = epoch_manager.get_shard_layout(current.header().epoch_id())?;
+        let current_chunks = current.chunks();
+        let chunk_header = current_chunks
+            .get(current_shard_layout.get_shard_index(shard_id)?)
+            .ok_or(Error::InvalidShardId(shard_id))?;
+        if chunk_header.is_new_chunk(height) {
+            carriers.push(UndeliveredReceiptCarrier {
+                chunk_header: chunk_header.clone(),
+                target_shard_ids: target_last_included_heights
+                    .iter()
+                    .filter(|(_, last_included_height)| *last_included_height < height)
+                    .map(|(target_shard_id, _)| *target_shard_id)
+                    .collect(),
+            });
+        }
+        let prev_hash = *current.header().prev_hash();
+        current = chain_store.get_block(&prev_hash)?;
+    }
+    Ok(carriers)
+}
+
+/// Proofs of the receipts [`get_undelivered_receipt_carriers`] carried to the targets
+/// that missed them, from this node's store, as a boundary witness of `block` carries
+/// them.
+pub fn get_undelivered_receipt_proofs(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<HashMap<ChunkHash, Vec<ReceiptProof>>, Error> {
+    let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
+    let mut undelivered_receipt_proofs = HashMap::new();
+    for carrier in &carriers {
+        let carried_receipts =
+            get_chunk_clone_from_header(&chain_store.chunk_store(), &carrier.chunk_header)?
+                .prev_outgoing_receipts()
+                .to_vec();
+        let carrier_shard_layout = epoch_manager
+            .get_shard_layout_from_prev_block(carrier.chunk_header.prev_block_hash())?;
+        let (carried_receipts_root, carried_receipt_proofs) =
+            Chain::create_receipts_proofs_from_outgoing_receipts(
+                &carrier_shard_layout,
+                shard_id,
+                carried_receipts,
+            )?;
+        if &carried_receipts_root != carrier.chunk_header.prev_outgoing_receipts_root() {
+            return Err(Error::Other(format!(
+                "stored receipts carried by chunk {:?} do not match its receipts root",
+                carrier.chunk_header.chunk_hash()
+            )));
+        }
+        let mut proofs_by_target: HashMap<ShardId, ReceiptProof> =
+            carried_receipt_proofs.into_iter().map(|proof| (proof.1.to_shard_id, proof)).collect();
+        let proofs = carrier
+            .target_shard_ids
+            .iter()
+            .map(|target_shard_id| {
+                proofs_by_target
+                    .remove(target_shard_id)
+                    .ok_or(Error::InvalidShardId(*target_shard_id))
+            })
+            .collect::<Result<_, Error>>()?;
+        undelivered_receipt_proofs.insert(carrier.chunk_header.chunk_hash().clone(), proofs);
+    }
+    Ok(undelivered_receipt_proofs)
+}
+
+/// Validates `proofs` as [`get_undelivered_receipt_proofs`] of `block` for shard
+/// `shard_id`, returning the receipts in the order the boundary execution result
+/// commits to them: newest carrying chunk first, by target within a chunk.
+pub fn validate_undelivered_receipt_proofs(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+    proofs: &HashMap<ChunkHash, Vec<ReceiptProof>>,
+) -> Result<Vec<Receipt>, Error> {
+    let carriers = get_undelivered_receipt_carriers(chain_store, epoch_manager, block, shard_id)?;
+    // The proofs must cover exactly the carriers, each with a proof per target in order.
+    let expected: BTreeMap<&ChunkHash, Vec<ShardId>> = carriers
+        .iter()
+        .map(|carrier| (carrier.chunk_header.chunk_hash(), carrier.target_shard_ids.clone()))
+        .collect();
+    let actual: BTreeMap<&ChunkHash, Vec<ShardId>> = proofs
+        .iter()
+        .map(|(chunk_hash, chunk_proofs)| {
+            (chunk_hash, chunk_proofs.iter().map(|proof| proof.1.to_shard_id).collect())
+        })
+        .collect();
+    if actual != expected {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "undelivered receipt proofs cover {actual:?}, expected {expected:?}"
+        )));
+    }
+    let mut receipts = Vec::new();
+    for carrier in &carriers {
+        // Present with one proof per target: the shapes matched above.
+        let chunk_proofs = &proofs[carrier.chunk_header.chunk_hash()];
+        for (target_shard_id, proof) in carrier.target_shard_ids.iter().zip(chunk_proofs) {
+            validate_receipt_proof(
+                proof,
+                &carrier.chunk_header,
+                *target_shard_id,
+                *carrier.chunk_header.prev_outgoing_receipts_root(),
+            )?;
+            receipts.extend(proof.0.iter().cloned());
+        }
+    }
+    Ok(receipts)
+}
+
+/// The receipts shard `shard_id` sent that their targets have not applied by the end
+/// of the last pre-spice `block`, beyond those of its last chunk's apply; read from
+/// this node's store, in the order [`validate_undelivered_receipt_proofs`] yields them.
+pub fn get_undelivered_receipts(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<Vec<Receipt>, Error> {
+    let proofs = get_undelivered_receipt_proofs(chain_store, epoch_manager, block, shard_id)?;
+    validate_undelivered_receipt_proofs(chain_store, epoch_manager, block, shard_id, &proofs)
 }
 
 /// The execution result of shard `shard_id`'s previous chunk, read off the chunk
@@ -327,6 +510,12 @@ pub fn boundary_state_witness(
         transactions,
         contract_accesses: contract_accesses.into_iter().collect(),
         implicit_transitions,
+        undelivered_receipt_proofs: get_undelivered_receipt_proofs(
+            chain_store,
+            epoch_manager,
+            block,
+            shard_id,
+        )?,
     }))
 }
 
