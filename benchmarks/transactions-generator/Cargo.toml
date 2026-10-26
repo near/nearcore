@@ -14,7 +14,7 @@ nightly = [
     "near-client/nightly",
     "near-network/nightly",
     "near-primitives/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
 ]
 
 [dependencies]
@@ -25,7 +25,7 @@ near-network = { workspace = true }
 near-primitives = { workspace = true, features = ["clock", "test_utils"] }
 near-client.workspace = true
 near-client-primitives.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 pid-lite.workspace = true
 rand.workspace = true

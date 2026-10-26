@@ -17,6 +17,11 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Balance, Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime::config::tx_cost;
+use near_runtime::{
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_access_key_tx_ephemeral,
+};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -26,11 +31,6 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
-use node_runtime::config::tx_cost;
-use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_access_key_tx_ephemeral,
-};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
 use std::sync::Arc;
@@ -330,7 +330,7 @@ impl Testbed<'_> {
         let mut res = Vec::with_capacity(blocks.len());
 
         for (block_index, block) in blocks.into_iter().enumerate() {
-            node_runtime::with_ext_cost_counter(|cc| cc.clear());
+            near_runtime::with_ext_cost_counter(|cc| cc.clear());
             let extra_blocks;
             let gas_cost = {
                 self.clear_caches();
@@ -346,7 +346,7 @@ impl Testbed<'_> {
             );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-            node_runtime::with_ext_cost_counter(|cc| {
+            near_runtime::with_ext_cost_counter(|cc| {
                 for (c, v) in cc.drain() {
                     ext_costs.insert(c, v);
                 }
@@ -517,7 +517,7 @@ impl Testbed<'_> {
         let block_height = None;
 
         let clock = GasCost::measure(metric);
-        let validated_tx = node_runtime::validate_transaction(
+        let validated_tx = near_runtime::validate_transaction(
             &self.apply_state.config,
             signed_tx,
             PROTOCOL_VERSION,
@@ -562,7 +562,7 @@ impl Testbed<'_> {
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
-        let exec_result = node_runtime::estimator::apply_action_receipt(
+        let exec_result = near_runtime::estimator::apply_action_receipt(
             &mut state_update,
             &self.apply_state,
             receipt,

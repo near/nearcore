@@ -11,7 +11,7 @@ use near_async::time::Clock;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_crypto::KeyType;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -74,13 +74,19 @@ pub fn get_chain_with_epoch_length_and_num_shards(
 
 pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    get_chain_with_genesis_and_epoch_config_store(clock, genesis, epoch_config_store)
+    get_chain_with_genesis_and_epoch_config_store(
+        clock,
+        genesis,
+        epoch_config_store,
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    )
 }
 
 pub fn get_chain_with_genesis_and_epoch_config_store(
     clock: Clock,
     genesis: Genesis,
     epoch_config_store: EpochConfigStore,
+    gc_num_epochs_to_keep: u64,
 ) -> Chain {
     let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
@@ -92,8 +98,13 @@ pub fn get_chain_with_genesis_and_epoch_config_store(
         epoch_config_store,
     );
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test_with_gc_num_epochs_to_keep(
+        tempdir.path(),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+        gc_num_epochs_to_keep,
+    );
     Chain::new(
         clock,
         epoch_manager,
@@ -329,7 +340,8 @@ pub struct SpiceKeyRotationSetup {
 }
 
 /// Builds a spice chain where the producer proposes a new key in the first epoch, which takes
-/// effect two epochs later. Every block certifies the chunks of its parent, so each epoch can end.
+/// effect two epochs later. Every block certifies the chunks of its parent. A spice chain stays in
+/// epoch E until some block of E is certified.
 pub fn setup_spice_key_rotation() -> SpiceKeyRotationSetup {
     let producer: AccountId = "test-producer".parse().unwrap();
     let epoch_length = 5;
@@ -398,6 +410,31 @@ pub fn setup_spice_key_rotation() -> SpiceKeyRotationSetup {
         .unwrap();
         head = block;
     }
+}
+
+/// Builds and processes a spice block on top of `prev_block` that certifies `prev_block`'s chunks,
+/// or certifies nothing on top of genesis. A spice chain stays in epoch E until some block of E is
+/// certified. Certifying each parent lets every epoch end at its nominal length.
+pub fn produce_spice_block_certifying_parent(chain: &mut Chain, prev_block: &Block) -> Arc<Block> {
+    let statements = if prev_block.header().is_genesis() {
+        vec![]
+    } else {
+        spice_core_statements_certifying_block(
+            chain.epoch_manager.as_ref(),
+            prev_block,
+            vec![],
+            &[],
+        )
+    };
+    let block = build_spice_test_block(chain, prev_block, statements, &[]);
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    block
 }
 
 /// Returns the signer from `signers` holding `validator`'s key, or `create_test_signer` for it.
