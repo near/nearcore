@@ -74,7 +74,13 @@ In case of a deposit refund, the public key is empty (all bytes are 0).
 
 - **`type`**: `u128`
 
-Gas price which was set in a block where the original [transaction](Transactions.md) has been applied.
+The price per unit of gas at which the gas attached to this receipt was bought.
+For a receipt created from a [transaction](Transactions.md), it is the higher of the gas price of the block where the transaction was converted into the receipt and the `min_gas_purchase_price` runtime parameter.
+From protocol version 85 (nearcore 2.13.0), `min_gas_purchase_price` is 10^9 yoctoNEAR per gas. Before that, it was 0.
+From protocol version 85 (nearcore 2.13.0), the receipt burns gas at the lower of this price and the gas price of the block where it is executed.
+The price difference is refunded, except for the account creation charge when the receipt creates an account (see [Refunds](Refunds.md)).
+A receipt created while another receipt is executed, for example by a contract call or a delegate action, has the same gas price as that receipt.
+Refund receipts have a gas price of 0.
 
 #### output_data_receivers
 

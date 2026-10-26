@@ -77,7 +77,10 @@ with several key points to note:
 - Since Alice attaches 100 tokens to the function call, we subtract them from `alice_near` upon converting transaction to receipt,
   similar to the regular financial transaction;
 - Since we are attaching 1000000 prepaid gas, we will not only subtract the gas costs of processing the receipt from `alice_near`, but
-  will also purchase 1000000 gas using the current gas price.
+  will also purchase 1000000 gas. The gas burnt for converting the transaction is charged at the current gas price. The prepaid gas
+  and the execution fees of the receipt are bought at the receipt gas price. From protocol version 85 (nearcore 2.13.0), this is the
+  higher of the current gas price and `min_gas_purchase_price`, which is 10^9 yoctoNEAR per gas. Unused gas is refunded later. The price difference for gas
+  that is burnt at a lower price is refunded too.
 
 ## Processing the `reserve_trip` receipt
 
