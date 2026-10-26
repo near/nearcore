@@ -486,7 +486,8 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 24,
-    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the
+    /// canonical representation of the struct.
     MalformedUniversalStateInit = 25,
     /// The transaction includes a feature that was removed at or before the
     /// current protocol version. The counterpart of
@@ -509,6 +510,10 @@ pub enum ActionsValidationError {
         number_of_entries: u64,
         limit: u64,
     } = 29,
+    /// A transfer to a universal account while transfers to them are banned.
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
+    } = 30,
 }
 
 /// Describes the error for validating a receipt.
@@ -747,7 +752,10 @@ impl Display for ActionsValidationError {
                 )
             }
             ActionsValidationError::MalformedUniversalStateInit => {
-                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+                write!(
+                    f,
+                    "RawStateInit bytes are not a canonical borsh encoding of UniversalStateInit"
+                )
             }
             ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
                 number_of_keys,
@@ -766,6 +774,9 @@ impl Display for ActionsValidationError {
                     f,
                     "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
                 )
+            }
+            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
+                write!(f, "transfers to the universal account {account_id} are not allowed yet")
             }
         }
     }
@@ -951,9 +962,9 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
-    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
-    /// Action validation rejects such an action before it runs, so this only fires
-    /// if that check was bypassed.
+    /// The bytes of a `UniversalStateInit` action are not the canonical borsh of a
+    /// state init. Action validation rejects such an action before it runs, so this
+    /// only fires if that check was bypassed.
     MalformedUniversalStateInit = 29,
     /// The action needs a set-up account, but the receiver is an uninitialized
     /// universal account. Distinct from `AccountDoesNotExist`: the account is

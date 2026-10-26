@@ -345,6 +345,7 @@ fix_contract_loading_cost: false
 fix_contract_loading_error: false
 vm_kind: Wasmtime
 universal_accounts: false
+canonical_universal_state_init: false
 gas_key_host_fns: false
 fix_ml_dsa_cost_charging: false
 one_yocto_on_promise: false

@@ -1037,4 +1037,24 @@ mod tests {
         let bytes_only = universal_state_init_fee(&fees, &malformed, Fee::exec_fee).unwrap();
         assert_eq!(bytes_only.gas, Gas::from_gas(1 + 3));
     }
+
+    /// A payload that decodes but is not canonical is priced on what it decodes to, like a
+    /// canonical one: the host did the same decoding for it, and sorted out-of-order keys too.
+    #[test]
+    fn universal_state_init_fee_counts_non_canonical_payload() {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes()); // data: two entries, out of order
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        let unsorted = RawStateInit(bytes);
+        let num_bytes = unsorted.0.len() as u64;
+
+        let fees = universal_state_init_fees(1, &[]);
+        let fee = universal_state_init_fee(&fees, &unsorted, Fee::exec_fee).unwrap();
+        assert_eq!(fee.gas, Gas::from_gas(1 + num_bytes + 2));
+    }
 }
