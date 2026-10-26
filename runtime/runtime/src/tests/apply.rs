@@ -5798,6 +5798,10 @@ fn test_promise_input_size_limit_does_not_bloat_witness() {
 /// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging is not enabled");
+        return;
+    }
     let initial_balance = Balance::from_near(1_000_000);
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5909,6 +5913,10 @@ fn test_gas_key_add_key_conserves_supply() {
 /// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging is not enabled");
+        return;
+    }
     let config = RuntimeConfig::test();
     let receiver = alice_account();
     let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
@@ -6442,6 +6450,98 @@ mod self_signed_state_init {
         );
     }
 
+    /// A repeated state init never tops up storage staking from its deposit, even
+    /// when an earlier action in the same receipt pushed the account below its
+    /// requirement. The receipt then fails at the end-of-receipt storage check
+    /// and rolls back, instead of the state init quietly funding the new key.
+    #[test]
+    fn repeated_init_deposit_does_not_cover_other_actions_storage() {
+        init_test_logger();
+        let committed = signer_for("deposit-committed");
+        let added = signer_for("deposit-added");
+        let state_init = state_init_for(&[committed.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let deposit = Balance::from_near(1);
+        // Enough to pay the deposit and fees while still meeting the storage stake,
+        // but less than the stake of the keys added below.
+        let slack = Balance::from_millinear(100);
+        let storage_usage: u64 = 1_000_000;
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::ZERO);
+        let stake =
+            apply_state.config.storage_amount_per_byte().checked_mul(storage_usage.into()).unwrap();
+
+        // An initialized account holding `added` and staking exactly for its storage.
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = get_account(&state, &account_id).unwrap().unwrap();
+        account.initialize().unwrap();
+        account.set_storage_usage(storage_usage);
+        account.set_amount(stake.checked_add(deposit).unwrap().checked_add(slack).unwrap());
+        set_account(&mut state, account_id.clone(), &account);
+        let mut access_key = AccessKey::full_access();
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Function call keys with long method name lists are the cheapest way to
+        // add a lot of storage in one receipt.
+        let new_keys = (0..3)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("deposit-new-key-{i}")))
+            .map(|secret_key| secret_key.public_key())
+            .collect_vec();
+        let method_names = (0..7).map(|i| format!("{i}{}", "m".repeat(249))).collect_vec();
+        let mut actions = new_keys
+            .iter()
+            .map(|public_key| {
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                            allowance: None,
+                            receiver_id: account_id.to_string(),
+                            method_names: method_names.clone(),
+                        }),
+                    },
+                }))
+            })
+            .collect_vec();
+        actions.push(Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit,
+        })));
+        let tx = SignedTransaction::from_actions(
+            expected_nonce(),
+            account_id.clone(),
+            account_id.clone(),
+            &added,
+            actions,
+            CryptoHash::default(),
+        );
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| matches!(outcome.outcome.status, ExecutionStatus::Failure(_)))
+            .expect("the receipt must fail on the storage stake");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::LackBalanceForState { .. }),
+            "the receipt must fail on storage staking, not something else"
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(
+            new_keys.iter().all(|public_key| get_access_key(&state, &account_id, public_key)
+                .unwrap()
+                .is_none()),
+            "the failed receipt must roll back the added keys"
+        );
+    }
+
     /// The funding receipt seeds the account's nonce from the height it runs at,
     /// which is what `recreated_account_rejects_old_bootstrap` rests on: a
     /// seed that ignored the height would let the old bootstrap through the second
@@ -6904,6 +7004,109 @@ mod self_signed_state_init {
                 InvalidTxError::InvalidSignerId { .. } | InvalidTxError::SignerDoesNotExist { .. }
             ))
         );
+    }
+
+    /// A state init that decodes but is not canonical: the data keys are out of order. Valid
+    /// below `CanonicalUniversalStateInit`, so a receipt carrying it can be in flight when
+    /// the protocol upgrades.
+    fn non_canonical_state_init() -> near_primitives::universal_state_init::RawStateInit {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        near_primitives::universal_state_init::RawStateInit(bytes)
+    }
+
+    fn state_init_receipt(
+        raw: near_primitives::universal_state_init::RawStateInit,
+        receiver: &AccountId,
+    ) -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: bob_account(),
+            receiver_id: receiver.clone(),
+            receipt_id: hash(b"in-flight-state-init"),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: bob_account(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw,
+                    deposit: Balance::ZERO,
+                }))],
+            }),
+        })
+    }
+
+    /// Applies one chunk with `receipts` as the incoming receipts. Returns the new root, the
+    /// outcomes, and how many receipts were left delayed. The congestion info of the result
+    /// is carried into `apply_state`, as the next chunk would see it.
+    fn apply_receipts(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &mut ApplyState,
+        epoch_info_provider: &impl EpochInfoProvider,
+        receipts: &[Receipt],
+    ) -> (CryptoHash, Vec<ExecutionOutcomeWithId>, u64) {
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                apply_state,
+                receipts,
+                SignedValidPeriodTransactions::empty(),
+                epoch_info_provider,
+                Default::default(),
+            )
+            .expect("an in-flight receipt must never fail the chunk");
+        let new_root = commit_apply_result(&result, apply_state, tries, ShardUId::single_shard());
+        (new_root, result.outcomes, result.delayed_receipts_count)
+    }
+
+    fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
+        apply_state.current_protocol_version = version;
+        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+    }
+
+    fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
+        assert_matches!(
+            &outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::MalformedUniversalStateInit,
+                ..
+            }))
+        );
+    }
+
+    /// A non-canonical receipt created under the old rules arrives as an incoming receipt
+    /// in the first block of the new ones. It passes validation like any existing receipt,
+    /// and its action fails, so nothing halts the chunk and nothing gets installed.
+    #[test]
+    fn in_flight_non_canonical_state_init_fails_the_action_when_incoming() {
+        init_test_logger();
+        let raw = non_canonical_state_init();
+        let account_id = derive_universal_account_id(&raw);
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+        at_protocol_version(
+            &mut apply_state,
+            ProtocolFeature::CanonicalUniversalStateInit.protocol_version(),
+        );
+
+        let receipt = state_init_receipt(raw, &account_id);
+        let (root, outcomes, _) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[receipt]);
+
+        assert_malformed_state_init(&outcomes);
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "nothing may be installed");
     }
 }
 

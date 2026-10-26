@@ -30,8 +30,8 @@ use wasmtime::Result as WasmtimeResult;
 #[test]
 fn metadata_cap_activation() {
     let store = RuntimeConfigStore::new();
-    let bounded = Arc::clone(&store.get_config(88).wasm_config);
-    let legacy = Arc::clone(&store.get_config(87).wasm_config);
+    let bounded = Arc::clone(&store.get_config(89).wasm_config);
+    let legacy = Arc::clone(&store.get_config(88).wasm_config);
     assert!(bounded.limit_config.max_globals_per_contract.is_some());
     assert!(legacy.limit_config.max_globals_per_contract.is_none());
 

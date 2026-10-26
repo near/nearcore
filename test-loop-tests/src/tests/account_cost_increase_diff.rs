@@ -48,8 +48,8 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
+use near_runtime::config::total_send_fees;
 use near_test_contracts::backwards_compatible_rs_contract;
-use node_runtime::config::total_send_fees;
 use std::collections::BTreeMap;
 use testlib::fees_utils::FeeHelper;
 

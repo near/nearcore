@@ -604,7 +604,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// block, then resolves via [`Self::get_chunk_producer_info_anchored`].
     ///
     /// Only safe to call when `prev_block_hash` has been processed (registered
-    /// with the epoch manager via `add_validator_proposals`).
+    /// with the epoch manager via `record_block_info`).
     fn get_chunk_producer_info_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -726,7 +726,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError>;
 
-    fn add_validator_proposals(
+    fn record_block_info(
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
@@ -1242,13 +1242,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_validator_info(epoch_id)
     }
 
-    fn add_validator_proposals(
+    fn record_block_info(
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager.add_validator_proposals(block_info, random_value)
+        epoch_manager.record_block_info(block_info, random_value.0)
     }
 
     fn init_after_epoch_sync(

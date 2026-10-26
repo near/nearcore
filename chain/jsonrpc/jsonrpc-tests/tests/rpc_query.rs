@@ -1,5 +1,6 @@
+use near_chain_configs::default_view_access_keys_limit;
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
-use near_crypto::{InMemorySigner, Signature};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_jsonrpc::client::{ChunkId, JSONRPC_RESPONSE_LIMIT, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::errors::RpcErrorKind;
@@ -16,9 +17,9 @@ use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::action::GlobalContractDeployMode;
+use near_primitives::action::{AddKeyAction, GlobalContractDeployMode};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, EpochId, Gas, ShardId, SyncCheckpoint,
 };
@@ -1388,6 +1389,58 @@ async fn test_experimental_view_access_key_list_unknown_block() {
         .await;
 
     assert_unknown_block_error(result, "EXPERIMENTAL_view_access_key_list");
+}
+
+#[tokio::test]
+async fn test_experimental_view_access_key_list_too_many_access_keys() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&account);
+    let access_keys_limit = default_view_access_keys_limit();
+    let add_key_actions: Vec<Action> = (0..access_keys_limit)
+        .map(|index| {
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: PublicKey::from_seed(KeyType::ED25519, &format!("extra{index}")),
+                access_key: AccessKey::full_access(),
+            }))
+        })
+        .collect();
+    let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+    let add_keys_tx = SignedTransaction::from_actions(
+        1,
+        account.clone(),
+        account.clone(),
+        &signer,
+        add_key_actions,
+        block_hash,
+    );
+    let add_keys_tx_bytes = borsh::to_vec(&add_keys_tx).unwrap();
+    let add_keys_result = client
+        .broadcast_tx_commit(near_primitives::serialize::to_base64(&add_keys_tx_bytes))
+        .await
+        .unwrap();
+    assert_eq!(
+        add_keys_result.final_execution_outcome.unwrap().into_outcome().status,
+        FinalExecutionStatus::SuccessValue(Vec::new())
+    );
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .await;
+
+    let err = result.expect_err("expected RPC error");
+    assert!(matches!(err.error_struct.as_ref(), Some(RpcErrorKind::HandlerError(_))));
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "TOO_MANY_ACCESS_KEYS", "unexpected error: {err:?}");
+    assert_eq!(info["requested_account_id"].as_str(), Some(account.as_str()));
+    assert_eq!(info["limit"].as_u64(), Some(u64::from(access_keys_limit)));
 }
 
 /// Test EXPERIMENTAL_call_function method

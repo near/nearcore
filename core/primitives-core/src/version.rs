@@ -148,13 +148,27 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
+    /// Reject new transfers to `0u` ids until `UniversalAccounts` is enabled, so no receipt
+    /// funded without the account creation fee executes once the fee applies.
+    RejectUniversalAccountTransfers,
+    /// A universal state init on an already initialized account refunds the whole deposit.
+    /// Before it, the deposit also tops up storage staking.
+    RefundRepeatedUniversalStateInitDeposit,
+    /// A `UniversalStateInit` is accepted only in its canonical borsh encoding, so that each
+    /// state init has exactly one valid encoding and one account id. Turns on the check behind
+    /// the status of the `universal_state_init_to_account_id` host function, and comes with the
+    /// fees that price the decode and canonical check.
+    CanonicalUniversalStateInit,
     /// Use the new version of the eth-wallet contract.
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
     UpdatedEthWalletContract,
     /// External contract calls (ECC): unsigned transactions carrying no signer, public key,
-    /// nonce or signature. See <https://github.com/near/nearcore/issues/16453>.
+    /// nonce or signature. See <https://github.com/near/nearcore/issues/16423>.
     ExternalContractCalls,
+    /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
+    /// accepts it there and the header is handled like `BlockHeaderV6`.
+    RejectBlockHeaderV7BeforeSpice,
 }
 
 impl ProtocolFeature {
@@ -186,12 +200,15 @@ impl ProtocolFeature {
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::EarlyKickout => 87,
-            ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
-            ProtocolFeature::UniversalAccounts => 87,
-            ProtocolFeature::FailCallToMissingGlobalContract => 88,
-            ProtocolFeature::FixSelfMappedShardBandwidthRequest => 88,
-            ProtocolFeature::UpdatedEthWalletContract => 88,
+            ProtocolFeature::RejectBlockHeaderV7BeforeSpice => 87,
+            ProtocolFeature::RejectUniversalAccountTransfers => 87,
+            ProtocolFeature::UniversalAccounts => 88,
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit => 88,
+            ProtocolFeature::CanonicalUniversalStateInit => 88,
+            ProtocolFeature::FailCallToMissingGlobalContract => 89,
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
+            ProtocolFeature::UpdatedEthWalletContract => 89,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -199,6 +216,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExternalContractCalls => 150,
+            ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -244,7 +262,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 88;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;

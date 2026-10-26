@@ -54,10 +54,11 @@ The node, roughly, does the following steps:
 Great, the node knows to send (forward) the transaction to the validator, but
 how does the routing work? How do we know which peer is hosting a validator?
 
-Each validator is regularly (every `config.ttl_account_id_router`/2 seconds == 30
-minutes in production) broadcasting so called `AnnounceAccount`, which is
-basically a pair of `(account_id, peer_id)`, to the whole network. This way each
-node knows which `peer_id` to send the message to.
+Each validator regularly (every `tier1.advertise_proxies_interval` == 15 minutes
+by default) broadcasts a signed `AccountData` to the whole network. It maps the
+validator's public key to the `peer_id` of the node running the validator. Each
+node knows the keys of the current and next epoch validators from the chain, so
+it knows which `peer_id` to send the message to.
 
 Then it asks the routing table about the shortest path to the peer, and sends
 the `ForwardTx` message to the peer.
@@ -85,7 +86,7 @@ it removes it from its local mempool.
 ### Can transaction get lost?
 
 Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an `AnnounceAccount` for it, so it doesn’t know
+validator or it didn’t receive an `AccountData` for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.
 

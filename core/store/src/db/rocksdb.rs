@@ -3,6 +3,7 @@ use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
+use ::rocksdb::compaction_filter::Decision;
 use ::rocksdb::properties::{PropName, PropertyName};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
@@ -919,6 +920,27 @@ impl RocksDB {
     }
 }
 
+impl RocksDB {
+    /// Merge adds refcounts, zero refcount becomes empty value.
+    /// Empty values get filtered by get methods, and removed by compaction.
+    pub(crate) fn refcount_merge(
+        _new_key: &[u8],
+        existing: Option<&[u8]>,
+        operands: &::rocksdb::MergeOperands,
+    ) -> Option<Vec<u8>> {
+        Some(refcount::refcount_merge(existing, operands))
+    }
+
+    /// Compaction filter for DBCol::State
+    pub(crate) fn empty_value_compaction_filter(
+        _level: u32,
+        _key: &[u8],
+        value: &[u8],
+    ) -> Decision {
+        if value.is_empty() { Decision::Remove } else { Decision::Keep }
+    }
+}
+
 impl Drop for RocksDB {
     fn drop(&mut self) {
         if cfg!(feature = "single_thread_rocksdb") {
@@ -997,7 +1019,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockPerHeight => "col21",
         DBCol::StateParts => "col22",
         DBCol::EpochStart => "col23",
-        DBCol::AccountAnnouncements => "col24",
+        DBCol::_AccountAnnouncements => "col24",
         DBCol::NextBlockHashes => "col25",
         DBCol::EpochLightClientBlocks => "col26",
         DBCol::_ReceiptIdToShardId => "col27",

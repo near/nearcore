@@ -1,6 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::types::Gas;
+use near_primitives_core::universal_state_init::DecodeMode;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -66,6 +67,9 @@ fn default_account_id_validity_rules_version() -> u64 {
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
+    /// Max amount of gas that can be burnt by an external contract call,
+    /// excluding gas attached to promises.
+    pub max_gas_burnt_external: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -245,8 +249,15 @@ pub struct Config {
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past protocol version 87, where the feature is enabled.
+    // past protocol version 88, where the feature is enabled.
     pub universal_accounts: bool,
+
+    /// Enable the `CanonicalUniversalStateInit` protocol feature: a universal state init is
+    /// accepted only in its canonical borsh encoding, which is also what its fees are counted
+    /// on. Turns on the check behind the status of `universal_state_init_to_account_id`.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 88, where the feature is enabled.
+    pub canonical_universal_state_init: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
@@ -304,6 +315,12 @@ impl Config {
         s.finish()
     }
 
+    /// How the host function `universal_state_init_to_account_id` checks its bytes: `Strict`
+    /// once `canonical_universal_state_init` is on, and `Lenient` before.
+    pub fn state_init_decode_mode(&self) -> DecodeMode {
+        DecodeMode::strict_if(self.canonical_universal_state_init)
+    }
+
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
@@ -315,11 +332,13 @@ impl Config {
         self.linear_op_base_cost = 0;
         self.linear_op_unit_cost = 0;
         self.limit_config.max_gas_burnt = Gas::MAX;
+        self.limit_config.max_gas_burnt_external = Gas::MAX;
     }
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.universal_accounts = true;
+        self.canonical_universal_state_init = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;
         self.p256_verify_host_fn = true;

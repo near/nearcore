@@ -100,12 +100,12 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -938,6 +938,18 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
+        // Honest nodes never produce V7. Before this feature, nodes accept V7 in non-spice epochs
+        // as if it were V6, so the rejection is gated to keep agreement with those nodes.
+        if ProtocolFeature::RejectBlockHeaderV7BeforeSpice.enabled(epoch_protocol_version)
+            && matches!(header, BlockHeader::BlockHeaderV7(_))
+        {
+            tracing::warn!(
+                target: "chain",
+                %epoch_protocol_version,
+                "block header v7 is not valid in this epoch"
+            );
+            return Err(Error::InvalidProtocolVersion);
+        }
 
         if header.epoch_id() == prev_header.epoch_id() {
             if header.next_bp_hash() != prev_header.next_bp_hash() {
@@ -1564,7 +1576,7 @@ impl Chain {
                 chain_store_update.get_block_height(header.last_final_block())?;
             let current_protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-            let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            let epoch_manager_update = self.epoch_manager.record_block_info(
                 BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;

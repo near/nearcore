@@ -54,7 +54,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
@@ -333,20 +333,11 @@ impl SignedOwnedAccount {
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
-    pub accounts: Vec<AnnounceAccount>,
 }
 
 impl RoutingTableUpdate {
     pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new() }
-    }
-
-    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts }
-    }
-
-    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts }
+        Self { edges }
     }
 }
 
@@ -446,6 +437,11 @@ pub enum PeerMessage {
     Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
+    // State requests sent over a TIER3 connection opened by the requester.
+    // The host sends the ack and the response over the same connection.
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, StatePartIndex),
+    StateRequestAck(StateRequestAck),
     VersionedStateResponse(StateResponseInfo),
 
     EpochSyncRequest,
@@ -504,6 +500,9 @@ impl PeerMessage {
         match self {
             PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::StateRequestHeader(_, _)
+            | PeerMessage::StateRequestPart(_, _, _)
+            | PeerMessage::StateRequestAck(_)
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::Tier1Handshake(_)
             | PeerMessage::Tier2Handshake(_)

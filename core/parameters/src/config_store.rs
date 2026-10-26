@@ -25,7 +25,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
+    (89, include_config!("89.yaml")),
     (129, include_config!("129.yaml")),
+    (150, include_config!("150.yaml")),
     (155, include_config!("155.yaml")),
     (157, include_config!("157.yaml")),
 ];
@@ -341,6 +343,34 @@ mod tests {
         // accumulate, so if the feature moved to a later version and the diff stayed
         // put, the flag would still read as on at the feature's own version.
         assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
+    }
+
+    /// Make sure that protocol feature flag and runtime config are in sync for
+    /// the external contract calls gas budget.
+    #[test]
+    fn test_external_contract_calls_budget() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let budget =
+            |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
+        assert_eq!(budget(version), Gas::from_teragas(20));
+        assert_eq!(budget(version - 1), Gas::ZERO);
+    }
+
+    /// Same pairing for the canonical universal state init: the flag and the fees it comes
+    /// with must switch on at the version of the protocol feature, and not before.
+    #[test]
+    fn test_canonical_universal_state_init_enabled() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let before = store.get_config(version - 1);
+        let after = store.get_config(version);
+        assert!(!before.wasm_config.canonical_universal_state_init);
+        assert!(after.wasm_config.canonical_universal_state_init);
+        // The fees are repriced for the check, in the same version.
+        let per_entry = ActionCosts::universal_state_init_entry;
+        assert_eq!(before.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
+        assert_ne!(after.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions

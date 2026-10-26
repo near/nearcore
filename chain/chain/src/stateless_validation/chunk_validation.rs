@@ -35,10 +35,10 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
-use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;

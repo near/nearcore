@@ -17,6 +17,13 @@ However, there is no reason to have `data_read` instead of the specific function
 
 However there is one reason to not have `data_read` -- it makes `API` more human-like which is a general direction Wasm APIs, like WASI are moving towards to.
 
+Some of the functions below behave differently depending on how the contract execution was initiated:
+
+- an **internal** call executes a receipt, created by a transaction or by a cross-contract call;
+- a **view** call is a read-only call made through RPC;
+- an **external** call is authorized and paid for by the contract itself, so the caller does not need an account
+  or a balance. External calls are part of the `ExternalContractCalls` protocol feature, which is not yet stable.
+
 ---
 
 ```rust
@@ -43,6 +50,8 @@ some access key and submitted into a memory pool (either through the wallet usin
 ###### Normal operation
 
 - Saves the bytes of the signer account id into the register.
+- In an external call there is no signer, so saves the bytes of the current account id instead: the contract signs
+  for the call itself.
 
 ###### Panics
 
@@ -68,7 +77,8 @@ e.g. to increase the allowance or manipulate with the public key.
 ###### Panics
 
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If called in a view function panics with `ProhibitedInView`;
+- If called in an external call panics with `ProhibitedInExternalCall`.
 
 ###### Current bugs
 
@@ -92,7 +102,8 @@ that does function invocation on the contract or another contract as a result of
 ###### Panics
 
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If called in a view function panics with `ProhibitedInView`;
+- If called in an external call panics with `ProhibitedInExternalCall`.
 
 ###### Current bugs
 
@@ -112,6 +123,7 @@ can set this to another account id when sending the receipt.
 ###### Normal operation
 
 - Saves the bytes of the account id receiving balance refunds into the register.
+- In an external call the contract pays for the call, so saves the bytes of the current account id instead.
 
 ###### Panics
 

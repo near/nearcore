@@ -15,7 +15,7 @@ use crate::logic::types::{
 };
 use crate::logic::utils::{null_terminated_method_names_len, split_method_names};
 use crate::logic::vmstate::Registers;
-use crate::logic::{External, HostError, VMContext, VMLogicError};
+use crate::logic::{ExecutionMode, External, HostError, VMContext, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
@@ -31,7 +31,7 @@ use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
 use near_primitives_core::universal_account_id::encode_universal_account_id;
-use near_primitives_core::universal_state_init::RawStateInit;
+use near_primitives_core::universal_state_init::{DecodeMode, RawStateInit};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -683,6 +683,9 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 /// a node itself). This function returns the id of that account. Saves the bytes of the signer
 /// account id into the register.
 ///
+/// An external contract call has no signer, so in that case the current
+/// account id is saved instead: the contract signs for the call itself.
+///
 /// # Errors
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
@@ -694,16 +697,21 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(
-            HostError::ProhibitedInView { method_name: "signer_account_id".to_string() }.into()
-        );
-    }
+    let signer_account_id = match ctx.context.execution_mode {
+        ExecutionMode::Internal => &ctx.context.signer_account_id,
+        ExecutionMode::External { .. } => &ctx.context.current_account_id,
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView {
+                method_name: "signer_account_id".to_string(),
+            }
+            .into());
+        }
+    };
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.signer_account_id.as_bytes(),
+        signer_account_id.as_bytes(),
     )
 }
 
@@ -715,6 +723,7 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
@@ -722,10 +731,18 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 pub fn signer_account_pk(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(
-            HostError::ProhibitedInView { method_name: "signer_account_pk".to_string() }.into()
-        );
+    let method_name = "signer_account_pk";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => {}
+        ExecutionMode::External { .. } => {
+            return Err(HostError::ProhibitedInExternalCall {
+                method_name: method_name.to_string(),
+            }
+            .into());
+        }
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
@@ -743,6 +760,7 @@ pub fn signer_account_pk(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
@@ -754,11 +772,18 @@ pub fn predecessor_account_id(
 ) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView {
-            method_name: "predecessor_account_id".to_string(),
+    let method_name = "predecessor_account_id";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => {}
+        ExecutionMode::External { .. } => {
+            return Err(HostError::ProhibitedInExternalCall {
+                method_name: method_name.to_string(),
+            }
+            .into());
         }
-        .into());
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
@@ -772,11 +797,13 @@ pub fn predecessor_account_id(
 ///
 /// This is the ID of an account set for the current receipt by its
 /// predecessor via [`Self::promise_set_refund_to()`], or
-/// [`Self::predecessor_account_id()`] otherwise.
+/// [`Self::predecessor_account_id()`] otherwise. In an external contract
+/// call it is the current account id, because the contract pays for the call.
 ///
 /// # Errors
 ///
-/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+/// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
 ///
 /// # Cost
 ///
@@ -784,17 +811,21 @@ pub fn predecessor_account_id(
 pub fn refund_to_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView {
-            method_name: "refund_to_account_id".to_string(),
+    let refund_to_account_id = match ctx.context.execution_mode {
+        ExecutionMode::Internal => &ctx.context.refund_to_account_id,
+        ExecutionMode::External { .. } => &ctx.context.current_account_id,
+        ExecutionMode::View(_) => {
+            return Err(HostError::ProhibitedInView {
+                method_name: "refund_to_account_id".to_string(),
+            }
+            .into());
         }
-        .into());
-    }
+    };
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.refund_to_account_id.as_bytes(),
+        refund_to_account_id.as_bytes(),
     )
 }
 
@@ -911,17 +942,16 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 /// The current balance of the given account. This includes the attached_deposit that was
 /// attached to the transaction.
 ///
+/// In an external contract call this excludes the cost of the gas used so far,
+/// which the contract pays for.
+///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(
-        &mut ctx.result_state.gas_counter,
-        memory,
-        balance_ptr,
-        ctx.result_state.current_account_balance.as_yoctonear(),
-    )
+    let balance = ctx.result_state.available_balance();
+    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, balance.as_yoctonear())
 }
 
 /// The current amount of tokens locked due to staking.
@@ -946,10 +976,6 @@ pub fn account_locked_balance(
 /// The balance that was attached to the call that will be immediately deposited before the
 /// contract execution starts.
 ///
-/// # Errors
-///
-/// If called as view function returns `ProhibitedInView``.
-///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
@@ -967,17 +993,24 @@ pub fn attached_deposit(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) 
 ///
 /// # Errors
 ///
-/// If called as view function returns `ProhibitedInView`.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
 /// `base`
 pub fn prepaid_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    if ctx.context.is_view() {
-        return Err(HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into());
+    let method_name = "prepaid_gas";
+    match ctx.context.execution_mode {
+        ExecutionMode::Internal => Ok(ctx.context.prepaid_gas.as_gas()),
+        ExecutionMode::External { .. } => {
+            Err(HostError::ProhibitedInExternalCall { method_name: method_name.to_string() }.into())
+        }
+        ExecutionMode::View(_) => {
+            Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into())
+        }
     }
-    Ok(ctx.context.prepaid_gas.as_gas())
 }
 
 /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
@@ -3259,9 +3292,26 @@ pub fn set_state_init_data_entry(
 /// `promise_batch_action_universal_state_init` and know the promise it
 /// creates will pass the receiver check.
 ///
-/// Nothing here inspects the contents: any byte string maps to some ID. A
-/// string that is not a well-formed state init maps to an account that can
-/// never be initialized, which the receipt's own validation catches.
+/// From `CanonicalUniversalStateInit` on, only the canonical borsh encoding is
+/// accepted, as in the action itself. Bytes that do not decode, or decode but differ
+/// from the canonical re-encoding, have no ID, and the register is left untouched.
+/// Before it nothing here inspects the contents: any byte string maps to some ID, and
+/// one that is not a well-formed state init maps to an account that can never be
+/// initialized, which the receipt's own validation catches.
+///
+/// # Returns
+///
+/// An exit status:
+///
+/// * `0` if the ID was written to `register_id`. From `CanonicalUniversalStateInit` on
+///   that means `state_init` is canonical, and no more: limits on the keys, the values
+///   and the number of entries are still checked when the action is validated. Before it,
+///   this is the only status.
+/// * `1` if `state_init` does not decode into a `UniversalStateInit`;
+/// * `2` if it decodes but is not the canonical encoding of the result.
+///
+/// The signature, unlike the check behind the status, does not follow the protocol
+/// version: a contract importing the version that returns nothing no longer links.
 ///
 /// # Errors
 ///
@@ -3273,14 +3323,14 @@ pub fn set_state_init_data_entry(
 /// `universal_state_init_to_account_id_base
 ///  + universal_state_init_to_account_id_byte * num_bytes
 ///  + cost of reading the state init from memory
-///  + cost of writing the account ID to the register`
+///  + cost of writing the account ID to the register (only on success)`
 pub fn universal_state_init_to_account_id(
     ctx: &mut HostCtx,
     memory: &mut [u8],
     state_init_len: u64,
     state_init_ptr: u64,
     register_id: u64,
-) -> Result<()> {
+) -> Result<u64> {
     use sha3::Digest;
 
     ctx.result_state.gas_counter.pay_base(universal_state_init_to_account_id_base)?;
@@ -3295,13 +3345,21 @@ pub fn universal_state_init_to_account_id(
         .gas_counter
         .pay_per(universal_state_init_to_account_id_byte, state_init.len() as u64)?;
 
+    // The per-byte fee above pays for this check, so it is charged before it runs.
+    if ctx.config.state_init_decode_mode() == DecodeMode::Strict {
+        if let Err(error) = ctx.ext.check_state_init(&RawStateInit(state_init.to_vec())) {
+            return Ok(error.exit_status());
+        }
+    }
+
     let account_id = encode_universal_account_id(&sha3::Sha3_256::digest(state_init).into());
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
         account_id.as_bytes(),
-    )
+    )?;
+    Ok(0)
 }
 
 /// Appends a `UniversalStateInit` action to the batch of actions for the given
@@ -3316,7 +3374,9 @@ pub fn universal_state_init_to_account_id(
 /// Deliberately does not check that the promise's receiver is the account the
 /// state init derives to. That check belongs to the receipt this creates, and
 /// runs when that receipt is validated, so bytes that are not a state init at all
-/// are rejected there rather than here.
+/// (or, from `CanonicalUniversalStateInit` on, not a canonical one) are rejected
+/// there rather than here. [`universal_state_init_to_account_id`] tells a
+/// contract up front.
 ///
 /// # Errors
 ///
@@ -3338,6 +3398,10 @@ pub fn universal_state_init_to_account_id(
 ///             + add_full_access_key send fee * num access keys
 ///
 /// `used_gas`  := burnt_gas + the same four fees at their exec rate
+///
+/// From `CanonicalUniversalStateInit` on, a state init that is not canonical, which the
+/// receipt is going to be rejected for, is charged as many entries and access keys as its
+/// length could hold, see `state_init_send_counts`.
 pub fn promise_batch_action_universal_state_init(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3372,7 +3436,7 @@ pub fn promise_batch_action_universal_state_init(
     // the action exists, so a failed charge never leaves one behind on the receipt.
     let num_bytes = state_init.0.len() as u64;
     pay_universal_state_init_terms(ctx, universal_state_init_size_terms(num_bytes), sir)?;
-    let counts = ctx.ext.state_init_counts(&state_init);
+    let counts = ctx.ext.state_init_send_counts(&state_init, ctx.config.state_init_decode_mode());
     debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
     pay_universal_state_init_terms(ctx, universal_state_init_content_terms(counts), sir)?;
 
@@ -3384,7 +3448,7 @@ pub fn promise_batch_action_universal_state_init(
 /// Charge the given terms of the `UniversalStateInit` action fee.
 ///
 /// The terms come from `near_parameters`, shared with
-/// `node_runtime::config::universal_state_init_fee`, so a contract-created
+/// `near_runtime::config::universal_state_init_fee`, so a contract-created
 /// action prepays exactly the exec fee it is charged when it runs.
 ///
 /// `pay_action_per_byte` is just "fee times count". Entries and keys are

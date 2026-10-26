@@ -48,6 +48,15 @@ use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
     QueryResponse, QueryResponseKind, ViewStateResult,
 };
+use near_runtime::adapter::ViewRuntimeAdapter;
+use near_runtime::cache_warming::cache_keys_differ;
+use near_runtime::config::tx_cost;
+use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
+use near_runtime::{
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
+    verify_and_charge_tx_ephemeral,
+};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
@@ -59,15 +68,6 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{
     CompilePriority, ContractRuntimeCache, compiler_daemon, precompile_contract_with_priority,
-};
-use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::cache_warming::cache_keys_differ;
-use node_runtime::config::tx_cost;
-use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
-use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -1802,13 +1802,13 @@ fn check_dynamic_resharding(
     Ok(Some(trie_split))
 }
 
-impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
+impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
+    ) -> Result<Account, near_runtime::state_viewer::errors::ViewAccountError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -1819,7 +1819,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+    ) -> Result<ContractCode, near_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account_contract_code(
             &state_update,
@@ -1844,7 +1844,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
+    ) -> Result<Vec<u8>, near_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             shard_id: shard_uid.shard_id(),
@@ -1873,7 +1873,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+    ) -> Result<AccessKey, near_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -1887,7 +1887,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         limit: Option<NonZeroU32>,
     ) -> Result<
         (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
-        node_runtime::state_viewer::errors::ViewAccessKeyError,
+        near_runtime::state_viewer::errors::ViewAccessKeyError,
     > {
         let trie = self.tries.get_view_trie_for_shard(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&trie, account_id, after, limit)
@@ -1899,7 +1899,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
+    ) -> Result<Vec<Nonce>, near_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }
@@ -1913,7 +1913,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         after_key: Option<&[u8]>,
         limit: Option<NonZeroU32>,
         include_proof: bool,
-    ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
+    ) -> Result<ViewStateResult, near_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(
             &state_update,
@@ -1930,7 +1930,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         identifier: GlobalContractIdentifier,
-    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+    ) -> Result<ContractCode, near_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_global_contract_code(&state_update, identifier)
     }

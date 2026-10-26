@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
@@ -25,7 +26,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality, Nonce, ProtocolVersion,
+    ShardId, SpiceChunkId,
+};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -34,6 +38,7 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -103,6 +108,53 @@ impl<'a> TestLoopNode<'a> {
         get_last_certified_block_header(chain_store, &head_hash).unwrap()
     }
 
+    /// The height of the block carrying `chunk_id`'s execution result, with every account
+    /// that endorsed the chunk on chain up to and including it. `None` while the chunk is
+    /// uncertified on this node's chain.
+    pub fn certifying_height_and_endorsers(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Option<(BlockHeight, HashSet<AccountId>)> {
+        let chain_store = self.client().chain.chain_store();
+        let chunk_height = chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
+        let mut endorsers = HashSet::new();
+        for height in chunk_height..=self.head().height {
+            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+                continue;
+            };
+            let block = self.block(block_hash);
+            endorsers.extend(
+                block
+                    .spice_core_statements()
+                    .iter_endorsements()
+                    .filter(|endorsement| endorsement.chunk_id() == chunk_id)
+                    .map(|endorsement| endorsement.account_id().clone()),
+            );
+            if block.spice_core_statements().iter_execution_results().any(|(id, _)| id == chunk_id)
+            {
+                return Some((height, endorsers));
+            }
+        }
+        None
+    }
+
+    /// The last pre-spice block on this node's chain, found by walking down from the
+    /// head. The head must have reached the activation boundary: it is either the last
+    /// pre-spice block itself or a spice block above it.
+    pub fn last_pre_spice_block_header(&self) -> Arc<BlockHeader> {
+        let chain = &self.client().chain;
+        let mut header = chain.get_block_header(&self.head().last_block_hash).unwrap();
+        while header.is_spice() {
+            header = chain.get_block_header(header.prev_hash()).unwrap();
+        }
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), header.hash()).unwrap(),
+            "head at height {} has not reached the spice activation boundary",
+            self.head().height,
+        );
+        header
+    }
+
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
         self.client().chain.get_block(&block_hash).unwrap()
     }
@@ -142,14 +194,42 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn runtime_query(&self, query: QueryRequest) -> Result<QueryResponse, QueryError> {
+        self.runtime_query_with_reference(BlockReference::Finality(Finality::None), query)
+    }
+
+    /// Like [`Self::runtime_query`], addressed at the state as of `block_hash`.
+    pub fn runtime_query_at(
+        &self,
+        block_hash: CryptoHash,
+        query: QueryRequest,
+    ) -> Result<QueryResponse, QueryError> {
+        self.runtime_query_with_reference(BlockReference::BlockId(BlockId::Hash(block_hash)), query)
+    }
+
+    fn runtime_query_with_reference(
+        &self,
+        block_reference: BlockReference,
+        query: QueryRequest,
+    ) -> Result<QueryResponse, QueryError> {
         let handle = self.node_data.view_client_sender.actor_handle();
         let view_client: &ViewClientActor = self.data.get(&handle);
-        view_client.handle_query(Query::new(
-            near_primitives::types::BlockReference::Finality(
-                near_primitives::types::Finality::None,
-            ),
-            query,
-        ))
+        view_client.handle_query(Query::new(block_reference, query))
+    }
+
+    /// The account's balance in the state as of `block_hash`.
+    pub fn view_account_balance_at(
+        &self,
+        block_hash: CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Balance, QueryError> {
+        let response = self.runtime_query_at(
+            block_hash,
+            QueryRequest::ViewAccount { account_id: account_id.clone() },
+        )?;
+        let QueryResponseKind::ViewAccount(account_view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(account_view.amount)
     }
 
     pub fn view_account_query(&self, account_id: &AccountId) -> Result<AccountView, QueryError> {
@@ -501,7 +581,7 @@ impl<'a> NodeRunner<'a> {
             |node| {
                 let head = node.head();
                 let block = node.client().chain.get_block(&head.last_block_hash).unwrap();
-                let mut included = std::collections::HashSet::new();
+                let mut included = HashSet::new();
                 for chunk_header in block.chunks().iter() {
                     let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     for tx in chunk.to_transactions() {

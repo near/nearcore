@@ -249,7 +249,10 @@ impl Transaction {
             if derive_universal_account_id(&action.state_init) != *account_id {
                 return None;
             }
-            let state_init = UniversalStateInit::from_raw(&action.state_init).ok()?;
+            // Lenient: a transaction is validated before it is looked at here, and from
+            // `CanonicalUniversalStateInit` on that already rejected a non-canonical state
+            // init. Below it, such a state init is valid and a bootstrap like any other.
+            let state_init = UniversalStateInit::from_raw_lenient(&action.state_init).ok()?;
             state_init.access_keys().contains(&handle).then_some(&**action)
         })
     }

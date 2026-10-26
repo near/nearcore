@@ -306,6 +306,12 @@ pub enum HostError {
     ProhibitedInView {
         method_name: String,
     },
+    /// `method_name` is not allowed in external contract calls
+    ProhibitedInExternalCall {
+        method_name: String,
+    },
+    /// An external contract call has an attached deposit, which it cannot have
+    DepositInExternalCall,
     /// The total number of logs will exceed the limit.
     NumberOfLogsExceeded {
         limit: u64,
@@ -610,6 +616,12 @@ impl std::fmt::Display for HostError {
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView { method_name } => {
                 write!(f, "{} is not allowed in view calls", method_name)
+            }
+            ProhibitedInExternalCall { method_name } => {
+                write!(f, "{} is not allowed in external contract calls", method_name)
+            }
+            DepositInExternalCall => {
+                write!(f, "External contract calls cannot have an attached deposit")
             }
             NumberOfLogsExceeded { limit } => {
                 write!(f, "The number of logs will exceed the limit {}", limit)

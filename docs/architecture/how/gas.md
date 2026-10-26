@@ -37,7 +37,7 @@ tokens from the balance of the signer's account. The fee is calculated as `gas
 amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
-(See [here](https://docs.near.org/protocol/gas#cost-for-common-actions) for more details.)
+(See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
 
 If the account has insufficient balance to pay for this, it will fail with a
 `NotEnoughBalance` error, with the required balance included in the error message.
@@ -140,6 +140,26 @@ gas that is computed after the current call has finished. This allows attaching
 100% of unspent gas to a call. If there are multiple calls, this allows
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.
+
+### Gas in External Contract Calls
+
+External contract calls (the `ExternalContractCalls` protocol feature, not yet
+stable) let a contract authorize a call from a user who has no balance. The
+contract pays for the gas, so there is no `attached_gas` and the
+`prepaid_gas()` host function fails. Instead, two limits apply:
+
+- The call can burn at most `max_gas_burnt_external`, 20 Tgas. This bounds the
+  work done before the contract has decided to accept the call.
+- The gas burnt plus the gas attached to outgoing promises can be at most
+  `max_total_prepaid_gas`.
+
+The contract pays for all the gas the call uses from its balance, at the gas
+price of the call: the gas it burns, the gas attached to function calls, and
+the execution fees of all actions and receipts. The balance takes the place of
+the prepaid gas, so the call fails with `GasExceeded` once it uses more gas
+than the balance pays for, and spending the balance on deposits lowers that
+limit. A promise gets exactly the gas it was created with: unspent gas is not
+distributed by weight, because there is no prepaid gas to distribute.
 
 ### Contract Reward
 

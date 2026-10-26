@@ -45,7 +45,7 @@ enum PeerMessage {
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
-    /// Contains accounts and edge information.
+    /// Contains edge information.
     Sync(SyncData),
     RequestUpdateNonce(EdgeInfo),
     ResponseUpdateNonce(Edge),
@@ -60,23 +60,6 @@ enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-}
-```
-
-### AnnounceAccount
-
-Each peer should announce its account
-
-```rust
-struct AnnounceAccount {
-    /// AccountId to be announced.
-    account_id: AccountId,
-    /// PeerId from the owner of the account.
-    peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    signature: Signature,
 }
 ```
 

@@ -205,10 +205,9 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
 
             <p>
                 {/* cspell: words didn */}
-                <strong>Unknown</strong> means that we didn&apos;t receive &apos;announce&apos;
-                information about this validator (so we don&apos;t know on which peer it is). This
-                usually means that the validator didn&apos;t connect to the network during current
-                epoch. <br />
+                <strong>Unknown</strong> means that we didn&apos;t receive AccountData from this
+                validator (so we don&apos;t know on which peer it is). This usually means that the
+                validator didn&apos;t connect to the network during current epoch. <br />
                 <strong>Unreachable</strong> means, that we know the peer_id of this validator, but
                 we cannot find it in our routing table. This usually means that validator did
                 connect to the network in the past, but now it is gone for at least 1 hour.

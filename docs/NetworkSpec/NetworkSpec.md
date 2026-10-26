@@ -51,8 +51,6 @@ Every node maintains a routing table with all existing connections and relevant 
 
 ```rust
 struct RoutingTable {
-    /// PeerId associated for every known account id.
-    account_peers: HashMap<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
@@ -64,8 +62,6 @@ struct RoutingTable {
 }
 
 ```
-
-- `account_peers` is a mapping from each known account to the correspondent [announcement](Messages.md#announceaccount). Given that validators are known by its [AccountId](Messages.md#accountid) when a node needs to send a message to a validator it finds the [PeerId](Messages.md#peerid) associated with the [AccountId](Messages.md#accountid) in this table.
 
 - `peer_forwarding`: For node `S`, `peer_forwarding` constitutes a mapping from each [PeerId](Messages.md#peerid) `T`, to the set of peers that are directly connected to `S` and belong to the shortest route, in terms of number of edges, between `S` and `T`. When node `S` needs to send a message to node `T` and they are not directly connected, `S` choose one peer among the set `peer_forwarding[S]` and sends a routed message to it with destination `T`.
 
@@ -101,29 +97,13 @@ def on_edges_received(self, edges):
                 self.routing_table.edges_info[(peer0, peer1)] = edge
 ```
 
-- Announce account: `account_peers` map is updated with announcements from more recent epochs.
-
-```python
-def on_announce_accounts_received(self, announcements):
-    for announce_account in announcements:
-        # Check the announcement is valid
-        if announce_account.is_valid():
-            account_id = announce_account.account_id
-
-            # Find most recent announcement for account_id being announced
-            current_announce_account = self.routing_table.account_peers.get(account_id)
-
-            # If new epoch is happens after current epoch.
-            if announce_account.epoch > current_announce_account.epoch:
-                # Update with the new announcement
-                self.routing_table.account_peers[announce_id] = announce_account
-```
-
 - Route back messages: Read about it on [Routing back section](#routing-back)
 
 ### Routing
 
 When a node needs to send a message to another peer, it checks in the routing table if it is connected to that peer, possibly not directly but through several hops. Then it select one of the shortest path to the target peer and sends a [`RoutedMessage`](Messages.md#routedmessage) to the first peer in the path.
+
+Validators are known by their [AccountId](Messages.md#accountid). To send a message to a validator, a node first finds the [PeerId](Messages.md#peerid) of the node running it. Each validator regularly broadcasts an `AccountData` signed with its validator key, which maps that key to its [PeerId](Messages.md#peerid). Nodes learn the validator keys of the current and next epochs from the chain.
 
 When it receives a [`RoutedMessage`](Messages.md#routedmessage), it check if it is the target, in that case consume the body of the message, otherwise it finds a route to the target following described approach and sends the message again. It is important that before routing a message each peer check signature from original author of the message, passing a message with invalid signature can result in ban for the sender. It is not required however checking the content of the message itself.
 
@@ -185,7 +165,7 @@ def on_routed_message_received(self, routed_message, sender):
 
 ### Synchronization
 
-When two node connect to each other they exchange all known edges (from `RoutingTable::edges_info`) and account announcements (from `RoutingTable::account_peers`). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new `AnnounceAccount` or a new `Edge` they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.
+When two node connect to each other they exchange all known edges (from `RoutingTable::edges_info`). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new `Edge` they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.
 
 ## Security
 
