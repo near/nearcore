@@ -1023,7 +1023,6 @@ pub struct TestBlockBuilder {
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
     prev_last_certified_block_epoch_id: Option<EpochId>,
     spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
-    spice_state_sync_data: Option<crate::block_body::SpiceStateSyncData>,
 }
 
 #[cfg(feature = "clock")]
@@ -1061,7 +1060,6 @@ impl TestBlockBuilder {
             newly_certified_block_execution_results: vec![],
             prev_last_certified_block_epoch_id: None,
             spice_chunk_endorsement_stats: Vec::new(),
-            spice_state_sync_data: None,
             prev_header,
         }
     }
@@ -1154,14 +1152,6 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn spice_state_sync_data(
-        mut self,
-        uncertified_chunks: Option<crate::block_body::SpiceStateSyncData>,
-    ) -> Self {
-        self.spice_state_sync_data = uncertified_chunks;
-        self
-    }
-
     pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
         self.protocol_version = protocol_version;
         self
@@ -1216,15 +1206,13 @@ impl TestBlockBuilder {
                     .prev_last_certified_block_epoch_id
                     .unwrap_or_else(|| *self.prev_header.epoch_id()),
                 spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
-                spice_state_sync_data: self.spice_state_sync_data,
             })
         } else {
             assert!(
                 self.spice_core_statements.is_none()
                     && self.newly_certified_block_execution_results.is_empty()
                     && self.prev_last_certified_block_epoch_id.is_none()
-                    && self.spice_chunk_endorsement_stats.is_empty()
-                    && self.spice_state_sync_data.is_none(),
+                    && self.spice_chunk_endorsement_stats.is_empty(),
                 "spice fields set on a block pinned to pre-spice protocol version {}",
                 self.protocol_version,
             );
