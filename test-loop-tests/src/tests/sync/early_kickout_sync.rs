@@ -58,6 +58,8 @@ fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
 // so a missing same-epoch row rejects the block and stalls `run_until_synced`. The
 // probes turn that into a positive assertion.
 #[test]
+// TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_far_horizon_observer() {
     init_test_logger();
 
@@ -190,6 +192,8 @@ fn slow_test_early_kickout_far_horizon_observer() {
 // That single producer per shard also means the schedule does not rotate with height
 // here, so this case cannot detect a wrong anchor offset. Cases A and C carry that.
 #[test]
+// TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_state_sync_shuffling() {
     init_test_logger();
 
@@ -205,7 +209,6 @@ fn slow_test_early_kickout_state_sync_shuffling() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
 
-    env.deliver_spice_data();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
 

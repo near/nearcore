@@ -1475,7 +1475,7 @@ impl ChunkExecutionResult {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
