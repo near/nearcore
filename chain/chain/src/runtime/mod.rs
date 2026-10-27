@@ -223,6 +223,7 @@ impl NightshadeRuntime {
             random_seed,
             congestion_info,
             bandwidth_requests,
+            prev_block,
         } = block;
         let ApplyChunkShardContext {
             shard_uid,
@@ -338,6 +339,7 @@ impl NightshadeRuntime {
             block_timestamp,
             gas_limit: Some(gas_limit),
             random_seed,
+            prev_block,
             current_protocol_version,
             config: config.clone(),
             next_wasm_config,

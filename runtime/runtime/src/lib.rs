@@ -73,7 +73,7 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives_core::apply::ApplyChunkReason;
+use near_primitives_core::apply::{ApplyChunkReason, PrevBlockContext};
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
@@ -192,6 +192,8 @@ pub struct ApplyState {
     pub gas_limit: Option<Gas>,
     /// Current random seed (from current block vrf output).
     pub random_seed: CryptoHash,
+    /// The previous block, which external calls see instead of the current one.
+    pub prev_block: PrevBlockContext,
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.

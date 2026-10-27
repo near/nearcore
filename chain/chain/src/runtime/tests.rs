@@ -21,7 +21,7 @@ use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::UniversalStateInitAction;
-use near_primitives::apply::ApplyChunkReason;
+use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -291,6 +291,7 @@ impl TestEnv {
                     random_seed: CryptoHash::default(),
                     congestion_info,
                     bandwidth_requests: BlockBandwidthRequests::empty(),
+                    prev_block: PrevBlockContext::default(),
                 },
                 receipts,
                 transactions,
