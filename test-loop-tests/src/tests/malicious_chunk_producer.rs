@@ -69,7 +69,7 @@ fn test_producer_with_expired_transactions() {
             let node = TestLoopNode { data, node_data: &chunk_producer };
             let tx = node.tx_send_money(&sender, &receiver, Balance::from_near(1));
             let process_tx_request =
-                ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+                ProcessTxRequest { transaction: tx.into(), is_forwarded: false, check_only: false };
             chunk_producer.rpc_handler_sender.send(process_tx_request);
         });
     }

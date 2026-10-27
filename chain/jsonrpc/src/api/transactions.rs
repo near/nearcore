@@ -6,7 +6,8 @@ use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest, TransactionInfo,
 };
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::serialize::from_base64;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use serde_json::Value;
 
 impl RpcRequest for RpcSendTransactionRequest {
@@ -14,7 +15,7 @@ impl RpcRequest for RpcSendTransactionRequest {
         let tx_request = Params::new(value)
             .try_singleton(|value| {
                 Ok(RpcSendTransactionRequest {
-                    signed_transaction: decode_signed_transaction(value)?,
+                    transaction: decode_transaction_envelope(value)?,
                     // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
                     wait_until: Default::default(),
                 })
@@ -68,10 +69,18 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
     }
 }
 
+fn decode_transaction_envelope(value: String) -> Result<TransactionEnvelope, RpcParseError> {
+    decode_borsh_base64(value)
+}
+
 fn decode_signed_transaction(value: String) -> Result<SignedTransaction, RpcParseError> {
-    let bytes = near_primitives::serialize::from_base64(&value)
+    decode_borsh_base64(value)
+}
+
+fn decode_borsh_base64<T: BorshDeserialize>(value: String) -> Result<T, RpcParseError> {
+    let bytes = from_base64(&value)
         .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))?;
-    SignedTransaction::try_from_slice(&bytes)
+    T::try_from_slice(&bytes)
         .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))
 }
 
@@ -84,7 +93,7 @@ mod tests {
     use near_primitives::borsh;
     use near_primitives::hash::CryptoHash;
     use near_primitives::serialize::to_base64;
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
 
     #[test]
     fn test_serialize_tx_status_params_as_vec() {
@@ -191,5 +200,23 @@ mod tests {
         let wait_until = "EXECUTED";
         let params = serde_json::json!([str_tx, wait_until]);
         assert!(RpcSendTransactionRequest::parse(params).is_err());
+    }
+
+    #[test]
+    fn test_serialize_send_tx_params_with_ecc() {
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]);
+        let str_ecc = to_base64(&borsh::to_vec(&ecc).unwrap());
+        let params = serde_json::json!({"signed_tx_base64": str_ecc});
+        let request = RpcSendTransactionRequest::parse(params).unwrap();
+        assert_eq!(request.transaction, TransactionEnvelope::from(ecc));
+    }
+
+    // `tx` looks a transaction up by its signer, which an ECC does not have
+    #[test]
+    fn test_serialize_tx_status_params_with_ecc() {
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]);
+        let str_ecc = to_base64(&borsh::to_vec(&ecc).unwrap());
+        let params = serde_json::json!([str_ecc]);
+        assert!(RpcTransactionStatusRequest::parse(params).is_err());
     }
 }

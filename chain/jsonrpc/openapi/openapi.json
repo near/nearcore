@@ -9823,6 +9823,27 @@
               "NotEnoughBalanceForDeposit"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The target of an external contract call has no contract, or no account.",
+            "properties": {
+              "ContractNotFound": {
+                "properties": {
+                  "contract_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ContractNotFound"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -18059,7 +18080,12 @@
       "RpcSendTransactionRequest": {
         "properties": {
           "signed_tx_base64": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TransactionEnvelope"
+              }
+            ],
+            "description": "A signed transaction, or an external contract call (ECC)."
           },
           "wait_until": {
             "allOf": [
@@ -22478,6 +22504,10 @@
             "type": "object"
           }
         ]
+      },
+      "TransactionEnvelope": {
+        "format": "byte",
+        "type": "string"
       },
       "TransactionEnvelopeView": {
         "anyOf": [

@@ -15,7 +15,7 @@ use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state_part::StatePartIndex;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{AccountId, EpochHeight, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use std::sync::Arc;
@@ -128,7 +128,7 @@ pub struct SetNetworkInfo(pub NetworkInfo);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessTxRequest {
-    pub transaction: SignedTransaction,
+    pub transaction: TransactionEnvelope,
     pub is_forwarded: bool,
     pub check_only: bool,
 }

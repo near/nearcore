@@ -13,7 +13,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::{
     Action, EccTransaction, NonceMode, SignedTransaction, Transaction, TransactionEnvelope,
-    ValidatedTransaction,
+    ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
@@ -116,6 +116,29 @@ pub fn validate_transaction(
         return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
+}
+
+/// Like [`validate_transaction`], but for a transaction of either kind, and it hands back what it
+/// validated. Unlike `ValidatedTransactionEnvelope::new`, it validates the actions of a signed
+/// transaction too, so this is the one to use for a transaction that just arrived.
+#[allow(clippy::result_large_err)]
+pub fn validate_envelope(
+    config: &RuntimeConfig,
+    envelope: TransactionEnvelope,
+    current_protocol_version: ProtocolVersion,
+) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)> {
+    match envelope {
+        TransactionEnvelope::Signed(signed_tx) => {
+            validate_transaction(config, signed_tx, current_protocol_version)
+                .map(ValidatedTransactionEnvelope::Signed)
+                .map_err(|(err, signed_tx)| (err, signed_tx.into()))
+        }
+        TransactionEnvelope::Unsigned(ecc) => {
+            ValidatedEcc::new(config, ecc, current_protocol_version)
+                .map(ValidatedTransactionEnvelope::Unsigned)
+                .map_err(|(err, ecc)| (err, ecc.into()))
+        }
+    }
 }
 
 /// Like [`validate_transaction`], but for a transaction of either kind.

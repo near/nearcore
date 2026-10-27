@@ -567,7 +567,7 @@ pub const ECC_METHOD_NAME: &str = "__nightly_external_call";
 
 /// An external contract call (ECC): a call that carries no signer, public key, nonce or
 /// signature. A clean return from the target's standardized method serves as authorization.
-#[derive(Eq, Debug, Clone, ProtocolSchema)]
+#[derive(Eq, Clone, ProtocolSchema)]
 pub struct EccTransaction {
     /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
     /// also the receiver.
@@ -630,6 +630,17 @@ impl EccTransaction {
             return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
         }
         Ok(())
+    }
+}
+
+impl fmt::Debug for EccTransaction {
+    /// Abbreviates the payload, which is arbitrary bytes of up to the transaction size limit.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EccTransaction")
+            .field("contract_id", &self.contract_id)
+            .field("payload", &format_args!("{}", AbbrBytes(&self.payload)))
+            .field("hash", &self.hash)
+            .finish()
     }
 }
 
@@ -728,6 +739,23 @@ impl TransactionEnvelope {
     /// resubmitting it could refresh any such field, and expiry is up to the contract.
     pub fn block_hash(&self) -> Option<&CryptoHash> {
         self.as_signed().map(|tx| tx.transaction.block_hash())
+    }
+
+    /// The account that decides which shard the transaction goes to: the signer, or the
+    /// contract for an ECC.
+    pub fn routing_account_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.signer_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+
+    /// The account the transaction is addressed to. An ECC is self-addressed.
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.receiver_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
     }
 
     pub fn as_signed(&self) -> Option<&SignedTransaction> {

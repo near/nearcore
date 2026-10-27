@@ -479,6 +479,7 @@ pub(crate) enum MessageDropped {
     TooLargeForType,
     MaxCapacityExceeded,
     TransactionsPerBlockExceeded,
+    EccsPerBlockExceeded,
     Duplicate,
     OutgoingQueueLimitExceeded,
 }

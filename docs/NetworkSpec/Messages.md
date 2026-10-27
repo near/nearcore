@@ -162,7 +162,7 @@ struct RoutedMessageV1 {
 #[repr(u8)]
 enum RoutedMessageBody {
     BlockApproval(Approval) = 0,
-    ForwardTx(SignedTransaction) = 1,
+    ForwardTx(TransactionEnvelope) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,

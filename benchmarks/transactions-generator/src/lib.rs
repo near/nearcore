@@ -340,7 +340,11 @@ impl NativeTokenTxSender {
         match self
             .client_sender
             .tx_request_sender
-            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .send_async(ProcessTxRequest {
+                transaction: transaction.into(),
+                is_forwarded: false,
+                check_only: false,
+            })
             .await
         {
             Ok(res) => match res {
@@ -452,7 +456,7 @@ async fn ft_contract_account_create(
     match client_sender
         .tx_request_sender
         .send_async(ProcessTxRequest {
-            transaction: create_deploy_tx,
+            transaction: create_deploy_tx.into(),
             is_forwarded: false,
             check_only: false,
         })
@@ -526,7 +530,7 @@ async fn ft_contract_account_init(
     match client_sender
         .tx_request_sender
         .send_async(ProcessTxRequest {
-            transaction: init_tx,
+            transaction: init_tx.into(),
             is_forwarded: false,
             check_only: false,
         })
@@ -627,7 +631,7 @@ async fn ft_contract_register_accounts(
                 match client_sender
                     .tx_request_sender
                     .send_async(ProcessTxRequest {
-                        transaction: tx,
+                        transaction: tx.into(),
                         is_forwarded: false,
                         check_only: false,
                     })
@@ -752,7 +756,7 @@ async fn ft_contract_fund_accounts(
             match client_sender
                 .tx_request_sender
                 .send_async(ProcessTxRequest {
-                    transaction: tx,
+                    transaction: tx.into(),
                     is_forwarded: false,
                     check_only: false,
                 })
@@ -854,7 +858,7 @@ async fn wait_chain_warm_up(
         match client_sender
             .tx_request_sender
             .send_async(ProcessTxRequest {
-                transaction: debug_tx,
+                transaction: debug_tx.into(),
                 is_forwarded: false,
                 check_only: false,
             })
@@ -1014,7 +1018,11 @@ impl FungibleTokenTxSender {
         match self
             .client_sender
             .tx_request_sender
-            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .send_async(ProcessTxRequest {
+                transaction: transaction.into(),
+                is_forwarded: false,
+                check_only: false,
+            })
             .await
         {
             Ok(ProcessTxResponse::ValidTx) => true,

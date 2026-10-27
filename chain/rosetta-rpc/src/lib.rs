@@ -935,7 +935,7 @@ async fn construction_submit(
     let transaction_submission = state
         .tx_handler_addr
         .send_async(near_client::ProcessTxRequest {
-            transaction: signed_transaction.into_inner(),
+            transaction: signed_transaction.into_inner().into(),
             is_forwarded: false,
             check_only: false,
         })
