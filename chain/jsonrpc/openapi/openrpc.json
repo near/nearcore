@@ -1309,6 +1309,28 @@
             ],
             "title": "AccountNotInitialized",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `FunctionCall` action called the method reserved for external contract calls.\nThat method only runs in an external call or a view call.",
+            "properties": {
+              "ReservedMethodName": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReservedMethodName"
+            ],
+            "title": "ReservedMethodName",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -13245,10 +13267,6 @@
             "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
             "type": "boolean"
           },
-          "chain_id_host_fn": {
-            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
             "type": "boolean"
@@ -13267,10 +13285,6 @@
           },
           "fix_contract_loading_cost": {
             "description": "See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).",
-            "type": "boolean"
-          },
-          "gas_key_host_fns": {
-            "description": "See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).",
             "type": "boolean"
           },
           "global_contract_host_fns": {
@@ -13311,14 +13325,6 @@
             "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
             "type": "boolean"
           },
-          "one_yocto_on_promise": {
-            "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
-            "type": "boolean"
-          },
-          "p256_verify_host_fn": {
-            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
-            "type": "boolean"
-          },
           "reftypes_bulk_memory": {
             "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
             "type": "boolean"
@@ -13352,10 +13358,6 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
-          },
-          "yield_with_id_host_fns": {
-            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
-            "type": "boolean"
           }
         },
         "title": "VMConfigView",
@@ -13807,7 +13809,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "NEAR Protocol JSON-RPC API",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "methods": [
     {

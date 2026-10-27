@@ -41,7 +41,7 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwra
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {

@@ -874,7 +874,6 @@ mod tests {
             BandwidthRequests::empty(),
             None,
             &signer,
-            pre_spice_protocol_version(),
         ));
         *chunk_header.height_included_mut() = 1;
         let block_with_chunk = TestBlockBuilder::from_prev_block(

@@ -654,7 +654,7 @@ mod tests {
     /// a Spice transaction-only header inner once that feature is on, which carries no
     /// `prev_state_root` and panics in `genesis_block`.
     fn new_chunk_at(height: BlockHeight, signer: &ValidatorSigner) -> ShardChunkHeader {
-        let mut chunk = test_chunk_header(hash(&height.to_le_bytes()), signer, PROTOCOL_VERSION);
+        let mut chunk = test_chunk_header(hash(&height.to_le_bytes()), signer);
         *chunk.height_included_mut() = height;
         chunk
     }

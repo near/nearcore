@@ -6,7 +6,6 @@ use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
-use near_primitives::version::ProtocolVersion;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, ShardUId, TrieUpdate, set_access_key, set_account};
 
@@ -47,7 +46,6 @@ pub(crate) fn test_delete_account(
     account_id: &AccountId,
     contract: AccountContract,
     storage_usage: u64,
-    protocol_version: ProtocolVersion,
     state_update: &mut TrieUpdate,
 ) -> ActionResult {
     let mut account =
@@ -65,7 +63,6 @@ pub(crate) fn test_delete_account(
         account_id,
         &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
         &config,
-        protocol_version,
     );
     assert!(res.is_ok());
     action_result
