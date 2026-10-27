@@ -916,7 +916,6 @@ mod tests {
     use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::version::ProtocolFeature;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedDelegateActionPayload, VersionedSignedDelegateAction,
@@ -938,6 +937,7 @@ mod tests {
     use near_primitives::universal_account_id::encode_universal_account_id;
     use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 

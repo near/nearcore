@@ -1340,7 +1340,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
@@ -1420,7 +1420,7 @@ mod tests {
             &mut state_update,
             transaction,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1481,7 +1481,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: bob_account() });
@@ -1510,7 +1510,7 @@ mod tests {
             &mut state_update,
             transaction,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 });
@@ -1559,7 +1559,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
@@ -1596,7 +1596,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
@@ -1638,7 +1638,7 @@ mod tests {
             &mut state_update,
             transaction,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         if let InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
@@ -1681,7 +1681,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .unwrap();
         assert_eq!(verification_result.gas_burnt, Gas::ZERO);
@@ -1721,7 +1721,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -1773,7 +1773,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
 
@@ -1791,7 +1791,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
 
@@ -1809,7 +1809,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
     }
@@ -1844,7 +1844,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1886,7 +1886,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1932,7 +1932,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1980,7 +1980,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -2003,7 +2003,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect("transaction with zero deposit should succeed");
     }
@@ -2053,7 +2053,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect("valid transaction");
     }
@@ -2161,7 +2161,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect("valid gas key transaction");
 
@@ -2200,7 +2200,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect("valid gas key function call transaction");
 
@@ -2230,7 +2230,7 @@ mod tests {
             &mut state_update,
             signed_tx1,
             gas_price,
-            None
+            None,
         )
         .unwrap();
         assert_eq!(result1.gas_key_nonce_update(), Some((nonce_index, initial_nonce + 1)));
@@ -2251,7 +2251,7 @@ mod tests {
             &mut state_update,
             signed_tx2,
             gas_price,
-            None
+            None,
         )
         .unwrap();
         assert_eq!(result2.gas_key_nonce_update(), Some((nonce_index, initial_nonce + 1)));
@@ -2279,7 +2279,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail for non-gas key");
 
@@ -2314,7 +2314,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail without nonce_index for gas key");
 
@@ -2344,7 +2344,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail with out-of-range nonce_index");
 
@@ -2373,7 +2373,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail with invalid nonce");
 
@@ -2406,7 +2406,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail with not enough gas key balance");
 
@@ -2443,7 +2443,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .unwrap_err();
         assert!(
@@ -2476,7 +2476,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .unwrap();
 
@@ -2513,7 +2513,7 @@ mod tests {
             &mut state_update,
             signed_tx,
             gas_price,
-            None
+            None,
         )
         .expect_err("should fail when using nonce_index with regular access key");
 
@@ -2795,9 +2795,7 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, PROTOCOL_VERSION)
-                .unwrap();
+        let validated_tx = validate_transaction(&config, signed_tx, PROTOCOL_VERSION).unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         let (signer_account, authorization) =
@@ -2861,9 +2859,7 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, PROTOCOL_VERSION)
-                .unwrap();
+        let validated_tx = validate_transaction(&config, signed_tx, PROTOCOL_VERSION).unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         let (signer_account, authorization) =
@@ -2929,7 +2925,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect("strict nonce with exact next nonce should succeed");
         }
@@ -2962,7 +2958,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect_err("strict nonce with gap should fail");
             assert_eq!(
@@ -3002,7 +2998,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect_err("strict nonce with stale nonce should fail");
             assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 3, ak_nonce: initial_nonce });
@@ -3036,7 +3032,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect("monotonic nonce with gap should succeed");
         }
@@ -3069,7 +3065,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect_err("strict nonce equal to current should fail");
             assert_eq!(
@@ -3102,7 +3098,7 @@ mod tests {
                 &mut state_update,
                 signed_tx,
                 gas_price,
-                None
+                None,
             )
             .expect_err("strict nonce at u64::MAX should fail");
             assert_eq!(

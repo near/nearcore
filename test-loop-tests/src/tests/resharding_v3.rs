@@ -869,10 +869,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             if params.second_resharding_boundary_account.is_some() {
                 // With dynamic resharding, each split has a 2-epoch proposal-to-activation
                 // delay and only one shard is split per epoch, so the gap is 2 epochs.
-                assert_eq!(
-                    epoch_height,
-                    epoch_height_after_first_resharding.get().unwrap() + 2
-                );
+                assert_eq!(epoch_height, epoch_height_after_first_resharding.get().unwrap() + 2);
             }
         }
 

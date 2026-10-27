@@ -3608,8 +3608,8 @@ pub fn promise_batch_action_function_call_weight(
     // when the contract has zero balance. This lets deterministic accounts
     // call functions like ft_transfer_call that require an attached deposit
     // without needing to be seeded with balance first.
-    let skip_deduct = amount == Balance::from_yoctonear(1)
-        && ctx.result_state.current_account_balance.is_zero();
+    let skip_deduct =
+        amount == Balance::from_yoctonear(1) && ctx.result_state.current_account_balance.is_zero();
     if skip_deduct {
         ctx.result_state.subsidized_amount = ctx
             .result_state
@@ -4442,8 +4442,8 @@ pub fn promise_yield_create_with_id(
     )?;
     // Allow attaching exactly 1 yoctoNEAR with the 1 yocto on promise
     // exemption (mirrors `promise_batch_action_function_call_weight`).
-    let skip_deduct = amount == Balance::from_yoctonear(1)
-        && ctx.result_state.current_account_balance.is_zero();
+    let skip_deduct =
+        amount == Balance::from_yoctonear(1) && ctx.result_state.current_account_balance.is_zero();
     if skip_deduct {
         ctx.result_state.subsidized_amount = ctx
             .result_state
