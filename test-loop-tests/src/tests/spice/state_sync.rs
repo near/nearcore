@@ -4,7 +4,7 @@ use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
-use near_primitives::types::{EpochId, SpiceChunkId};
+use near_primitives::types::SpiceChunkId;
 use near_store::adapter::StoreAdapter as _;
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
@@ -29,32 +29,18 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
         "the test must run on a spice chain",
     );
 
-    // Every epoch that still has a recorded sync hash must name that epoch's first block, and
-    // there must be at least one such epoch by now. Older epochs are dropped from the column.
-    let mut checked = 0;
-    let mut seen_epochs: Vec<EpochId> = Vec::new();
-    let mut hash = head.last_block_hash;
-    loop {
-        let header = chain.get_block_header(&hash).unwrap();
-        if !seen_epochs.contains(header.epoch_id()) {
-            seen_epochs.push(*header.epoch_id());
-            if let Some(sync_hash) = chain.get_sync_hash(&hash).unwrap() {
-                assert_eq!(
-                    sync_hash,
-                    *epoch_manager.get_block_info(&hash).unwrap().epoch_first_block(),
-                    "sync hash for epoch {:?} must be its first block",
-                    header.epoch_id(),
-                );
-                checked += 1;
-            }
-        }
-        let prev_hash = *header.prev_hash();
-        if prev_hash == CryptoHash::default() {
-            break;
-        }
-        hash = prev_hash;
+    // Every epoch that still has a recorded sync hash must name that epoch's first block.
+    let mut num_epochs_with_sync_hash = 0;
+    let mut block_hash = head.last_block_hash;
+    while let Some(sync_hash) = chain.get_sync_hash(&block_hash).unwrap() {
+        let epoch_first_block =
+            *epoch_manager.get_block_info(&block_hash).unwrap().epoch_first_block();
+        assert_eq!(sync_hash, epoch_first_block);
+        num_epochs_with_sync_hash += 1;
+        block_hash = *chain.get_block_header(&epoch_first_block).unwrap().prev_hash();
     }
-    assert!(checked > 0, "expected at least one epoch with a recorded sync hash");
+    // `remove_old_epochs` keeps sync hashes only for the head's epoch and the one before it.
+    assert_eq!(num_epochs_with_sync_hash, 2);
 }
 
 /// The served spice state sync header hands out the state the sync block's chunk left behind,
