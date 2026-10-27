@@ -69,7 +69,7 @@ use near_primitives::types::{
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
-    create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
+    create_action_hash_from_receipt_id, create_ecc_outcome_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -2172,7 +2172,11 @@ impl Runtime {
                         Err(err) => return Err(err),
                     };
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    let outcome = ExecutionOutcomeWithId::failed_ecc(ecc, err);
+                    let outcome_id = create_ecc_outcome_id(
+                        ecc.hash(),
+                        processing_state.apply_state.block_height,
+                    );
+                    let outcome = ExecutionOutcomeWithId::failed_ecc(outcome_id, ecc, err);
                     processing_state.outcomes.push(outcome);
                     continue;
                 }

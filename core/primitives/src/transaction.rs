@@ -1067,9 +1067,11 @@ impl ExecutionOutcomeWithId {
     }
 
     /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
-    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+    /// Unlike a transaction's, an ECC's outcome id is not its hash: see
+    /// `create_ecc_outcome_id`.
+    pub fn failed_ecc(id: CryptoHash, transaction: &EccTransaction, error: InvalidTxError) -> Self {
         Self {
-            id: transaction.get_hash(),
+            id,
             outcome: ExecutionOutcome {
                 executor_id: transaction.contract_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),

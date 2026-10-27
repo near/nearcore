@@ -60,7 +60,7 @@ use near_primitives::types::{
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::{
-    create_receipt_id_from_transaction, derive_near_deterministic_account_id,
+    create_ecc_outcome_id, create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives_core::chains::{MAINNET, TESTNET};
@@ -706,7 +706,7 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
         .unwrap();
 
     let ecc_outcome = &apply_result.outcomes[0];
-    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.id, create_ecc_outcome_id(ecc.hash(), apply_state.block_height));
     assert_eq!(ecc_outcome.outcome.executor_id, bob_account());
     assert_eq!(
         ecc_outcome.outcome.status,
@@ -748,7 +748,7 @@ fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
     let [ecc_outcome] = apply_result.outcomes.as_slice() else {
         panic!("expected one outcome, got {:?}", apply_result.outcomes);
     };
-    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.id, create_ecc_outcome_id(ecc.hash(), apply_state.block_height));
     assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
     assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
     let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
