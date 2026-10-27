@@ -1,8 +1,10 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::node::TestLoopNode;
+use assert_matches::assert_matches;
+use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
 use near_primitives::types::{EpochId, SpiceChunkId};
 use near_store::adapter::StoreAdapter as _;
 
@@ -85,6 +87,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
     let node = env.node(0);
     let chain = &node.client().chain;
+    let syncing_node = env.node(1);
     let head = chain.head().unwrap();
     let sync_hash = chain
         .get_sync_hash(&head.last_block_hash)
@@ -111,25 +114,62 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
             Some(header.certifying_block_hash),
         );
 
-        // The body is the one that header commits to, which is what makes everything read out
-        // of it below trustworthy.
-        let block_body_hash =
-            certifying.block_body_hash().expect("a spice block header commits its body");
-        assert_eq!(header.certifying_block_body.compute_hash(), block_body_hash);
+        // Another node accepts the served header.
+        syncing_node
+            .client()
+            .chain
+            .state_sync_adapter
+            .set_state_header(shard_id, sync_hash, ShardStateSyncResponseHeader::V3(header.clone()))
+            .expect("valid header should pass the validation");
 
-        // And the body commits an execution result for exactly this chunk, whose state root is
-        // the one the header advertises.
-        let (_, execution_result) = header
-            .certifying_block_body
-            .spice_core_statements()
-            .iter_execution_results()
-            .find(|(id, _)| **id == chunk_id)
-            .expect("the certifying body commits a result for the chunk");
-        assert_eq!(&header.state_root, execution_result.chunk_extra.state_root());
+        // Wrong `state_root` is rejected
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        state_root: CryptoHash::default(),
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("state_root does not match")
+        );
 
-        // The binding is to that block in particular: another block's body does not match.
         let sync_block = chain.get_block(&sync_hash).unwrap();
-        let other_body = sync_block.body().expect("a spice block has a versioned body");
-        assert_ne!(other_body.compute_hash(), block_body_hash);
+        let other_body = sync_block.body().expect("a spice block has a versioned body").clone();
+
+        // Wrong `certifying_block_body` is rejected
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        certifying_block_body: other_body,
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("body does not match")
+        );
+
+        // `certifying_block_body` which is not final yet is rejected
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        certifying_block_hash: head.last_block_hash,
+                        certifying_block_body:
+                            chain.get_block(&head.last_block_hash).unwrap().body().unwrap().clone(),
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("certifying block does not follow the sync block")
+        );
     }
 }
