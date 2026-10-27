@@ -28,7 +28,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 5+ epochs ahead. The node must go through the complete far-horizon sync
@@ -448,11 +447,7 @@ fn test_far_horizon_restart_during_state_sync() {
     // Headers were fully synced before kill, so HeaderSync completes instantly
     // (not observable as a distinct status) and the node enters StateSync directly.
     // With ContinuousEpochSync the node catches up fully and reaches NoSync.
-    let expected = if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"]
-    } else {
-        vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync"]
-    };
+    let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
 }
 

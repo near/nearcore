@@ -6,7 +6,6 @@ use near_parameters::ExtCosts;
 use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::Gas;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -99,7 +98,7 @@ pub(crate) fn overhead_per_measured_block(
 /// Extra block of latency added by the `AccountCostIncrease` feature: every measured receipt
 /// also produces a price_surplus gas-refund receipt that lands one block later.
 pub(crate) fn extra_refund_block_latency() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 #[track_caller]

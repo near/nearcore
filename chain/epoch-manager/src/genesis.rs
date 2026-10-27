@@ -10,7 +10,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, EpochId, NumSeats, ValidatorId};
-use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use rand::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use std::collections::HashMap;
@@ -61,18 +61,11 @@ impl EpochManager {
             }
             Ok(genesis_epoch_info)
         } else {
-            // `proposals_to_epoch_info` only records the shard layout once dynamic resharding is
-            // enabled; before that it drops the layout it is handed and the epoch config stays
-            // authoritative. Falling back to the genesis-declared layout would therefore be
-            // silently ignored, so require the epoch config to carry one.
-            if !ProtocolFeature::DynamicResharding.enabled(genesis_protocol_version)
-                && genesis_epoch_config.static_shard_layout().is_none()
-            {
-                return Err(EpochError::ShardingError(format!(
-                    "static shard layout expected for genesis when dynamic resharding is \
-                     disabled. genesis_protocol_version={genesis_protocol_version}"
-                )));
-            }
+            // For post-prod-genesis chains (custom chains, localnet, nightly test
+            // configs) the authoritative shard layout is `genesis_shard_layout()`
+            // on the chain config - the pre-dynamic-resharding
+            // `static_shard_layout()` guard has been removed with the
+            // `DynamicResharding` feature cleanup.
             proposals_to_epoch_info(
                 &genesis_epoch_config,
                 [0; 32],

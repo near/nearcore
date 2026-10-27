@@ -62,7 +62,9 @@ use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateIn
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
+};
 use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
@@ -1327,9 +1329,8 @@ fn test_apply_delayed_receipts_local_tx() {
     );
 }
 
-// Under AccountCostIncrease the runtime caps gas_burn_price at the receipt's gas_price (no
-// deficit ever) and refunds price_surplus through a refund receipt (instead of adding it to
-// tx_burnt). The tests below assert on both flavors.
+// The runtime caps gas_burn_price at the receipt's gas_price (no deficit ever) and refunds
+// price_surplus through a refund receipt (instead of adding it to tx_burnt).
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -1360,16 +1361,9 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is
-        // burnt at exactly what the user paid and no deficit accumulates.
-        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
-    } else {
-        assert_eq!(
-            result.stats.balance.gas_deficit_amount,
-            result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
-        )
-    }
+    // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is burnt
+    // at exactly what the user paid and no deficit accumulates.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -1414,19 +1408,12 @@ fn test_apply_surplus_gas_for_transfer() {
         .gas;
 
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
-        // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
-        let expected_burnt_amount =
-            apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 1);
-    } else {
-        // price_surplus is burnt (added to tx_burnt_amount) and no refund is produced.
-        let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 0);
-    }
+    // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
+    // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
+    let expected_burnt_amount =
+        apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+    assert_eq!(result.outgoing_receipts.len(), 1);
 }
 
 #[test]
@@ -1504,17 +1491,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
-    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1570,15 +1548,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    let expected_deficit = Balance::ZERO;
 
     let result = runtime
         .apply(
@@ -1675,23 +1646,17 @@ fn test_apply_surplus_gas_for_function_call() {
     let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
     // The unspent gas is refunded at the price it was purchased at (the receipt's `gas_price`).
     let unspent_refund = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap();
-    let expected_refund = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
-        // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
-        // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
-        let penalty =
-            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        let price_surplus = gas_price
-            .checked_sub(apply_state.gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap();
-        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
-    } else {
-        // The refund penalty is charged at the receipt's gas price.
-        let penalty = gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        unspent_refund.checked_sub(penalty).unwrap()
-    };
+    // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
+    // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
+    // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
+    let penalty = apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+    let price_surplus = gas_price
+        .checked_sub(apply_state.gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
+    let expected_refund =
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap();
 
     let result = runtime
         .apply(
@@ -5085,8 +5050,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
-
     // [T, U, T]: the repeat of T is non-adjacent to the original.
     let signed_valid_period_txs =
         SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
@@ -5114,54 +5077,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
 }
 
 #[test]
-fn test_duplicate_transaction_in_chunk_prior_behavior() {
-    let alice_signer = InMemorySigner::test_signer(&alice_account());
-    let tx = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        bob_account(),
-        &alice_signer,
-        Balance::from_near(1),
-        CryptoHash::default(),
-    );
-    let tx_hash = tx.get_hash();
-    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        Balance::from_near(1_000_000),
-        Balance::from_near(500_000),
-        Gas::from_teragas(1000),
-    );
-    apply_state.current_protocol_version =
-        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
-
-    let signed_valid_period_txs =
-        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            signed_valid_period_txs,
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .expect("apply should succeed");
-
-    // Without the feature both copies are processed: the second records a
-    // conflicting InvalidNonce failure under the same id as the success.
-    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
-    assert_eq!(tx_outcomes.len(), 2);
-    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
-    assert_matches!(
-        tx_outcomes[1].outcome.status,
-        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidNonce { .. }
-        ))
-    );
-}
-
-#[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5169,7 +5084,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     let gas_key_pk =
         InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas_key").public_key();
@@ -5295,7 +5210,7 @@ fn setup_gas_key_test(
         shard_uid,
         &shard_layout,
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -5505,7 +5420,7 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");

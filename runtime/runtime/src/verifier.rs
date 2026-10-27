@@ -950,7 +950,7 @@ mod tests {
     };
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
@@ -1083,7 +1083,7 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
-            current_protocol_version: ProtocolFeature::GasKeys.protocol_version(),
+            current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
             cache: None,
@@ -1211,9 +1211,8 @@ mod tests {
         signed_tx: SignedTransaction,
         gas_price: Balance,
         block_height: Option<BlockHeight>,
-        current_protocol_version: ProtocolVersion,
     ) -> Result<VerificationResult, InvalidTxError> {
-        let validated_tx = match validate_transaction(config, signed_tx, current_protocol_version) {
+        let validated_tx = match validate_transaction(config, signed_tx, PROTOCOL_VERSION) {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
@@ -1368,7 +1367,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
@@ -1449,7 +1447,6 @@ mod tests {
             transaction,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1511,7 +1508,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: bob_account() });
@@ -1541,7 +1537,6 @@ mod tests {
             transaction,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 });
@@ -1571,29 +1566,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_invalid_transaction_version() {
-        let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
-
-        assert_err_both_validations(
-            &config,
-            &mut state_update,
-            gas_price,
-            SignedTransaction::from_actions_v1(
-                TransactionNonce::from_nonce(1),
-                alice_account(),
-                bob_account(),
-                &*signer,
-                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
-                CryptoHash::default(),
-            ),
-            InvalidTxError::InvalidTransactionVersion,
-            ProtocolFeature::GasKeys.protocol_version() - 1,
-        );
-    }
-
-    #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
@@ -1614,7 +1586,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
@@ -1652,7 +1623,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
@@ -1695,7 +1665,6 @@ mod tests {
             transaction,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         if let InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
@@ -1739,7 +1708,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .unwrap();
         assert_eq!(verification_result.gas_burnt, Gas::ZERO);
@@ -1780,7 +1748,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -1833,7 +1800,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
 
@@ -1852,7 +1818,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
 
@@ -1871,7 +1836,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
     }
@@ -1907,7 +1871,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1950,7 +1913,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1997,7 +1959,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -2046,7 +2007,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -2070,7 +2030,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect("transaction with zero deposit should succeed");
     }
@@ -2091,7 +2050,7 @@ mod tests {
         // The size gate uses the full wire size (signature included) once
         // `PostQuantumSignatures` is enabled, and the body-only size before
         // that. Mirror that here so the test holds on both stable and nightly.
-        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
+        let transaction_size = signed_tx.size_for_limits();
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -2121,7 +2080,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
         )
         .expect("valid transaction");
     }
@@ -2230,7 +2188,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect("valid gas key transaction");
 
@@ -2270,7 +2227,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect("valid gas key function call transaction");
 
@@ -2301,7 +2257,6 @@ mod tests {
             signed_tx1,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .unwrap();
         assert_eq!(result1.gas_key_nonce_update(), Some((nonce_index, initial_nonce + 1)));
@@ -2323,7 +2278,6 @@ mod tests {
             signed_tx2,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .unwrap();
         assert_eq!(result2.gas_key_nonce_update(), Some((nonce_index, initial_nonce + 1)));
@@ -2352,7 +2306,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail for non-gas key");
 
@@ -2388,7 +2341,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail without nonce_index for gas key");
 
@@ -2419,7 +2371,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail with out-of-range nonce_index");
 
@@ -2449,7 +2400,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail with invalid nonce");
 
@@ -2483,7 +2433,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail with not enough gas key balance");
 
@@ -2521,7 +2470,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .unwrap_err();
         assert!(
@@ -2555,7 +2503,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .unwrap();
 
@@ -2593,7 +2540,6 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("should fail when using nonce_index with regular access key");
 
@@ -2770,13 +2716,13 @@ mod tests {
         // Pad each copy so the whole transaction sits at the size limit, since
         // the per-byte send fee is part of the burn.
         let padded_tx = |keys: u64, copies: usize| {
-            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits(PROTOCOL_VERSION);
+            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits();
             if bare > max_size {
                 return None;
             }
             let padding = usize::try_from(max_size - bare).unwrap() / copies;
             let tx = bootstrap_state_init_tx(keys, padding, copies);
-            (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
+            (tx.size_for_limits() <= max_size).then_some(tx)
         };
 
         // Only equal splits are reachable, which is what makes this search
@@ -2875,9 +2821,7 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
-                .unwrap();
+        let validated_tx = validate_transaction(&config, signed_tx, PROTOCOL_VERSION).unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         let (signer_account, authorization) =
@@ -2941,9 +2885,7 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
-                .unwrap();
+        let validated_tx = validate_transaction(&config, signed_tx, PROTOCOL_VERSION).unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         let (signer_account, authorization) =
@@ -2982,10 +2924,6 @@ mod tests {
     mod strict_nonce_tests {
         use super::*;
 
-        /// The protocol version where StrictNonce is enabled.
-        const STRICT_NONCE_PROTOCOL_VERSION: ProtocolVersion =
-            ProtocolFeature::StrictNonce.protocol_version();
-
         #[test]
         fn test_strict_nonce_exact_next_nonce_succeeds() {
             let config = RuntimeConfig::test();
@@ -3014,7 +2952,6 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect("strict nonce with exact next nonce should succeed");
         }
@@ -3048,7 +2985,6 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect_err("strict nonce with gap should fail");
             assert_eq!(
@@ -3089,7 +3025,6 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect_err("strict nonce with stale nonce should fail");
             assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 3, ak_nonce: initial_nonce });
@@ -3124,30 +3059,8 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect("monotonic nonce with gap should succeed");
-        }
-
-        #[test]
-        fn test_strict_nonce_v1_rejected_before_feature() {
-            let config = RuntimeConfig::test();
-            let (signer, _state_update, _gas_price) =
-                setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
-
-            let signed_tx = SignedTransaction::from_actions_v1_strict(
-                TransactionNonce::from_nonce(1),
-                alice_account(),
-                bob_account(),
-                &*signer,
-                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
-                CryptoHash::default(),
-            );
-
-            let protocol_version = STRICT_NONCE_PROTOCOL_VERSION - 1;
-            let err = validate_transaction(&config, signed_tx, protocol_version)
-                .expect_err("strict nonce V1 tx should be rejected before the feature");
-            assert_eq!(err.0, InvalidTxError::InvalidTransactionVersion);
         }
 
         #[test]
@@ -3179,7 +3092,6 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect_err("strict nonce equal to current should fail");
             assert_eq!(
@@ -3213,7 +3125,6 @@ mod tests {
                 signed_tx,
                 gas_price,
                 None,
-                STRICT_NONCE_PROTOCOL_VERSION,
             )
             .expect_err("strict nonce at u64::MAX should fail");
             assert_eq!(

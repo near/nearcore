@@ -334,7 +334,7 @@ mod versioned_witness_tests {
     fn make_test_v1_witness() -> PartialEncodedStateWitness {
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
+        let chunk_header = test_chunk_header(prev_block_hash, &signer);
         PartialEncodedStateWitness::new(
             EpochId(CryptoHash::default()),
             chunk_header,
@@ -348,7 +348,7 @@ mod versioned_witness_tests {
     fn make_test_v2_witness() -> PartialEncodedStateWitnessV2 {
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
+        let chunk_header = test_chunk_header(prev_block_hash, &signer);
         PartialEncodedStateWitnessV2::new(
             EpochId(CryptoHash::default()),
             chunk_header,

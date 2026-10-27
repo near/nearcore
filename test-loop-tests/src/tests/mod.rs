@@ -1,5 +1,4 @@
 mod account_cost_increase;
-mod account_cost_increase_diff;
 mod backfill_receipt_to_tx;
 mod ban_universal_account_transfer;
 mod bandwidth_scheduler;
@@ -91,6 +90,7 @@ mod split_storage;
 mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
+mod transaction_cost_invariants;
 mod tx_inclusion_with_missed_chunks;
 mod universal_account_id;
 mod unknown_prev_chunk_preemption;

@@ -358,7 +358,6 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::{
         ShardTries, ShardUId, Trie, TrieUpdate, get_access_key, get_account, get_gas_key_nonce,
         set_access_key, set_account,
@@ -692,7 +691,6 @@ mod tests {
             &account_id,
             AccountContract::from_local_code_hash(CryptoHash::default()),
             100,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert!(action_result.result.is_ok());
@@ -739,7 +737,6 @@ mod tests {
             &account_id,
             AccountContract::from_local_code_hash(CryptoHash::default()),
             100,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert!(action_result.result.is_ok());
@@ -1314,7 +1311,6 @@ mod tests {
             &account_id,
             AccountContract::from_local_code_hash(CryptoHash::default()),
             100,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         let expected_total =
@@ -1358,7 +1354,6 @@ mod tests {
             &account_id,
             AccountContract::from_local_code_hash(CryptoHash::default()),
             100,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert!(action_result.result.is_ok());

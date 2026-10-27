@@ -896,7 +896,6 @@ fn test_promise_batch_action_add_gas_key_with_function_call() {
 #[test]
 fn test_one_yocto_on_promise_enabled() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
@@ -928,7 +927,6 @@ fn test_one_yocto_on_promise_enabled() {
 #[test]
 fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::from_yoctonear(1);
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
@@ -957,19 +955,4 @@ fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
         Balance::from_yoctonear(1),
         "subsidized balance should be tracked correctly"
     );
-}
-
-#[test]
-fn test_one_yocto_on_promise_disabled() {
-    let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_on_promise = false;
-    logic_builder.context.account_balance = Balance::ZERO;
-    logic_builder.context.attached_deposit = Balance::ZERO;
-    let mut logic = logic_builder.build();
-
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-
-    // 1 yoctoNEAR should fail when feature is disabled and balance is zero
-    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
-        .expect_err("1 yoctoNEAR should fail with feature disabled and zero balance");
 }
