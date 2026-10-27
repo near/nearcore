@@ -93,7 +93,7 @@ impl<T: PoolItem> GroupedPool<T> {
         // (https://github.com/rust-lang/rust/issues/60896).
         assert_eq!(self.unique_items.insert(item_hash), true);
         self.total_size = new_total_size;
-        let key = item.group().key(&self.key_seed);
+        let key = item.group_id().key(&self.key_seed);
         place(key, self.groups.entry(key).or_default(), item);
 
         self.metrics.count.inc();
