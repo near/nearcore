@@ -3375,7 +3375,10 @@ execute anyway.</li>
 <li>an <strong>internal</strong> call executes a receipt, created by a transaction or by a cross-contract call;</li>
 <li>a <strong>view</strong> call is a read-only call made through RPC;</li>
 <li>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
-or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.</li>
+or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.
+An external call runs the contract method with the reserved name <code>__nightly_external_call</code> (the name will change
+when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
+action to it fails with <code>ReservedMethodName</code>.</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3555,13 +3558,16 @@ the contract execution starts;</li>
 is refunded back to <code>predecessor_account_id</code>.</p>
 <p>An external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
 the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so <code>used_gas</code> can be
-at most what the balance pays for, and using more panics with <code>GasExceeded</code>. Two limits also apply: the gas burnt is
-limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
-<code>max_total_prepaid_gas</code>.</p>
-<p>The cost is taken as soon as the gas is used, and <code>account_balance</code> returns the balance left after it. A deposit or
-transfer cannot spend the balance needed to pay for the gas used so far, and panics with <code>BalanceExceeded</code>
-instead.</p>
+calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
+gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
+<code>max_total_prepaid_gas</code>. The contract is charged after the call, and the call is rejected if the balance can't pay.</p>
+<p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call
+will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
+and its gas, or it is rejected.</p>
+<p>The call also pays fees for its input before the method runs (see
+<a href="RuntimeSpec/Components/BindingsSpec/../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>). They are charged
+with the gas after the call. <code>used_gas</code> does not include them, and the fees lower the <code>max_gas_burnt_external</code> limit
+on the gas burnt.</p>
 <p>An external call has no deposit. If one is called with a nonzero <code>attached_deposit</code>, it fails with
 <code>DepositInExternalCall</code> before any contract code runs.</p>
 <p>The following spec is the same for all functions:</p>
@@ -7884,11 +7890,27 @@ work done before the contract has decided to accept the call.</li>
 </ul>
 <p>The contract pays for all the gas the call uses from its balance, at the gas
 price of the call: the gas it burns, the gas attached to function calls, and
-the execution fees of all actions and receipts. The balance takes the place of
-the prepaid gas, so the call fails with <code>GasExceeded</code> once it uses more gas
-than the balance pays for, and spending the balance on deposits lowers that
-limit. A promise gets exactly the gas it was created with: unspent gas is not
-distributed by weight, because there is no prepaid gas to distribute.</p>
+the execution fees of all actions and receipts. As in other calls, the VM only
+counts the gas against the fixed limits above; the runtime charges the
+contract after the call, and rejects the call if the balance can't pay. A
+rejected call pays nothing, so the VM doesn't need to stop a call as soon as
+the balance runs out: the call can't do more unpaid work than any call the
+contract rejects. While the call runs, its balance is the real balance of the
+contract, which it can spend on deposits and transfers; if it doesn't leave
+enough to pay for the fees and the gas, the call is rejected. This is the same
+way storage staking is checked after a call. A promise gets
+exactly the gas it was created with: unspent gas is not distributed by weight,
+because there is no prepaid gas to distribute.</p>
+<p>Before the method runs, the call burns the fees of a self-addressed function
+call with the same method name and input: receipt creation, the function call
+base fee, and the per-byte fee for the method name and the payload, each with
+its send and execution part. There is no signature, so there is no signature
+verification fee. The fees count toward <code>max_gas_burnt_external</code>, so a larger
+payload leaves less of the budget to the method. With the largest payload the
+fees are about 8 Tgas. The contract must be able to afford the fees, or the
+call is rejected before any contract code is loaded. Like the rest of the
+call, the fees are charged after the call, and only if the contract accepts
+it.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the

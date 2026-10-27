@@ -157,13 +157,16 @@ the contract execution starts;</li>
 is refunded back to <code>predecessor_account_id</code>.</p>
 <p>An external call (see <a href="ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
 the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so <code>used_gas</code> can be
-at most what the balance pays for, and using more panics with <code>GasExceeded</code>. Two limits also apply: the gas burnt is
-limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
-<code>max_total_prepaid_gas</code>.</p>
-<p>The cost is taken as soon as the gas is used, and <code>account_balance</code> returns the balance left after it. A deposit or
-transfer cannot spend the balance needed to pay for the gas used so far, and panics with <code>BalanceExceeded</code>
-instead.</p>
+calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
+gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
+<code>max_total_prepaid_gas</code>. The contract is charged after the call, and the call is rejected if the balance can't pay.</p>
+<p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call
+will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
+and its gas, or it is rejected.</p>
+<p>The call also pays fees for its input before the method runs (see
+<a href="../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>). They are charged
+with the gas after the call. <code>used_gas</code> does not include them, and the fees lower the <code>max_gas_burnt_external</code> limit
+on the gas burnt.</p>
 <p>An external call has no deposit. If one is called with a nonzero <code>attached_deposit</code>, it fails with
 <code>DepositInExternalCall</code> before any contract code runs.</p>
 <p>The following spec is the same for all functions:</p>
