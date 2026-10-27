@@ -70,8 +70,6 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::io::Read;
-use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -1211,7 +1209,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// TODO(13709): Remove V1 support after forward compatible release.
+/// Legacy routed message carried in the protobuf `routed` field by nodes released before
+/// `routed_v3` was sent. It is only used to deserialize those messages and convert them to V3;
+/// it is deliberately not a variant of `RoutedMessage`, so it cannot be received over borsh.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1229,35 +1229,6 @@ pub struct RoutedMessageV1 {
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
-pub struct RoutedMessageV2 {
-    /// Message
-    pub msg: RoutedMessageV1,
-    /// The time the Routed message was created by `author`.
-    pub created_at: Option<time::Utc>,
-    /// Number of peers this routed message traveled through.
-    /// Doesn't include the peers that are the source and the destination of the message.
-    pub num_hops: u32,
-}
-
-impl BorshSerialize for RoutedMessageV2 {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.msg.serialize(writer)?;
-        self.created_at.map(|t| t.unix_timestamp()).serialize(writer)?;
-        self.num_hops.serialize(writer)
-    }
-}
-
-impl BorshDeserialize for RoutedMessageV2 {
-    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let msg = RoutedMessageV1::deserialize_reader(reader)?;
-        let created_at = Option::<i64>::deserialize_reader(reader)?
-            .map(|t| time::Utc::from_unix_timestamp(t).unwrap());
-        let num_hops = u32::deserialize_reader(reader)?;
-        Ok(Self { msg, created_at, num_hops })
-    }
 }
 
 /// V3 message will remove the signature field for T1.
@@ -1328,21 +1299,7 @@ impl From<RoutedMessageV3> for RoutedMessage {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum RoutedMessage {
-    V1(RoutedMessageV1) = 0,
-    V2(RoutedMessageV2) = 1,
     V3(RoutedMessageV3) = 2,
-}
-
-impl From<RoutedMessageV1> for RoutedMessage {
-    fn from(msg: RoutedMessageV1) -> Self {
-        RoutedMessage::V1(msg)
-    }
-}
-
-impl From<RoutedMessageV2> for RoutedMessage {
-    fn from(msg: RoutedMessageV2) -> Self {
-        RoutedMessage::V2(msg)
-    }
 }
 
 impl RoutedMessage {
@@ -1354,108 +1311,68 @@ impl RoutedMessage {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
-    /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
-    /// TODO(13709): Remove V1 support after forward compatible release.
-    pub fn msg_v1(self) -> RoutedMessageV1 {
-        match self {
-            RoutedMessage::V1(msg) => msg,
-            RoutedMessage::V2(msg) => msg.msg,
-            RoutedMessage::V3(msg) => RoutedMessageV1 {
-                target: msg.target,
-                author: msg.author,
-                ttl: msg.ttl,
-                body: msg.body.into(),
-                signature: msg.signature.unwrap_or_else(|| {
-                    tracing::error!(
-                        target: "network",
-                        "signature is missing, this should not yet happen"
-                    );
-                    Signature::default()
-                }),
-            },
-        }
-    }
-
     pub fn target(&self) -> &PeerIdOrHash {
         match self {
-            RoutedMessage::V1(msg) => &msg.target,
-            RoutedMessage::V2(msg) => &msg.msg.target,
             RoutedMessage::V3(msg) => &msg.target,
         }
     }
 
     pub fn signature(&self) -> Option<&Signature> {
         match self {
-            RoutedMessage::V1(msg) => Some(&msg.signature),
-            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
             RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
 
     pub fn author(&self) -> &PeerId {
         match self {
-            RoutedMessage::V1(msg) => &msg.author,
-            RoutedMessage::V2(msg) => &msg.msg.author,
             RoutedMessage::V3(msg) => &msg.author,
         }
     }
 
     pub fn body(&self) -> &TieredMessageBody {
-        // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
             RoutedMessage::V3(msg) => &msg.body,
         }
     }
 
-    pub fn body_owned(mut self) -> TieredMessageBody {
-        self.upgrade_to_v3();
-        let RoutedMessage::V3(msg) = self else { unreachable!() };
-        msg.body
+    pub fn body_owned(self) -> TieredMessageBody {
+        match self {
+            RoutedMessage::V3(msg) => msg.body,
+        }
     }
 
     pub fn created_at(&self) -> Option<i64> {
         match self {
-            RoutedMessage::V1(_) => None,
-            RoutedMessage::V2(msg) => msg.created_at.map(|t| t.unix_timestamp()),
             RoutedMessage::V3(msg) => msg.created_at,
         }
     }
 
     pub fn num_hops(&self) -> u32 {
         match self {
-            RoutedMessage::V1(_) => 0,
-            RoutedMessage::V2(msg) => msg.num_hops,
             RoutedMessage::V3(msg) => msg.num_hops,
         }
     }
 
     pub fn num_hops_mut(&mut self) -> &mut u32 {
-        self.upgrade_to_v3();
-        let RoutedMessage::V3(msg) = self else { unreachable!() };
-        &mut msg.num_hops
+        match self {
+            RoutedMessage::V3(msg) => &mut msg.num_hops,
+        }
     }
 
     pub fn hash(&self) -> CryptoHash {
         match self {
-            RoutedMessage::V1(msg) => msg.hash(),
-            RoutedMessage::V2(msg) => msg.msg.hash(),
             RoutedMessage::V3(msg) => msg.hash_tiered(),
         }
     }
 
     pub fn verify(&self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.verify(),
-            RoutedMessage::V2(msg) => msg.msg.verify(),
             RoutedMessage::V3(msg) => msg.verify(),
         }
     }
 
     pub fn expect_response(&self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.expect_response(),
-            RoutedMessage::V2(msg) => msg.msg.expect_response(),
             RoutedMessage::V3(msg) => msg.expect_response(),
         }
     }
@@ -1463,53 +1380,19 @@ impl RoutedMessage {
     /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
     pub fn decrease_ttl(&mut self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.decrease_ttl(),
-            RoutedMessage::V2(msg) => msg.msg.decrease_ttl(),
             RoutedMessage::V3(msg) => msg.decrease_ttl(),
         }
     }
 
     pub fn body_variant(&self) -> &'static str {
         match self {
-            RoutedMessage::V1(msg) => (&msg.body).into(),
-            RoutedMessage::V2(msg) => (&msg.msg.body).into(),
             RoutedMessage::V3(msg) => msg.body.variant(),
         }
     }
 
     pub fn ttl(&self) -> u8 {
         match self {
-            RoutedMessage::V1(msg) => msg.ttl,
-            RoutedMessage::V2(msg) => msg.msg.ttl,
             RoutedMessage::V3(msg) => msg.ttl,
-        }
-    }
-
-    fn upgrade_to_v3(&mut self) {
-        match self {
-            Self::V1(msg) => {
-                *self = RoutedMessage::V3(RoutedMessageV3 {
-                    target: msg.target.clone(),
-                    author: msg.author.clone(),
-                    ttl: msg.ttl,
-                    body: TieredMessageBody::from_routed(msg.body.clone()),
-                    signature: Some(msg.signature.clone()),
-                    created_at: None,
-                    num_hops: 0,
-                });
-            }
-            Self::V2(msg) => {
-                *self = RoutedMessage::V3(RoutedMessageV3 {
-                    target: msg.msg.target.clone(),
-                    author: msg.msg.author.clone(),
-                    ttl: msg.msg.ttl,
-                    body: TieredMessageBody::from_routed(msg.msg.body.clone()),
-                    signature: Some(msg.msg.signature.clone()),
-                    created_at: msg.created_at.map(|t| t.unix_timestamp()),
-                    num_hops: msg.num_hops,
-                });
-            }
-            Self::V3(_) => {}
         }
     }
 }
@@ -1519,31 +1402,6 @@ struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
     body: &'a RoutedMessageBody,
-}
-
-impl RoutedMessageV1 {
-    pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
-    }
-
-    pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.author.public_key())
-    }
-
-    pub fn expect_response(&self) -> bool {
-        matches!(
-            self.body,
-            RoutedMessageBody::Ping(_)
-                | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::PartialEncodedChunkRequest(_)
-        )
-    }
-
-    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
-    pub fn decrease_ttl(&mut self) -> bool {
-        self.ttl = self.ttl.saturating_sub(1);
-        self.ttl > 0
-    }
 }
 
 #[derive(
