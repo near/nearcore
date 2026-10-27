@@ -28,7 +28,6 @@ impl Default for BlockInfo {
 }
 
 impl BlockInfo {
-    #[allow(deprecated)]
     pub fn new(
         hash: CryptoHash,
         height: BlockHeight,
@@ -38,47 +37,28 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         total_supply: Balance,
-        current_protocol_version: ProtocolVersion,
+        _current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         timestamp_nanosec: u64,
         chunk_endorsements: ChunkEndorsementsBitmap,
         shard_split: Option<(ShardId, AccountId)>,
     ) -> Self {
-        if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
-            Self::V4(BlockInfoV4 {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                timestamp_nanosec,
-                chunk_endorsements,
-                shard_split,
-            })
-        } else {
-            Self::V3(BlockInfoV3 {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: Default::default(),
-                total_supply,
-                timestamp_nanosec,
-                chunk_endorsements,
-            })
-        }
+        Self::V4(BlockInfoV4 {
+            hash,
+            height,
+            last_finalized_height,
+            last_final_block_hash,
+            prev_hash,
+            proposals,
+            chunk_mask: validator_mask,
+            latest_protocol_version,
+            total_supply,
+            epoch_first_block: Default::default(),
+            epoch_id: Default::default(),
+            timestamp_nanosec,
+            chunk_endorsements,
+            shard_split,
+        })
     }
 
     pub fn from_header(

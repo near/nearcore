@@ -428,13 +428,8 @@ impl ReceiptSinkV2 {
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let admission_gas = if ProtocolFeature::ClampOutgoingGasAdmission
-            .enabled(apply_state.current_protocol_version)
-        {
-            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas)
-        } else {
-            gas
-        };
+        let admission_gas =
+            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas);
 
         if forward_limit.gas >= admission_gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");

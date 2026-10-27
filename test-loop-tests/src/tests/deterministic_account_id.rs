@@ -42,7 +42,7 @@ use near_primitives::deterministic_account_id::{
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError, FunctionCallError,
-    InvalidTxError, ReceiptValidationError, TxExecutionError,
+    InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -54,7 +54,6 @@ use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{AccountView, ExecutionStatusView};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_primitives_core::version::ProtocolFeature;
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
 
@@ -124,41 +123,11 @@ fn test_deterministic_state_init_via_meta_tx() {
 }
 
 /// Ensure there is no exploit with invalid deterministic account ids through
-/// meta transactions.
-///
-/// With the old (buggy) code, `validate_delegate_action` used
-/// `outer_tx.receiver_id` instead of `delegate_action.receiver_id` when
-/// checking inner actions. The exploit tx therefore passes initial tx
-/// validation. The exploit is prevented by a following `validate_receipt` check
-/// when the meta transaction is unpacked.
-#[test]
-fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
-    let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
-    let outcome = try_meta_tx_deterministic_receiver_exploit(fix_version - 1)
-        .expect("without the fix, exploit tx passes initial tx validation");
-
-    assert_matches!(
-        outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::NewReceiptValidationError(
-                ReceiptValidationError::ActionsValidation(
-                    ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
-                )
-            ),
-            ..
-        })),
-        "expected InvalidDeterministicStateInitReceiver in NewReceiptValidationError, got: {:?}",
-        outcome.status
-    );
-}
-
-/// With `FixDelegatedDeterministicStateInit` in place, the exploit should
-/// already be caught at the first tx validation.
+/// meta transactions. The exploit should be caught at tx validation.
 #[test]
 fn test_deterministic_state_init_meta_tx_receiver_check() {
-    let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
-    let err = try_meta_tx_deterministic_receiver_exploit(fix_version)
-        .expect_err("exploit tx must be rejected at tx validation with the fix");
+    let err = try_meta_tx_deterministic_receiver_exploit(PROTOCOL_VERSION)
+        .expect_err("exploit tx must be rejected at tx validation");
     assert_matches!(
         err,
         InvalidTxError::ActionsValidation(
@@ -820,14 +789,7 @@ fn test_sharded_contract_peer_check() {
     outcome.assert_success();
 
     // AccountCostIncrease adds a refund for the purchase/burn price difference.
-    let extra_refund_outcome = if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
-        1
-    } else {
-        0
-    };
-    assert_eq!(3 + extra_refund_outcome, outcome.receipts_outcome.len());
+    assert_eq!(4, outcome.receipts_outcome.len());
     let ping_call_result = &outcome.receipts_outcome[1];
     assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);
     assert_eq!(vec!["peer ok".to_owned()], ping_call_result.outcome.logs);

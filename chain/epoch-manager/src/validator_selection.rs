@@ -427,7 +427,7 @@ mod tests {
     use near_primitives::types::NumSeats;
     use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
     #[test]
@@ -1214,11 +1214,6 @@ mod tests {
     /// holding by coincidence.
     #[test]
     fn test_validator_assignment_sticky_resharding() {
-        // Skip if the feature isn't active in this build.
-        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // Two-shard prev layout split on "mid". Resharding will introduce a
         // new boundary "ttt" inside the right shard, splitting it.
         let prev_layout = ShardLayout::v2(

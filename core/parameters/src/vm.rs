@@ -259,9 +259,6 @@ pub struct Config {
     // past protocol version 88, where the feature is enabled.
     pub canonical_universal_state_init: bool,
 
-    /// Whether to enable gas key host functions.
-    pub gas_key_host_fns: bool,
-
     /// Enable the `FixMlDsaCostCharging` protocol feature, which fixes two
     /// related ML-DSA-65 cost-charging issues:
     /// - gas keys: price the exec (storage) fee on the on-trie identifier length
@@ -272,14 +269,6 @@ pub struct Config {
     ///   signer shard.
     pub fix_ml_dsa_cost_charging: bool,
 
-    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
-    /// call without requiring the calling contract to have sufficient balance.
-    pub one_yocto_on_promise: bool,
-
-    /// Whether to enable the P-256 ECDSA signature verification host function.
-    /// NEP-635: <https://github.com/near/NEPs/pull/635>
-    pub p256_verify_host_fn: bool,
-
     /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
     /// function.
     pub ml_dsa_verify_host_fn: bool,
@@ -287,13 +276,6 @@ pub struct Config {
     /// Whether to enable the `sha3_256`, `sha3_384` and `sha3_512` (FIPS-202)
     /// host functions.
     pub sha3_host_fns: bool,
-
-    /// Whether to enable the promise_yield_create_with_id and
-    /// promise_yield_resume_with_yield_id host functions.
-    pub yield_with_id_host_fns: bool,
-
-    /// Whether to enable the chain_id host function (NEP-638).
-    pub chain_id_host_fn: bool,
 
     /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
     /// functions. These points lie on the curve but outside the G1/G2
@@ -339,13 +321,9 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.universal_accounts = true;
         self.canonical_universal_state_init = true;
-        self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;
-        self.p256_verify_host_fn = true;
         self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
-        self.yield_with_id_host_fns = true;
-        self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;
     }
 }

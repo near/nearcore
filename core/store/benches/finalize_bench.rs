@@ -244,7 +244,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
 
     // Use mainnet epoch config for the last protocol version before introducing dynamic resharding
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let protocol_version = ProtocolFeature::DynamicResharding.protocol_version() - 1;
+    let protocol_version = 85 - 1;
     let shard_layout = epoch_config_store
         .get_config(protocol_version)
         .static_shard_layout()

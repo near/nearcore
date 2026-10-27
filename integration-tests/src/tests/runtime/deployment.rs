@@ -3,12 +3,12 @@ use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 /// Tests if the maximum allowed contract can be deployed with current gas limits

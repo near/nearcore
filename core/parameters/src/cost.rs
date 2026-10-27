@@ -636,24 +636,11 @@ impl RuntimeFeesConfig {
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
     pub fn test_with_undercharging_factor(factor: u64) -> Self {
-        // Once `ProtocolFeature::AccountCostIncrease` is enabled the test config has to keep the invariant
+        // The test config has to keep the invariant
         // `min_gas_purchase_price * create_account.exec >= account_creation_charge` satisfied,
-        // so the `create_account` fee is aligned with the real mainnet protocol values. With the
-        // feature disabled we keep the historical `Fee::test_value(3_850_000_000_000)` so
-        // pre-feature test expectations are unchanged.
+        // so the `create_account` fee is aligned with the real mainnet protocol values.
         let create_account_fee =
-            if near_primitives_core::version::ProtocolFeature::AccountCostIncrease
-                .enabled(near_primitives_core::version::PROTOCOL_VERSION)
-            {
-                Fee::test_value_detailed(
-                    500_000_000_000,
-                    500_000_000_000,
-                    7_200_000_000_000,
-                    factor,
-                )
-            } else {
-                Fee::test_value(3_850_000_000_000, factor)
-            };
+            Fee::test_value_detailed(500_000_000_000, 500_000_000_000, 7_200_000_000_000, factor);
         Self {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),

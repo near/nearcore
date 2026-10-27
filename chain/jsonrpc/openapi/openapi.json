@@ -1,3 +1,19 @@
+   Compiling aws-lc-sys v0.46.0
+   Compiling near-primitives-core v0.0.0 (/Users/pugachag/Projects/nearcore2/core/primitives-core)
+   Compiling near-fmt v0.0.0 (/Users/pugachag/Projects/nearcore2/utils/fmt)
+   Compiling near-parameters v0.0.0 (/Users/pugachag/Projects/nearcore2/core/parameters)
+   Compiling aws-lc-rs v1.18.2
+   Compiling near-crypto v0.0.0 (/Users/pugachag/Projects/nearcore2/core/crypto)
+   Compiling near-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/core/primitives)
+   Compiling near-chain-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/chain-primitives)
+   Compiling near-indexer-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/indexer-primitives)
+   Compiling near-chain-configs v0.0.0 (/Users/pugachag/Projects/nearcore2/core/chain-configs)
+   Compiling near-chunks-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/chunks-primitives)
+   Compiling near-client-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/client-primitives)
+   Compiling near-jsonrpc-primitives v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/jsonrpc-primitives)
+   Compiling near-jsonrpc-openapi-spec v0.0.0 (/Users/pugachag/Projects/nearcore2/chain/jsonrpc/openapi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.77s
+     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
@@ -22726,10 +22742,6 @@
             "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
             "type": "boolean"
           },
-          "chain_id_host_fn": {
-            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
             "type": "boolean"
@@ -22748,10 +22760,6 @@
           },
           "fix_contract_loading_cost": {
             "description": "See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).",
-            "type": "boolean"
-          },
-          "gas_key_host_fns": {
-            "description": "See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).",
             "type": "boolean"
           },
           "global_contract_host_fns": {
@@ -22792,14 +22800,6 @@
             "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
             "type": "boolean"
           },
-          "one_yocto_on_promise": {
-            "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
-            "type": "boolean"
-          },
-          "p256_verify_host_fn": {
-            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
-            "type": "boolean"
-          },
           "reftypes_bulk_memory": {
             "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
             "type": "boolean"
@@ -22833,10 +22833,6 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
-          },
-          "yield_with_id_host_fns": {
-            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
-            "type": "boolean"
           }
         },
         "type": "object"

@@ -390,7 +390,6 @@ fn test_external_deposit_lowers_gas_limit() {
 fn test_external_no_one_yocto_exemption() {
     let run = |balance: Balance, amount: u128| {
         let mut logic_builder = external_logic_builder(balance);
-        logic_builder.config.one_yocto_on_promise = true;
         let mut logic = logic_builder.build();
         let result =
             promise_create(&mut logic, b"contract.near", amount, Gas::from_teragas(100).as_gas());

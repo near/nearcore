@@ -4,11 +4,10 @@ use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
-    AccountId, Balance, EpochId, NumShards, ProtocolVersion, ShardId, ShardIndex,
+    AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex,
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};
-use near_primitives::version::ProtocolFeature;
 use near_store::trie::ShardUId;
 use rand::Rng;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -141,8 +140,8 @@ pub enum AssignmentStrategy {
     /// Carry over the previous epoch's assignment by `ShardIndex`. Used when
     /// the shard layout is unchanged across the boundary.
     CarryOver,
-    /// Start fresh with no prior assignment. Used pre-`StickyReshardingValidatorAssignment`
-    /// on layout changes, where `ShardIndex`-based copying is meaningless.
+    /// Start fresh with no prior assignment. Used as a fallback when sticky
+    /// construction fails on layout changes.
     Fresh,
     /// Sticky-by-`ShardId` across a resharding. Unchanged shards keep their
     /// validators by `ShardId`; split children inherit a stake-balanced subset
@@ -157,9 +156,8 @@ pub enum AssignmentStrategy {
 
 impl AssignmentStrategy {
     /// Pick the strategy for an epoch boundary. If the layouts are identical,
-    /// use `CarryOver`. Otherwise, use `StickyResharding` (when the
-    /// `StickyReshardingValidatorAssignment` feature is enabled and the new
-    /// layout is derived from the prev layout) or `Fresh`.
+    /// use `CarryOver`. Otherwise, use `StickyResharding` (when the new layout
+    /// is derived from the prev layout) or `Fresh`.
     ///
     /// Falls back to `Fresh` when sticky construction fails: in production,
     /// `next_next_shard_layout()` always returns an inherited or derived
@@ -167,16 +165,9 @@ impl AssignmentStrategy {
     /// unreachable there. Test setups that swap in synthetic layouts
     /// (e.g. `multi_shard`) hit this path and continue with a fresh
     /// assignment instead of halting.
-    pub fn select(
-        protocol_version: ProtocolVersion,
-        prev_layout: &ShardLayout,
-        new_layout: &ShardLayout,
-    ) -> Self {
+    pub fn select(prev_layout: &ShardLayout, new_layout: &ShardLayout) -> Self {
         if prev_layout == new_layout {
             return Self::CarryOver;
-        }
-        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(protocol_version) {
-            return Self::Fresh;
         }
         Self::sticky_resharding(new_layout, prev_layout).unwrap_or_else(|err| {
             tracing::warn!(

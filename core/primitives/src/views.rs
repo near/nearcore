@@ -3227,7 +3227,6 @@ mod tests {
         EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
-    use crate::version::ProtocolFeature;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_crypto::InMemorySigner;
@@ -3269,7 +3268,7 @@ mod tests {
             1,
             0.into(),
             CryptoHash::default(),
-            ProtocolFeature::DynamicResharding.protocol_version(),
+            85,
         ))
         .into();
         // Missing, present-null and present-value distinguish header versions.

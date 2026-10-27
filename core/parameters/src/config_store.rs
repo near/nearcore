@@ -22,7 +22,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (89, include_config!("89.yaml")),
@@ -250,8 +249,8 @@ mod tests {
         let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
         let mock_diff_str = r#"
         ml_dsa_65_verification_cost: {
-          old: 0,
-          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+          old: 100_000_000_000,
+          new: { gas: 200_000_000_000, compute: 300_000_000_000 },
         }
         "#;
         base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
@@ -259,7 +258,7 @@ mod tests {
 
         assert_eq!(
             modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
-            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
+            ParameterCost::new(Gas::from_gas(200_000_000_000), 300_000_000_000),
         );
     }
 
