@@ -3223,6 +3223,7 @@ mod tests {
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::transaction::{
         EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
@@ -3268,7 +3269,7 @@ mod tests {
             1,
             0.into(),
             CryptoHash::default(),
-            85,
+            MIN_SUPPORTED_PROTOCOL_VERSION,
         ))
         .into();
         // Missing, present-null and present-value distinguish header versions.

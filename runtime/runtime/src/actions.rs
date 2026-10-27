@@ -336,7 +336,6 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     config: &RuntimeConfig,
-    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
     let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
@@ -1058,7 +1057,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1072,10 +1070,7 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(
-        storage_usage: u64,
-        protocol_version: ProtocolVersion,
-    ) -> ActionResult {
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1104,7 +1099,6 @@ mod tests {
                 account.local_contract_hash().unwrap_or_default(),
             ),
             storage_usage,
-            protocol_version,
             &mut state_update,
         )
     }
@@ -1125,44 +1119,31 @@ mod tests {
         account_id: &AccountId,
         contract: AccountContract,
         storage_usage: u64,
-        protocol_version: ProtocolVersion,
     ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        test_delete_account(
-            account_id,
-            contract,
-            storage_usage,
-            protocol_version,
-            &mut state_update,
-        )
+        test_delete_account(account_id, contract, storage_usage, &mut state_update)
     }
 
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_delete_account_with_contract_and_large_state() {
-        let action_result = test_delete_account_with_contract(
-            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
         expect_delete_account_too_large(&action_result);
     }
 
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
@@ -1173,7 +1154,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            PROTOCOL_VERSION,
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1188,7 +1168,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            PROTOCOL_VERSION,
         );
         assert!(action_result.result.is_ok());
     }
@@ -1200,7 +1179,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            PROTOCOL_VERSION,
         );
         assert!(action_result.result.is_ok());
     }
@@ -1212,7 +1190,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
         );
         assert!(at_limit.result.is_ok());
     }
@@ -1224,7 +1201,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
         );
         expect_delete_account_too_large(&over_limit);
     }
@@ -1256,7 +1232,6 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
-            PROTOCOL_VERSION,
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);

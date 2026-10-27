@@ -62,7 +62,9 @@ use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateIn
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
+};
 use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
@@ -4690,7 +4692,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = 85;
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     let gas_key_pk =
         InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas_key").public_key();
@@ -4816,7 +4818,7 @@ fn setup_gas_key_test(
         shard_uid,
         &shard_layout,
     );
-    apply_state.current_protocol_version = 85;
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -5026,7 +5028,7 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = 85;
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");

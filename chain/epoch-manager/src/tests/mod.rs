@@ -3309,8 +3309,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
             Default::default(),
             BandwidthRequests::empty(),
             None,
-            signer,
-            PROTOCOL_VERSION,
+            signer
         ))
     }
 }
@@ -3826,7 +3825,6 @@ fn record_seeded_block(
             vec![],
             vec![true; num_shards],
             DEFAULT_TOTAL_SUPPLY,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             height * NUM_NS_IN_SECOND,
             chunk_endorsements,

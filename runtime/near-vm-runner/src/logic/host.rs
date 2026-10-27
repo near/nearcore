@@ -4440,8 +4440,8 @@ pub fn promise_yield_create_with_id(
         num_bytes,
         true,
     )?;
-    // Allow attaching exactly 1 yoctoNEAR with the 1 yocto on promise
-    // exemption (mirrors `promise_batch_action_function_call_weight`).
+    // Allow attaching exactly 1 yoctoNEAR when the account balance is zero
+    // (mirrors `promise_batch_action_function_call_weight`).
     let skip_deduct =
         amount == Balance::from_yoctonear(1) && ctx.result_state.current_account_balance.is_zero();
     if skip_deduct {

@@ -152,7 +152,7 @@ imports! {
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-p256_verify<[sig_len: u64,
+    p256_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
@@ -289,19 +289,19 @@ p256_verify<[sig_len: u64,
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64
     ] -> []>,
-promise_batch_action_transfer_to_gas_key<[
+    promise_batch_action_transfer_to_gas_key<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
         amount_ptr: u64
     ] -> []>,
-promise_batch_action_add_gas_key_with_full_access<[
+    promise_batch_action_add_gas_key_with_full_access<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
         num_nonces: u64
     ] -> []>,
-promise_batch_action_add_gas_key_with_function_call<[
+    promise_batch_action_add_gas_key_with_function_call<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
@@ -329,7 +329,7 @@ promise_batch_action_add_gas_key_with_function_call<[
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
-promise_yield_create_with_id<[
+    promise_yield_create_with_id<[
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -346,7 +346,7 @@ promise_yield_create_with_id<[
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
-promise_yield_resume_with_yield_id<[
+    promise_yield_resume_with_yield_id<[
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,

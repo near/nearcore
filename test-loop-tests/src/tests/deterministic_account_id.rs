@@ -788,7 +788,8 @@ fn test_sharded_contract_peer_check() {
     );
     outcome.assert_success();
 
-    // AccountCostIncrease adds a refund for the purchase/burn price difference.
+    // 4 receipts: initial function call, ping forwarded to sharded_account2,
+    // response back, plus the refund for the purchase/burn price difference.
     assert_eq!(4, outcome.receipts_outcome.len());
     let ping_call_result = &outcome.receipts_outcome[1];
     assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);

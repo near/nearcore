@@ -283,7 +283,6 @@ impl ShardChunkHeaderV3 {
                 BandwidthRequests::empty(),
                 None,
                 &EmptyValidatorSigner::default().into(),
-                protocol_version,
             )
         }
     }
@@ -317,7 +316,6 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
-        _protocol_version: ProtocolVersion,
     ) -> Self {
         let inner = ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
             prev_block_hash,
@@ -1521,7 +1519,6 @@ impl ShardChunkWithEncoding {
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
-        protocol_version: ProtocolVersion,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
         // TODO(ecc): include ECCs once the pool can hold them (#16473)
         let signed_txs = validated_txs
@@ -1552,8 +1549,7 @@ impl ShardChunkWithEncoding {
             congestion_info,
             bandwidth_requests,
             proposed_split,
-            signer,
-            protocol_version,
+            signer
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let shard_chunk = ShardChunk::new(

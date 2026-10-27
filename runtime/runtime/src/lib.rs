@@ -773,7 +773,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     &apply_state.config,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {

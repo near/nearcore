@@ -191,8 +191,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
                     header.congestion_info(),
                     header.bandwidth_requests().unwrap().clone(),
                     header.proposed_split().cloned(),
-                    &signer,
-                    PROTOCOL_VERSION,
+                    &signer
                 ));
                 partial_encoded_chunk.header = new_header;
                 HandlerResult::Unhandled(NetworkRequests::PartialEncodedChunkMessage {

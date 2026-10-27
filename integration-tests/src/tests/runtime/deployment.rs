@@ -37,7 +37,7 @@ fn test_deploy_max_size_contract() {
     // Size the contract against the same measure the `max_transaction_size`
     // gate enforces: from `PostQuantumSignatures` onward that is the full wire
     // size (signature included), so the overhead must account for it too.
-    let tx_overhead = signed_transaction.size_for_limits(PROTOCOL_VERSION);
+    let tx_overhead = signed_transaction.size_for_limits();
 
     // Testable max contract size is limited by both `max_contract_size` and by `max_transaction_size`
     let max_contract_size = config.wasm_config.limit_config.max_contract_size;

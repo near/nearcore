@@ -2024,7 +2024,7 @@ mod tests {
         // The size gate uses the full wire size (signature included) once
         // `PostQuantumSignatures` is enabled, and the body-only size before
         // that. Mirror that here so the test holds on both stable and nightly.
-        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
+        let transaction_size = signed_tx.size_for_limits();
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -2690,13 +2690,13 @@ mod tests {
         // Pad each copy so the whole transaction sits at the size limit, since
         // the per-byte send fee is part of the burn.
         let padded_tx = |keys: u64, copies: usize| {
-            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits(PROTOCOL_VERSION);
+            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits();
             if bare > max_size {
                 return None;
             }
             let padding = usize::try_from(max_size - bare).unwrap() / copies;
             let tx = bootstrap_state_init_tx(keys, padding, copies);
-            (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
+            (tx.size_for_limits() <= max_size).then_some(tx)
         };
 
         // Only equal splits are reachable, which is what makes this search

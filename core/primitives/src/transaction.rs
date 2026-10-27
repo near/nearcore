@@ -378,8 +378,8 @@ impl ValidatedTransaction {
     }
 
     /// See [`SignedTransaction::size_for_limits`].
-    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
-        self.0.size_for_limits(protocol_version)
+    pub fn size_for_limits(&self) -> u64 {
+        self.0.size_for_limits()
     }
 
     pub fn signer_id(&self) -> &AccountId {
@@ -458,7 +458,7 @@ impl SignedTransaction {
 
     /// Transaction size charged against the `max_transaction_size` and
     /// `combined_transactions_size_limit` gates: [`Self::wire_size`].
-    pub fn size_for_limits(&self, _protocol_version: ProtocolVersion) -> u64 {
+    pub fn size_for_limits(&self) -> u64 {
         self.wire_size()
     }
 
@@ -476,9 +476,9 @@ impl SignedTransaction {
     fn check_valid_for_config(
         &self,
         config: &RuntimeConfig,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        let tx_size = self.size_for_limits(protocol_version);
+        let tx_size = self.size_for_limits();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {
             return Err(InvalidTxError::TransactionSizeExceeded {
@@ -708,9 +708,9 @@ impl TransactionEnvelope {
     }
 
     /// See [`SignedTransaction::size_for_limits`].
-    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
+    pub fn size_for_limits(&self) -> u64 {
         match self {
-            Self::Signed(tx) => tx.size_for_limits(protocol_version),
+            Self::Signed(tx) => tx.size_for_limits(),
             Self::Unsigned(tx) => tx.get_size(),
         }
     }
@@ -1589,8 +1589,8 @@ mod tests {
             KeyType::MLDSA65,
             Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
         );
-        assert_eq!(signed_tx.size_for_limits(PROTOCOL_VERSION), signed_tx.wire_size());
-        assert!(signed_tx.size_for_limits(PROTOCOL_VERSION) > signed_tx.get_size());
+        assert_eq!(signed_tx.size_for_limits(), signed_tx.wire_size());
+        assert!(signed_tx.size_for_limits() > signed_tx.get_size());
     }
 
     fn key(seed: &str, key_type: KeyType) -> PublicKey {

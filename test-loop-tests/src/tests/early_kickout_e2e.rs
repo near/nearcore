@@ -1023,8 +1023,6 @@ fn slow_test_early_kickout_across_resharding() {
 
     // Genesis runs one version back, so EarlyKickout must already be active there:
     // for the pre-split kickout and the row writes under the base layout.
-    // StickyReshardingValidatorAssignment is required for the target to land on a child
-    // of its old shard and is already stabilized.
     assert!(
         ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION - 1),
         "test requires EarlyKickout enabled at PROTOCOL_VERSION - 1 (the pre-split epochs)"

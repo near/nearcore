@@ -1,9 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
-use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
@@ -149,39 +147,3 @@ fn test_p256_verify_invalid_returns_0() {
     }
 }
 
-/// Before the protocol version that activates `p256_verify`, a contract that
-/// imports `env.p256_verify` must fail at call time (the import can't be
-/// linked against a runtime that doesn't expose it).
-#[test]
-fn test_p256_verify_pre_activation_call_fails() {
-    init_test_logger();
-
-    // p256_verify_host_fn is turned on at protocol version 85 (see 85.yaml).
-    let pre_activation_pv = 84;
-    let user = create_account_id("user");
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .protocol_version(pre_activation_pv)
-        .add_user_account(&user, Balance::from_near(100))
-        .build();
-
-    let message = [7u8; 32];
-    let (signature, public_key) = sign_and_keys(&message);
-    let wasm = p256_verify_wasm(&signature, &public_key, &message);
-
-    let deploy_tx = env.rpc_node().tx_deploy_contract(&user, wasm);
-    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
-
-    let call_tx =
-        env.rpc_node().tx_call(&user, &user, "main", vec![], Balance::ZERO, Gas::from_teragas(300));
-    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
-    // The exact error variant (LinkError vs CompilationError) is VM-specific
-    // and protocol-dependent, so just assert that the function call failed.
-    assert_matches!(
-        &outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::FunctionCallError(_),
-            ..
-        }))
-    );
-}

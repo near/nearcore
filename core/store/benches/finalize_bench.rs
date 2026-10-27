@@ -28,7 +28,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{Action, TransactionEnvelope, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -142,8 +142,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
             Default::default(),
             BandwidthRequests::empty(),
             None,
-            &validator_signer(),
-            PROTOCOL_VERSION,
+            &validator_signer()
         ))
     }
 }
@@ -229,7 +228,6 @@ fn create_encoded_shard_chunk(
             None,
             &validator_signer(),
             &rs,
-            PROTOCOL_VERSION,
         )
     }
 }
@@ -244,7 +242,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
 
     // Use mainnet epoch config for the last protocol version before introducing dynamic resharding
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let protocol_version = 85 - 1;
+    let protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION - 1;
     let shard_layout = epoch_config_store
         .get_config(protocol_version)
         .static_shard_layout()
