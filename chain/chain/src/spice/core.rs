@@ -3,7 +3,9 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
-use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
+use crate::spice::boundary::{
+    boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
+};
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -1130,6 +1132,131 @@ fn advance_uncertified_chunks(
     }
 
     Ok((uncertified_chunks, certification_lag))
+}
+
+/// Computes the uncertified chunks of `block_hash` from the block bodies since the last block
+/// certified as of it, without its parent's uncertified chunks, and records them.
+/// Records `block`'s uncertified chunks by advancing its parent's, for a block this node never
+/// processed but whose parent's row is already recorded.
+pub(crate) fn record_uncertified_chunks_by_advancing(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<(), Error> {
+    let block_hash = block.header().hash();
+    if chain_store.store_ref().exists(DBCol::uncertified_chunks(), block_hash.as_ref()) {
+        return Ok(());
+    }
+    let prev_uncertified_chunks = get_uncertified_chunks(chain_store, block.header().prev_hash())?;
+    let (uncertified_chunks, _) =
+        advance_uncertified_chunks(chain_store, epoch_manager, block, prev_uncertified_chunks)?;
+    let mut store_update = chain_store.store().store_update();
+    store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
+    store_update.commit();
+    Ok(())
+}
+
+pub(crate) fn record_uncertified_chunks_from_bodies(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<(), Error> {
+    let header = chain_store.get_block_header(block_hash)?;
+    if header.is_genesis() || !header.is_spice() {
+        return Ok(());
+    }
+    if chain_store.store_ref().exists(DBCol::uncertified_chunks(), block_hash.as_ref()) {
+        return Ok(());
+    }
+    let uncertified_chunks =
+        compute_uncertified_chunks_from_bodies(chain_store, epoch_manager, block_hash)?;
+    let mut store_update = chain_store.store().store_update();
+    store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
+    store_update.commit();
+    Ok(())
+}
+
+fn compute_uncertified_chunks_from_bodies(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
+    // The window, newest first, and every chunk its bodies certify.
+    let mut uncertified_blocks_window = Vec::new();
+    let mut certified: HashSet<SpiceChunkId> = HashSet::new();
+    let mut next_hash = *block_hash;
+    loop {
+        let block = chain_store.get_block(&next_hash)?;
+        certified.extend(
+            block.spice_core_statements().iter_execution_results().map(|(id, _)| id.clone()),
+        );
+        next_hash = *block.header().prev_hash();
+        uncertified_blocks_window.push(block);
+
+        let candidate = chain_store.get_block_header(&next_hash)?;
+        if candidate.is_genesis()
+            || !candidate.is_spice()
+            || epoch_manager.get_shard_layout(candidate.epoch_id())?.shard_ids().all(|shard_id| {
+                certified.contains(&SpiceChunkId { block_hash: *candidate.hash(), shard_id })
+            })
+        {
+            break;
+        }
+    }
+    uncertified_blocks_window.reverse();
+    // The last block before the window.
+    let prev = chain_store
+        .get_block_header(uncertified_blocks_window.first().unwrap().header().prev_hash())?;
+
+    let mut uncertified_chunks = if prev.is_genesis() {
+        Vec::new()
+    } else if !prev.is_spice() {
+        boundary_uncertified_chunks(epoch_manager, &prev)?
+    } else {
+        certified_chunks_outside_window(chain_store, epoch_manager, &uncertified_blocks_window)?
+    };
+    for block in &uncertified_blocks_window {
+        (uncertified_chunks, _) =
+            advance_uncertified_chunks(chain_store, epoch_manager, block, uncertified_chunks)?;
+    }
+    Ok(uncertified_chunks)
+}
+
+/// An entry with no endorsements credited for each chunk the bodies of `window` certify that
+/// belongs to a block before it, in the order the bodies certify them.
+fn certified_chunks_outside_window(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    window: &[Arc<Block>],
+) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
+    let window_hashes: HashSet<&CryptoHash> = window.iter().map(|block| block.hash()).collect();
+    let mut chunks = Vec::new();
+    for block in window {
+        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+            if window_hashes.contains(&chunk_id.block_hash) {
+                continue;
+            }
+            let header = chain_store.get_block_header(&chunk_id.block_hash)?;
+            let assignments = epoch_manager.get_chunk_validator_assignments(
+                header.epoch_id(),
+                chunk_id.shard_id,
+                header.height(),
+            )?;
+            chunks.push(SpiceUncertifiedChunkInfo {
+                chunk_id: chunk_id.clone(),
+                missing_endorsements: assignments
+                    .assignments()
+                    .iter()
+                    .map(|(account_id, _)| account_id)
+                    .cloned()
+                    .collect(),
+                present_endorsements: Vec::new(),
+                present_fallback_endorsements: Vec::new(),
+                certifiable_since_height: None,
+            });
+        }
+    }
+    Ok(chunks)
 }
 
 /// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty
