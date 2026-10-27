@@ -1309,6 +1309,28 @@
             ],
             "title": "AccountNotInitialized",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `FunctionCall` action called the method reserved for external contract calls.\nThat method only runs in an external call or a view call.",
+            "properties": {
+              "ReservedMethodName": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReservedMethodName"
+            ],
+            "title": "ReservedMethodName",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"

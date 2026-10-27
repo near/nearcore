@@ -942,15 +942,12 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 /// The current balance of the given account. This includes the attached_deposit that was
 /// attached to the transaction.
 ///
-/// In an external contract call this excludes the cost of the gas used so far,
-/// which the contract pays for.
-///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    let balance = ctx.result_state.available_balance();
+    let balance = ctx.result_state.current_account_balance;
     set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, balance.as_yoctonear())
 }
 
@@ -2106,6 +2103,10 @@ pub fn ed25519_verify(
 /// appropriate protocol (for example SHA-256 for WebAuthn) before calling.
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// A message shorter than 16 bytes always returns 0, pinned by
+/// `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`;
+/// changing it would be a protocol change.
 ///
 /// [NEP-635]: https://github.com/near/NEPs/pull/635
 ///
