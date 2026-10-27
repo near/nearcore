@@ -293,6 +293,8 @@
         "nearup",
         "nearvm",
         "netdev",
+        "netgroup",
+        "netgroups",
         "newtype",
         "nextest",
         "nikurt",
