@@ -14,7 +14,7 @@ use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
-    StateResponse, StateResponseReceived,
+    StateRequestUpdate, StateRequestUpdateMessage,
 };
 use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::recv_permit::RecvMessagePermit;
@@ -57,7 +57,7 @@ pub struct ClientSenderForTestLoopNetwork {
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
     pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
-    pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
+    pub state_request_update: AsyncSender<SpanWrapped<StateRequestUpdateMessage>, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -986,9 +986,9 @@ fn network_message_to_state_sync_handler(
                 let Ok(Some(state_part_or_header)) = request_future.await else {
                     return;
                 };
-                let state_response = StateResponse::State(state_part_or_header.0);
+                let update = StateRequestUpdate::State(state_part_or_header.0);
                 let future = responder.client_sender.send_async(
-                    StateResponseReceived { peer_id: response_peer_id, state_response }.span_wrap(),
+                    StateRequestUpdateMessage { peer_id: response_peer_id, update }.span_wrap(),
                 );
                 drop(future);
             });
@@ -1014,9 +1014,9 @@ fn network_message_to_state_sync_handler(
                 let Ok(Some(state_part_or_header)) = request_future.await else {
                     return;
                 };
-                let state_response = StateResponse::State(state_part_or_header.0);
+                let update = StateRequestUpdate::State(state_part_or_header.0);
                 let future = responder.client_sender.send_async(
-                    StateResponseReceived { peer_id: response_peer_id, state_response }.span_wrap(),
+                    StateRequestUpdateMessage { peer_id: response_peer_id, update }.span_wrap(),
                 );
                 drop(future);
             });

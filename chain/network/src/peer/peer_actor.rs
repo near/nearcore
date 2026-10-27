@@ -70,6 +70,10 @@ pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duratio
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
 const ACCOUNTS_DATA_FULL_SYNC_INTERVAL: time::Duration = time::Duration::minutes(10);
+/// Maximal time to complete the handshake of an outbound Tier3 connection. Such a connection is
+/// opened to send a state request or response right away, so a peer which doesn't answer the
+/// handshake quickly is treated as unreachable, and a requester moves on to another host sooner.
+const TIER3_HANDSHAKE_TIMEOUT: time::Duration = time::Duration::seconds(2);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
@@ -1471,9 +1475,16 @@ impl messaging::Actor for PeerActor {
         metrics::PEER_CONNECTIONS_TOTAL.inc();
         tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_addr = %self.peer_addr, peer_type = ?self.peer_type, "peer started");
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
-
+        let handshake_timeout = match &self.peer_status {
+            PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. })
+                if handshake_spec.tier == tcp::Tier::T3 =>
+            {
+                min(self.network_state.config.handshake_timeout, TIER3_HANDSHAKE_TIMEOUT)
+            }
+            _ => self.network_state.config.handshake_timeout,
+        };
         self.handle.run_later("handshake_timeout",
-            self.network_state.config.handshake_timeout.try_into().unwrap(),
+            handshake_timeout.try_into().unwrap(),
             move |act, _| match act.peer_status {
                 PeerStatus::Connecting { .. } => {
                     tracing::info!(target: "network", peer_info = %act.peer_info, "handshake timeout expired");

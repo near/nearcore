@@ -145,16 +145,19 @@ After headers are synced, the node downloads the full state snapshot at a
 sync hash (near the beginning of the most recent epoch). For each shard the
 node tracks, it downloads state parts from peers and assembles the full state.
 
-State header and part requests are routed to snapshot hosts over Tier 2. Hosts
-return acknowledgements over Tier 2, then connect back to the requester over
-Tier 3 to send the state headers and parts. State response payloads are accepted
-only on Tier 3 connections.
+State header and part requests are sent to snapshot hosts over Tier 3. The
+requester opens a Tier 3 connection to the address the host advertises and
+sends its requests over it, and the host sends the acknowledgements and the
+state headers and parts back over the same connection. Concurrent requests to a
+host share one connection. A host accepts up to
+`network.max_inbound_tier3_connections` (64 by default) connections from
+requesters at a time.
 
-Hosts also accept requests sent directly over a Tier 3 connection opened by the
-requester, and send the acknowledgement and the response back over that
-connection. A node accepts up to `network.max_inbound_tier3_connections`
-(64 by default) such connections at a time. Requesters do not send direct
-requests yet.
+Requests to hosts whose advertisement carries no address, such as hosts on
+older releases, are routed over Tier 2 along with the requester's own public
+address. These hosts return acknowledgements over Tier 2, then connect back to
+the requester over Tier 3 to send the state headers and parts. State response
+payloads are accepted only on Tier 3 connections.
 
 Snapshot host advertisements are versioned, and version 2 adds the host's own
 listening address: its public address as observed by its peers, or
@@ -166,8 +169,7 @@ snapshot. Version 2 advertisements keep a legacy signature over the snapshot
 fields alone, which is the only one older nodes verify. Older nodes relay them
 as version 1, without the address, and a version 2 copy replaces a version 1
 copy of the same snapshot. Until every node accepts advertisements without the
-legacy signature, nodes drop them instead of relaying. State requests do not
-yet use these addresses.
+legacy signature, nodes drop them instead of relaying.
 
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for

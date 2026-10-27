@@ -3,7 +3,7 @@ use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
     EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    SpiceChunkEndorsementMessage, StateRequestUpdate, StateRequestUpdateMessage, TxStatusRequest,
     TxStatusResponse,
 };
 use crate::concurrency::demux;
@@ -55,7 +55,8 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::state_sync::PartOrHeader;
+use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -181,6 +182,10 @@ pub(crate) struct NetworkState {
     /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
     /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
     pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
+
+    /// State requests to snapshot hosts which are waiting for a Tier3 connection to the host to
+    /// be opened, by host. They are sent once the connection is ready, or dropped if it fails.
+    pub queued_tier3_requests: Mutex<HashMap<PeerId, Vec<(ShardId, CryptoHash, PartOrHeader)>>>,
 
     // Semaphore which limits the total size of incoming messages being handled at the same time.
     // Before reading a message into memory, we acquire a number of permits that's equal to the
@@ -342,6 +347,7 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             pending_tier3_requests: DashMap::new(),
+            queued_tier3_requests: Mutex::new(HashMap::new()),
             outgoing_queue_limiter: OutgoingQueueLimiter::new(
                 config.outgoing_queue_limiter_capacity_bytes,
             ),
@@ -1103,9 +1109,9 @@ impl NetworkState {
                 T2MessageBody::StateRequestAck(ack) => {
                     self.client
                         .send_async(
-                            StateResponseReceived {
+                            StateRequestUpdateMessage {
                                 peer_id: msg_author,
-                                state_response: StateResponse::Ack(ack),
+                                update: StateRequestUpdate::Ack(ack),
                             }
                             .span_wrap(),
                         )
@@ -1292,7 +1298,7 @@ impl NetworkState {
             PeerMessage::StateRequestAck(ack) => {
                 self.client
                     .send_async(
-                        StateResponseReceived { peer_id, state_response: StateResponse::Ack(ack) }
+                        StateRequestUpdateMessage { peer_id, update: StateRequestUpdate::Ack(ack) }
                             .span_wrap(),
                     )
                     .await
@@ -1302,9 +1308,9 @@ impl NetworkState {
             PeerMessage::VersionedStateResponse(info) => {
                 self.client
                     .send_async(
-                        StateResponseReceived {
+                        StateRequestUpdateMessage {
                             peer_id,
-                            state_response: StateResponse::State(info.into()),
+                            update: StateRequestUpdate::State(info.into()),
                         }
                         .span_wrap(),
                     )

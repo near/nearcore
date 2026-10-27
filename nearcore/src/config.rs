@@ -158,6 +158,8 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     #[serde(alias = "state_sync_external_timeout")]
     pub block_request_timeout: Duration,
+    /// How long to wait for a response from p2p state sync. Values above 15s don't help, because
+    /// a connection is closed once nothing has been sent or received on it for 15s.
     #[serde(default = "default_state_sync_p2p_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_p2p_timeout: Duration,
