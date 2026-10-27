@@ -5,8 +5,8 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
-    total_prepaid_exec_fees, total_prepaid_gas,
+    EccCost, ecc_cost, exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance,
+    total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::function_call::action_function_call;
@@ -19,12 +19,14 @@ pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
     verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
+use dashmap::DashMap;
 use global_contracts::{
     action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
@@ -55,8 +57,9 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
+    Action, ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope,
+    TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -686,6 +689,18 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
+                // The ECC method only runs in an external call (which must not be executed
+                // through `apply_action`) or in a view call.
+                if ProtocolFeature::ExternalContractCalls
+                    .enabled(apply_state.current_protocol_version)
+                    && function_call.method_name == ECC_METHOD_NAME
+                {
+                    result.result = Err(ActionErrorKind::ReservedMethodName {
+                        method_name: function_call.method_name.clone(),
+                    }
+                    .into());
+                    return Ok(result);
+                }
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
@@ -2072,9 +2087,17 @@ impl Runtime {
                         if !non_expired {
                             return;
                         }
-                        // TODO(ecc): prefetch the contract account of ECCs
-                        let Some(tx) = tx.as_signed() else {
-                            return;
+                        let tx = match tx {
+                            TransactionEnvelope::Signed(tx) => tx,
+                            TransactionEnvelope::Unsigned(ecc) => {
+                                // The contract of an ECC pays for it, like the signer of a
+                                // signed transaction.
+                                let contract_id = ecc.contract_id();
+                                accounts.entry(contract_id).or_insert_with(|| {
+                                    get_account(&processing_state.state_update, contract_id)
+                                });
+                                return;
+                            }
                         };
                         let signer_id = tx.transaction.signer_id();
                         let pubkey = tx.transaction.public_key();
@@ -2124,10 +2147,29 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    // TODO(ecc): execute external contract calls
+                    let verified = verify_ecc(
+                        &processing_state.apply_state,
+                        &accounts,
+                        ecc,
+                        maybe_validation_error,
+                    );
+                    let err = match verified {
+                        // TODO(ecc): execute external contract calls:
+                        // - run the method with `ExecutionMode::External { fee_gas:
+                        //   cost.gas_burnt }` and the contract's balance;
+                        // - if the contract accepts the call, charge `cost.burnt_amount` plus
+                        //   the cost of the gas the call used, at the same gas price, from the
+                        //   balance the call leaves, and reject the call with
+                        //   `NotEnoughBalance` if it falls short. The VM doesn't deal with the
+                        //   cost of the gas at all, so this check is what makes the contract
+                        //   pay;
+                        // - record the fees and the gas of the call in the outcome.
+                        // Until then, every call is rejected and pays nothing.
+                        Ok(_cost) => InvalidTxError::InvalidTransactionVersion,
+                        Err(RuntimeError::InvalidTxError(err)) => err,
+                        Err(err) => return Err(err),
+                    };
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    let err =
-                        maybe_validation_error.unwrap_or(InvalidTxError::InvalidTransactionVersion);
                     let outcome = ExecutionOutcomeWithId::failed_ecc(ecc, err);
                     processing_state.outcomes.push(outcome);
                     continue;
@@ -2982,6 +3024,28 @@ impl ApplyState {
         let computed = result?;
         Ok(computed)
     }
+}
+
+/// Checks an external contract call before it runs: it passed validation, and its contract
+/// exists and can pay for the fees of the call. Returns the fees.
+///
+/// `RuntimeError::InvalidTxError` rejects the call. Any other error, such as a storage error
+/// while reading the contract account, stops applying the chunk.
+fn verify_ecc(
+    apply_state: &ApplyState,
+    accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
+    ecc: &EccTransaction,
+    validation_error: Option<InvalidTxError>,
+) -> Result<EccCost, RuntimeError> {
+    if let Some(err) = validation_error {
+        return Err(err.into());
+    }
+    let cost =
+        ecc_cost(&apply_state.config, ecc, apply_state.gas_price).map_err(InvalidTxError::from)?;
+    let contract = accounts.get(ecc.contract_id()).expect("accounts should've been prefetched");
+    let contract = contract.value().as_ref().map_err(Clone::clone)?;
+    verify_ecc_ephemeral(contract.as_ref(), ecc, &cost)?;
+    Ok(cost)
 }
 
 fn action_transfer_or_implicit_account_creation(

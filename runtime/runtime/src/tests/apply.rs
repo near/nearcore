@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{total_send_fees, tx_cost};
+use crate::config::{ecc_cost, total_send_fees, tx_cost};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
@@ -49,8 +49,8 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, EccTransaction,
-    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ECC_METHOD_NAME,
+    EccTransaction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
@@ -716,6 +716,400 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
     let transfer_outcome = &apply_result.outcomes[1];
     assert_eq!(transfer_outcome.id, transfer.get_hash());
     assert_matches!(transfer_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+/// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
+/// ECC fails without burning anything and leaves `bob`'s balance as it was, and returns the
+/// error it fails with.
+fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        bob_balance,
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc.clone())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let [ecc_outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
+    let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
+        ecc_outcome.outcome.status.clone()
+    else {
+        panic!("expected the ECC to fail, got {:?}", ecc_outcome.outcome.status);
+    };
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    assert_eq!(bob.amount(), bob_balance);
+    err
+}
+
+/// The fees of the ECC that `apply_ecc` sends to `bob`.
+fn ecc_fee() -> Balance {
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap().burnt_amount
+}
+
+/// An ECC to an account that does not exist is rejected.
+#[test]
+fn test_apply_ecc_missing_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contract_id: AccountId = "missing.near".parse().unwrap();
+    let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
+    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+}
+
+/// An ECC to a contract that can't pay for its fees is rejected.
+#[test]
+fn test_apply_ecc_not_enough_balance() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let fee = ecc_fee();
+    let balance = fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let err = apply_ecc(bob_account(), balance);
+    assert_eq!(
+        err,
+        InvalidTxError::NotEnoughBalance { signer_id: bob_account(), balance, cost: fee }
+    );
+}
+
+/// An ECC to a contract that can pay for its fees still fails, since nothing executes it yet,
+/// and pays nothing.
+/// TODO(ecc): update this test with a check for successful execution after ECC processing logic is in place.
+#[test]
+fn test_apply_ecc_funded_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let err = apply_ecc(bob_account(), ecc_fee());
+    assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
+}
+
+/// A contract whose ECC method returns `b"ecc"`.
+fn ecc_method_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "ecc")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $value_return (i64.const 3) (i64.const 0))
+  )
+)"#
+    ))
+}
+
+/// Apply a chunk with the given receipts and transactions on top of `root`, without committing
+/// it.
+fn apply_chunk(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> ApplyResult {
+    let num_transactions = transactions.len();
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            apply_state,
+            receipts,
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// Apply a chunk with the given receipts and transactions, commit it, and return the new state
+/// root and the result.
+fn apply_and_commit(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> (CryptoHash, ApplyResult) {
+    let apply_result =
+        apply_chunk(runtime, tries, root, apply_state, receipts, transactions, epoch_info_provider);
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    (root, apply_result)
+}
+
+/// The only receipt in `apply_result` sent to bob.
+fn receipt_to_bob(apply_result: &ApplyResult) -> &Receipt {
+    let mut receipts = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.receiver_id() == &bob_account());
+    let (Some(receipt), None) = (receipts.next(), receipts.next()) else {
+        panic!("expected one receipt to bob, got {:?}", apply_result.outgoing_receipts);
+    };
+    receipt
+}
+
+/// The status of the outcome with the given id.
+fn outcome_status(apply_result: &ApplyResult, id: &CryptoHash) -> ExecutionStatus {
+    let outcome = apply_result.outcomes.iter().find(|outcome| &outcome.id == id);
+    outcome.unwrap_or_else(|| panic!("no outcome for {id}")).outcome.status.clone()
+}
+
+/// The status of a receipt whose only action called the ECC method and was refused.
+fn ecc_method_refused() -> ExecutionStatus {
+    ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+        index: Some(0),
+        kind: ActionErrorKind::ReservedMethodName { method_name: ECC_METHOD_NAME.to_string() },
+    }))
+}
+
+/// A transaction from alice that calls the ECC method of bob.
+fn ecc_method_tx(signer: &Signer) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        bob_account(),
+        signer,
+        vec![Action::function_call(ECC_METHOD_NAME, vec![], Gas::from_teragas(30))],
+        CryptoHash::default(),
+    )
+}
+
+/// A receipt that calls the ECC method and was created before `ExternalContractCalls` is still
+/// refused if it runs after the upgrade.
+#[test]
+fn test_ecc_method_receipt_from_before_upgrade_refused() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = feature_version - 1;
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let (root, _) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![],
+        &epoch_info_provider,
+    );
+
+    // Before the upgrade, the transaction creates a receipt that calls the ECC method of bob.
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[],
+        vec![ecc_method_tx(&signers[0])],
+        &epoch_info_provider,
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    // Before the upgrade, the receipt runs the ECC method like any other method.
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(
+        outcome_status(&apply_result, receipt.receipt_id()),
+        ExecutionStatus::SuccessValue(b"ecc".to_vec())
+    );
+
+    // After the upgrade, the same receipt is refused.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A function call access key that allows the ECC method doesn't let a transaction call it:
+/// the transaction is accepted, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_with_function_call_access_key() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+
+    // Replace the full access key of alice with a function call key for the ECC method of bob.
+    let mut state = tries.new_trie_update(shard_uid, root);
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![ECC_METHOD_NAME.to_string()],
+        }),
+    };
+    set_access_key(&mut state, alice_account(), signers[0].public_key(), &access_key);
+    state.commit(StateChangeCause::InitialState);
+    let trie_changes = state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let tx = ecc_method_tx(&signers[0]);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![tx.clone()],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, &tx.get_hash()),
+        ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A contract can't call the ECC method of another contract with a promise: the promise is
+/// created, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_in_promise() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let call_promise_args = serde_json::json!([
+        {"create": {
+            "account_id": bob_account(),
+            "method_name": ECC_METHOD_NAME,
+            "arguments": [],
+            "amount": "0",
+            "gas": Gas::from_teragas(30).as_gas(),
+        }, "id": 0}
+    ]);
+    let call = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::function_call(
+            "call_promise",
+            serde_json::to_vec(&call_promise_args).unwrap(),
+            Gas::from_teragas(100),
+        )],
+    );
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy, call.clone()],
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, call.receipt_id()),
+        ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
 }
 
 #[test]
