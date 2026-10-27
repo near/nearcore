@@ -166,13 +166,12 @@ fn validate_action_with_mode(
         }
         Action::Transfer(_) => validate_transfer_action(receiver, current_protocol_version, mode),
         Action::Stake(a) => validate_stake_action(a),
-        Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
+        Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(
             limit_config,
             (&a.delegate_action).into(),
-            receiver,
             current_protocol_version,
             mode,
         ),
@@ -189,7 +188,6 @@ fn validate_action_with_mode(
             validate_delegate_action(
                 limit_config,
                 (&a.delegate_action).into(),
-                receiver,
                 current_protocol_version,
                 mode,
             )
@@ -200,12 +198,8 @@ fn validate_action_with_mode(
         Action::UniversalStateInit(a) => {
             validate_universal_state_init(limit_config, a, receiver, current_protocol_version, mode)
         }
-        Action::TransferToGasKey(_) => {
-            validate_transfer_to_gas_key_action(current_protocol_version)
-        }
-        Action::WithdrawFromGasKey(_) => {
-            validate_withdraw_from_gas_key_action(current_protocol_version)
-        }
+        Action::TransferToGasKey(_) => Ok(()),
+        Action::WithdrawFromGasKey(_) => Ok(()),
     }
 }
 
@@ -233,7 +227,6 @@ fn validate_transfer_action(
 fn validate_delegate_action(
     limit_config: &LimitConfig,
     delegate_action: VersionedDelegateActionRef<'_>,
-    _receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
@@ -365,7 +358,6 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
-    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
 
@@ -442,18 +434,6 @@ fn validate_access_key_permission(
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
     validate_action_account_id(&action.beneficiary_id)?;
 
-    Ok(())
-}
-
-fn validate_transfer_to_gas_key_action(
-    _current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    Ok(())
-}
-
-fn validate_withdraw_from_gas_key_action(
-    _current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
     Ok(())
 }
 

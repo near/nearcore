@@ -1229,11 +1229,9 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         let profile = conversions::Convert::convert(*result.profile);
-        let metadata = {
-            let mut contracts = result.current_contracts;
-            contracts.resize(action_receipt.actions().len(), AccountContract::None);
-            ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }))
-        };
+        let mut contracts = result.current_contracts;
+        contracts.resize(action_receipt.actions().len(), AccountContract::None);
+        let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }));
 
         Ok(ExecutionOutcomeWithId {
             id: *receipt.receipt_id(),

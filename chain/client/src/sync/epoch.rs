@@ -1,6 +1,5 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
 use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
-use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
@@ -26,7 +25,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use std::sync::Arc;
 
 /// Maximum age of an epoch sync proof, in number of epochs.
 /// Proofs older than this are rejected as too stale.
@@ -53,7 +51,6 @@ impl EpochSync {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         genesis: BlockHeader,
-        _async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
     ) -> Self {
         Self { clock, network_adapter, genesis, config }

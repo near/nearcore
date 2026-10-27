@@ -1255,16 +1255,15 @@ fn test_apply_surplus_gas_for_function_call() {
     // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
     // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
     // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
-    let expected_refund = {
-        let penalty =
-            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        let price_surplus = gas_price
-            .checked_sub(apply_state.gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap();
-        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
-    };
+    let penalty =
+        apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+    let price_surplus = gas_price
+        .checked_sub(apply_state.gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
+    let expected_refund =
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap();
 
     let result = runtime
         .apply(
