@@ -14,7 +14,6 @@ use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, ReceiptSource};
@@ -565,9 +564,6 @@ pub fn snapshots_sanity_check(
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
     let mut epoch_heights_with_epoch_data = HashSet::<EpochHeight>::new();
     for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {
-        if epoch_id.as_ref() == AGGREGATOR_KEY {
-            continue;
-        }
         let epoch_id = EpochId::try_from_slice(epoch_id.as_ref()).unwrap();
         let epoch_info = EpochInfo::try_from_slice(epoch_info.as_ref()).unwrap();
         let epoch_height = epoch_info.epoch_height();

@@ -4,7 +4,7 @@ use crate::{DBCol, Store, StoreUpdate, metrics};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
+use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_sync::{CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -59,10 +59,14 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
-    pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {
+    /// The epoch statistics up to and including `block_hash`.
+    pub fn get_epoch_info_aggregator<T: BorshDeserialize>(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<T, EpochError> {
         self.store
-            .get_ser::<T>(DBCol::EpochInfo, AGGREGATOR_KEY)
-            .ok_or_else(|| EpochError::IOErr("Missing epoch info aggregator".to_string()))
+            .get_ser::<T>(DBCol::EpochInfoAggregators, block_hash.as_ref())
+            .ok_or(EpochError::MissingBlock(*block_hash))
     }
 
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
@@ -160,9 +164,14 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
 
     pub fn set_epoch_info_aggregator<T: BorshSerialize + ?Sized>(
         &mut self,
+        block_hash: &CryptoHash,
         epoch_info_aggregator: &T,
     ) {
-        self.store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, epoch_info_aggregator);
+        self.store_update.set_ser(
+            DBCol::EpochInfoAggregators,
+            block_hash.as_ref(),
+            epoch_info_aggregator,
+        );
     }
 
     pub fn set_epoch_validator_info(&mut self, epoch_id: &EpochId, epoch_summary: &EpochSummary) {

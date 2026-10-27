@@ -1,7 +1,7 @@
-//! A withheld block arrives after its canonical sibling and moves the aggregator past the
-//! sibling's last-final block. Every node must still accept the sibling's child, whose basis is
-//! then behind the aggregator sync point. Seeding the child must not evict its own uncommitted
-//! `BlockInfo`.
+//! A withheld block arrives after its canonical sibling and moves the final head past the
+//! sibling's last-final block. Every node must still accept the sibling's child, whose
+//! last-final block is then below the final head. Seeding the child must not evict its own
+//! uncommitted `BlockInfo`.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -25,7 +25,7 @@ const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
 /// Deliver the withheld block after its canonical sibling and before the sibling's child.
 /// Every head is then on the sibling, so a node that cannot record the child cannot progress.
-fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
+pub(crate) fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
     let late: Arc<Mutex<Option<Arc<Block>>>> = Arc::new(Mutex::new(None));
     let client_senders: Vec<_> =
         env.node_datas.iter().map(|data| data.client_sender.clone()).collect();
