@@ -149,7 +149,6 @@ pub fn setup_client(
         runtime_adapter.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
-    let snapshot_callbacks_for_spice = snapshot_callbacks.clone();
 
     let signer = custom_signer.unwrap_or_else(|| Arc::new(create_test_signer(account_id.as_str())));
     let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
@@ -197,7 +196,7 @@ pub fn setup_client(
         validator_signer.clone(),
         true,
         [0; 32],
-        Some(snapshot_callbacks),
+        Some(snapshot_callbacks.clone()),
         multi_spawner,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
@@ -492,7 +491,7 @@ pub fn setup_client(
             save_receipt_to_tx: client_config.save_receipt_to_tx,
             save_state_changes: client_config.save_state_changes,
         },
-        Some(snapshot_callbacks_for_spice),
+        Some(snapshot_callbacks),
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(
