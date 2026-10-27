@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
@@ -7,20 +6,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
 use near_primitives::types::{EpochId, SpiceChunkId};
 use near_store::adapter::StoreAdapter as _;
-
-/// The first block of the epoch `block_hash` belongs to, walking back over the canonical chain.
-fn first_block_of_epoch(node: &TestLoopNode, block_hash: CryptoHash) -> CryptoHash {
-    let chain = &node.client().chain;
-    let mut header = chain.get_block_header(&block_hash).unwrap();
-    let epoch_id = *header.epoch_id();
-    loop {
-        let prev = chain.get_block_header(header.prev_hash()).unwrap();
-        if prev.epoch_id() != &epoch_id || prev.is_genesis() {
-            return *header.hash();
-        }
-        header = prev;
-    }
-}
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
 /// chunks in every shard: every spice block carries a chunk for every shard, so the epoch's
@@ -38,6 +23,7 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
     let node = env.node(0);
     let chain = &node.client().chain;
     let head = chain.head().unwrap();
+    let epoch_manager = &node.client().epoch_manager;
     assert!(
         chain.get_block_header(&head.last_block_hash).unwrap().is_spice(),
         "the test must run on a spice chain",
@@ -55,7 +41,7 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
             if let Some(sync_hash) = chain.get_sync_hash(&hash).unwrap() {
                 assert_eq!(
                     sync_hash,
-                    first_block_of_epoch(&node, hash),
+                    *epoch_manager.get_block_info(&hash).unwrap().epoch_first_block(),
                     "sync hash for epoch {:?} must be its first block",
                     header.epoch_id(),
                 );
