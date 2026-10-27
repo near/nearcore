@@ -4,10 +4,10 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
-    Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
-    PeersRequest, PeersResponse, RoutingTableUpdate, SnapshotHostInfoVerificationError,
-    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody, from_unix_nanos,
-    to_unix_nanos,
+    Edge, EdgeState, MAX_TRACKED_SHARDS_PER_PEER, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2,
+    PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RoutingTableUpdate,
+    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
+    TieredMessageBody, from_unix_nanos, to_unix_nanos,
 };
 use crate::peer::stream;
 use crate::peer::stream::IncomingFrame;
@@ -530,6 +530,16 @@ impl PeerActor {
             PeerStatus::Connecting(_, it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
         };
+        if handshake.sender_chain_info.tracked_shards.len() > MAX_TRACKED_SHARDS_PER_PEER {
+            tracing::debug!(
+                target: "network",
+                peer_id = %handshake.sender_peer_id,
+                tracked_shards = handshake.sender_chain_info.tracked_shards.len(),
+                "handshake has too many tracked shards, dropping message",
+            );
+            self.stop(ClosingReason::HandshakeFailed);
+            return;
+        }
         match cs {
             ConnectingStatus::Outbound { handshake_spec: spec, .. } => {
                 if handshake.protocol_version != spec.protocol_version {
@@ -657,11 +667,14 @@ impl PeerActor {
         // we still should do the check against the PeerStore::blacklist.
         // Currently PeerManager is rejecting connections with peer_info.addr == None
         // preemptively.
+        let maybe_peer_addr = match handshake.sender_listen_port {
+            None => None,
+            Some(0) => None, // Protobuf serialization mapped 0 to None, keep for compatibility.
+            Some(port) => Some(SocketAddr::new(self.peer_addr.ip(), port)),
+        };
         let peer_info = PeerInfo {
             id: handshake.sender_peer_id.clone(),
-            addr: handshake
-                .sender_listen_port
-                .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
+            addr: maybe_peer_addr,
             account_id: None,
         };
 
