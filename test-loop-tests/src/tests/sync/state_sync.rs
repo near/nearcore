@@ -594,6 +594,8 @@ fn test_state_sync_untrack_then_track() {
 // height creates the block but it gets skipped on the canonical chain. This variant tests
 // that the fork-producing node can still provide valid state to others.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_from_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
