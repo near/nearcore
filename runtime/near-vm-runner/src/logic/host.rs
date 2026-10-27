@@ -2104,6 +2104,10 @@ pub fn ed25519_verify(
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
 ///
+/// A message shorter than 16 bytes always returns 0, pinned by
+/// `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`;
+/// changing it would be a protocol change.
+///
 /// [NEP-635]: https://github.com/near/NEPs/pull/635
 ///
 /// # Errors
