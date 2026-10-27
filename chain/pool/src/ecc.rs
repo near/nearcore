@@ -1,12 +1,9 @@
 //! What is specific to ECCs in the pool.
 
-use crate::InsertTransactionResult;
-use crate::grouped_pool::GroupedPool;
 use crate::item::{GroupId, PoolItem};
-use crate::types::PoolKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{EccTransaction, ValidatedEcc};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 /// The group of an ECC: the ECCs to one contract are in one group.
 pub(crate) fn group_id(ecc: &EccTransaction) -> GroupId<'_> {
@@ -35,48 +32,11 @@ impl PoolItem for ValidatedEcc {
     fn sort_group(_group: &mut VecDeque<Self>) {}
 }
 
-impl GroupedPool<ValidatedEcc> {
-    /// Puts back ECCs that were taken out of the pool, e.g. because their chunk missed a block.
-    /// The ECCs are expected in the order of arrival. They go ahead of everything waiting for
-    /// their contract, including ECCs put back earlier, and keep their order among themselves.
-    /// So when several batches are put back, the newest one has to go first. An ECC that is in
-    /// the pool already, e.g. because it was submitted again, is moved to the front with the
-    /// others.
-    ///
-    /// The ECCs are admitted one by one in this order. An ECC that does not fit is refused, and
-    /// a smaller one after it may still fit. Returns the number of ECCs that were added or are
-    /// already present.
-    pub(crate) fn reintroduce_items(
-        &mut self,
-        eccs: impl IntoIterator<Item = ValidatedEcc>,
-        size_limit: Option<u64>,
-    ) -> usize {
-        // For each group, how many ECCs of this batch were already put at its front.
-        let mut put_back: HashMap<PoolKey, usize> = HashMap::new();
-        let mut put_back_at_front = |key, group: &mut VecDeque<ValidatedEcc>, ecc| {
-            let behind = put_back.entry(key).or_default();
-            group.insert(*behind, ecc);
-            *behind += 1;
-        };
-        // An ECC that is in the batch twice stays where its first copy was put.
-        let mut seen = HashSet::new();
-        eccs.into_iter()
-            .map(|ecc| {
-                if !seen.insert(ecc.get_hash()) || self.move_in_group(&ecc, &mut put_back_at_front)
-                {
-                    return InsertTransactionResult::Duplicate;
-                }
-                self.insert_with(ecc, size_limit, &mut put_back_at_front)
-            })
-            .filter(|result| *result != InsertTransactionResult::NoSpaceLeft)
-            .count()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grouped_pool::{GroupedPoolIterator, PoolMetrics};
+    use crate::InsertTransactionResult;
+    use crate::grouped_pool::{GroupedPool, GroupedPoolIterator, PoolMetrics};
     use crate::metrics;
     use near_primitives::epoch_info::RngSeed;
 
@@ -235,6 +195,34 @@ mod tests {
 
         assert_eq!(pool.len(), 3);
         assert_eq!(drain_groups(&mut pool), vec![vec![1, 2, 3]]);
+    }
+
+    /// An ECC that is refused stays refused when it is in the batch again.
+    #[test]
+    fn test_put_back_batch_with_a_repeated_ecc_that_is_refused() {
+        let mut pool = new_pool();
+        let a = ecc("a.near", 1);
+
+        assert_eq!(pool.reintroduce_items([a.clone(), a], Some(0)), 0);
+
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.size(), 0);
+    }
+
+    /// The ECCs that are in the pool already are moved in each group they are in.
+    #[test]
+    fn test_put_back_batch_moves_the_eccs_that_are_in_the_pool_already_in_several_groups() {
+        let mut pool = new_pool();
+        insert_all(&mut pool, [ecc("a.near", 3), ecc("a.near", 1)]);
+        insert_all(&mut pool, [ecc("b.near", 4), ecc("b.near", 2)]);
+
+        let batch = [ecc("b.near", 1), ecc("a.near", 2), ecc("b.near", 2), ecc("a.near", 1)];
+        assert_eq!(pool.reintroduce_items(batch, None), 4);
+
+        assert_eq!(pool.len(), 6);
+        let mut groups = drain_groups(&mut pool);
+        groups.sort();
+        assert_eq!(groups, vec![vec![1, 2, 4], vec![2, 1, 3]]);
     }
 
     /// Putting a batch back never pushes out an ECC that is in the pool already.

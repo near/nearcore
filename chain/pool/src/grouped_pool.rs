@@ -59,17 +59,19 @@ impl<T: PoolItem> GroupedPool<T> {
     /// Inserts an item into the pool. The item is rejected if it brings the size of the pool over
     /// `size_limit`.
     pub(crate) fn insert(&mut self, item: T, size_limit: Option<u64>) -> InsertTransactionResult {
-        self.insert_with(item, size_limit, |_, group, item| T::add_to_group(group, item))
+        let result = self.admit(&item, size_limit);
+        if result == InsertTransactionResult::Success {
+            let key = item.group_id().key(&self.key_seed);
+            T::add_to_group(self.groups.entry(key).or_default(), item);
+            self.metrics.count.inc();
+            self.metrics.size.set(self.total_size as i64);
+        }
+        result
     }
 
-    /// Like `insert`, but the item is added to its group by `place`, which is given the key of
-    /// the group. `place` is only called if the item was accepted.
-    pub(crate) fn insert_with(
-        &mut self,
-        item: T,
-        size_limit: Option<u64>,
-        place: impl FnOnce(PoolKey, &mut VecDeque<T>, T),
-    ) -> InsertTransactionResult {
+    /// Checks if the item can be accepted to the pool, and if so, accounts for it, but does not
+    /// add it to a group yet.
+    fn admit(&mut self, item: &T, size_limit: Option<u64>) -> InsertTransactionResult {
         let item_hash = item.hash();
         if self.unique_items.contains(&item_hash) {
             return InsertTransactionResult::Duplicate;
@@ -93,31 +95,63 @@ impl<T: PoolItem> GroupedPool<T> {
         // (https://github.com/rust-lang/rust/issues/60896).
         assert_eq!(self.unique_items.insert(item_hash), true);
         self.total_size = new_total_size;
-        let key = item.group_id().key(&self.key_seed);
-        place(key, self.groups.entry(key).or_default(), item);
-
-        self.metrics.count.inc();
-        self.metrics.size.set(self.total_size as i64);
         InsertTransactionResult::Success
     }
 
-    /// If `item` is in the pool, takes its pooled copy out of its group and lets `place` put it
-    /// back, like `insert_with` does for a new item. Neither the size nor the number of items
-    /// changes. Returns whether the item is in the pool.
-    pub(crate) fn move_in_group(
+    /// Puts back items that were taken out of the pool, e.g. because their chunk missed a block.
+    /// The items are expected in the order of arrival. They go ahead of everything waiting in
+    /// their groups, including items put back earlier, and keep their order among themselves.
+    /// So when several batches are put back, the newest one has to go first. An item that is in
+    /// the pool already, e.g. because it was submitted again, is moved to the front with the
+    /// others.
+    ///
+    /// The items are admitted one by one in this order, like `insert` does. An item that does not
+    /// fit is refused, and a smaller one after it may still fit. Returns the number of items that
+    /// were added or are already present. An item that is in the batch more than once counts
+    /// each time, like its first copy.
+    ///
+    /// Each group is rebuilt once, so the time is proportional to the number of items in the
+    /// batch and in the groups they go to, and does not grow with the product of the two.
+    pub(crate) fn reintroduce_items(
         &mut self,
-        item: &T,
-        place: impl FnOnce(PoolKey, &mut VecDeque<T>, T),
-    ) -> bool {
-        let key = item.group_id().key(&self.key_seed);
-        let item_hash = item.hash();
-        let Some(group) = self.groups.get_mut(&key) else { return false };
-        let Some(index) = group.iter().position(|pooled| pooled.hash() == item_hash) else {
-            return false;
-        };
-        let pooled = group.remove(index).expect("the index was just found");
-        place(key, group, pooled);
-        true
+        items: impl IntoIterator<Item = T>,
+        size_limit: Option<u64>,
+    ) -> usize {
+        // What happened to each distinct item of the batch, so that its repeats get the same.
+        let mut results: HashMap<CryptoHash, InsertTransactionResult> = HashMap::new();
+        // The items to put at the front of each group, in the order of arrival.
+        let mut fronts: HashMap<PoolKey, Vec<T>> = HashMap::new();
+        // The items that were in the pool already: their old copies leave their groups.
+        let mut moved: HashMap<PoolKey, HashSet<CryptoHash>> = HashMap::new();
+        let mut reintroduced = 0;
+        for item in items {
+            let item_hash = item.hash();
+            if let Some(result) = results.get(&item_hash) {
+                reintroduced += usize::from(*result != InsertTransactionResult::NoSpaceLeft);
+                continue;
+            }
+            let result = self.admit(&item, size_limit);
+            results.insert(item_hash, result);
+            if result == InsertTransactionResult::NoSpaceLeft {
+                continue;
+            }
+            reintroduced += 1;
+            let key = item.group_id().key(&self.key_seed);
+            if result == InsertTransactionResult::Duplicate {
+                moved.entry(key).or_default().insert(item_hash);
+            }
+            fronts.entry(key).or_default().push(item);
+        }
+
+        for (key, items) in fronts {
+            let group = self.groups.entry(key).or_default();
+            if let Some(hashes) = moved.get(&key) {
+                group.retain(|pooled| !hashes.contains(&pooled.hash()));
+            }
+            items.into_iter().rev().for_each(|item| group.push_front(item));
+        }
+        self.update_metrics();
+        reintroduced
     }
 
     /// Removes the items with given hashes from the pool. Each of them comes with the group it

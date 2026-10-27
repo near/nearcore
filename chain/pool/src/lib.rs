@@ -17,7 +17,7 @@ pub mod types;
 // TODO(ecc): consider making this configurable
 const ECC_SIZE_SHARE_DIVISOR: u64 = 2;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InsertTransactionResult {
     /// Transaction was successfully inserted.
     Success,
@@ -210,6 +210,8 @@ pub struct PoolIteratorWrapper<'a> {
     signed: GroupedPoolIterator<'a, ValidatedTransaction>,
     eccs: GroupedPoolIterator<'a, ValidatedEcc>,
     /// Whether the next group is taken from the signed transactions first.
+    // TODO(ecc): take the groups of the two kinds in the ratio of the ECCs' share of a chunk, once
+    // the producer packs ECCs. Alternating is right for the placeholder share of half.
     signed_turn: bool,
 }
 
@@ -815,14 +817,23 @@ mod tests {
         let label = "test_metrics_follow_the_pool";
         let count = metrics::TRANSACTION_POOL_COUNT.with_label_values(&[label]);
         let size = metrics::TRANSACTION_POOL_SIZE.with_label_values(&[label]);
+        let ecc_count = metrics::ECC_POOL_COUNT.with_label_values(&[label]);
+        let ecc_size = metrics::ECC_POOL_SIZE.with_label_values(&[label]);
         let mut pool = TransactionPool::new(TEST_SEED, None, label);
         assert_eq!((count.get(), size.get()), (0, 0));
+        assert_eq!((ecc_count.get(), ecc_size.get()), (0, 0));
 
         let txs = (1..=4).map(|nonce| alice_tx(nonce, 1)).collect::<Vec<_>>();
         for tx in txs.clone() {
             pool.insert_transaction(tx);
         }
         let tx_size = txs[0].wire_size() as i64;
+        assert_eq!((count.get(), size.get()), (4, 4 * tx_size));
+        // An ECC moves the gauges of the ECCs, and only them.
+        let eccs = [ecc("a.near", 1, 8), ecc("a.near", 2, 8), ecc("b.near", 1, 8)];
+        let ecc_wire_size = eccs[0].get_size() as i64;
+        insert_all(&mut pool, eccs.clone());
+        assert_eq!((ecc_count.get(), ecc_size.get()), (3, 3 * ecc_wire_size));
         assert_eq!((count.get(), size.get()), (4, 4 * tx_size));
 
         // Take one transaction out for good, the rest returns to the pool.
@@ -831,13 +842,25 @@ mod tests {
             next_signed(&mut iter).unwrap().next().unwrap();
         }
         assert_eq!((count.get(), size.get()), (3, 3 * tx_size));
+        assert_eq!((ecc_count.get(), ecc_size.get()), (3, 3 * ecc_wire_size));
 
         pool.remove_transactions(&to_envelopes(&[txs[3].clone().into_signed_tx()]));
         assert_eq!((count.get(), size.get()), (2, 2 * tx_size));
+        pool.remove_transactions(&[to_envelope(&eccs[0])]);
+        assert_eq!((count.get(), size.get()), (2, 2 * tx_size));
+        assert_eq!((ecc_count.get(), ecc_size.get()), (2, 2 * ecc_wire_size));
 
         // Taking everything and exhausting the groups updates them too.
         drain_hashes(&mut pool);
         assert_eq!((count.get(), size.get()), (0, 0));
+        assert_eq!((ecc_count.get(), ecc_size.get()), (0, 0));
+
+        // Putting transactions back updates them too.
+        let batch: Vec<ValidatedTransactionEnvelope> =
+            vec![txs[0].clone().into(), eccs[0].clone().into(), eccs[1].clone().into()];
+        assert_eq!(pool.reintroduce_transactions(batch), 3);
+        assert_eq!((count.get(), size.get()), (1, tx_size));
+        assert_eq!((ecc_count.get(), ecc_size.get()), (2, 2 * ecc_wire_size));
     }
 
     /// Removing transactions that are not in the pool changes nothing.
@@ -1179,7 +1202,7 @@ mod tests {
 
     /// The ECCs count against the limit of the signed transactions.
     #[test]
-    fn test_signed_transactions_leave_room_for_eccs() {
+    fn test_eccs_take_room_from_signed_transactions() {
         let transactions = signed_txs("alice.near", 1, 10);
         let tx_size = transactions[0].wire_size();
         let ecc_size = ecc("a.near", 0, 8).get_size();

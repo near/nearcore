@@ -52,6 +52,8 @@ pub trait PoolItem: Sized {
     fn hash(&self) -> CryptoHash;
 
     /// The size that counts against the size limit of the pool.
+    // TODO(ecc): this is the size on the wire, not the memory the item takes. A small ECC takes
+    // about 6 times its wire size in memory, against about 2 times for a signed transaction.
     fn size(&self) -> u64;
 
     fn group_id(&self) -> GroupId<'_>;
