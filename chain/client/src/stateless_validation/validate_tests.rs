@@ -96,7 +96,7 @@ fn v2_witness_with_height_mismatch_is_rejected() {
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer.as_ref()
+        signer.as_ref(),
     ));
 
     // The signed anchor matches the genesis parent's prev hash (the default value), so
@@ -181,7 +181,7 @@ fn v2_witness_parent_absent_accepted_only_at_anchor_offset() {
             CongestionInfo::default(),
             BandwidthRequests::empty(),
             None,
-            witness_signer
+            witness_signer,
         ));
         VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
             epoch_id,
@@ -308,7 +308,7 @@ fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer.as_ref()
+        signer.as_ref(),
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
@@ -368,7 +368,7 @@ fn v2_witness_with_anchor_mismatch_is_rejected() {
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer.as_ref()
+        signer.as_ref(),
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
@@ -433,7 +433,7 @@ fn v2_witness_with_default_anchor_above_genesis_plus_one_is_rejected() {
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer.as_ref()
+        signer.as_ref(),
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(

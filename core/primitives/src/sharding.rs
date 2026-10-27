@@ -1549,7 +1549,7 @@ impl ShardChunkWithEncoding {
             congestion_info,
             bandwidth_requests,
             proposed_split,
-            signer
+            signer,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let shard_chunk = ShardChunk::new(

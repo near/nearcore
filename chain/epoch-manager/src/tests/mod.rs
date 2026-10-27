@@ -3309,7 +3309,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
             Default::default(),
             BandwidthRequests::empty(),
             None,
-            signer
+            signer,
         ))
     }
 }

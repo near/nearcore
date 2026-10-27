@@ -613,7 +613,7 @@ pub fn get_fake_next_block_chunk_headers(
                 CongestionInfo::default(),
                 BandwidthRequests::empty(),
                 None,
-                signer
+                signer,
             ))
         }
     }

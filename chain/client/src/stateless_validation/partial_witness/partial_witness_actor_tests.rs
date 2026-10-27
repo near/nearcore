@@ -156,7 +156,7 @@ fn build_v2_witness(
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer
+        signer,
     ));
     VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
         epoch_id,

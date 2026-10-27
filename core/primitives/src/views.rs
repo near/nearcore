@@ -3223,11 +3223,11 @@ mod tests {
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::transaction::{
         EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
+    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_crypto::InMemorySigner;

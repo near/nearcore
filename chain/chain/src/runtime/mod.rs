@@ -974,9 +974,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.size_for_limits())
-                    > size_limit as u64
-                {
+                if total_size.saturating_add(tx_peek.size_for_limits()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }

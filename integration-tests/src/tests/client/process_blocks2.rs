@@ -164,7 +164,7 @@ fn test_bad_shard_id() {
             congestion_info,
             chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             None,
-            &validator_signer
+            &validator_signer,
         )
     };
     modified_chunk.height_included = 2;
@@ -307,7 +307,7 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         congestion_info,
         chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         None,
-        &validator_signer
+        &validator_signer,
     );
     modified_chunk_header.height_included = 2;
 

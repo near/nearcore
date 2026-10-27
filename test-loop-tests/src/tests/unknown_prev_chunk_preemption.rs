@@ -37,7 +37,7 @@ fn make_unknown_prev_chunk(height: BlockHeight, shard_id: ShardId) -> PartialEnc
         Default::default(),
         BandwidthRequests::empty(),
         None,
-        &signer
+        &signer,
     ));
     PartialEncodedChunk::V2(PartialEncodedChunkV2 {
         header,

@@ -1443,7 +1443,7 @@ pub fn test_chunk_header(
         CongestionInfo::default(),
         BandwidthRequests::empty(),
         None,
-        signer
+        signer,
     ))
 }
 
