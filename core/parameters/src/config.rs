@@ -99,7 +99,8 @@ impl RuntimeConfig {
 
     /// How many ECCs a chunk with the given gas limit may hold. Each one counts as
     /// `max_gas_burnt_external`, the most a run of it may burn, and all of them together may count
-    /// for half of the chunk's gas limit. It is zero before ECCs, when nothing may be burnt.
+    /// for half of the chunk's gas limit. It is zero before ECCs, when nothing may be burnt, and
+    /// in a config that makes everything free, where a run may burn any amount.
     pub fn max_eccs_per_chunk(&self, chunk_gas_limit: Gas) -> u64 {
         // TODO(ecc): replace with the real share once it is picked
         const ECC_CHUNK_GAS_SHARE_DIVISOR: u64 = 2;

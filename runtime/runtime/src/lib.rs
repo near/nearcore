@@ -188,7 +188,7 @@ pub struct ApplyState {
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Gas limit for a given chunk.
-    /// If None is given, assumes there is no gas limit.
+    /// If None is given, assumes there is no gas limit, and no limit of the ECCs in the chunk.
     pub gas_limit: Option<Gas>,
     /// Current random seed (from current block vrf output).
     pub random_seed: CryptoHash,
@@ -1991,6 +1991,20 @@ impl Runtime {
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
+        // A chunk holds ECCs only up to a limit, which its producer keeps to as well. Apply keeps
+        // to it under Spice too, where the producers pack no ECCs yet. Without a gas limit of the
+        // chunk, as in views and tools, there is none.
+        let max_eccs = processing_state
+            .apply_state
+            .gas_limit
+            .filter(|_| ProtocolFeature::ExternalContractCalls.enabled(protocol_version))
+            .map(|gas_limit| processing_state.apply_state.config.max_eccs_per_chunk(gas_limit));
+        let (maybe_expired_txs, _) =
+            signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        // Decided before anything is read from the state, so that nothing is read for them.
+        let skipped = find_skipped_transactions(maybe_expired_txs, max_eccs);
+        let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
+
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
                 let (maybe_expired_txs, tx_expiration_flags) =
@@ -2041,9 +2055,12 @@ impl Runtime {
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
 
-                maybe_expired_txs.par_iter().zip(tx_expiration_flags.par_iter()).for_each(
-                    |(tx, non_expired)| {
-                        if !non_expired {
+                maybe_expired_txs
+                    .par_iter()
+                    .zip(tx_expiration_flags.par_iter())
+                    .zip(skipped.par_iter())
+                    .for_each(|((tx, non_expired), skipped)| {
+                        if !non_expired || *skipped {
                             return;
                         }
                         let tx = match tx {
@@ -2079,26 +2096,15 @@ impl Runtime {
                                 },
                             );
                         }
-                    },
-                );
+                    });
                 (accounts, access_keys, gas_key_nonces)
             },
         );
 
-        let (maybe_expired_txs, _) =
-            signed_txs.get_potentially_expired_transactions_and_expiration_flags();
-        let mut seen_tx_hashes = HashSet::with_capacity(num_transactions);
-        let mut num_skipped_duplicate_txs = 0;
-        for (envelope, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
-            // A transaction hash is its outcome id, and outcomes are committed
-            // keyed by that id. Processing the same hash twice would commit two
-            // conflicting outcomes under one id, so skip any repeat occurrence.
-            if !seen_tx_hashes.insert(*envelope.hash()) {
-                tracing::debug!(
-                    tx_hash = ?envelope.hash(),
-                    "skipping duplicate transaction in chunk"
-                );
-                num_skipped_duplicate_txs += 1;
+        for ((envelope, maybe_validation_error), skipped) in
+            maybe_expired_txs.iter().zip(validations).zip(skipped)
+        {
+            if skipped {
                 continue;
             }
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
@@ -2368,9 +2374,7 @@ impl Runtime {
                 .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });
         }
 
-        debug_assert!(
-            processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
-        );
+        debug_assert!(processing_state.outcomes.len() == num_transactions - num_skipped_txs);
 
         processing_state
             .metrics
@@ -2982,6 +2986,32 @@ impl ApplyState {
         let computed = result?;
         Ok(computed)
     }
+}
+
+/// Finds the transactions that apply skips, with no outcome. A transaction hash is its outcome id,
+/// and outcomes are committed keyed by that id, so processing the same hash twice would commit
+/// two conflicting outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the
+/// limit of the chunk, if there is one. Each ECC counts toward it, whether it is valid or not.
+fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>) -> Vec<bool> {
+    let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
+    let mut num_eccs = 0;
+    txs.iter()
+        .map(|tx| {
+            if !seen_tx_hashes.insert(*tx.hash()) {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+                return true;
+            }
+            if !matches!(tx, TransactionEnvelope::Unsigned(_)) {
+                return false;
+            }
+            if max_eccs.is_some_and(|max_eccs| num_eccs >= max_eccs) {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping ECC past the limit of the chunk");
+                return true;
+            }
+            num_eccs += 1;
+            false
+        })
+        .collect()
 }
 
 /// Checks an external contract call before it runs: it passed validation, and its contract
