@@ -4,6 +4,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -14,11 +15,13 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::transaction::EccTransaction;
+use near_primitives::sharding::ChunkHash;
+use near_primitives::transaction::{EccTransaction, ExecutionStatus};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::TxExecutionStatus;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 fn ecc(contract_id: &AccountId) -> EccTransaction {
@@ -237,4 +240,78 @@ fn test_rpc_without_the_shard_forwards_ecc_unchecked() {
 
     let response = env.rpc_node().process_tx(EccTransaction::new(nobody, vec![]), false);
     assert_eq!(response, ProcessTxResponse::RequestRouted);
+}
+
+/// The chunks, from `from_height` on, that hold the ECC with the given hash. A chunk that a block
+/// has again because its shard missed a chunk counts once.
+fn chunks_with_ecc(
+    node: &TestLoopNode,
+    ecc_hash: CryptoHash,
+    from_height: u64,
+) -> HashSet<ChunkHash> {
+    let chain = &node.client().chain;
+    (from_height..=node.head().height)
+        .filter_map(|height| chain.get_block_by_height(height).ok())
+        .flat_map(|block| node.block_chunks(&block))
+        .filter(|chunk| chunk.to_transactions().iter().any(|tx| tx.get_hash() == ecc_hash))
+        .map(|chunk| chunk.chunk_hash().clone())
+        .collect()
+}
+
+/// An ECC sent to an RPC node that produces no chunks lands in a chunk of its contract's shard,
+/// once, and apply records a failed outcome for it.
+#[test]
+fn test_ecc_lands_in_a_chunk() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+
+    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let ecc_hash = ecc.get_hash();
+    assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+
+    let included_at = env.rpc_runner().run_until_included(&[ecc_hash]);
+    let outcome = env.rpc_runner().run_until_outcome_available(ecc_hash, Duration::seconds(10));
+    assert_matches!(outcome.outcome_with_id.outcome.status, ExecutionStatus::Failure(_));
+
+    // Nothing packs it again once a block has it.
+    env.rpc_runner().run_for_number_of_blocks(5);
+    assert_eq!(chunks_with_ecc(&env.rpc_node(), ecc_hash, included_at).len(), 1);
+}
+
+/// A contract gets one ECC per chunk, so the ECCs to it that wait go into the following chunks,
+/// in the order they came.
+#[test]
+fn test_eccs_to_one_contract_land_in_separate_chunks_in_order() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+
+    let eccs = [1, 2, 3].map(|tag| EccTransaction::new(contract_id.clone(), vec![tag]));
+    let hashes = eccs.each_ref().map(EccTransaction::get_hash);
+    for ecc in eccs {
+        assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+    }
+
+    let heights = hashes.map(|hash| env.rpc_runner().run_until_included(&[hash]));
+
+    assert!(heights[0] < heights[1] && heights[1] < heights[2], "heights: {heights:?}");
+    env.rpc_runner().run_for_number_of_blocks(5);
+    for hash in hashes {
+        assert_eq!(chunks_with_ecc(&env.rpc_node(), hash, heights[0]).len(), 1);
+    }
 }

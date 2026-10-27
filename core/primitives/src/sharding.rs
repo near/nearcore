@@ -5,7 +5,7 @@ use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::TransactionEnvelope;
 #[cfg(feature = "solomon")]
-use crate::transaction::ValidatedTransaction;
+use crate::transaction::ValidatedTransactionEnvelope;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -1510,7 +1510,7 @@ impl ShardChunkWithEncoding {
         gas_limit: Gas,
         prev_balance_burnt: Balance,
         prev_validator_proposals: Vec<ValidatorStake>,
-        validated_txs: Vec<ValidatedTransaction>,
+        validated_txs: Vec<ValidatedTransactionEnvelope>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
@@ -1520,15 +1520,12 @@ impl ShardChunkWithEncoding {
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the producer packs them
-        let signed_txs = validated_txs
-            .into_iter()
-            .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
-            .collect();
-        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
+        let txs =
+            validated_txs.into_iter().map(ValidatedTransactionEnvelope::into_envelope).collect();
+        let transaction_receipt = TransactionReceipt(txs, prev_outgoing_receipts);
         let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
-        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
+        let TransactionReceipt(txs, prev_outgoing_receipts) = transaction_receipt;
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
@@ -1552,11 +1549,8 @@ impl ShardChunkWithEncoding {
             signer,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
-        let shard_chunk = ShardChunk::new(
-            encoded_shard_chunk.cloned_header(),
-            signed_txs,
-            prev_outgoing_receipts,
-        );
+        let shard_chunk =
+            ShardChunk::new(encoded_shard_chunk.cloned_header(), txs, prev_outgoing_receipts);
         (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
     }
 
@@ -1565,22 +1559,19 @@ impl ShardChunkWithEncoding {
         prev_block_hash: CryptoHash,
         height: u64,
         shard_id: ShardId,
-        validated_txs: Vec<ValidatedTransaction>,
+        validated_txs: Vec<ValidatedTransactionEnvelope>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the producer packs them
-        let signed_txs = validated_txs
-            .into_iter()
-            .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
-            .collect();
-        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
+        let txs =
+            validated_txs.into_iter().map(ValidatedTransactionEnvelope::into_envelope).collect();
+        let transaction_receipt = TransactionReceipt(txs, prev_outgoing_receipts);
         let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
-        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
+        let TransactionReceipt(txs, prev_outgoing_receipts) = transaction_receipt;
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
@@ -1595,11 +1586,8 @@ impl ShardChunkWithEncoding {
             signer,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
-        let shard_chunk = ShardChunk::new(
-            encoded_shard_chunk.cloned_header(),
-            signed_txs,
-            prev_outgoing_receipts,
-        );
+        let shard_chunk =
+            ShardChunk::new(encoded_shard_chunk.cloned_header(), txs, prev_outgoing_receipts);
         (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
     }
 
