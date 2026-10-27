@@ -9,6 +9,7 @@ use crate::config::{
     total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::external_call::run_external_call;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
@@ -118,6 +119,7 @@ mod contract_preparation;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod external_call;
 mod function_call;
 mod global_contracts;
 pub mod metrics;
@@ -2149,35 +2151,12 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    let verified = verify_ecc(
-                        &processing_state.apply_state,
+                    process_external_call(
+                        processing_state,
                         &accounts,
                         ecc,
                         maybe_validation_error,
-                    );
-                    let err = match verified {
-                        // TODO(ecc): execute external contract calls:
-                        // - run the method with `ExecutionMode::External { fee_gas:
-                        //   cost.gas_burnt }` and the contract's balance;
-                        // - if the contract accepts the call, charge `cost.burnt_amount` plus
-                        //   the cost of the gas the call used, at the same gas price, from the
-                        //   balance the call leaves, and reject the call with
-                        //   `NotEnoughBalance` if it falls short. The VM doesn't deal with the
-                        //   cost of the gas at all, so this check is what makes the contract
-                        //   pay;
-                        // - record the fees and the gas of the call in the outcome.
-                        // Until then, every call is rejected and pays nothing.
-                        Ok(_cost) => InvalidTxError::InvalidTransactionVersion,
-                        Err(RuntimeError::InvalidTxError(err)) => err,
-                        Err(err) => return Err(err),
-                    };
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    let outcome_id = create_ecc_outcome_id(
-                        ecc.hash(),
-                        processing_state.apply_state.block_height,
-                    );
-                    let outcome = ExecutionOutcomeWithId::failed_ecc(outcome_id, ecc, err);
-                    processing_state.outcomes.push(outcome);
+                    )?;
                     continue;
                 }
             };
@@ -3030,6 +3009,80 @@ impl ApplyState {
         let computed = result?;
         Ok(computed)
     }
+}
+
+/// Runs an external contract call and records its outcome.
+///
+/// A call that fails `verify_ecc` is refused without running. Otherwise the contract's reserved
+/// method runs. If the contract accepts the call, the run's writes are committed and the
+/// contract's account (both in the chunk's working copy `accounts` and in the trie) is charged.
+/// If it refuses, the writes are rolled back and nobody pays. Either way the run counts toward
+/// the chunk's gas and compute.
+fn process_external_call(
+    processing_state: &mut ApplyProcessingReceiptState,
+    accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
+    ecc: &EccTransaction,
+    validation_error: Option<InvalidTxError>,
+) -> Result<(), RuntimeError> {
+    let apply_state = processing_state.apply_state;
+    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    let cost = match verify_ecc(apply_state, accounts, ecc, validation_error) {
+        Ok(cost) => cost,
+        Err(RuntimeError::InvalidTxError(err)) => {
+            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+            let outcome = ExecutionOutcomeWithId::failed_ecc(outcome_id, ecc, err);
+            processing_state.outcomes.push(outcome);
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
+    // TODO(ecc): enforce the per-chunk limits on external calls: refuse a call, without running
+    // it, once the chunk's calls exceed the allowed count or the state they read together
+    // exceeds its budget.
+
+    // Read and update the contract's account through the chunk's working copy, which signed
+    // transactions later in the chunk start from. Otherwise a later transaction from the
+    // contract would overwrite the charge and the storage usage of an accepted call.
+    let contract_id = ecc.contract_id();
+    let mut entry = accounts.get_mut(contract_id).expect("accounts should've been prefetched");
+    let account = entry
+        .as_mut()
+        .ok()
+        .and_then(Option::as_mut)
+        .expect("verify_ecc checked that the contract exists");
+
+    // Every signed transaction commits its changes or makes none, so the only uncommitted
+    // changes a rollback discards are the run's.
+    debug_assert_eq!(processing_state.state_update.prospective_len(), 0);
+    let run = run_external_call(
+        &mut processing_state.state_update,
+        apply_state,
+        processing_state.epoch_info_provider,
+        account,
+        ecc,
+        &outcome_id,
+        &cost,
+    )?;
+    // The run counts toward the chunk's limits even if the call is refused.
+    processing_state.total.add(run.gas_burnt.as_gas(), run.compute_usage)?;
+    match run.verdict {
+        Ok(charge) => {
+            set_account(&mut processing_state.state_update, contract_id.clone(), account);
+            processing_state
+                .state_update
+                .commit(StateChangeCause::TransactionProcessing { tx_hash: outcome_id });
+            processing_state.stats.balance.tx_burnt_amount =
+                safe_add_balance(processing_state.stats.balance.tx_burnt_amount, charge)?;
+            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+        }
+        Err(_) => {
+            processing_state.state_update.rollback();
+            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+        }
+    }
+    let outcome = run.into_outcome(outcome_id, ecc, account, apply_state);
+    processing_state.outcomes.push(outcome);
+    Ok(())
 }
 
 /// Checks an external contract call before it runs: it passed validation, and its contract

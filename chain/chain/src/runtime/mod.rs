@@ -930,6 +930,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
+        // TODO(ecc): stop packing external calls once the chunk reaches the per-chunk limits on
+        // their count and on the state they read together, the same limits apply enforces.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;

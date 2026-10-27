@@ -433,7 +433,7 @@ pub(crate) fn execute_function_call(
 /// For local and global contracts, verifies the contract exists in the trie
 /// and records its code hash for distribution to validators. Built-in wallet
 /// contracts and absent contracts are skipped.
-fn record_contract_call(
+pub(crate) fn record_contract_call(
     state_update: &TrieUpdate,
     contract_id: &RuntimeContractIdentifier,
     apply_reason: &ApplyChunkReason,

@@ -1083,6 +1083,29 @@ impl ExecutionOutcomeWithId {
         }
     }
 
+    /// The outcome of an ECC refused after its method ran. Nobody pays for the run, so no
+    /// tokens are burnt, but its gas is still reported so that the run counts toward the chunk's
+    /// gas.
+    pub fn refused_ecc(
+        id: CryptoHash,
+        transaction: &EccTransaction,
+        error: TxExecutionError,
+        gas_burnt: Gas,
+        compute_usage: Compute,
+    ) -> Self {
+        Self {
+            id,
+            outcome: ExecutionOutcome {
+                executor_id: transaction.contract_id().clone(),
+                status: ExecutionStatus::Failure(error),
+                gas_burnt,
+                compute_usage: Some(compute_usage),
+                tokens_burnt: Balance::ZERO,
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn failed_with_gas_burnt(
         transaction: &SignedTransaction,
         error: InvalidTxError,
