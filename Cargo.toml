@@ -371,7 +371,7 @@ wiremock = "0.6.5"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
-zstd = { version = "0.13.1", features = ["zstdmt"] }
+zstd = { version = "0.14.3", features = ["zstdmt"] }
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
