@@ -61,6 +61,11 @@ impl EpochManager {
             }
             Ok(genesis_epoch_info)
         } else {
+            // For post-prod-genesis chains (custom chains, localnet, nightly test
+            // configs) the authoritative shard layout is `genesis_shard_layout()`
+            // on the chain config - the pre-dynamic-resharding
+            // `static_shard_layout()` guard has been removed with the
+            // `DynamicResharding` feature cleanup.
             proposals_to_epoch_info(
                 &genesis_epoch_config,
                 [0; 32],

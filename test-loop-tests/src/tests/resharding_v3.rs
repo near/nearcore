@@ -370,11 +370,10 @@ fn get_base_shard_layout() -> ShardLayout {
     ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
 }
 
-/// Asserts the stickiness invariants of `ProtocolFeature::StickyReshardingValidatorAssignment`:
-/// every shard in `new_layout` that already existed in `prev_layout` keeps at least
-/// one of its previous chunk producers, and every shard in `new_layout` that is a
-/// child of a split parent inherits at least one of the parent's previous chunk
-/// producers.
+/// Asserts the sticky-resharding invariants: every shard in `new_layout` that
+/// already existed in `prev_layout` keeps at least one of its previous chunk
+/// producers, and every shard in `new_layout` that is a child of a split parent
+/// inherits at least one of the parent's previous chunk producers.
 ///
 /// The check is skipped when the post-resharding assignment is in the
 /// `assign_to_satisfy_shards` path (taken when

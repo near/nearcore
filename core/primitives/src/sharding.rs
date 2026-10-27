@@ -601,7 +601,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V1(_) => false,
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
-                ShardChunkHeaderInner::V4(_) => true,
+                ShardChunkHeaderInner::V4(_) => false,
                 ShardChunkHeaderInner::V5(_) => true,
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
             },
