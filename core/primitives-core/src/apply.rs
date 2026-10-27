@@ -1,3 +1,4 @@
+use crate::hash::CryptoHash;
 use std::fmt::{Display, Formatter};
 
 /// Indicates the phase of block production the apply-chunk operation is invoked.
@@ -31,4 +32,15 @@ impl Display for ApplyChunkReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(self.as_str())
     }
+}
+
+/// The previous block, as the chunk producer saw it when building the chunk.
+/// External calls see this block instead of the one the chunk is applied in,
+/// so that they run with the same values when the producer runs them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PrevBlockContext {
+    /// The previous block's timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub timestamp: u64,
+    /// The previous block's random value.
+    pub random_seed: CryptoHash,
 }
