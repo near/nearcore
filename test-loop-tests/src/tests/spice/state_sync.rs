@@ -50,9 +50,15 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_header_proves_the_post_state_root() {
+    const SHARDS_COUNT: usize = 2;
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(2, 0).epoch_length(10).build();
+    let mut env = TestLoopBuilder::new()
+        .validators(2, 0)
+        .num_shards(SHARDS_COUNT)
+        .track_all_shards()
+        .epoch_length(10)
+        .build();
 
     let genesis_height = env.node(0).client().chain.genesis().height();
     env.node_runner(0).run_until_certified(genesis_height + 25);
@@ -67,7 +73,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
         .expect("the head epoch must have a sync hash by now");
     let sync_header = chain.get_block_header(&sync_hash).unwrap();
     let shard_ids = node.client().epoch_manager.shard_ids(sync_header.epoch_id()).unwrap();
-    assert!(!shard_ids.is_empty());
+    assert_eq!(shard_ids.len(), SHARDS_COUNT);
 
     for shard_id in shard_ids {
         let response = chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
