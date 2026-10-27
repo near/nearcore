@@ -666,7 +666,7 @@ impl ChainStateSyncAdapter {
         // committed by a later block, and only a descendant's commitment says anything about
         // the chain the node is syncing to.
         let certifying_header = self.chain_store.get_block_header(certifying_block_hash)?;
-        if !self.descends_from_sync_block(&certifying_header, &sync_hash)? {
+        if !self.is_final_descendant_of_sync_block(&certifying_header, &sync_hash)? {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: certifying block does not follow the sync block".into(),
@@ -728,30 +728,35 @@ impl ChainStateSyncAdapter {
         Ok(())
     }
 
-    /// Whether `header` sits above `sync_hash` on the same chain, walking back from it. The
-    /// walk is short because a chunk is certified within a few blocks of the one carrying it.
-    ///
-    /// This does not require the block to be on the canonical chain, which the node cannot
-    /// tell during state sync. It does not have to: a fork descending from the sync block
-    /// could only commit a different execution result for the same chunk if two thirds of the
-    /// validators endorsed two results for it.
-    fn descends_from_sync_block(
+    /// Whether `header` is final and is descendant of `sync_hash`.
+    pub(super) fn is_final_descendant_of_sync_block(
         &self,
         header: &BlockHeader,
         sync_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        let sync_height = self.chain_store.get_block_header(sync_hash)?.height();
-        let mut hash = *header.hash();
-        loop {
-            let header = self.chain_store.get_block_header(&hash)?;
-            if header.height() <= sync_height {
-                return Ok(false);
-            }
-            hash = *header.prev_hash();
-            if &hash == sync_hash {
-                return Ok(true);
-            }
+        let sync_header = self.chain_store.get_block_header(sync_hash)?;
+        if header.height() <= sync_header.height() {
+            return Ok(false);
         }
+
+        let header_head = self.chain_store.header_head()?;
+        let last_final_block =
+            *self.chain_store.get_block_header(&header_head.last_block_hash)?.last_final_block();
+        let final_height = self.chain_store.get_block_header(&last_final_block)?.height();
+        if header.height() > final_height {
+            return Ok(false);
+        }
+
+        Ok(self.is_on_current_chain(&sync_header)? && self.is_on_current_chain(header)?)
+    }
+
+    /// Returns if given block header is on the current chain.
+    ///
+    /// This is done by fetching header by height and checking that it's the
+    /// same one as provided.
+    fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let chain_header = self.chain_store.get_block_header_by_height(header.height())?;
+        Ok(chain_header.hash() == header.hash())
     }
 
     pub fn set_state_part(
