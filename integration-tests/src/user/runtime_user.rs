@@ -204,6 +204,7 @@ impl RuntimeUser {
             gas_price: self.gas_price,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),

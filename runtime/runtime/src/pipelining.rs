@@ -339,7 +339,8 @@ impl ReceiptPreparationPipeline {
             account_id,
             account,
             state_update,
-            function_call,
+            &function_call.method_name,
+            function_call.gas,
             // TODO(ecc): Make speculative preparation work for ECC
             &ExecutionMode::Internal,
             access,

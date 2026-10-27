@@ -295,6 +295,7 @@ fn get_chunk_application_input(
             apply_reason,
             block_context: ApplyChunkBlockContext::from_header(
                 block.header(),
+                prev_block.header(),
                 block.header().next_gas_price(),
                 block.block_congestion_info(),
                 block.block_bandwidth_requests(),
@@ -305,6 +306,8 @@ fn get_chunk_application_input(
     } else {
         let chunk_extra =
             read_chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+        let prev_block_header =
+            read_chain_store.get_block_header(block.header().prev_hash()).unwrap();
 
         if matches!(storage, StorageSource::Recorded) {
             return ApplicationInputOrSkip::Skip(SkipReason::MissingChunkCantUseRecorded);
@@ -318,6 +321,7 @@ fn get_chunk_application_input(
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_context: ApplyChunkBlockContext::from_header(
                 block.header(),
+                &prev_block_header,
                 block.header().next_gas_price(),
                 block.block_congestion_info(),
                 block.block_bandwidth_requests(),

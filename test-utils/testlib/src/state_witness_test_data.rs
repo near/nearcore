@@ -85,6 +85,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         block_timestamp: 100,
         gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
+        prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         next_wasm_config: None,

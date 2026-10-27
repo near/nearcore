@@ -9,7 +9,7 @@ use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::apply::ApplyChunkReason;
+use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -371,11 +371,14 @@ pub struct ApplyChunkBlockContext {
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
+    /// The previous block, which external calls see instead of this one.
+    pub prev_block: PrevBlockContext,
 }
 
 impl ApplyChunkBlockContext {
     pub fn from_header(
         header: &BlockHeader,
+        prev_header: &BlockHeader,
         gas_price: Balance,
         congestion_info: BlockCongestionInfo,
         bandwidth_requests: BlockBandwidthRequests,
@@ -389,6 +392,7 @@ impl ApplyChunkBlockContext {
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
+            prev_block: prev_block_context(prev_header),
         }
     }
 
@@ -399,6 +403,15 @@ impl ApplyChunkBlockContext {
             block_timestamp: self.block_timestamp,
             random_seed: self.random_seed,
         }
+    }
+}
+
+/// The context external calls see of `prev_header`, the block before the one the chunk is
+/// applied in.
+pub fn prev_block_context(prev_header: &BlockHeader) -> PrevBlockContext {
+    PrevBlockContext {
+        timestamp: prev_header.raw_timestamp(),
+        random_seed: *prev_header.random_value(),
     }
 }
 
@@ -721,7 +734,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_async::time::{Clock, Utc};
+    use crate::Chain;
+    use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
@@ -762,6 +776,49 @@ mod tests {
             .approvals(approvals)
             .build();
         b2.header().verify_block_producer(&signer.public_key());
+    }
+
+    /// External calls see the previous block's timestamp and random value, while the rest of the
+    /// chunk sees the block it is applied in.
+    #[test]
+    fn test_apply_chunk_block_context_prev_block() {
+        let shard_ids = vec![ShardId::new(0)];
+        let genesis_chunks = genesis_chunks(
+            vec![Trie::EMPTY_ROOT],
+            vec![Default::default()],
+            &shard_ids,
+            Gas::from_gas(1_000_000),
+            0,
+            PROTOCOL_VERSION,
+        );
+        let genesis = genesis_block(
+            PROTOCOL_VERSION,
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
+            Utc::now_utc(),
+            0,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
+            &vec![],
+        );
+        let clock = FakeClock::default();
+        let signer = Arc::new(create_test_signer("other"));
+        let prev_block =
+            TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
+        clock.advance(Duration::seconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev_block, signer).build();
+        assert_ne!(block.header().raw_timestamp(), prev_block.header().raw_timestamp());
+        assert_ne!(block.header().random_value(), prev_block.header().random_value());
+
+        let context = Chain::get_apply_chunk_block_context(&block, prev_block.header(), true);
+        assert_eq!(context.block_timestamp, block.header().raw_timestamp());
+        assert_eq!(context.random_seed, *block.header().random_value());
+        assert_eq!(
+            context.prev_block,
+            PrevBlockContext {
+                timestamp: prev_block.header().raw_timestamp(),
+                random_seed: *prev_block.header().random_value(),
+            }
+        );
     }
 
     #[test]

@@ -113,6 +113,7 @@ impl StandaloneRuntime {
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             next_wasm_config: None,

@@ -154,18 +154,18 @@ contract pays for the gas, so there is no `attached_gas` and the
   `max_total_prepaid_gas`.
 
 The contract pays for all the gas the call uses from its balance, at the gas
-price of the call: the gas it burns, the gas attached to function calls, and
-the execution fees of all actions and receipts. As in other calls, the VM only
-counts the gas against the fixed limits above; the runtime charges the
-contract after the call, and rejects the call if the balance can't pay. A
-rejected call pays nothing, so the VM doesn't need to stop a call as soon as
-the balance runs out: the call can't do more unpaid work than any call the
-contract rejects. While the call runs, its balance is the real balance of the
-contract, which it can spend on deposits and transfers; if it doesn't leave
-enough to pay for the fees and the gas, the call is rejected. This is the same
-way storage staking is checked after a call. A promise gets
-exactly the gas it was created with: unspent gas is not distributed by weight,
-because there is no prepaid gas to distribute.
+price of the block, the price signed transactions in the chunk pay: the gas it
+burns, the gas attached to function calls, and the execution fees of all
+actions and receipts. As in other calls, the VM only counts the gas against
+the fixed limits above; the runtime charges the contract after the call, and
+rejects the call if the balance can't pay. A rejected call pays nothing, so
+the VM doesn't need to stop a call as soon as the balance runs out: the call
+can't do more unpaid work than any call the contract rejects. While the call
+runs, its balance is the real balance of the contract, which it can spend on
+deposits and transfers; if it doesn't leave enough to pay for the fees and the
+gas, the call is rejected. This is the same way storage staking is checked
+after a call. A promise gets exactly the gas it was created with: unspent gas
+is not distributed by weight, because there is no prepaid gas to distribute.
 
 Before the method runs, the call burns the fees of a self-addressed function
 call with the same method name and input: receipt creation, the function call
@@ -177,6 +177,17 @@ fees are about 8 Tgas. The contract must be able to afford the fees, or the
 call is rejected before any contract code is loaded. Like the rest of the
 call, the fees are charged after the call, and only if the contract accepts
 it.
+
+A rejected call pays nothing, but it isn't free for the chunk. The gas it
+burnt, fees included, counts toward the chunk's gas limit, and its outcome
+reports that gas with no tokens burnt, so the chunk's gas used, and through it
+the next gas price, account for the work. A call rejected before any contract
+code runs burns nothing. An accepted call's fees and gas are burnt; the
+contract gets no reward for them (see [Contract Reward](#contract-reward)),
+since it would only be paying itself.
+
+For now, a call that creates a promise or resumes a yielded one is rejected:
+external calls can't create receipts yet. This will be resolved in future work on this feature.
 
 ### Contract Reward
 

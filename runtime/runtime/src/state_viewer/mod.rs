@@ -10,7 +10,7 @@ use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
-use near_primitives::apply::ApplyChunkReason;
+use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -460,6 +460,7 @@ impl TrieViewer {
             block_timestamp: view_state.block_timestamp,
             gas_limit: None,
             random_seed: root,
+            prev_block: PrevBlockContext::default(),
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
             next_wasm_config: None,
@@ -494,7 +495,8 @@ impl TrieViewer {
             contract_id,
             &account,
             &state_update,
-            &function_call,
+            &function_call.method_name,
+            function_call.gas,
             &execution_mode,
             AccessOptions::DEFAULT,
             apply_state.current_protocol_version,
