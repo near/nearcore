@@ -60,7 +60,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -871,7 +871,7 @@ impl T1MessageBody {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum T2MessageBody {
-    ForwardTx(SignedTransaction) = 0,
+    ForwardTx(TransactionEnvelope) = 0,
     TxStatusRequest(AccountId, CryptoHash) = 1,
     TxStatusResponse(Box<FinalExecutionOutcomeView>) = 2,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 3,
@@ -954,7 +954,7 @@ impl T2MessageBody {
 #[repr(u8)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval) = 0,
-    ForwardTx(SignedTransaction) = 1,
+    ForwardTx(TransactionEnvelope) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,

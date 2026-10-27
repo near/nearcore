@@ -95,7 +95,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, ShardId, TransactionOrReceiptId,
 };
@@ -958,7 +958,7 @@ impl JsonRpcHandler {
     }
 
     fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> CryptoHash {
-        let tx = request_data.signed_transaction;
+        let tx = request_data.transaction;
         let hash = tx.get_hash();
         self.process_tx_sender.send(ProcessTxRequest {
             transaction: tx,
@@ -1150,7 +1150,7 @@ impl JsonRpcHandler {
     /// invalid, or `Ok(())` when it is valid or we cannot check it (we only have its hash).
     async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
         let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
-        match self.send_tx_internal(tx.clone(), true).await {
+        match self.send_tx_internal(tx.clone().into(), true).await {
             Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),
             _ => Ok(()),
         }
@@ -1158,15 +1158,15 @@ impl JsonRpcHandler {
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
     /// any new side-effects and the result will be the same unless we garbage collected it
-    /// already).
+    /// already). An ECC has no nonce to tell a repeat by, so only the pool drops a copy of it,
+    /// for as long as the first one is still pooled.
     async fn send_tx_internal(
         &self,
-        tx: SignedTransaction,
+        tx: TransactionEnvelope,
         check_only: bool,
-    ) -> Result<ProcessTxResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError>
-    {
+    ) -> Result<ProcessTxResponse, RpcTransactionError> {
         let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id().clone();
+        let signer_account_id = tx.as_signed().map(|tx| tx.transaction.signer_id().clone());
         let response = self
             .process_tx_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
@@ -1175,12 +1175,11 @@ impl JsonRpcHandler {
 
         // If we receive InvalidNonce error, it might be the case that the transaction was
         // resubmitted, and we should check if that is the case and return ValidTx response to
-        // maintain idempotence of the send_tx method.
-        if let ProcessTxResponse::InvalidTx(
-            near_primitives::errors::InvalidTxError::InvalidNonce { .. },
-        ) = response
+        // maintain idempotence of the send_tx method. An ECC has no nonce.
+        if let ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. }) = response
+            && let Some(signer_account_id) = &signer_account_id
         {
-            if self.tx_exists(tx_hash, &signer_account_id).await? {
+            if self.tx_exists(tx_hash, signer_account_id).await? {
                 return Ok(ProcessTxResponse::ValidTx);
             }
         }
@@ -1190,11 +1189,8 @@ impl JsonRpcHandler {
 
     async fn send_tx(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
+        request_data: RpcSendTransactionRequest,
+    ) -> Result<RpcTransactionResponse, RpcTransactionError> {
         metrics::report_wait_until_metric("send_tx", &request_data.wait_until);
 
         if request_data.wait_until == TxExecutionStatus::None {
@@ -1204,21 +1200,27 @@ impl JsonRpcHandler {
                 final_execution_status: TxExecutionStatus::None,
             });
         }
-        let tx = request_data.signed_transaction;
+        let tx = request_data.transaction;
         match self.send_tx_internal(tx.clone(), false).await? {
             ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
+                // `tx` cannot look up an ECC yet, so there is nothing to wait on.
+                // TODO(ecc): once `tx` finds an ECC by its hash, poll it with `tx_status_fetch`
+                // here until `wait_until`, as for a signed transaction.
+                let Some(signed_tx) = tx.into_signed() else {
+                    return Ok(RpcTransactionResponse {
+                        final_execution_outcome: None,
+                        final_execution_status: TxExecutionStatus::None,
+                    });
+                };
                 self.tx_status_fetch(
-                    near_jsonrpc_primitives::types::transactions::TransactionInfo::from_signed_tx(tx.clone()),
+                    TransactionInfo::from_signed_tx(signed_tx),
                     request_data.wait_until,
                     false,
-                ).await
-            }
-            network_client_response=> {
-                Err(
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                        network_client_response
-                    )
                 )
+                .await
+            }
+            network_client_response => {
+                Err(RpcTransactionError::from_network_client_responses(network_client_response))
             }
         }
     }
@@ -1231,7 +1233,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         self.send_tx(RpcSendTransactionRequest {
-            signed_transaction: request_data.signed_transaction,
+            transaction: request_data.transaction,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
         })
         .await

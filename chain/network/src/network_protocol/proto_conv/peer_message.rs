@@ -617,7 +617,7 @@ mod tests {
             author: data::make_peer_id(&mut rng),
             signature: Signature::empty(KeyType::ED25519),
             ttl: 5,
-            body: RoutedMessageBody::ForwardTx(data::make_signed_transaction(&mut rng)),
+            body: RoutedMessageBody::ForwardTx(data::make_signed_transaction(&mut rng).into()),
         };
         let proto = proto::PeerMessage {
             message_type: Some(ProtoMT::Routed(proto::RoutedMessage {
@@ -666,7 +666,7 @@ mod tests {
 
         let mut rng = make_rng(89028037453);
         let tx = data::make_signed_transaction(&mut rng);
-        let body = TieredMessageBody::T2(Box::new(T2MessageBody::ForwardTx(tx)));
+        let body = TieredMessageBody::T2(Box::new(T2MessageBody::ForwardTx(tx.into())));
         let msg = PeerMessage::Routed(Box::new(data::make_routed_message(&mut rng, body)));
         let proto: proto::PeerMessage = (&msg).into();
         PeerMessage::try_from(&proto).expect("normally-sized routed message must decode");
@@ -685,5 +685,29 @@ mod tests {
             "unexpected error variant: {err:?}"
         );
         assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
+    }
+
+    /// A signed transaction is forwarded in the very bytes it was before ECCs, and an ECC, which
+    /// starts with a byte no signed transaction starts with, goes through a routed message too.
+    #[test]
+    fn forward_tx_encoding() {
+        use crate::network_protocol::{RoutedMessageBody, T2MessageBody};
+        use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
+
+        let mut rng = make_rng(89028037453);
+        let signed_tx = data::make_signed_transaction(&mut rng);
+        let signed_bytes = borsh::to_vec(&signed_tx).unwrap();
+        let encode = |body: &T2MessageBody| borsh::to_vec(body).unwrap();
+        let expected = [&[0u8][..], &signed_bytes].concat();
+        assert_eq!(encode(&T2MessageBody::ForwardTx(signed_tx.clone().into())), expected);
+        let routed = RoutedMessageBody::ForwardTx(signed_tx.into());
+        assert_eq!(borsh::to_vec(&routed).unwrap(), [&[1u8][..], &signed_bytes].concat());
+
+        let ecc: TransactionEnvelope =
+            EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]).into();
+        let body = TieredMessageBody::T2(Box::new(T2MessageBody::ForwardTx(ecc)));
+        let msg = PeerMessage::Routed(Box::new(data::make_routed_message(&mut rng, body)));
+        let proto: proto::PeerMessage = (&msg).into();
+        assert_eq!(PeerMessage::try_from(&proto).unwrap(), msg);
     }
 }

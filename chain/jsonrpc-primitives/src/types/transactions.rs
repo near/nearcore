@@ -5,8 +5,9 @@ use serde_json::Value;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcSendTransactionRequest {
+    /// A signed transaction, or an external contract call (ECC).
     #[serde(rename = "signed_tx_base64")]
-    pub signed_transaction: near_primitives::transaction::SignedTransaction,
+    pub transaction: near_primitives::transaction::TransactionEnvelope,
     #[serde(default)]
     pub wait_until: near_primitives::views::TxExecutionStatus,
 }
