@@ -982,6 +982,38 @@ pub fn record_uncertified_chunks_for_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<BlockHeight, Error> {
+    let prev_uncertified_chunks =
+        get_uncertified_chunks(chain_store_update.chain_store(), block.header().prev_hash())?;
+    let (uncertified_chunks, certification_lag) = advance_uncertified_chunks(
+        chain_store_update.chain_store(),
+        epoch_manager,
+        block,
+        prev_uncertified_chunks,
+    )?;
+
+    metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
+
+    let mut store_update = chain_store_update.chain_store().store_ref().store_update();
+    store_update.insert_ser(
+        DBCol::uncertified_chunks(),
+        block.header().hash().as_ref(),
+        &uncertified_chunks,
+    );
+    chain_store_update.merge(store_update);
+
+    Ok(certification_lag)
+}
+
+/// The uncertified chunks `block` leaves behind, given its parent's, and the certification lag.
+///
+/// Drops the chunks `block` certifies, credits the endorsements it carries against the rest,
+/// then appends its own chunks, one per shard, awaiting that shard's validator assignment.
+fn advance_uncertified_chunks(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    prev_uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+) -> Result<(Vec<SpiceUncertifiedChunkInfo>, BlockHeight), Error> {
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
     let mut block_endorsements: HashMap<
@@ -996,12 +1028,11 @@ pub fn record_uncertified_chunks_for_block(
     }
 
     let prev_hash = block.header().prev_hash();
-    let mut uncertified_chunks =
-        get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    let mut uncertified_chunks = prev_uncertified_chunks;
     // A pre-spice parent is a last pre-spice block, whose own postprocessing seeded its
     // row with one entry per shard. An empty row means the parent was committed without
     // the seeding; recording on top of it would leave its chunks uncertified for good.
-    let prev_header = chain_store_update.chain_store().get_block_header(prev_hash)?;
+    let prev_header = chain_store.get_block_header(prev_hash)?;
     if !prev_header.is_genesis() && !prev_header.is_spice() && uncertified_chunks.is_empty() {
         return Err(Error::Other(format!(
             "missing seeded uncertified chunks of last pre-spice block {prev_hash}"
@@ -1029,10 +1060,7 @@ pub fn record_uncertified_chunks_for_block(
             !chunk_info.missing_endorsements.is_empty()
                 || is_fallback_only_chunk(
                     epoch_manager,
-                    chain_store_update
-                        .chain_store()
-                        .get_block_header(&chunk_info.chunk_id.block_hash)?
-                        .as_ref(),
+                    chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?.as_ref(),
                     chunk_info.chunk_id.shard_id
                 )?,
             "chunk holding every designated endorsement should have been certified"
@@ -1061,10 +1089,8 @@ pub fn record_uncertified_chunks_for_block(
     // one, so its designated validators can act from this block on. Computed before this block's
     // own chunks are added: they are the oldest only when nothing carries over, and this block's
     // header is not in the store yet.
-    let oldest_uncertified_header = find_oldest_uncertified_block_header(
-        chain_store_update.chain_store(),
-        &uncertified_chunks,
-    )?;
+    let oldest_uncertified_header =
+        find_oldest_uncertified_block_header(chain_store, &uncertified_chunks)?;
     let certification_lag = oldest_uncertified_header
         .as_ref()
         .map_or(0, |header| block.header().height().saturating_sub(header.height()));
@@ -1103,16 +1129,7 @@ pub fn record_uncertified_chunks_for_block(
         }
     }
 
-    metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
-
-    let mut store_update = chain_store_update.chain_store().store_ref().store_update();
-    store_update.insert_ser(
-        DBCol::uncertified_chunks(),
-        block.header().hash().as_ref(),
-        &uncertified_chunks,
-    );
-    chain_store_update.merge(store_update);
-    Ok(certification_lag)
+    Ok((uncertified_chunks, certification_lag))
 }
 
 /// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty
