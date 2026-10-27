@@ -1,6 +1,7 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, total_send_fees, tx_cost};
+use crate::find_skipped_transactions;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
@@ -680,7 +681,8 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),
         Balance::ZERO,
-        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+        // Enough for an ECC, where there are ECCs.
+        Gas::from_teragas(1000),
     );
     let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
     let transfer = SignedTransaction::send_money(
@@ -728,7 +730,8 @@ fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
         vec![alice_account(), bob_account()],
         bob_balance,
         Balance::ZERO,
-        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+        // Enough for an ECC, where there are ECCs.
+        Gas::from_teragas(1000),
     );
     let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
     let apply_result = runtime
@@ -1112,6 +1115,208 @@ fn test_ecc_method_refused_in_promise() {
         &epoch_info_provider,
     );
     assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// What applying a chunk of ECCs and a transfer came to.
+struct AppliedChunk {
+    /// The ids of the outcomes, in order.
+    ids: Vec<CryptoHash>,
+    statuses: Vec<ExecutionStatus>,
+    transfer_hash: CryptoHash,
+}
+
+/// Applies a chunk of the given ECCs with a transfer among them, at position `transfer_at`.
+fn apply_chunk_of_eccs(
+    apply_state: &ApplyState,
+    eccs: Vec<EccTransaction>,
+    transfer_at: usize,
+) -> AppliedChunk {
+    let (runtime, tries, root, _, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let transfer = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        signers[0].as_ref(),
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let transfer_hash = transfer.get_hash();
+    let mut transactions = eccs.into_iter().map(TransactionEnvelope::from).collect_vec();
+    transactions.insert(transfer_at, transfer.into());
+    let num_transactions = transactions.len();
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    AppliedChunk {
+        ids: apply_result.outcomes.iter().map(|outcome| outcome.id).collect(),
+        statuses: apply_result.outcomes.iter().map(|o| o.outcome.status.clone()).collect(),
+        transfer_hash,
+    }
+}
+
+/// An apply state for the given protocol version and its config, with the given gas limit of the
+/// chunk.
+fn apply_state_at(protocol_version: ProtocolVersion, gas_limit: Option<Gas>) -> ApplyState {
+    let (_, _, _, mut apply_state, _, _) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    apply_state.gas_limit = gas_limit;
+    apply_state
+}
+
+/// An apply state at the version of ECCs, for a chunk that has room for `num_eccs` of them.
+fn apply_state_with_room_for_eccs(num_eccs: u64) -> ApplyState {
+    let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+    let config_store = RuntimeConfigStore::new();
+    let config = config_store.get_config(version);
+    // Half of the gas limit goes to ECCs, 20 Tgas each.
+    let ecc_gas = config.wasm_config.limit_config.max_gas_burnt_external;
+    let gas_limit = Gas::from_gas(2 * num_eccs * ecc_gas.as_gas());
+    assert_eq!(config.max_eccs_per_chunk(gas_limit), num_eccs);
+    apply_state_at(version, Some(gas_limit))
+}
+
+fn test_eccs(tags: &[u8]) -> Vec<EccTransaction> {
+    tags.iter().map(|tag| EccTransaction::new(bob_account(), vec![*tag])).collect()
+}
+
+fn failed_with(status: &ExecutionStatus, error: InvalidTxError) -> bool {
+    *status == ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error))
+}
+
+/// The ECCs of a chunk past the limit are skipped, with no outcome, the way a repeated hash is.
+/// The others fail with an outcome as before. Signed transactions are not counted, wherever they
+/// are in the chunk.
+#[test]
+fn test_apply_skips_eccs_past_the_limit() {
+    let apply_state = apply_state_with_room_for_eccs(2);
+    let eccs = test_eccs(&[1, 2, 3, 4]);
+    let hashes = eccs.iter().map(|ecc| ecc.get_hash()).collect_vec();
+
+    // The transfer goes first, in the middle, and last.
+    for transfer_at in [0, 2, 4] {
+        let applied = apply_chunk_of_eccs(&apply_state, eccs.clone(), transfer_at);
+
+        let mut expected = vec![hashes[0], hashes[1]];
+        expected.insert(transfer_at.min(2), applied.transfer_hash);
+        assert_eq!(applied.ids, expected, "transfer at {transfer_at}");
+        for (id, status) in applied.ids.iter().zip(&applied.statuses) {
+            if *id == applied.transfer_hash {
+                assert_matches!(status, ExecutionStatus::SuccessReceiptId(_));
+            } else {
+                assert_matches!(status, ExecutionStatus::Failure(_));
+            }
+        }
+    }
+}
+
+/// A chunk with no room for ECCs, where the gas limit is too low for even one, skips all of them.
+#[test]
+fn test_apply_skips_all_eccs_when_there_is_no_room() {
+    let apply_state = apply_state_with_room_for_eccs(0);
+
+    let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2]), 2);
+
+    assert_eq!(applied.ids, vec![applied.transfer_hash]);
+}
+
+/// Before ECCs, they fail in the validation, all of them with an outcome, and nothing is counted,
+/// even though the gas limit of the chunk would leave no room for them.
+#[test]
+fn test_apply_does_not_limit_eccs_before_the_feature() {
+    let version = ProtocolFeature::ExternalContractCalls.protocol_version() - 1;
+    let apply_state = apply_state_at(version, Some(Gas::from_teragas(1000)));
+
+    let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2, 3, 4]), 4);
+
+    assert_eq!(applied.ids.len(), 5);
+    for status in &applied.statuses[..4] {
+        assert!(failed_with(status, InvalidTxError::InvalidTransactionVersion), "{status:?}");
+    }
+}
+
+/// With no gas limit of the chunk, there is no limit of ECCs either.
+#[test]
+fn test_apply_does_not_limit_eccs_without_gas_limit() {
+    let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+    let apply_state = apply_state_at(version, None);
+
+    let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2, 3, 4]), 4);
+
+    assert_eq!(applied.ids.len(), 5);
+}
+
+/// A repeat of an ECC is skipped as a repeated hash, and does not use up the limit.
+#[test]
+fn test_apply_does_not_count_repeated_eccs() {
+    let apply_state = apply_state_with_room_for_eccs(2);
+    let eccs = test_eccs(&[1, 1, 2, 3]);
+    let hashes = eccs.iter().map(|ecc| ecc.get_hash()).collect_vec();
+
+    let applied = apply_chunk_of_eccs(&apply_state, eccs, 4);
+
+    assert_eq!(applied.ids, vec![hashes[0], hashes[2], applied.transfer_hash]);
+}
+
+/// An ECC that fails its validation counts toward the limit all the same.
+#[test]
+fn test_apply_counts_invalid_eccs() {
+    let apply_state = apply_state_with_room_for_eccs(1);
+    let max_size = apply_state.config.wasm_config.limit_config.max_transaction_size;
+    let oversized = EccTransaction::new(bob_account(), vec![0; max_size as usize + 1]);
+    let oversized_hash = oversized.get_hash();
+    let oversized_size = oversized.get_size();
+    let mut eccs = vec![oversized];
+    eccs.extend(test_eccs(&[2]));
+
+    let applied = apply_chunk_of_eccs(&apply_state, eccs, 2);
+
+    assert_eq!(applied.ids, vec![oversized_hash, applied.transfer_hash]);
+    let error = InvalidTxError::TransactionSizeExceeded { size: oversized_size, limit: max_size };
+    assert!(failed_with(&applied.statuses[0], error), "{:?}", applied.statuses[0]);
+}
+
+/// What apply skips is found before anything is read from the state: a repeat of a hash, and an
+/// ECC past the limit, which is counted without the repeats and the signed transactions.
+#[test]
+fn test_find_skipped_transactions() {
+    let signers = [alice_account()].map(|account_id| InMemorySigner::test_signer(&account_id));
+    let transfer = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &signers[0],
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let [ecc1, ecc2, ecc3] = [1, 2, 3].map(|tag| EccTransaction::new(bob_account(), vec![tag]));
+    let txs = [ecc1.clone().into(), ecc1.into(), transfer.into(), ecc2.into(), ecc3.into()];
+
+    let skipped = |max_eccs| find_skipped_transactions(&txs, max_eccs);
+
+    assert_eq!(skipped(Some(2)), vec![false, true, false, false, true]);
+    assert_eq!(skipped(Some(0)), vec![true, true, false, true, true]);
+    assert_eq!(skipped(None), vec![false, true, false, false, false]);
 }
 
 #[test]

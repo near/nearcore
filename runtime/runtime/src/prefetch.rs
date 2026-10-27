@@ -235,7 +235,8 @@ impl TriePrefetcher {
         signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            // TODO(ecc): prefetch the contract account of ECCs
+            // TODO(ecc): prefetch the contract account of ECCs, only of those within the limit of
+            // the chunk, as the others are skipped
             for t in signed_txs.iter_nonexpired_transactions().filter_map(|t| t.as_signed()) {
                 let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
