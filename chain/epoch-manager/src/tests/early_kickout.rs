@@ -6,7 +6,6 @@ use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
 use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
-#[cfg(feature = "test_features")]
 use crate::set_early_kickout_thresholds_for_testing;
 use crate::test_utils::DEFAULT_TOTAL_SUPPLY;
 use crate::test_utils::{
@@ -1439,8 +1438,14 @@ fn memoized_blacklist_matches_restarted_manager() {
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     let epoch =
         SampleEpoch { epoch_id: &epoch_id, epoch_info: &epoch_info, shard_layout: &shard_layout };
-    let (basis, basis_height) = (h[TIP as usize - 2], TIP - 2);
-    let memoized = em.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
+    let anchor = SeedAnchor {
+        hash: child,
+        height: em.get_block_info(&child).unwrap().height(),
+        final_hash: h[TIP as usize - 2],
+        final_height: TIP - 2,
+        epoch_start_height: em.get_epoch_start_height(&child).unwrap(),
+    };
+    let memoized = em.chunk_producer_blacklist_at_anchor(&anchor, &epoch).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
     assert_eq!(memoized.blacklist.get(&shard_id), Some(&HashSet::from([0])));
 
@@ -1456,8 +1461,7 @@ fn memoized_blacklist_matches_restarted_manager() {
         "the restarted manager must recompute along a different walk"
     );
     assert!(restarted.chunk_producer_blacklists.is_empty());
-    let recomputed =
-        restarted.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
+    let recomputed = restarted.chunk_producer_blacklist_at_anchor(&anchor, &epoch).unwrap();
     assert_eq!(recomputed.blacklist, memoized.blacklist);
 
     let empty = HashSet::new();
@@ -1481,7 +1485,6 @@ fn memoized_blacklist_matches_restarted_manager() {
 
 // Forks can have final blocks at the same height with different hashes. The memo must not
 // reuse one fork's blacklist for the other.
-#[cfg(feature = "test_features")]
 #[test]
 fn memoized_blacklist_is_keyed_by_last_final_block() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
@@ -1640,11 +1643,13 @@ struct EpochSyncFixture {
     third_last: CryptoHash,
     third_last_height: u64,
     second_last_height: u64,
+    prev_epoch_start_height: u64,
+    epoch_start_height: u64,
 }
 
 impl EpochSyncFixture {
-    fn seed_anchor(&self, hash: CryptoHash) -> SeedAnchor {
-        self.seed_anchor_final_on(hash, self.third_last, self.third_last_height)
+    fn seed_anchor(&self, hash: CryptoHash, epoch_start_height: u64) -> SeedAnchor {
+        self.seed_anchor_final_on(hash, self.third_last, self.third_last_height, epoch_start_height)
     }
 
     fn seed_anchor_final_on(
@@ -1652,8 +1657,9 @@ impl EpochSyncFixture {
         hash: CryptoHash,
         final_hash: CryptoHash,
         final_height: u64,
+        epoch_start_height: u64,
     ) -> SeedAnchor {
-        SeedAnchor { hash, height: final_height + 4, final_hash, final_height }
+        SeedAnchor { hash, height: final_height + 4, final_hash, final_height, epoch_start_height }
     }
 
     fn seed(&self, anchor: &SeedAnchor, epoch_id: &EpochId) -> Result<(), EpochError> {
@@ -1745,6 +1751,8 @@ fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
         third_last,
         third_last_height,
         second_last_height,
+        prev_epoch_start_height: PREV_EPOCH_FIRST_HEIGHT,
+        epoch_start_height: PREV_EPOCH_LAST_HEIGHT + 1,
     }
 }
 
@@ -1754,7 +1762,7 @@ fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
 fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
     let fx = epoch_sync_fixture();
 
-    let anchor = fx.seed_anchor(hash(b"current epoch block"));
+    let anchor = fx.seed_anchor(hash(b"current epoch block"), fx.epoch_start_height);
     fx.seed(&anchor, &fx.epoch_id)
         .expect("cross-epoch anchor after epoch sync must seed, not error");
     assert_seeded_row_is_canonical(
@@ -1775,6 +1783,7 @@ fn seeder_recovers_from_hole_behind_in_grace_basis() {
         hash(b"prev epoch sibling final on the second-last block"),
         fx.second_last,
         fx.second_last_height,
+        fx.prev_epoch_start_height,
     );
     fx.seed(&anchor, &fx.prev_epoch_id)
         .expect("an in-grace basis must seed without walking past the basis");
@@ -1796,6 +1805,7 @@ fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
         hash(b"current epoch block final on the prev second-last block"),
         fx.second_last,
         fx.second_last_height,
+        fx.epoch_start_height,
     );
     fx.seed(&anchor, &fx.epoch_id)
         .expect("a cross-epoch basis must seed without walking past the basis");
@@ -1808,12 +1818,13 @@ fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
     );
 }
 
-// A missing same-epoch basis must fail, rather than be treated as grace.
+// A missing same-epoch basis past the start-of-epoch window must fail.
 #[test]
 fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
+    let _guard = set_early_kickout_thresholds_for_testing(None, Some(5));
     let fx = epoch_sync_fixture();
 
-    let anchor = fx.seed_anchor(hash(b"prev epoch extra block"));
+    let anchor = fx.seed_anchor(hash(b"prev epoch extra block"), fx.prev_epoch_start_height);
     let err = fx
         .seed(&anchor, &fx.prev_epoch_id)
         .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
@@ -1851,6 +1862,7 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
 // Reachable after epoch sync, where the seeder fails with `MissingBlock`.
 #[test]
 fn record_block_info_failure_does_not_poison_block_info_cache() {
+    let _guard = set_early_kickout_thresholds_for_testing(None, Some(5));
     let mut fx = epoch_sync_fixture();
 
     // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
@@ -2011,6 +2023,7 @@ fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
 // Accessor-side companion to `seeder_propagates_missing_block_info_on_same_epoch_basis`.
 #[test]
 fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
+    let _guard = set_early_kickout_thresholds_for_testing(None, Some(5));
     let fx = epoch_sync_fixture();
 
     let anchor_hash = hash(b"prev epoch extra block");
@@ -2203,14 +2216,12 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
 /// A block hash on `branch` at `height`. The branch byte is a domain separator, so
 /// sibling branches (and the shared prefix's branch 0) never collide, whatever heights
 /// they reuse across the fork.
-#[cfg(feature = "test_features")]
 fn fork_block_hash(branch: u8, height: u64) -> CryptoHash {
     hash(&[&[branch][..], &height.to_le_bytes()[..]].concat())
 }
 
 /// Shared context for the two fork tests: the epoch-0 single-shard chain they both build
 /// on, plus the genesis block they both fork from.
-#[cfg(feature = "test_features")]
 struct ForkFixture {
     handle: EpochManagerHandle,
     epoch_info: Arc<EpochInfo>,
@@ -2220,7 +2231,6 @@ struct ForkFixture {
     genesis: CryptoHash,
 }
 
-#[cfg(feature = "test_features")]
 impl ForkFixture {
     /// 3 validators so blacklisting two producers on one branch does not trip the keep-one
     /// valve; the contamination a leak would cause then shows up in the blacklist itself.
@@ -2336,7 +2346,6 @@ impl ForkFixture {
 //
 // Thresholds are lowered (10 misses past a 20-block grace) for speed; real thresholds stay
 // covered by the canonical tests.
-#[cfg(feature = "test_features")]
 #[test]
 fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
@@ -2585,7 +2594,6 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
 
 /// The persisted `DBCol::ChunkProducers` row for one anchor, alongside the samples a caller
 /// needs to judge whether the anchor discriminates a broken blacklist.
-#[cfg(feature = "test_features")]
 struct SeededRowWitness {
     chunk_height: u64,
     /// Plain height sample (what the seeder would store with no blacklist).
@@ -2596,7 +2604,6 @@ struct SeededRowWitness {
     stored: ValidatorId,
 }
 
-#[cfg(feature = "test_features")]
 impl ForkFixture {
     /// Reads the persisted `DBCol::ChunkProducers` row for `tip` and asserts it is the
     /// blacklist-aware sample and not blacklisted. The anchor height comes from `tip`'s own
@@ -2692,7 +2699,6 @@ impl ForkFixture {
 // each fork reflects that fork's own blacklist. Two branches fork at genesis and starve
 // different producers; each ends with its own single-producer blacklist, and its seeded row
 // excludes that producer at a height where the plain sampler would have picked it.
-#[cfg(feature = "test_features")]
 #[test]
 fn fork_seeded_rows_reflect_each_branch_blacklist() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
