@@ -38,14 +38,16 @@ impl GroupId<'_> {
 
 /// A kind of items that the pool can hold. The pool groups its items, and the items of a group
 /// wait in a queue with the next one to take at the front. How the items of a group are sorted is
-/// up to the kind of items.
+/// up to the kind of items. A group is only guaranteed to be in this order after `sort_group`
+/// runs: signed transactions, for example, are sorted by nonce only when their group is taken out
+/// of the pool.
 pub trait PoolItem: Sized {
     fn hash(&self) -> CryptoHash;
 
     /// The size that counts against the size limit of the pool.
     fn size(&self) -> u64;
 
-    fn group(&self) -> GroupId<'_>;
+    fn group_id(&self) -> GroupId<'_>;
 
     /// Adds a new item to its group.
     fn add_to_group(group: &mut VecDeque<Self>, item: Self);
@@ -64,7 +66,7 @@ impl PoolItem for ValidatedTransaction {
         self.wire_size()
     }
 
-    fn group(&self) -> GroupId<'_> {
+    fn group_id(&self) -> GroupId<'_> {
         GroupId::AccessKey {
             account_id: self.signer_id(),
             public_key: self.public_key(),
