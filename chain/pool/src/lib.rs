@@ -1,5 +1,5 @@
 use crate::grouped_pool::{GroupedPool, GroupedPoolIterator, PoolMetrics};
-use crate::types::{PooledGroup, TransactionGroupIterator};
+use crate::types::{PooledGroup, TransactionGroup, TransactionGroupIterator};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::transaction::{
     TransactionEnvelope, ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
@@ -205,7 +205,7 @@ impl TransactionPool {
 /// When the wrapper is dropped the remaining transactions are returned back to the pool.
 ///
 /// Groups of signed transactions and groups of ECCs alternate. If one kind runs out,
-/// the other one goes on.
+/// the other one goes on. `next_signed` takes the signed ones only.
 pub struct PoolIteratorWrapper<'a> {
     signed: GroupedPoolIterator<'a, ValidatedTransaction>,
     eccs: GroupedPoolIterator<'a, ValidatedEcc>,
@@ -246,6 +246,10 @@ impl<'a> PoolIteratorWrapper<'a> {
 }
 
 impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
+    fn next_signed(&mut self) -> Option<&mut TransactionGroup> {
+        self.signed.next()
+    }
+
     fn next(&mut self) -> Option<PooledGroup<'_>> {
         let signed_turn = self.signed_turn;
         self.signed_turn = !signed_turn;
@@ -1147,6 +1151,35 @@ mod tests {
         assert_eq!(drained, expected);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    /// `next_signed` hands out only groups of signed transactions, and never pulls a group of ECCs,
+    /// so they all are still in the pool, together with the signed transactions that were not taken.
+    #[test]
+    fn test_next_signed_leaves_eccs_alone() {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for signer_id in ["alice.near", "bob.near", "carol.near"] {
+            insert_all(&mut pool, signed_txs(signer_id, 1, 2));
+        }
+        for contract_id in ["a.near", "b.near", "c.near"] {
+            insert_all(&mut pool, (1..=2).map(|tag| ecc(contract_id, tag, 8)));
+        }
+        let size = pool.transaction_size();
+
+        let mut iter = pool.pool_iterator();
+        // A signed group first, then an ECC one.
+        assert!(matches!(iter.next(), Some(PooledGroup::Signed(_))));
+        assert!(matches!(iter.next(), Some(PooledGroup::Ecc(_))));
+        let mut signed_groups = 0;
+        while iter.next_signed().is_some() {
+            signed_groups += 1;
+        }
+        // The two that were not taken at the start.
+        assert_eq!(signed_groups, 2);
+        drop(iter);
+
+        assert_eq!(pool.len(), 12);
+        assert_eq!(pool.transaction_size(), size);
     }
 
     #[test]

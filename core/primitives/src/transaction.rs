@@ -971,6 +971,24 @@ impl ValidatedTransactionEnvelope {
             Self::Unsigned(tx) => tx.contract_id(),
         }
     }
+
+    pub fn into_envelope(self) -> TransactionEnvelope {
+        match self {
+            Self::Signed(tx) => tx.into_signed_tx().into(),
+            Self::Unsigned(tx) => tx.into_ecc().into(),
+        }
+    }
+}
+
+/// Serializes as the [`TransactionEnvelope`] it validated, so that the root of a chunk's
+/// transactions can be computed without copying them.
+impl BorshSerialize for ValidatedTransactionEnvelope {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::Signed(tx) => tx.to_signed_tx().serialize(writer),
+            Self::Unsigned(tx) => tx.to_ecc().serialize(writer),
+        }
+    }
 }
 
 impl From<ValidatedTransaction> for ValidatedTransactionEnvelope {
@@ -1252,6 +1270,7 @@ pub struct ExecutionOutcomeWithProof {
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+    use crate::merkle::merklize;
     use crate::universal_state_init::UniversalStateInitV1;
     use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
@@ -1579,6 +1598,34 @@ mod tests {
             };
             assert_eq!(validated_tx.into_signed_tx(), signed_tx);
         }
+    }
+
+    /// The root of a chunk's transactions is computed over the validated ones, and has to be the
+    /// root over the envelopes that go into the chunk.
+    #[test]
+    fn test_validated_envelope_serializes_as_the_envelope() {
+        let config = RuntimeConfig::test();
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let envelopes = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain([TransactionEnvelope::from(test_ecc())])
+            .collect::<Vec<_>>();
+
+        let validated = envelopes
+            .iter()
+            .map(|envelope| {
+                ValidatedTransactionEnvelope::new(&config, envelope.clone(), feature_version)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        for (envelope, validated) in envelopes.iter().zip(&validated) {
+            assert_eq!(borsh::to_vec(validated).unwrap(), borsh::to_vec(envelope).unwrap());
+        }
+        assert_eq!(merklize(&validated), merklize(&envelopes));
+        let back = validated.into_iter().map(ValidatedTransactionEnvelope::into_envelope);
+        assert_eq!(back.collect::<Vec<_>>(), envelopes);
     }
 
     #[test]

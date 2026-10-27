@@ -8,6 +8,10 @@ use std::collections::VecDeque;
 /// The order of the transaction groups is round robin scheduling.
 pub trait TransactionGroupIterator {
     fn next(&mut self) -> Option<PooledGroup<'_>>;
+
+    /// The next group of signed transactions. Groups of ECCs are left alone, in the pool, for a
+    /// caller that has no room for more of them.
+    fn next_signed(&mut self) -> Option<&mut TransactionGroup>;
 }
 
 /// A hash of the group's identity (e.g. an AccountId and a PublicKey, or the AccountId of a

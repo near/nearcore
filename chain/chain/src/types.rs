@@ -425,8 +425,8 @@ pub struct ApplyChunkShardContext<'a> {
 /// and prepared for adding them to a new chunk that is being produced.
 #[derive(Debug, Clone)]
 pub struct PreparedTransactions {
-    /// Prepared transactions
-    pub transactions: Vec<ValidatedTransaction>,
+    /// Prepared transactions, signed and ECCs, in the order they were taken from the pool
+    pub transactions: Vec<ValidatedTransactionEnvelope>,
     /// Describes what limited the number of prepared transactions.
     pub limited_by: PrepareTransactionsLimit,
 }
@@ -443,7 +443,7 @@ impl PreparedTransactions {
 /// Transactions that were taken out of the pool in prepare_transactions,
 /// but should be skipped because they were in skip_tx_hashes.
 #[derive(Debug, Clone)]
-pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+pub struct SkippedTransactions(pub Vec<ValidatedTransactionEnvelope>);
 
 /// Result of checking pending transaction queue admission for a transaction.
 #[derive(Debug, PartialEq, Eq)]
@@ -493,6 +493,8 @@ pub struct PrepareTransactionsBlockContext {
     pub next_epoch_id: EpochId,
     /// Congestion info from the previous block
     pub congestion_info: BlockCongestionInfo,
+    /// Gas limit of the chunk the transactions are prepared for
+    pub gas_limit: Gas,
 }
 
 impl PrepareTransactionsBlockContext {
@@ -500,6 +502,7 @@ impl PrepareTransactionsBlockContext {
         prev_block: &Block,
         epoch_manager: &dyn EpochManagerAdapter,
         congestion_info: BlockCongestionInfo,
+        gas_limit: Gas,
     ) -> Result<Self, Error> {
         let header = prev_block.header();
         Ok(Self {
@@ -507,6 +510,7 @@ impl PrepareTransactionsBlockContext {
             height: header.height(),
             next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
             congestion_info,
+            gas_limit,
         })
     }
 }
@@ -599,7 +603,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// * `skip_tx_hashes` - defines which transactions should be skipped. Used to skip transactions
     ///   that were included in previous chunks but weren't removed from the pool yet. These
     ///   transactions will still be taken out of the pool and should be reintroduced together with
-    ///   PreparedTransactions.
+    ///   PreparedTransactions, after them: an ECC that is skipped was in the pool ahead of the one
+    ///   that is prepared for the same contract, and it has to stay ahead of it.
     /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that

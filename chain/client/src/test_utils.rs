@@ -20,7 +20,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::transaction::ValidatedTransaction;
+use near_primitives::transaction::{ValidatedTransaction, ValidatedTransactionEnvelope};
 use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -180,12 +180,9 @@ pub fn create_chunk(
             .unwrap()
             .unwrap();
     let mut encoded_chunk = chunk.into_parts().1;
-    let signed_txs = validated_txs
-        .iter()
-        .cloned()
-        .map(|validated_tx| validated_tx.into_signed_tx())
-        .collect::<Vec<_>>();
-    let tx_root = merklize(&signed_txs).0;
+    let validated_txs =
+        validated_txs.into_iter().map(ValidatedTransactionEnvelope::from).collect_vec();
+    let tx_root = merklize(&validated_txs).0;
 
     // reconstruct the chunk with changes
     {

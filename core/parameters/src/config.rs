@@ -96,6 +96,17 @@ impl RuntimeConfig {
     pub fn storage_amount_per_byte(&self) -> Balance {
         self.fees.storage_usage_config.storage_amount_per_byte
     }
+
+    /// How many ECCs a chunk with the given gas limit may hold. Each one counts as
+    /// `max_gas_burnt_external`, the most a run of it may burn, and all of them together may count
+    /// for half of the chunk's gas limit. It is zero before ECCs, when nothing may be burnt.
+    pub fn max_eccs_per_chunk(&self, chunk_gas_limit: Gas) -> u64 {
+        // TODO(ecc): replace with the real share once it is picked
+        const ECC_CHUNK_GAS_SHARE_DIVISOR: u64 = 2;
+        let ecc_gas = self.wasm_config.limit_config.max_gas_burnt_external.as_gas();
+        let ecc_budget = chunk_gas_limit.as_gas() / ECC_CHUNK_GAS_SHARE_DIVISOR;
+        ecc_budget.checked_div(ecc_gas).unwrap_or(0)
+    }
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -313,5 +324,26 @@ impl BandwidthSchedulerConfig {
             max_allowance: one_tb,
             max_base_bandwidth: one_tb,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RuntimeConfigStore;
+    use near_primitives_core::version::ProtocolFeature;
+
+    #[test]
+    fn test_max_eccs_per_chunk() {
+        let store = RuntimeConfigStore::new();
+        let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = store.get_config(version);
+        // Half of the gas limit, 20 Tgas for each.
+        assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(1000)), 25);
+        assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(80)), 2);
+        assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(39)), 0);
+        // Before ECCs a run burns nothing, so there is nothing to divide by.
+        let config = store.get_config(version - 1);
+        assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(1000)), 0);
     }
 }
