@@ -1102,25 +1102,12 @@ fn advance_uncertified_chunks(
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
     uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
     for shard_id in shard_layout.shard_ids() {
-        let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
-            block.header().epoch_id(),
+        uncertified_chunks.push(new_uncertified_chunk_info(
+            epoch_manager,
+            block.header(),
             shard_id,
-            block.header().height(),
-        )?;
-
-        let missing_endorsements = chunk_validator_assignments
-            .assignments()
-            .iter()
-            .map(|(account_id, _)| account_id)
-            .cloned()
-            .collect();
-        uncertified_chunks.push(SpiceUncertifiedChunkInfo {
-            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id },
-            missing_endorsements,
-            present_endorsements: Vec::new(),
-            present_fallback_endorsements: Vec::new(),
-            certifiable_since_height: None,
-        });
+            /*certifiable_since_height=*/ None,
+        )?);
     }
 
     for chunk_info in &mut uncertified_chunks {
@@ -1237,23 +1224,12 @@ fn certified_chunks_outside_window(
                 continue;
             }
             let header = chain_store.get_block_header(&chunk_id.block_hash)?;
-            let assignments = epoch_manager.get_chunk_validator_assignments(
-                header.epoch_id(),
+            chunks.push(new_uncertified_chunk_info(
+                epoch_manager,
+                &header,
                 chunk_id.shard_id,
-                header.height(),
-            )?;
-            chunks.push(SpiceUncertifiedChunkInfo {
-                chunk_id: chunk_id.clone(),
-                missing_endorsements: assignments
-                    .assignments()
-                    .iter()
-                    .map(|(account_id, _)| account_id)
-                    .cloned()
-                    .collect(),
-                present_endorsements: Vec::new(),
-                present_fallback_endorsements: Vec::new(),
-                certifiable_since_height: None,
-            });
+                /*certifiable_since_height=*/ None,
+            )?);
         }
     }
     Ok(chunks)
@@ -1507,4 +1483,31 @@ pub fn get_last_certified_block_header(
         );
         Ok(header)
     }
+}
+
+/// An entry for `header`'s chunk of `shard_id` with no endorsements credited yet: every
+/// endorsement its validator assignment designates is missing.
+pub(crate) fn new_uncertified_chunk_info(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+    shard_id: ShardId,
+    certifiable_since_height: Option<BlockHeight>,
+) -> Result<SpiceUncertifiedChunkInfo, Error> {
+    let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
+        header.epoch_id(),
+        shard_id,
+        header.height(),
+    )?;
+    Ok(SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId { block_hash: *header.hash(), shard_id },
+        missing_endorsements: chunk_validator_assignments
+            .assignments()
+            .iter()
+            .map(|(account_id, _)| account_id)
+            .cloned()
+            .collect(),
+        present_endorsements: Vec::new(),
+        present_fallback_endorsements: Vec::new(),
+        certifiable_since_height,
+    })
 }

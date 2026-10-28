@@ -7,12 +7,14 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{ShardId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
 use std::collections::HashSet;
+
+use crate::spice::core::new_uncertified_chunk_info;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
@@ -118,30 +120,14 @@ pub(crate) fn boundary_uncertified_chunks(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-    let epoch_id = header.epoch_id();
-    let height = header.height();
-    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-    let mut uncertified_chunks = Vec::with_capacity(shard_layout.num_shards() as usize);
-    for shard_id in shard_layout.shard_ids() {
-        let chunk_validator_assignments =
-            epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)?;
-        let missing_endorsements = chunk_validator_assignments
-            .assignments()
-            .iter()
-            .map(|(account_id, _)| account_id)
-            .cloned()
-            .collect();
-        uncertified_chunks.push(SpiceUncertifiedChunkInfo {
-            chunk_id: SpiceChunkId { block_hash: *header.hash(), shard_id },
-            missing_endorsements,
-            present_endorsements: Vec::new(),
-            present_fallback_endorsements: Vec::new(),
-            // The block before the last pre-spice block is pre-spice, certified by
-            // definition, so the designated validators can act right away.
-            certifiable_since_height: Some(height),
-        });
-    }
-    Ok(uncertified_chunks)
+    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
+
+    shard_layout
+        .shard_ids()
+        .map(|shard_id| {
+            new_uncertified_chunk_info(epoch_manager, header, shard_id, Some(header.height()))
+        })
+        .collect()
 }
 
 /// Writes the `DBCol::uncertified_chunks` row of the last pre-spice block `header`.
