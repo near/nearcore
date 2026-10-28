@@ -13,7 +13,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 #[derive(Clone)]
 pub struct EpochStoreAdapter {
@@ -72,8 +71,6 @@ impl EpochStoreAdapter {
     }
 
     pub fn get_compressed_epoch_sync_proof(&self) -> Option<CompressedEpochSyncProof> {
-        // Use this function only when ProtocolFeature::ContinuousEpochSync is enabled
-        assert!(ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION));
         let proof = self.store.caching_get_ser::<CompressedEpochSyncProof>(
             DBCol::EpochSyncProof,
             COMPRESSED_EPOCH_SYNC_PROOF_KEY,
@@ -83,20 +80,11 @@ impl EpochStoreAdapter {
 
     /// Slightly expensive function, decodes the compressed epoch sync proof
     pub fn get_epoch_sync_proof(&self) -> Result<Option<EpochSyncProofV1>, EpochError> {
-        // It's fine to check ProtocolFeature::ContinuousEpochSync against PROTOCOL_VERSION here
-        // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            if let Some(proof) = self.get_compressed_epoch_sync_proof() {
-                let (decoded_proof, _) = proof.decode()?;
-                Ok(Some(decoded_proof.into_v1()))
-            } else {
-                Ok(None)
-            }
+        if let Some(proof) = self.get_compressed_epoch_sync_proof() {
+            let (decoded_proof, _) = proof.decode()?;
+            Ok(Some(decoded_proof.into_v1()))
         } else {
-            Ok(self
-                .store
-                .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-                .map(|proof| proof.into_v1()))
+            Ok(None)
         }
     }
 }
@@ -170,19 +158,13 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {
-        // It's fine to check ProtocolFeature::ContinuousEpochSync against PROTOCOL_VERSION here
-        // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            let (compressed_proof, _) = CompressedEpochSyncProof::encode(proof).unwrap();
-            self.store_update.set_ser(
-                DBCol::EpochSyncProof,
-                COMPRESSED_EPOCH_SYNC_PROOF_KEY,
-                &compressed_proof,
-            );
-            let compressed_proof_size = compressed_proof.size_bytes() as i64;
-            metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(compressed_proof_size);
-        } else {
-            self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof);
-        }
+        let (compressed_proof, _) = CompressedEpochSyncProof::encode(proof).unwrap();
+        self.store_update.set_ser(
+            DBCol::EpochSyncProof,
+            COMPRESSED_EPOCH_SYNC_PROOF_KEY,
+            &compressed_proof,
+        );
+        let compressed_proof_size = compressed_proof.size_bytes() as i64;
+        metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(compressed_proof_size);
     }
 }

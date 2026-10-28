@@ -31,7 +31,7 @@ fn make_witness(
 ) -> VersionedPartialEncodedStateWitness {
     let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
     let prev_prev_block_hash = CryptoHash::hash_bytes(b"prev_prev_block");
-    let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
+    let chunk_header = test_chunk_header(prev_block_hash, signer);
 
     VersionedPartialEncodedStateWitness::new(
         test_epoch_id(),
@@ -195,7 +195,7 @@ fn test_coexistence_v1_and_v2_both_accepted() {
 fn test_from_partial_encoded_state_witness() {
     let signer = test_signer();
     let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-    let chunk_header = test_chunk_header(prev_block_hash, &signer, pre_kickout_version());
+    let chunk_header = test_chunk_header(prev_block_hash, &signer);
     let v1 = PartialEncodedStateWitness::new(
         test_epoch_id(),
         chunk_header,

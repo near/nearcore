@@ -14,86 +14,13 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
-    DynamicResharding,
-    GasKeys,
-    /// Meta transactions with gas key support via `Action::DelegateV2`.
-    /// Note: Later disabled by `RejectDelegateV2`.
-    DelegateV2,
-    /// Fix missing early return on DepositWithFunctionCall error path in
-    /// validate_delegate_action_key. Previously the error could be
-    /// overwritten by a subsequent receiver_id or method_name check.
-    FixDelegateActionDepositWithFunctionCallError,
     Spice,
-    ContinuousEpochSync,
-    /// Fix `action_delete_account` not subtracting the global contract
-    /// identifier storage usage. Previously only local contract code was
-    /// subtracted, overstating storage usage for accounts with global
-    /// contracts and making them marginally harder to delete.
-    FixDeleteAccountGlobalContractStorageUsage,
-    /// Skip transactions whose hash already appeared earlier in the same chunk.
-    /// A transaction hash is also its outcome id, and outcomes are committed
-    /// (via the chunk outcome root) keyed by that id. Including a transaction
-    /// twice would otherwise commit two conflicting outcomes (a success and an
-    /// InvalidNonce failure) under one id.
-    UniqueChunkTransactions,
-    /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
-    /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
-    /// (sequential ordering). Transactions with a nonce gap are held in the
-    /// pool rather than discarded.
-    StrictNonce,
     /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
-    /// Extend the existing sticky chunk-producer-to-shard assignment to
-    /// resharding boundaries. Previously stickiness was keyed by
-    /// `ShardIndex`, which is unstable across a shard layout change; switch
-    /// to keying by `ShardId`, and when a shard splits distribute the
-    /// parent's chunk producers across its child shards using greedy
-    /// stake-balanced bin-packing. Reduces unnecessary state sync after
-    /// resharding.
-    StickyReshardingValidatorAssignment,
-    /// Add FIPS 204 ML-DSA-65 (post-quantum) as a third transaction signature
-    /// scheme alongside ed25519 and secp256k1. Pre-feature blocks reject any
-    /// transaction or `AddKey` action carrying an ML-DSA-65 key/signature, so
-    /// post-feature there is no question of grandfathered keys.
-    PostQuantumSignatures,
-    /// Allow creating `DeterministicStateInitAction` from a delegated action by
-    /// fixing the receiver id check.
-    FixDelegatedDeterministicStateInit,
     /// Fix same-chunk calls to a just-distributed global contract by recording the deploy.
     GlobalContractSameChunkCallFix,
-    /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
-    /// per-action `Vec<AccountContract>`: one entry per action in the
-    /// receipt, recording the contract attached to the receiver account
-    /// immediately before that action ran. Captured unconditionally for
-    /// every action kind (not just `FunctionCall`), so consumers can see
-    /// what code an account had even on receipts that did not invoke a
-    /// contract. `AccountContract::None` is emitted when the account has
-    /// no contract deployed, when it did not yet exist (e.g. the
-    /// `CreateAccount` slot that materialized it), or for unexecuted
-    /// trailing slots padded after a mid-receipt failure. Order matches
-    /// the receipt's `actions` vector. This is relevant when the receiver
-    /// account and the contract source diverge — e.g. global contracts
-    /// and `UseGlobalContract` flows. Wire format changes (new borsh
-    /// discriminant), so the cutover must be coordinated across the
-    /// network.
-    ExecutionMetadataV4,
-    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
-    /// that allow contracts to provide a custom yield ID for yield/resume.
-    YieldWithId,
-    /// Increase account creation cost
-    AccountCostIncrease,
-    /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
-    /// state when validating received block headers.
-    ValidateBlockOrdinalAndEpochSyncDataHash,
-    /// Authenticate `ContractCodeResponse` messages with a chunk-producer
-    /// signature, matching the signed-message pattern already used by
-    /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
-    /// `ContractCodeResponseV2` (with a signed inner payload); receivers
-    /// require a verifiable signature before processing the response.
-    SignedContractCodeResponse,
-    ClampOutgoingGasAdmission,
     /// Charge the contract-loading fee (and finalize as a gas-bearing abort
     /// rather than a zero-gas nop) when a compiled module fails to load at
     /// `Module::deserialize`.
@@ -175,23 +102,6 @@ impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
-            | ProtocolFeature::FixDelegatedDeterministicStateInit
-            | ProtocolFeature::GasKeys
-            | ProtocolFeature::ContinuousEpochSync
-            | ProtocolFeature::DynamicResharding
-            | ProtocolFeature::StickyReshardingValidatorAssignment
-            | ProtocolFeature::StrictNonce
-            | ProtocolFeature::PostQuantumSignatures
-            | ProtocolFeature::UniqueChunkTransactions
-            | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
-            | ProtocolFeature::YieldWithId
-            | ProtocolFeature::ExecutionMetadataV4
-            | ProtocolFeature::SignedContractCodeResponse
-            | ProtocolFeature::ClampOutgoingGasAdmission
-            | ProtocolFeature::AccountCostIncrease
-            | ProtocolFeature::DelegateV2 => 85,
             ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
             ProtocolFeature::FixContractLoadingError => 87,
             ProtocolFeature::RejectEmptyMethodName => 87,
@@ -234,7 +144,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 84;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 /// Returns the effective protocol version to use for processing a request.
 ///

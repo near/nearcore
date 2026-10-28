@@ -19,7 +19,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_vm_runner::ContractCode;
 use std::collections::{BTreeMap, HashSet};
@@ -34,9 +34,6 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
 
     // The fix only works with V3 shard layouts (dynamic resharding).
     // With static resharding, the shard layout doesn't maintain a full split history.
-    if !ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let epoch_length: BlockHeightDelta = 10;
     let base_boundary_accounts = create_account_ids(["user2", "user3"]).to_vec();

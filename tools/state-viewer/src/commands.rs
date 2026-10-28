@@ -1130,11 +1130,9 @@ pub(crate) fn print_epoch_analysis(
         // — same intent as the historical `has_same_shard_layout = true`
         // override in this mode.
         let strategy = match mode {
-            EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
-                next_next_protocol_version,
-                &next_shard_layout,
-                &next_next_shard_layout,
-            ),
+            EpochAnalysisMode::CheckConsistency => {
+                AssignmentStrategy::select(&next_shard_layout, &next_next_shard_layout)
+            }
             EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
         };
         let next_next_epoch_info = proposals_to_epoch_info(

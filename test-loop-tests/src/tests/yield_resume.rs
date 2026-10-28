@@ -12,15 +12,14 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, VersionedReceiptEnum};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use std::str::FromStr;
 
 // The height of the next block after environment setup is complete.
-// Under AccountCostIncrease the deploy_contract receipt also produces a refund receipt
-// that is processed in an additional block, so we wait one more block during setup.
+// The deploy_contract receipt also produces a refund receipt that is processed in an
+// additional block, so we wait one more block during setup.
 fn next_block_height_after_setup() -> u64 {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 4 } else { 3 }
+    4
 }
 
 fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
