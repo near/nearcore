@@ -1,6 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
@@ -454,9 +454,7 @@ async fn dump_state_parts(
             return;
         }
     };
-    let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
-    let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
-    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+    let snapshot_hash = snapshot_hash_for_sync_hash(chain.chain_store(), &sync_hash).unwrap();
 
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
