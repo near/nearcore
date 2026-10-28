@@ -112,6 +112,15 @@ error.
 
   error will be returned
 
+- From protocol version 87 (nearcore 2.14.0), if the method name is empty, a
+
+  ```rust
+  /// The method name in a FunctionCall action must not be empty.
+  FunctionCallEmptyMethodName,
+  ```
+
+  error is returned.
+
 - If the length of the method name to be called exceeds `max_length_method_name`, a genesis
   parameter whose current value is `256`, a
 
@@ -138,8 +147,37 @@ There are three types of errors which may occur when applying a function call ac
 `FunctionCallError`, `ExternalError`, and `StorageError`.
 
 - `FunctionCallError` includes everything from around the execution of the wasm binary,
-from compiling wasm to native to traps occurred while executing the compiled native binary. More specifically,
-it includes the following errors:
+from compiling wasm to native to traps occurred while executing the compiled native binary.
+
+  Execution outcomes report a `FunctionCallError` in one of three forms:
+
+  - `CompilationError`, a structured error, when the contract cannot be compiled.
+  - `MethodResolveError`, a structured error, when the method is not found or its signature is not
+    valid. Before protocol version 87, an empty method name also gave `MethodEmptyName`. From
+    protocol version 87, validation rejects an empty method name with `FunctionCallEmptyMethodName`.
+  - `ExecutionError` with a message string, for all other errors: wasm traps, host errors, link
+    errors and errors when loading the compiled contract.
+
+  For example, a function call whose contract panics with the message `oops` fails with this
+  status in the RPC response:
+
+  ```json
+  {
+    "Failure": {
+      "ActionError": {
+        "index": 0,
+        "kind": {
+          "FunctionCallError": {
+            "ExecutionError": "Smart contract panicked: oops"
+          }
+        }
+      }
+    }
+  }
+  ```
+
+  The full enum also has variants that only old data uses, and one unused placeholder,
+  `_EVMError`. The number after each variant is its tag in the Borsh encoding:
 
   ```rust
   #[borsh(use_discriminant = true)]
@@ -169,10 +207,8 @@ it includes the following errors:
   }
   ```
 
-  Execution outcomes report wasm traps, host errors, link errors and errors when loading the compiled
-  contract as `ExecutionError` with a message string. Only `CompilationError` and `MethodResolveError`
-  are reported as structured errors. The `WasmTrap` and `HostError` enums below are the errors that
-  the contract runtime returns. The `ExecutionError` message is the text of one of these errors.
+  The `WasmTrap` and `HostError` enums below are the errors that the contract runtime returns. The
+  `ExecutionError` message is the text of one of these errors.
 
 - `CompilationError` includes errors that can occur during the compilation of wasm binary.
 - `LinkError` happens when the runtime cannot link the wasm module with the provided imports. It is

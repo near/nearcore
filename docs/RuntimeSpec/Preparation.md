@@ -34,6 +34,35 @@ errors relevant to itself, as described in the specification for [`DeployContrac
 
 ## Validation
 
+The table below lists the limits that apply to a contract deployed at protocol version 88
+(nearcore 2.14.0). When the parser and a later check both limit the same thing, the table gives
+the lower limit.
+
+| What is limited | Limit | Runtime parameter |
+| --- | --- | --- |
+| Size of the wasm code | `4_194_304` bytes | `max_contract_size` |
+| Types (signatures) in the module | `1_024` | `max_types_per_contract` |
+| Function imports and functions defined in the module | `10_000` | `max_functions_number_per_contract` |
+| Parameters of one function defined in the module | `64` | `max_params_per_function` |
+| Parameters of all functions defined in the module | `50_000` | `max_params_per_contract` |
+| Parameters of one signature, for example of an imported function | `1_000` | None (parser limit) |
+| Results of one signature | `1` | None (multi-value is not enabled) |
+| Locals of one function | `50_000` | None (parser limit) |
+| Locals of all functions | `1_000_000`, and at most the code size in bytes divided by `2` | `max_locals_per_contract`, `min_contract_size_per_local` |
+| Size of one function body | `196_608` bytes | `max_function_body_size` |
+| `block`, `loop` and `if` instructions in one function | `5_000` | `max_blocks_per_function` |
+| `block`, `loop` and `if` instructions in the module | `50_000` | `max_blocks_per_contract` |
+| Operand stack of one function | `8_192` bytes | `max_operand_stack_bytes_per_function` |
+| Size of the module after instrumentation | `16_777_216` bytes | `max_instrumented_code_size` |
+| Tables | `1` | `max_tables_per_contract` |
+| Initial size of a table | `10_000` entries | `max_elements_per_contract_table` |
+| Imports | Function imports from the `env` module only | None |
+
+The parser also limits the number of imports, exports, globals and data segments, and the length
+of names. The rest of this section describes these limits, the protocol versions that introduced
+them, and when each one is checked. The order matters, because only the first violation is
+reported.
+
 A number of limits are imposed on the WebAssembly module that is being parsed:
 
 * The length of the wasm code must not exceed the `max_contract_size` runtime parameter;
