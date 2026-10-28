@@ -12,7 +12,7 @@ use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, EpochHeight, ShardId, ShardIndex};
+use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{FlatStorageManager, FlatStorageReshardingStatus, FlatStorageStatus};
 use near_store::{ShardTries, StateSnapshotConfig};
@@ -38,19 +38,6 @@ impl StateSnapshotActor {
     ) -> Self {
         Self { flat_storage_manager, network_adapter, tries }
     }
-}
-
-/// A snapshot that exists on disk but is not yet announced to the network.
-///
-/// Spice commits a chunk's state root through the execution result a later block certifies,
-/// so before that happens no peer can prove the roots the snapshot serves. The host info is
-/// therefore held back until the snapshotted block's chunks are certified.
-#[derive(Debug, Clone)]
-struct PendingAdvertisement {
-    /// The block the snapshot was taken at, which under spice is the state sync hash.
-    sync_hash: CryptoHash,
-    epoch_height: EpochHeight,
-    shards: Vec<ShardId>,
 }
 
 #[derive(Debug)]
@@ -197,34 +184,24 @@ impl StateSnapshotActor {
                     return;
                 };
 
-                let pending = PendingAdvertisement {
-                    sync_hash: snapshot_hash,
-                    epoch_height,
-                    shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
-                };
                 if block.is_spice_block() {
                     // Under spice the chunk executor announces it instead, once the block's
                     // chunks are certified.
                     return;
                 }
-                self.advertise(pending);
+
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
+                        sync_hash: snapshot_hash,
+                        epoch_height,
+                        shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
+                    }),
+                ));
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
             }
         }
-    }
-
-    /// Sends the host info out, making the snapshot discoverable by syncing nodes.
-    fn advertise(&self, pending: PendingAdvertisement) {
-        let PendingAdvertisement { sync_hash, epoch_height, shards } = pending;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
-                sync_hash,
-                epoch_height,
-                shards,
-            }),
-        ));
     }
 }
 
