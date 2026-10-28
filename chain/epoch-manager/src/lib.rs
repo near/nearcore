@@ -499,7 +499,7 @@ pub struct EpochManager {
     /// repeated epoch walks when fork siblings share a last final block.
     chunk_producer_blacklists: SyncLruCache<CryptoHash, Arc<ChunkProducerBlacklist>>,
 
-    /// Counts loop iterations inside of aggregate_epoch_info_upto method.
+    /// Counts loop iterations inside of aggregate_epoch_info_from method.
     /// Used for tests as a bit of white-box testing.
     #[cfg(test)]
     epoch_info_aggregator_loop_counter: std::sync::atomic::AtomicUsize,
@@ -1302,9 +1302,8 @@ impl EpochManager {
         let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
         let epoch_end;
-        // Check that we didn't record this block yet.
+        // A block that header sync recorded already has its rows; read its `EpochEnd` from them.
         if self.has_block_info(&current_hash)? {
-            // Header sync records blocks before block processing records them again.
             epoch_end = self.get_epoch_end(&current_hash)?;
         } else {
             if block_info.is_genesis() {
