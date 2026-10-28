@@ -103,7 +103,7 @@ fn validate(epoch_manager: &EpochManager, heights: Vec<u64>) {
     );
     let block_infos = block_hashes
         .iter()
-        .map(|&hash| epoch_manager.get_block_info(&hash).unwrap())
+        .map(|&hash| epoch_manager.store.get_block_info(&hash).unwrap())
         .collect::<Vec<_>>();
     if DEBUG_PRINT {
         println!("Block heights: {:?}", heights);
@@ -220,9 +220,13 @@ fn verify_block_stats(
     block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {
-        let prev_epoch_end =
-            *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
-        let prev_epoch_end_height = epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
+        let prev_epoch_end = *epoch_manager
+            .store
+            .get_block_info(block_infos[i].epoch_first_block())
+            .unwrap()
+            .prev_hash();
+        let prev_epoch_end_height =
+            epoch_manager.store.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {

@@ -1125,7 +1125,7 @@ impl EpochManager {
         block_hash: &CryptoHash,
         min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
+        let block_info = self.store.get_block_info(block_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
@@ -1166,7 +1166,7 @@ impl EpochManager {
 
         let (validator_reward, minted_amount) = {
             // The id of epoch T+1 is the hash of the last block of epoch T-1.
-            let last_block_in_last_epoch = self.get_block_info(&next_epoch_id.0)?;
+            let last_block_in_last_epoch = self.store.get_block_info(&next_epoch_id.0)?;
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
@@ -1340,7 +1340,7 @@ impl EpochManager {
                     next_next_epoch_protocol_version: genesis_epoch_info.protocol_version(),
                 });
             } else {
-                let prev_block_info = self.get_block_info(block_info.prev_hash())?;
+                let prev_block_info = self.store.get_block_info(block_info.prev_hash())?;
 
                 let mut is_epoch_start = false;
                 if prev_block_info.is_genesis() {
@@ -1421,7 +1421,7 @@ impl EpochManager {
 
     /// [`EpochEnd`] of a block whose `BlockInfo` row is committed.
     fn get_epoch_end(&self, block_hash: &CryptoHash) -> Result<Option<EpochEnd>, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
+        let block_info = self.store.get_block_info(block_hash)?;
         if !self.is_next_block_in_next_epoch(&block_info)? {
             return Ok(None);
         }
@@ -1547,7 +1547,7 @@ impl EpochManager {
 
         let settlement_epoch_boundary = settlement.len();
 
-        let block_info = self.get_block_info(parent_hash)?;
+        let block_info = self.store.get_block_info(parent_hash)?;
         if self.next_block_need_approvals_from_next_epoch(&block_info)? {
             settlement
                 .extend(self.get_all_block_producers_settlement(&next_epoch_id)?.iter().cloned());
@@ -1587,11 +1587,11 @@ impl EpochManager {
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        Ok(*self.get_block_info(block_hash)?.epoch_id())
+        Ok(*self.store.get_block_info(block_hash)?.epoch_id())
     }
 
     pub fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
+        let block_info = self.store.get_block_info(block_hash)?;
         self.get_next_epoch_id_from_info(&block_info)
     }
 
@@ -1605,7 +1605,7 @@ impl EpochManager {
 
     /// Returns true if next block after the given `block_hash` is in the new epoch.
     pub fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
+        let block_info = self.store.get_block_info(block_hash)?;
         self.is_next_block_in_next_epoch(&block_info)
     }
 
@@ -1630,9 +1630,9 @@ impl EpochManager {
         if self.is_next_block_epoch_start(parent_hash)? {
             return Ok(false);
         }
-        let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
-        let parent_info = self.get_block_info(parent_hash)?;
-        let epoch_first_block_info = self.get_block_info(parent_info.epoch_first_block())?;
+        let last_final_block_height = self.store.get_block_info(last_final_block_hash)?.height();
+        let parent_info = self.store.get_block_info(parent_hash)?;
+        let epoch_first_block_info = self.store.get_block_info(parent_info.epoch_first_block())?;
         self.is_next_block_in_next_epoch_impl(
             block_height,
             last_final_block_height,
@@ -1657,8 +1657,8 @@ impl EpochManager {
         if self.is_next_block_epoch_start(parent_hash)? {
             return Ok(false);
         }
-        let parent_info = self.get_block_info(parent_hash)?;
-        let epoch_first_block_info = self.get_block_info(parent_info.epoch_first_block())?;
+        let parent_info = self.store.get_block_info(parent_hash)?;
+        let epoch_first_block_info = self.store.get_block_info(parent_info.epoch_first_block())?;
         // At block_height+1, last_final_height is at most block_height-1.
         // This can lead to false positive result, if previous block doesn't get finalized
         // before the next block is produced, but it will never give a false negative.
@@ -1686,8 +1686,8 @@ impl EpochManager {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        Ok(self.get_block_info(&epoch_first_block)?.height())
+        let epoch_first_block = *self.store.get_block_info(block_hash)?.epoch_first_block();
+        Ok(self.store.get_block_info(&epoch_first_block)?.height())
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -2051,7 +2051,7 @@ impl EpochManager {
                 block_info,
             );
         }
-        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+        let epoch_first_block_info = self.store.get_block_info(block_info.epoch_first_block())?;
         self.is_next_block_in_next_epoch_impl(
             block_info.height(),
             block_info.last_finalized_height(),
@@ -2075,7 +2075,7 @@ impl EpochManager {
             config.epoch_length
         };
         let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+            self.store.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
         Ok(block_info.last_finalized_height() + 3 < estimated_next_epoch_start
             && block_info.height() + 3 >= estimated_next_epoch_start)
     }
@@ -2086,7 +2086,7 @@ impl EpochManager {
         if block_info.epoch_first_block() == block_info.hash() {
             return Ok(EpochId(*block_info.prev_hash()));
         }
-        let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+        let first_block_info = self.store.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))
     }
 
@@ -2158,10 +2158,6 @@ impl EpochManager {
         }
     }
 
-    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.store.get_block_info(hash)
-    }
-
     fn save_epoch_start(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
@@ -2207,7 +2203,7 @@ impl EpochManager {
                 true
             } else {
                 self.epoch_info_aggregator.merge(aggregator);
-                let block_info = self.get_block_info(last_final_block_hash)?;
+                let block_info = self.store.get_block_info(last_final_block_hash)?;
                 block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
             if save {
@@ -2232,7 +2228,7 @@ impl EpochManager {
         if last_block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(self.epoch_info_aggregator.clone());
         }
-        self.epoch_info_aggregator_upto_block(self.get_block_info(last_block_hash)?)
+        self.epoch_info_aggregator_upto_block(self.store.get_block_info(last_block_hash)?)
     }
 
     /// Like [`Self::get_epoch_info_aggregator_upto_last`], but takes the block itself, so it
@@ -2276,7 +2272,7 @@ impl EpochManager {
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
         }
-        self.aggregate_epoch_info_from(self.get_block_info(block_hash)?).map(Some)
+        self.aggregate_epoch_info_from(self.store.get_block_info(block_hash)?).map(Some)
     }
 
     /// The walk of [`Self::aggregate_epoch_info_upto`], starting at `block_info`, which must
@@ -2310,7 +2306,7 @@ impl EpochManager {
             }
 
             let prev_hash = *block_info.prev_hash();
-            let prev_block_info = match self.get_block_info(&prev_hash) {
+            let prev_block_info = match self.store.get_block_info(&prev_hash) {
                 Ok(info) => Some(info),
                 Err(EpochError::MissingBlock(_)) => None,
                 Err(e) => return Err(e),
@@ -2382,7 +2378,7 @@ impl EpochManager {
             return None;
         }
         let anchor = *prev_block_info.prev_hash();
-        let anchor_block_info = self.get_block_info(&anchor).ok()?;
+        let anchor_block_info = self.store.get_block_info(&anchor).ok()?;
         if anchor_block_info.epoch_id() != epoch_id {
             return None;
         }
@@ -2463,7 +2459,7 @@ impl EpochManager {
         let final_epoch_id = if *final_hash == self.epoch_info_aggregator.last_block_hash {
             self.epoch_info_aggregator.epoch_id
         } else {
-            *self.get_block_info(final_hash)?.epoch_id()
+            *self.store.get_block_info(final_hash)?.epoch_id()
         };
         if final_epoch_id != *epoch.epoch_id {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));

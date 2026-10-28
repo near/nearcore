@@ -3763,7 +3763,7 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
         record_block(&mut epoch_manager, hashes[i - 1], hashes[i], i as u64, vec![]);
     }
 
-    let anchor_info = epoch_manager.get_block_info(&hashes[anchor_height]).unwrap();
+    let anchor_info = epoch_manager.store.get_block_info(&hashes[anchor_height]).unwrap();
     let block_epoch = *anchor_info.epoch_id();
     assert_ne!(block_epoch, EpochId::default(), "anchor must be past the first epoch");
     assert!(
@@ -3817,7 +3817,7 @@ fn record_seeded_block(
     let genesis = prev == CryptoHash::default();
     let epoch_id = if genesis { EpochId::default() } else { em.get_epoch_id(&prev).unwrap() };
     let chunk_height =
-        if genesis { height } else { em.get_block_info(&prev).unwrap().height() + 1 };
+        if genesis { height } else { em.store.get_block_info(&prev).unwrap().height() + 1 };
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     let num_shards = shard_layout.shard_ids().count();
     let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
@@ -3953,7 +3953,7 @@ fn test_aggregator_missing_epoch_first_block_row_falls_back() {
 
     // `h[1]` is the epoch's first real block (genesis `h[0]` is pre-genesis);
     // the height-3 chunk anchors at it. Drop its row to mimic epoch-sync.
-    assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
+    assert_eq!(&h[1], em.store.get_block_info(&h[1]).unwrap().epoch_first_block());
     {
         let mut update = em.store.store_ref().store_update();
         for shard_id in shard_layout.shard_ids() {
@@ -4020,7 +4020,7 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
     // `h[4]`'s anchor is `h[3].prev == h[1]` (height 1), but its chunk height is
     // `h[3].height + 1 == 4`. Dropping `h[1]`'s row forces the fallback, which
     // samples at `anchor.height + 2 == 3`, not at chunk height 4.
-    assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
+    assert_eq!(&h[1], em.store.get_block_info(&h[1]).unwrap().epoch_first_block());
     {
         let mut update = em.store.store_ref().store_update();
         for shard_id in shard_layout.shard_ids() {

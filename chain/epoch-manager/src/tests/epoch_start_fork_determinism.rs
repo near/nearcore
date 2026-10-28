@@ -316,7 +316,7 @@ fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief 
     let shard_id = shard_id_of(handle);
     // The anchor's stored last-final basis, not fixture math, so this stays exactly what
     // the grace sites consume even if the fixture's finality shape changes.
-    let final_hash = *handle.read().get_block_info(&anchor).unwrap().last_final_block_hash();
+    let final_hash = *handle.read().store.get_block_info(&anchor).unwrap().last_final_block_hash();
     Belief {
         blacklist: handle.get_chunk_producer_blacklist(&anchor).unwrap(),
         grandchild_producer: handle

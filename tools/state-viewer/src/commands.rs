@@ -1082,7 +1082,7 @@ pub(crate) fn print_epoch_analysis(
         let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
         let epoch_protocol_version = epoch_info.protocol_version();
         let epoch_config = epoch_manager.get_epoch_config(epoch_protocol_version);
-        let block_info = epoch_manager.get_block_info(&next_next_epoch_id.0).unwrap();
+        let block_info = store.epoch_store().get_block_info(&next_next_epoch_id.0).unwrap();
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {

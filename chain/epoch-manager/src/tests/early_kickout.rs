@@ -471,7 +471,7 @@ fn record_block_with_mask_at_version(
 ) {
     // ~2-block finality: last-final = grandparent (height - 2). The seeder bases the
     // blacklist on this hash.
-    let last_final = *em.get_block_info(&prev).unwrap().prev_hash();
+    let last_final = *em.store.get_block_info(&prev).unwrap().prev_hash();
     record_block_with_final_and_mask_at_version(
         em,
         prev,
@@ -1298,9 +1298,9 @@ fn epoch_boundary_fork_records_canonical_first_block() {
         .expect("the canonical first block of the epoch must record");
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
     update.store_update.commit();
-    let block_info = em.get_block_info(&b).unwrap();
+    let block_info = em.store.get_block_info(&b).unwrap();
     assert_eq!(*block_info.epoch_first_block(), b);
-    assert_ne!(block_info.epoch_id(), em.get_block_info(&p).unwrap().epoch_id());
+    assert_ne!(block_info.epoch_id(), em.store.get_block_info(&p).unwrap().epoch_id());
     assert_eq!(walked, 0, "a basis in the previous epoch must not be walked");
 }
 
@@ -1432,8 +1432,9 @@ fn memoized_blacklist_is_keyed_by_last_final_block() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
     let fx = ForkFixture::new();
     let only = |id: ValidatorId| HashMap::from([(fx.shard_id, HashSet::from([id]))]);
-    let height_of =
-        |h: &EpochManagerHandle, tip: CryptoHash| h.read().get_block_info(&tip).unwrap().height();
+    let height_of = |h: &EpochManagerHandle, tip: CryptoHash| {
+        h.read().store.get_block_info(&tip).unwrap().height()
+    };
     let (tip_1, height_1) =
         fx.drive_until(fx.genesis, 0, 1, 0, 256, "branch 1 -> {0}", |h, tip| {
             h.get_chunk_producer_blacklist(&tip).unwrap() == only(0)
@@ -1448,7 +1449,7 @@ fn memoized_blacklist_is_keyed_by_last_final_block() {
         height_of(h, tip) == height_2
     });
     let last_final = |tip: CryptoHash| {
-        let info = fx.handle.read().get_block_info(&tip).unwrap();
+        let info = fx.handle.read().store.get_block_info(&tip).unwrap();
         (*info.last_final_block_hash(), info.last_finalized_height())
     };
     let ((hash_1, final_height_1), (hash_2, final_height_2)) =
@@ -1807,7 +1808,7 @@ fn record_block_info_failure_leaves_no_block_info() {
     assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
 
     let err =
-        fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
+        fx.em.store.get_block_info(&sibling).map(|_| ()).expect_err(
             "a discarded record must not leave a block info row, or the retry is skipped",
         );
     assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
@@ -1829,7 +1830,7 @@ fn record_block_info_failure_leaves_no_epoch_start() {
     let mut fx = epoch_sync_fixture();
 
     // What the boundary derives: the hash of the block before the prev epoch's first.
-    let boundary_id = EpochId(*fx.em.get_block_info(&fx.first).unwrap().prev_hash());
+    let boundary_id = EpochId(*fx.em.store.get_block_info(&fx.first).unwrap().prev_hash());
 
     // Child of the prev epoch's last block, so the record takes the epoch-start branch.
     let child = hash(b"first block of the new epoch");
@@ -1846,6 +1847,7 @@ fn record_block_info_failure_leaves_no_epoch_start() {
         .expect_err("a discarded record must not leave an epoch start behind");
     assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
     fx.em
+        .store
         .get_block_info(&child)
         .map(|_| ())
         .expect_err("a discarded record must not leave a block info row");
@@ -2242,7 +2244,7 @@ impl ForkFixture {
         }
         let (basis, watermark, cache) = {
             let read = self.handle.read();
-            let info = read.get_block_info(&prev).unwrap();
+            let info = read.store.get_block_info(&prev).unwrap();
             (
                 *info.last_final_block_hash(),
                 read.largest_final_height,
@@ -2343,11 +2345,14 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         0,
         256,
         "canonical last-final becomes canonical-only",
-        |h, tip| h.read().get_block_info(&tip).unwrap().last_finalized_height() > fork_point_height,
+        |h, tip| {
+            h.read().store.get_block_info(&tip).unwrap().last_finalized_height() > fork_point_height
+        },
     );
     let (canonical_watermark, canonical_cache) = {
         let read = handle.read();
-        let canonical_final = *read.get_block_info(&canonical_tip).unwrap().last_final_block_hash();
+        let canonical_final =
+            *read.store.get_block_info(&canonical_tip).unwrap().last_final_block_hash();
         let cache = read.epoch_info_aggregator.last_block_hash;
         assert_eq!(
             cache, canonical_final,
@@ -2369,13 +2374,14 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         256,
         "sibling final height ties the canonical watermark",
         |h, tip| {
-            h.read().get_block_info(&tip).unwrap().last_finalized_height() == canonical_watermark
+            h.read().store.get_block_info(&tip).unwrap().last_finalized_height()
+                == canonical_watermark
         },
     );
     let (tie_final_hash, watermark_at_tie, cache_at_tie) = {
         let read = handle.read();
         (
-            *read.get_block_info(&sibling_tie).unwrap().last_final_block_hash(),
+            *read.store.get_block_info(&sibling_tie).unwrap().last_final_block_hash(),
             read.largest_final_height,
             read.epoch_info_aggregator.last_block_hash,
         )
@@ -2402,7 +2408,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         |h, tip| {
             let (final_hash, final_height, cache) = {
                 let read = h.read();
-                let info = read.get_block_info(&tip).unwrap();
+                let info = read.store.get_block_info(&tip).unwrap();
                 (
                     *info.last_final_block_hash(),
                     info.last_finalized_height(),
@@ -2430,7 +2436,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "canonical blacklist must be unchanged after the sibling took over the cache",
     );
     let canonical_basis =
-        *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
+        *handle.read().store.get_block_info(&canonical_tip).unwrap().last_final_block_hash();
     let (full_walk, canonical_full_info) = handle
         .read()
         .aggregate_epoch_info_upto(&canonical_basis)
@@ -2509,7 +2515,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     }
     let (basis, basis_height, cache, watermark) = {
         let read = handle.read();
-        let info = read.get_block_info(&tip).unwrap();
+        let info = read.store.get_block_info(&tip).unwrap();
         (
             *info.last_final_block_hash(),
             info.last_finalized_height(),
@@ -2552,7 +2558,7 @@ impl ForkFixture {
     ) -> SeededRowWitness {
         let (epoch_info, layout, shard_id) =
             (self.epoch_info.as_ref(), &self.layout, self.shard_id);
-        let anchor_height = self.handle.read().get_block_info(&tip).unwrap().height();
+        let anchor_height = self.handle.read().store.get_block_info(&tip).unwrap().height();
         let chunk_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
         let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
         let expected = epoch_info

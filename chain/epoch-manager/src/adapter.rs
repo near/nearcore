@@ -1039,7 +1039,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_block_info(hash)
+        epoch_manager.store.get_block_info(hash)
     }
 
     fn get_epoch_config_from_protocol_version(
@@ -1203,7 +1203,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // agrees with the stored row. Read-guard methods directly; adapter methods would
         // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
-        let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
+        let anchor_info = epoch_manager.store.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
         if final_block_hash == CryptoHash::default() {
             return Ok(HashMap::new());
