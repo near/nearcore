@@ -8,7 +8,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::epoch_block_info::BlockInfoV4;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AllEpochConfig;
-use near_primitives::epoch_manager::{EpochConfigBuilder, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
@@ -166,29 +166,28 @@ pub fn epoch_config_at_version(
     protocol_version: ProtocolVersion,
 ) -> AllEpochConfig {
     let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-    let epoch_config = EpochConfigBuilder::default()
-        .epoch_length(epoch_length)
-        .num_block_producer_seats(num_block_producer_seats)
-        .block_producer_kickout_threshold(block_producer_kickout_threshold)
-        .chunk_producer_kickout_threshold(chunk_producer_kickout_threshold)
-        .chunk_validator_only_kickout_threshold(chunk_validator_only_kickout_threshold)
-        .target_validator_mandates_per_shard(68)
-        .fishermen_threshold(Balance::ZERO)
-        .online_min_threshold(Ratio::new(90, 100))
-        .online_max_threshold(Ratio::new(99, 100))
-        .protocol_upgrade_stake_threshold(Ratio::new(80, 100))
-        .minimum_stake_divisor(1)
-        .num_chunk_producer_seats(num_chunk_producer_seats)
-        .num_chunk_validator_seats(300)
-        .minimum_validators_per_shard(1)
-        .minimum_stake_ratio(Ratio::new(160i32, 1_000_000i32))
-        .chunk_producer_assignment_changes_limit(5)
-        .shuffle_shard_assignment_for_chunk_producers(false)
-        .shard_layout(shard_layout.clone())
-        .validator_max_kickout_stake_perc(100)
-        .max_inflation_rate(max_inflation_rate)
-        .build()
-        .expect("config field missing");
+    let epoch_config = EpochConfig {
+        epoch_length,
+        num_block_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        chunk_validator_only_kickout_threshold,
+        target_validator_mandates_per_shard: 68,
+        fishermen_threshold: Balance::ZERO,
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
+        minimum_stake_divisor: 1,
+        num_chunk_producer_seats,
+        num_chunk_validator_seats: 300,
+        minimum_validators_per_shard: 1,
+        minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
+        chunk_producer_assignment_changes_limit: 5,
+        shuffle_shard_assignment_for_chunk_producers: false,
+        shard_layout_config: ShardLayoutConfig::Static { shard_layout: shard_layout.clone() },
+        validator_max_kickout_stake_perc: 100,
+        max_inflation_rate,
+    };
     let config_store = EpochConfigStore::test_single_version(protocol_version, epoch_config);
     AllEpochConfig::from_epoch_config_store(
         "test-chain",
