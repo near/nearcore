@@ -1789,8 +1789,8 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
     )
 }
 
-// A failed record must not leave the block in `blocks_info`: the caller drops the store
-// update, so a surviving entry serves other readers a block that was never written.
+// A failed record must not leave the block readable: the caller drops the store update,
+// so other readers would see a block that was never written.
 // Reachable after epoch sync, where the seeder fails with `MissingBlock`.
 #[test]
 fn record_block_info_failure_leaves_no_block_info() {
@@ -1858,9 +1858,9 @@ fn record_block_info_failure_leaves_no_epoch_start() {
     assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
 }
 
-// `has_block_info` reads the store, not the `blocks_info` cache, so a record whose update the
-// caller drops is recorded again on retry. The chain drops it whenever a later step of the
-// same block processing fails, not only when the record itself does.
+// `has_block_info` reads the store, so a record whose update the caller drops is recorded
+// again on retry. The chain drops it whenever a later step of the same block processing
+// fails, not only when the record itself does.
 //
 // Covers the first real block: the default final hash makes the seeder return early, and
 // nothing advances the aggregator or finalizes an epoch, so the retry is a plain re-record.
@@ -1892,7 +1892,7 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
     // Dropping the update stands in for a caller that fails after the record returned.
     em.record_block_info(block_info(), [0; 32]).map(|_| ()).expect("first record must succeed");
 
-    // Pre-fix the cached entry made this a no-op that returned an empty update.
+    // The retry must record the block again, not return an empty update.
     let update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
     update.store_update.commit();
     em.store.get_block_info(&b1).expect("the retry must write the row it skipped before");

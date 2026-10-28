@@ -2000,7 +2000,7 @@ fn test_aggregator_visits_each_block_once() {
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     // Pinned below EarlyKickout: its per-block seeder reads the aggregator once per block,
     // so the exact walk count asserted below only holds while the feature is off. The
-    // caching invariant itself is protocol-independent, and the seed path has its own
+    // walk-once invariant itself is protocol-independent, and the seed path has its own
     // coverage in the early_kickout tests.
     let mut epoch_manager = setup_default_epoch_manager_at_version(
         validators,
