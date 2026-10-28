@@ -187,6 +187,14 @@ issued and when the gas refund arrived. In this case we use the best effort to r
 <li>the allowance should be set to <code>Some</code> limited value, instead of unlimited allowance (<code>None</code>)</li>
 <li>the runtime uses saturating add to increase the allowance, to avoid overflows</li>
 </ul>
+<h2 id="gas-key-balance-refunds"><a class="header" href="#gas-key-balance-refunds">Gas Key Balance refunds</a></h2>
+<p>When a transaction is signed with a <a href="../DataStructures/AccessKey.html#gas-keys">gas key</a>, its gas is paid from the gas key balance.
+Gas refunds for this transaction, and for the receipts it leads to, go back to the gas key balance instead of the account balance.</p>
+<p>A gas refund is identified by the same condition as for allowance refunds: <code>signer_id == receiver_id &amp;&amp; predecessor_id == &quot;system&quot;</code>.
+For such a refund, the runtime looks up the access key of <code>signer_id</code> with the public key <code>signer_public_key</code>.
+If this key exists and is a gas key, the refund is added to the gas key balance, and the account balance does not change.
+Otherwise, the refund is added to the account balance, and the allowance refund described above applies.
+So if a gas key is deleted before a gas refund for it arrives, the refund goes to the account balance.</p>
 
                     </main>
 

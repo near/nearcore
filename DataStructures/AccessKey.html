@@ -157,12 +157,15 @@ is identified by a unique (within the account) public key. Access keys are store
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>There are 2 types of <code>AccessKeyPermission</code> in NEAR currently: <code>FullAccess</code> and <code>FunctionCall</code>. <code>FullAccess</code> grants permissions to issue any action on the account. This includes <a href="../RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a>, <a href="../RuntimeSpec/Actions.html#transferaction">Transfer</a> tokens, call functions <a href="../RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a>, <a href="../RuntimeSpec/Actions.html#stakeaction">Stake</a> and even permission to delete the account <a href="../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccountAction</a>. <code>FunctionCall</code> on the other hand, <strong>only</strong> grants permission to call any or a specific set of methods on one given contract. It has an allowance of <code>$NEAR</code> that can be spent on <strong>GAS and transaction fees only</strong>. Function call access keys <strong>cannot</strong> be used to transfer <code>$NEAR</code>.</p>
+<p>There are 4 types of <code>AccessKeyPermission</code>: <code>FullAccess</code>, <code>FunctionCall</code>, <code>GasKeyFullAccess</code> and <code>GasKeyFunctionCall</code>. <code>FullAccess</code> grants permissions to issue any action on the account. This includes <a href="../RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a>, <a href="../RuntimeSpec/Actions.html#transferaction">Transfer</a> tokens, call functions <a href="../RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a>, <a href="../RuntimeSpec/Actions.html#stakeaction">Stake</a> and even permission to delete the account <a href="../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccountAction</a>. <code>FunctionCall</code> on the other hand, <strong>only</strong> grants permission to call any or a specific set of methods on one given contract. It has an allowance of <code>$NEAR</code> that can be spent on <strong>GAS and transaction fees only</strong>. Function call access keys <strong>cannot</strong> be used to transfer <code>$NEAR</code>.</p>
+<p><code>GasKeyFullAccess</code> and <code>GasKeyFunctionCall</code> are <a href="#gas-keys">gas keys</a>. They exist from protocol version 85 (nearcore 2.13.0). They grant the same permissions as <code>FullAccess</code> and <code>FunctionCall</code>. They also hold a <code>GasKeyInfo</code> with a prepaid balance that pays for gas and a number of independent nonces.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
     FullAccess,
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    GasKeyFullAccess(GasKeyInfo),
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -189,6 +192,35 @@ is identified by a unique (within the account) public key. Access keys are store
 }
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="gas-keys"><a class="header" href="#gas-keys">Gas Keys</a></h2>
+<p>A gas key is an access key with the permission <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>. It holds a prepaid balance. When a transaction is signed with a gas key, the gas is paid from this balance instead of the account balance. Deposits, such as the <code>deposit</code> of a <code>Transfer</code> action, are still paid from the account balance. See <a href="../RuntimeSpec/Transactions.html#gas-key-transactions">Transactions</a> for the checks and <a href="../RuntimeSpec/Fees/Fees.html#gas-key-transactions">Fees</a> for the costs.</p>
+<p>A gas key is created by an <a href="../RuntimeSpec/Actions.html#addkeyaction">AddKey</a> action with a gas key permission. Its balance starts at 0. <a href="../RuntimeSpec/Actions.html#transfertogaskeyaction">TransferToGasKey</a> adds to the balance, and any account can send it. <a href="../RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a> moves balance back to the account. Gas refunds of transactions signed with the gas key also go to its balance. See <a href="../RuntimeSpec/Refunds.html#gas-key-balance-refunds">Refunds</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct GasKeyInfo {
+    pub balance: Balance,
+    pub num_nonces: NonceIndex,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>balance</code> is the prepaid balance of the gas key. It must be 0 in the <code>AddKey</code> action that creates the key.</li>
+<li><code>num_nonces</code> is the number of independent nonces of the gas key. It must be from 1 to 1024 (<code>MAX_NONCES_FOR_GAS_KEY</code>). <code>NonceIndex</code> is a <code>u16</code>.</li>
+</ul>
+<h3 id="accesskeypermissiongaskeyfullaccess"><a class="header" href="#accesskeypermissiongaskeyfullaccess">AccessKeyPermission::GasKeyFullAccess</a></h3>
+<p>Grants the same permissions as <code>FullAccess</code>. The gas of transactions signed with this key is paid from the gas key balance.</p>
+<h3 id="accesskeypermissiongaskeyfunctioncall"><a class="header" href="#accesskeypermissiongaskeyfunctioncall">AccessKeyPermission::GasKeyFunctionCall</a></h3>
+<p>Grants the same permissions as <code>FunctionCall</code>. The gas of transactions signed with this key is paid from the gas key balance. The <code>allowance</code> in its <code>FunctionCallPermission</code> must be <code>None</code>.</p>
+<h3 id="gas-key-nonces"><a class="header" href="#gas-key-nonces">Gas Key Nonces</a></h3>
+<p>A regular access key has one nonce, in the <code>nonce</code> field of <code>AccessKey</code>. A gas key has <code>num_nonces</code> independent nonces instead, with the indices 0 to <code>num_nonces - 1</code>. The <code>nonce</code> field of a gas key is always 0 and is not used. Clients that share a gas key can use different nonce indices to send transactions in parallel without nonce conflicts. A transaction signed with a gas key must be a <code>TransactionV1</code> with a <code>TransactionNonce::GasKeyNonce</code>, which gives both the nonce and the <code>nonce_index</code>. See <a href="../RuntimeSpec/Transactions.html">Transactions</a>.</p>
+<p>Each nonce is a separate record in the state. Its trie key is the trie key of the access key followed by the <code>nonce_index</code> as 2 little-endian bytes. Its value is the nonce as a Borsh-serialized <code>u64</code>. When the gas key is created, every nonce is set to <code>(block_height - 1) * 1_000_000</code>, where <code>block_height</code> is the height of the block in which the <code>AddKey</code> action is executed.</p>
+<p>Each nonce adds to the storage usage of the account. An ED25519 or ML-DSA-65 key uses 83 bytes per nonce. This is 33 bytes for the key as stored in the trie, 2 bytes for the index, 8 bytes for the value and 40 bytes of overhead per record (<code>storage_num_extra_bytes_record</code>). For a SECP256K1 key, it is 115 bytes per nonce. The account needs storage staking for these bytes, as for any other state. With the current storage price of 10^19 yoctoNEAR per byte, 1024 nonces of an ED25519 key need about 0.85 NEAR.</p>
+<h3 id="gas-key-deletion"><a class="header" href="#gas-key-deletion">Gas Key Deletion</a></h3>
+<p><a href="../RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> on a gas key burns the remaining balance of the key and removes all its nonces. If the balance is more than 1 NEAR, the action fails with <code>GasKeyBalanceTooHigh</code>. To delete such a key, first move the balance to the account with <a href="../RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a>. <a href="../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> burns the balances of all gas keys of the account. It fails with <code>GasKeyBalanceTooHigh</code> if the sum of these balances is more than 1 NEAR.</p>
+<h3 id="gas-key-namespace"><a class="header" href="#gas-key-namespace">Gas Key Namespace</a></h3>
+<p>Gas keys and regular access keys share the public keys of an account. A public key belongs to at most one access key at a time, regular or gas key. An <code>AddKey</code> action with a public key that is already used fails with <code>AddKeyAlreadyExists</code>.</p>
+<h3 id="gas-keys-and-meta-transactions"><a class="header" href="#gas-keys-and-meta-transactions">Gas Keys and Meta Transactions</a></h3>
+<p>A <a href="../RuntimeSpec/Actions.html#delegate-actions"><code>Delegate</code></a> action signed by a gas key fails with <code>DelegateActionRequiresNonGasKey</code>. A <a href="../RuntimeSpec/Actions.html#delegatev2"><code>DelegateV2</code></a> action can be signed by a gas key. From protocol version 87 (nearcore 2.14.0), new <code>DelegateV2</code> actions are rejected. So a gas key cannot sign the delegate action of a new meta transaction. A relayer can still sign the outer transaction with a gas key.</p>
 <h2 id="account-without-access-keys"><a class="header" href="#account-without-access-keys">Account without access keys</a></h2>
 <p>If account has no access keys attached it means that it has no owner who can run transactions from its behalf. However, if such accounts has code it can be invoked by other accounts and contracts.</p>
 

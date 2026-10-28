@@ -283,6 +283,18 @@ To compute the number of bytes for <code>function_call_permission</code> use <co
 </ul>
 <p>Inside <code>VMLogic</code>, the fees are tracked in the <code>GasCounter</code> struct.
 The VM itself is called in the <code>action_function_call</code> inside <code>Runtime</code>. When all actions are processed, the result is returned as a <code>VMOutcome</code>, which is later merged with <code>ActionResult</code>.</p>
+<h2 id="gas-key-transactions"><a class="header" href="#gas-key-transactions">Gas key transactions</a></h2>
+<p>From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a <a href="/DataStructures/AccessKey.html#gas-keys">gas key</a>.
+Its fees are the same as for a transaction signed with a regular access key, but its cost is paid from two balances:</p>
+<ul>
+<li>The gas cost is paid from the gas key balance. It is <code>gas_burnt</code> converted at the current gas price, plus <code>gas_remaining</code> converted at the receipt gas price.
+The receipt gas price is the larger of the current gas price and <code>min_gas_purchase_price</code>.</li>
+<li>The deposit cost, <code>total_deposit(transaction.actions)</code>, is paid from the account balance. It is the sum of the deposits of all actions, such as <code>Transfer</code>, <code>FunctionCall</code> and <code>TransferToGasKey</code>.</li>
+</ul>
+<p>If the gas key balance does not cover the gas cost, the transaction fails with <code>NotEnoughGasKeyBalance</code> and nothing is charged.
+If the account balance does not cover the deposits, or does not cover the storage of the account after them, the transaction fails with <code>NotEnoughBalanceForDeposit</code>.
+In that case the gas key is charged only for <code>gas_burnt</code>, at the current gas price. See <a href="/RuntimeSpec/Transactions.html#gas-key-transactions">Gas key transactions</a>.
+Gas refunds of a gas key transaction go back to the gas key balance, see <a href="../Refunds.html#gas-key-balance-refunds">Refunds</a>.</p>
 <h1 id="example"><a class="header" href="#example">Example</a></h1>
 <!-- cspell:ignore VGYT Fwya Wckywk Ejuz -->
 <p>Let's say we have the following transaction:</p>

@@ -142,10 +142,15 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="transactions"><a class="header" href="#transactions">Transactions</a></h1>
-<p>A transaction in Near is a list of <a href="Actions.html">actions</a> and additional information:</p>
+<p>A transaction in Near is a list of <a href="Actions.html">actions</a> and additional information. There are two versions of a transaction:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pub struct Transaction {
+</span>pub enum Transaction {
+    V0(TransactionV0),
+    V1(TransactionV1),
+}
+
+pub struct TransactionV0 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
     /// An access key which was used to sign a transaction
@@ -153,15 +158,46 @@
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
-    /// Receiver account for this transaction. If
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec&lt;Action&gt;,
 }
+
+pub struct TransactionV1 {
+    pub signer_id: AccountId,
+    pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`,
+    /// and for gas key it also includes a `nonce_index`.
+    pub nonce: TransactionNonce,
+    pub receiver_id: AccountId,
+    pub block_hash: CryptoHash,
+    pub actions: Vec&lt;Action&gt;,
+    /// Controls nonce validation mode (monotonic or strict sequential).
+    pub nonce_mode: NonceMode,
+}
+
+pub enum TransactionNonce {
+    /// Simple nonce without index, used by ordinary access keys
+    Nonce { nonce: Nonce },
+    /// Nonce with index, used by gas keys
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
+}
+
+pub enum NonceMode {
+    /// Any nonce strictly greater than the current access key nonce (default behavior).
+    Monotonic,
+    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
+    Strict,
+}
 <span class="boring">}
 </span></code></pre></pre>
+<p>The fields of <code>TransactionV1</code> have the same meaning as in <code>TransactionV0</code>. Its <code>nonce</code> is a <code>TransactionNonce</code>, and its last field <code>nonce_mode</code> sets how the nonce is checked. See <a href="#valid-transaction-nonce">Valid transaction nonce</a>. <code>NonceIndex</code> is a <code>u16</code>.</p>
+<p>A <code>TransactionV0</code> is Borsh-serialized as the struct alone, with no prefix. A <code>TransactionV1</code> is Borsh-serialized as the byte 1 followed by the <code>TransactionV1</code> struct. To tell the two apart, a decoder reads the first two bytes. A <code>TransactionV0</code> starts with the 4-byte little-endian length of <code>signer_id</code>, which is at most 64, so its second byte is always 0. A <code>TransactionV1</code> starts with the byte 1 followed by the length of <code>signer_id</code>, so its second byte is not 0.</p>
+<p><code>TransactionV1</code> is accepted from protocol version 85 (nearcore 2.13.0). Before that, it is rejected with <code>InvalidTransactionVersion</code>. A transaction signed with a <a href="../DataStructures/AccessKey.html#gas-keys">gas key</a> must be a <code>TransactionV1</code> with <code>TransactionNonce::GasKeyNonce</code>. See <a href="#gas-key-transactions">Gas key transactions</a>. <code>NonceMode::Strict</code> can only be set in a <code>TransactionV1</code>. A <code>TransactionV0</code> always uses <code>NonceMode::Monotonic</code>.</p>
 <h2 id="signed-transaction"><a class="header" href="#signed-transaction">Signed Transaction</a></h2>
 <p><code>SignedTransaction</code> is what the node receives from a wallet through JSON-RPC endpoint and then routed to the shard where <code>receiver_id</code> account lives. Signature proves an ownership of the corresponding <code>public_key</code> (which is an AccessKey for a particular account) as well as authenticity of the transaction itself.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -170,8 +206,10 @@
     pub transaction: Transaction,
     /// A signature of a hash of the Borsh-serialized Transaction
     pub signature: Signature,
+}
 <span class="boring">}
 </span></code></pre></pre>
+<p>The signed hash covers the whole Borsh encoding of the <code>Transaction</code>, including the leading byte 1 of a <code>TransactionV1</code>.</p>
 <p>Take a look some <a href="Scenarios/Scenarios.html">scenarios</a> how transaction can be applied.</p>
 <h2 id="batched-transaction"><a class="header" href="#batched-transaction">Batched Transaction</a></h2>
 <p>A <code>Transaction</code> can contain a list of actions. When there are more than one action in a transaction, we refer to such
@@ -247,7 +285,8 @@ TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas }
 <h4 id="valid-actions"><a class="header" href="#valid-actions">Valid actions</a></h4>
 <p>Whether each included action is valid. Details of such check can be found in <a href="Actions.html">Actions</a>.</p>
 <h3 id="validation-with-state"><a class="header" href="#validation-with-state">Validation With State</a></h3>
-<p>After the basic validation is done, we check the transaction against current state to perform further validation.</p>
+<p>After the basic validation is done, we check the transaction against current state to perform further validation.
+A transaction signed with a gas key has some different checks, see <a href="#gas-key-transactions">Gas key transactions</a>.</p>
 <h4 id="existing-signer_id"><a class="header" href="#existing-signer_id">Existing <code>signer_id</code></a></h4>
 <p>Whether <code>signer_id</code> exists. If not, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -258,7 +297,11 @@ SignerDoesNotExist { signer_id: AccountId },
 </span></code></pre></pre>
 <p>error is returned.</p>
 <h4 id="valid-transaction-nonce"><a class="header" href="#valid-transaction-nonce">Valid transaction nonce</a></h4>
-<p>Whether the transaction nonce is greater than the existing nonce on the access key. If not, a</p>
+<p>The transaction nonce is checked against the current nonce of the access key.
+For a gas key, the current nonce is the nonce stored for the <code>nonce_index</code> of the transaction.
+With <code>NonceMode::Monotonic</code>, which is the default, the transaction nonce must be greater than the current nonce.
+With <code>NonceMode::Strict</code>, the transaction nonce must be exactly the current nonce plus 1.
+<code>NonceMode::Strict</code> is available from protocol version 85 (nearcore 2.13.0). If the check fails, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Transaction nonce must be strictly greater than `account[access_key].nonce`.
@@ -266,6 +309,14 @@ InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
 <span class="boring">}
 </span></code></pre></pre>
 <p>error is returned.</p>
+<p>The transaction nonce must also be less than the height of the block that includes the transaction, multiplied by 1,000,000. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Transaction nonce is larger than the upper bound given by the block height
+NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned. A node does not know this block when a transaction is submitted, so it checks this bound only when it produces or applies a chunk.</p>
 <h4 id="enough-balance-to-cover-transaction-cost"><a class="header" href="#enough-balance-to-cover-transaction-cost">Enough balance to cover transaction cost</a></h4>
 <p>If <code>signer_id</code> account has enough balance to cover the cost of the transaction. If not, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -317,6 +368,64 @@ contains is not a <code>FunctionCall</code> action.</li>
 <li><code>InvalidAccessKeyError::ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId }</code> if transaction's <code>receiver_id</code> does not match the <code>receiver_id</code> of the access key.</li>
 <li><code>InvalidAccessKeyError::MethodNameMismatch { method_name: String }</code> if the name of the method that the transaction tries to call is not allowed by the access key.</li>
 </ul>
+<h3 id="gas-key-transactions"><a class="header" href="#gas-key-transactions">Gas key transactions</a></h3>
+<p>From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a <a href="../DataStructures/AccessKey.html#gas-keys">gas key</a>.
+Such a transaction must be a <code>TransactionV1</code> with <code>TransactionNonce::GasKeyNonce { nonce, nonce_index }</code>.
+Its gas is paid from the gas key balance, and its deposits are paid from the account balance.
+The checks below replace the balance, allowance and storage checks of <a href="#validation-with-state">Validation With State</a>.
+The other checks still apply. This includes the nonce check and, for a <code>GasKeyFunctionCall</code> key, the function call access key validations.</p>
+<h4 id="valid-nonce-index"><a class="header" href="#valid-nonce-index">Valid nonce index</a></h4>
+<p>The <code>nonce_index</code> must be less than the <code>num_nonces</code> of the gas key. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Transaction is specifying an invalid nonce index. Gas key transactions
+/// must have a nonce_index in valid range, regular transactions must not.
+InvalidNonceIndex { tx_nonce_index: Option&lt;NonceIndex&gt;, num_nonces: NonceIndex },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned. If the access key is not a gas key, the error has <code>num_nonces: 0</code>.
+The same error is returned with <code>tx_nonce_index: None</code> when a gas key signs a transaction without a <code>nonce_index</code>.
+That is a <code>TransactionV0</code> or a <code>TransactionV1</code> with <code>TransactionNonce::Nonce</code>.</p>
+<p>The transaction nonce is then checked against the nonce stored for <code>nonce_index</code>, as described in <a href="#valid-transaction-nonce">Valid transaction nonce</a>.</p>
+<h4 id="enough-gas-key-balance"><a class="header" href="#enough-gas-key-balance">Enough gas key balance</a></h4>
+<p>The gas key balance must cover the gas cost of the transaction.
+The gas cost is the gas burnt to convert the transaction into a receipt, at the current gas price, plus the remaining gas of the receipt, at the receipt gas price.
+The receipt gas price is the larger of the current gas price and <code>min_gas_purchase_price</code>.
+See <a href="Fees/Fees.html#gas-key-transactions">Fees</a>. If the balance is too low, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key does not have enough balance to cover gas costs.
+NotEnoughGasKeyBalance { signer_id: AccountId, balance: Balance, cost: Balance },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+<h4 id="enough-account-balance-for-deposits"><a class="header" href="#enough-account-balance-for-deposits">Enough account balance for deposits</a></h4>
+<p>The account balance must cover the sum of the deposits of all actions.
+After paying them, the account must still have enough balance for its storage. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key transaction failed because the account could not cover the deposit cost.
+/// Gas is still charged from the gas key in this case.
+NotEnoughBalanceForDeposit {
+    signer_id: AccountId,
+    balance: Balance,
+    cost: Balance,
+    reason: DepositCostFailureReason,
+}
+
+pub enum DepositCostFailureReason {
+    NotEnoughBalance,
+    LackBalanceForState,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.
+With <code>NotEnoughBalance</code>, the account balance does not cover the deposits. Then <code>balance</code> is the account balance and <code>cost</code> is the sum of the deposits.
+With <code>LackBalanceForState</code>, the balance left after the deposits does not cover the storage of the account. In this case, <code>balance</code> is that remaining balance and <code>cost</code> is the missing amount.</p>
+<p>Nodes reject such a transaction when it is submitted, and chunk producers do not include it.
+When a chunk contains such a transaction, the transaction fails when it is converted to a receipt, and no receipt is created.
+The gas key is still charged for the gas burnt to convert the transaction, at the current gas price, and the nonce for <code>nonce_index</code> is updated.
+The rest of the gas is not charged, so nothing is refunded. The account balance does not change.</p>
 
                     </main>
 

@@ -195,12 +195,15 @@ is identified by a unique (within the account) public key. Access keys are store
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>There are 2 types of <code>AccessKeyPermission</code> in NEAR currently: <code>FullAccess</code> and <code>FunctionCall</code>. <code>FullAccess</code> grants permissions to issue any action on the account. This includes <a href="DataStructures/../RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a>, <a href="DataStructures/../RuntimeSpec/Actions.html#transferaction">Transfer</a> tokens, call functions <a href="DataStructures/../RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a>, <a href="DataStructures/../RuntimeSpec/Actions.html#stakeaction">Stake</a> and even permission to delete the account <a href="DataStructures/../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccountAction</a>. <code>FunctionCall</code> on the other hand, <strong>only</strong> grants permission to call any or a specific set of methods on one given contract. It has an allowance of <code>$NEAR</code> that can be spent on <strong>GAS and transaction fees only</strong>. Function call access keys <strong>cannot</strong> be used to transfer <code>$NEAR</code>.</p>
+<p>There are 4 types of <code>AccessKeyPermission</code>: <code>FullAccess</code>, <code>FunctionCall</code>, <code>GasKeyFullAccess</code> and <code>GasKeyFunctionCall</code>. <code>FullAccess</code> grants permissions to issue any action on the account. This includes <a href="DataStructures/../RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a>, <a href="DataStructures/../RuntimeSpec/Actions.html#transferaction">Transfer</a> tokens, call functions <a href="DataStructures/../RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a>, <a href="DataStructures/../RuntimeSpec/Actions.html#stakeaction">Stake</a> and even permission to delete the account <a href="DataStructures/../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccountAction</a>. <code>FunctionCall</code> on the other hand, <strong>only</strong> grants permission to call any or a specific set of methods on one given contract. It has an allowance of <code>$NEAR</code> that can be spent on <strong>GAS and transaction fees only</strong>. Function call access keys <strong>cannot</strong> be used to transfer <code>$NEAR</code>.</p>
+<p><code>GasKeyFullAccess</code> and <code>GasKeyFunctionCall</code> are <a href="DataStructures/AccessKey.html#gas-keys">gas keys</a>. They exist from protocol version 85 (nearcore 2.13.0). They grant the same permissions as <code>FullAccess</code> and <code>FunctionCall</code>. They also hold a <code>GasKeyInfo</code> with a prepaid balance that pays for gas and a number of independent nonces.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
     FullAccess,
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    GasKeyFullAccess(GasKeyInfo),
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -227,6 +230,35 @@ is identified by a unique (within the account) public key. Access keys are store
 }
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="gas-keys"><a class="header" href="#gas-keys">Gas Keys</a></h2>
+<p>A gas key is an access key with the permission <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>. It holds a prepaid balance. When a transaction is signed with a gas key, the gas is paid from this balance instead of the account balance. Deposits, such as the <code>deposit</code> of a <code>Transfer</code> action, are still paid from the account balance. See <a href="DataStructures/../RuntimeSpec/Transactions.html#gas-key-transactions">Transactions</a> for the checks and <a href="DataStructures/../RuntimeSpec/Fees/Fees.html#gas-key-transactions">Fees</a> for the costs.</p>
+<p>A gas key is created by an <a href="DataStructures/../RuntimeSpec/Actions.html#addkeyaction">AddKey</a> action with a gas key permission. Its balance starts at 0. <a href="DataStructures/../RuntimeSpec/Actions.html#transfertogaskeyaction">TransferToGasKey</a> adds to the balance, and any account can send it. <a href="DataStructures/../RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a> moves balance back to the account. Gas refunds of transactions signed with the gas key also go to its balance. See <a href="DataStructures/../RuntimeSpec/Refunds.html#gas-key-balance-refunds">Refunds</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct GasKeyInfo {
+    pub balance: Balance,
+    pub num_nonces: NonceIndex,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>balance</code> is the prepaid balance of the gas key. It must be 0 in the <code>AddKey</code> action that creates the key.</li>
+<li><code>num_nonces</code> is the number of independent nonces of the gas key. It must be from 1 to 1024 (<code>MAX_NONCES_FOR_GAS_KEY</code>). <code>NonceIndex</code> is a <code>u16</code>.</li>
+</ul>
+<h3 id="accesskeypermissiongaskeyfullaccess"><a class="header" href="#accesskeypermissiongaskeyfullaccess">AccessKeyPermission::GasKeyFullAccess</a></h3>
+<p>Grants the same permissions as <code>FullAccess</code>. The gas of transactions signed with this key is paid from the gas key balance.</p>
+<h3 id="accesskeypermissiongaskeyfunctioncall"><a class="header" href="#accesskeypermissiongaskeyfunctioncall">AccessKeyPermission::GasKeyFunctionCall</a></h3>
+<p>Grants the same permissions as <code>FunctionCall</code>. The gas of transactions signed with this key is paid from the gas key balance. The <code>allowance</code> in its <code>FunctionCallPermission</code> must be <code>None</code>.</p>
+<h3 id="gas-key-nonces"><a class="header" href="#gas-key-nonces">Gas Key Nonces</a></h3>
+<p>A regular access key has one nonce, in the <code>nonce</code> field of <code>AccessKey</code>. A gas key has <code>num_nonces</code> independent nonces instead, with the indices 0 to <code>num_nonces - 1</code>. The <code>nonce</code> field of a gas key is always 0 and is not used. Clients that share a gas key can use different nonce indices to send transactions in parallel without nonce conflicts. A transaction signed with a gas key must be a <code>TransactionV1</code> with a <code>TransactionNonce::GasKeyNonce</code>, which gives both the nonce and the <code>nonce_index</code>. See <a href="DataStructures/../RuntimeSpec/Transactions.html">Transactions</a>.</p>
+<p>Each nonce is a separate record in the state. Its trie key is the trie key of the access key followed by the <code>nonce_index</code> as 2 little-endian bytes. Its value is the nonce as a Borsh-serialized <code>u64</code>. When the gas key is created, every nonce is set to <code>(block_height - 1) * 1_000_000</code>, where <code>block_height</code> is the height of the block in which the <code>AddKey</code> action is executed.</p>
+<p>Each nonce adds to the storage usage of the account. An ED25519 or ML-DSA-65 key uses 83 bytes per nonce. This is 33 bytes for the key as stored in the trie, 2 bytes for the index, 8 bytes for the value and 40 bytes of overhead per record (<code>storage_num_extra_bytes_record</code>). For a SECP256K1 key, it is 115 bytes per nonce. The account needs storage staking for these bytes, as for any other state. With the current storage price of 10^19 yoctoNEAR per byte, 1024 nonces of an ED25519 key need about 0.85 NEAR.</p>
+<h3 id="gas-key-deletion"><a class="header" href="#gas-key-deletion">Gas Key Deletion</a></h3>
+<p><a href="DataStructures/../RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> on a gas key burns the remaining balance of the key and removes all its nonces. If the balance is more than 1 NEAR, the action fails with <code>GasKeyBalanceTooHigh</code>. To delete such a key, first move the balance to the account with <a href="DataStructures/../RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a>. <a href="DataStructures/../RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> burns the balances of all gas keys of the account. It fails with <code>GasKeyBalanceTooHigh</code> if the sum of these balances is more than 1 NEAR.</p>
+<h3 id="gas-key-namespace"><a class="header" href="#gas-key-namespace">Gas Key Namespace</a></h3>
+<p>Gas keys and regular access keys share the public keys of an account. A public key belongs to at most one access key at a time, regular or gas key. An <code>AddKey</code> action with a public key that is already used fails with <code>AddKeyAlreadyExists</code>.</p>
+<h3 id="gas-keys-and-meta-transactions"><a class="header" href="#gas-keys-and-meta-transactions">Gas Keys and Meta Transactions</a></h3>
+<p>A <a href="DataStructures/../RuntimeSpec/Actions.html#delegate-actions"><code>Delegate</code></a> action signed by a gas key fails with <code>DelegateActionRequiresNonGasKey</code>. A <a href="DataStructures/../RuntimeSpec/Actions.html#delegatev2"><code>DelegateV2</code></a> action can be signed by a gas key. From protocol version 87 (nearcore 2.14.0), new <code>DelegateV2</code> actions are rejected. So a gas key cannot sign the delegate action of a new meta transaction. A relayer can still sign the outer transaction with a gas key.</p>
 <h2 id="account-without-access-keys"><a class="header" href="#account-without-access-keys">Account without access keys</a></h2>
 <p>If account has no access keys attached it means that it has no owner who can run transactions from its behalf. However, if such accounts has code it can be invoked by other accounts and contracts.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
@@ -405,11 +437,12 @@ See <a href="https://docs.near.org/protocol/storage/storage-staking">Storage Sta
 <h4 id="access-keys-1"><a class="header" href="#access-keys-1">Access Keys</a></h4>
 <p>An access key grants an access to a account. Each access key on the account is identified by a unique public key.
 This public key is used to validate signature of transactions.
-Each access key contains a unique nonce to differentiate or order transactions signed with this access key.</p>
-<p>An access key has a permission associated with it. The permission can be one of two types:</p>
+Each access key contains a unique nonce to differentiate or order transactions signed with this access key. A gas key has several nonces instead of one.</p>
+<p>An access key has a permission associated with it. The permission can be one of four types:</p>
 <ul>
 <li><code>FullAccess</code> permission. It grants full access to the account.</li>
 <li><code>FunctionCall</code> permission. It grants access to only issued function call transactions.</li>
+<li><code>GasKeyFullAccess</code> and <code>GasKeyFunctionCall</code> permissions. They grant the same access as <code>FullAccess</code> and <code>FunctionCall</code>, and they pay for gas from a prepaid balance. See <a href="DataStructures/AccessKey.html#gas-keys">Gas Keys</a>.</li>
 </ul>
 <p>See <a href="DataStructures/AccessKey.html">Access Keys</a> for more details.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
@@ -2448,9 +2481,14 @@ The <code>RoutingSyncV2</code> message does not exist on the network.</p>
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(UseGlobalContractAction),
     DeterministicStateInit(DeterministicStateInitAction),
+    TransferToGasKey(TransferToGasKeyAction),
+    WithdrawFromGasKey(WithdrawFromGasKeyAction),
+    DelegateV2(VersionedSignedDelegateAction),
+    UniversalStateInit(UniversalStateInitAction),
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p><code>TransferToGasKey</code>, <code>WithdrawFromGasKey</code> and <code>DelegateV2</code> are accepted from protocol version 85 (nearcore 2.13.0). From protocol version 87 (nearcore 2.14.0), new <code>DelegateV2</code> actions are rejected with <code>RemovedProtocolFeature</code>. <code>UniversalStateInit</code> is accepted from protocol version 88 (nearcore 2.14.0). Before the protocol version that enables an action, the action fails validation with <code>UnsupportedProtocolFeature</code>.</p>
 <p>Each transaction consists a list of actions to be performed on the <code>receiver_id</code> side. Since transactions are first
 converted to receipts when they are processed, we will mostly concern ourselves with actions in the context of receipt
 processing.</p>
@@ -2461,7 +2499,11 @@ processing.</p>
 <li><code>AddKey</code></li>
 <li><code>DeleteKey</code></li>
 <li><code>DeleteAccount</code></li>
+<li><code>DeployGlobalContract</code></li>
+<li><code>UseGlobalContract</code></li>
+<li><code>WithdrawFromGasKey</code></li>
 </ul>
+<p>If they are not equal, the action fails with <code>ActorNoPermission</code>.</p>
 <p>NOTE: if the first action in the action list is <code>CreateAccount</code>, <code>predecessor_id</code> becomes <code>receiver_id</code>
 for the rest of the actions until <code>DeleteAccount</code>. This gives permission by another account to act on the newly created account.</p>
 <h2 id="createaccountaction"><a class="header" href="#createaccountaction">CreateAccountAction</a></h2>
@@ -2642,10 +2684,13 @@ value is 10.</p>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>Adds a new <a href="RuntimeSpec//DataStructures/AccessKey.html">AccessKey</a> to the receiver's account and associates it with a <code>public_key</code> provided.</li>
+<li>If the permission is <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>, the new key is a <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a> with a balance of 0.
+The <code>nonce</code> field of the key is set to 0. The runtime also creates <code>num_nonces</code> nonce records for the key, each set to <code>(block_height - 1) * 1_000_000</code>.
+These records add to the storage usage of the account, see <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-key-nonces">Gas Key Nonces</a>.</li>
 </ul>
 <h3 id="errors-4"><a class="header" href="#errors-4">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
-<p>If the access key is of type <code>FunctionCallPermission</code>, the following errors can happen</p>
+<p>If the access key permission is <code>FunctionCall</code> or <code>GasKeyFunctionCall</code>, the following errors can happen</p>
 <ul>
 <li>If <code>receiver_id</code> in <code>access_key</code> is not a valid account id, the following error will be returned </li>
 </ul>
@@ -2675,6 +2720,40 @@ the following error will be returned</li>
 AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>If the access key permission is <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>, the following errors can also happen</p>
+<ul>
+<li>If the protocol version is lower than 85, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If the permission is <code>GasKeyFunctionCall</code> and its <code>allowance</code> is not <code>None</code>, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas keys with FunctionCall permission cannot have an allowance set.
+GasKeyFunctionCallAllowanceNotAllowed,
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If <code>num_nonces</code> is 0 or greater than 1024 (<code>MAX_NONCES_FOR_GAS_KEY</code>), the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>GasKeyInvalidNumNonces { requested_nonces: NonceIndex, limit: NonceIndex },
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If <code>balance</code> in <code>GasKeyInfo</code> is not 0, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>AddGasKeyWithNonZeroBalance { balance: Balance },
+<span class="boring">}
+</span></code></pre></pre>
 <p><strong>Execution Error</strong>:</p>
 <ul>
 <li>If an account tries to add an access key with a given public key, but an existing access key with this public key already exists, the following error will be returned</li>
@@ -2699,6 +2778,7 @@ AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey }
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>Deletes the <a href="RuntimeSpec//DataStructures/AccessKey.html">AccessKey</a> associated with <code>public_key</code>.</li>
+<li>If the key is a <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a>, its balance is burnt and all its nonce records are removed.</li>
 </ul>
 <h3 id="errors-5"><a class="header" href="#errors-5">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
@@ -2709,6 +2789,16 @@ AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey }
 </span><span class="boring">fn main() {
 </span>/// Account tries to remove an access key that doesn't exist
 DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If the key is a gas key with a balance of more than 1 NEAR, the following error is returned, with <code>public_key</code> set to the key.
+Use <a href="RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a> to lower the balance first.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key balance is too high to burn during deletion
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: Option&lt;PublicKey&gt;, balance: Balance }
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
@@ -2726,6 +2816,7 @@ DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
 <p><strong>Outcomes</strong>:</p>
 <ul>
 <li>The account, as well as all the data stored under the account, is deleted and the tokens are transferred to <code>beneficiary_id</code>.</li>
+<li>The balances of all <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas keys</a> of the account are burnt.</li>
 </ul>
 <h3 id="errors-6"><a class="header" href="#errors-6">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
@@ -2758,7 +2849,164 @@ DeleteAccountStaking { account_id: AccountId }
 </span></code></pre></pre>
 <p><strong>Execution Error</strong>:</p>
 <ul>
+<li>If the storage usage of the account is more than 10,000 bytes, the following error is returned and nothing is deleted.
+The storage of the contract code or of the global contract reference does not count.
+All other storage counts, including access keys, gas key nonces and contract data.
+To delete the account, first remove contract data or delete keys until the storage usage is 10,000 bytes or less.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Delete account whose state is large is temporarily banned.
+DeleteAccountWithLargeState { account_id: AccountId },
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If the sum of the balances of all gas keys of the account is more than 1 NEAR, the following error is returned, with <code>public_key: None</code>.
+Use <a href="RuntimeSpec/Actions.html#withdrawfromgaskeyaction">WithdrawFromGasKey</a> to lower the balances first.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key balance is too high to burn during deletion
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: Option&lt;PublicKey&gt;, balance: Balance }
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
 <li>If state or storage is corrupted, a <code>StorageError</code> is returned.</li>
+</ul>
+<h2 id="transfertogaskeyaction"><a class="header" href="#transfertogaskeyaction">TransferToGasKeyAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct TransferToGasKeyAction {
+    /// The public key of the gas key to fund
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer to the gas key
+    pub deposit: Balance,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Adds <code>deposit</code> to the balance of the <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a> with the given <code>public_key</code> on the receiver account.
+Any account can send this action, so an account can fund a gas key of another account.
+The <code>deposit</code> is paid by the sender in the same way as the <code>deposit</code> of a <code>Transfer</code>.
+A contract can create this action with the <code>promise_batch_action_transfer_to_gas_key</code> host function.</p>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>The balance of the gas key is increased by <code>deposit</code>.</li>
+</ul>
+<h3 id="errors-7"><a class="header" href="#errors-7">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li>If the protocol version is lower than 85, <code>UnsupportedProtocolFeature</code> is returned.</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li>If the receiver account has no access key with <code>public_key</code>, or the key is not a gas key, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key does not exist for the specified public key
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="withdrawfromgaskeyaction"><a class="header" href="#withdrawfromgaskeyaction">WithdrawFromGasKeyAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct WithdrawFromGasKeyAction {
+    /// The public key of the gas key to withdraw from
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer from the gas key
+    pub amount: Balance,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Moves <code>amount</code> from the balance of the <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a> with the given <code>public_key</code> to the balance of the receiver account.
+The <code>predecessor_id</code> and <code>receiver_id</code> must be equal.
+No host function creates this action, so it can only come from a transaction or from the actions of a delegate action.
+From protocol version 87 (nearcore 2.14.0), it cannot be inside a delegate action.</p>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>The balance of the gas key is decreased by <code>amount</code>.</li>
+<li>The balance of the account is increased by <code>amount</code>.</li>
+</ul>
+<h3 id="errors-8"><a class="header" href="#errors-8">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li>If the protocol version is lower than 85, <code>UnsupportedProtocolFeature</code> is returned.</li>
+<li>From protocol version 87 (nearcore 2.14.0), if a delegate action contains this action, the following error is returned. A receipt created before protocol version 87 still executes.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
+WithdrawFromGasKeyNotAllowedInDelegate
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li>If the account has no access key with <code>public_key</code>, or the key is not a gas key, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key does not exist for the specified public key
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If the balance of the gas key is less than <code>amount</code>, the following error is returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key does not have sufficient balance for the requested withdrawal
+InsufficientGasKeyBalance { account_id: AccountId, public_key: PublicKey, balance: Balance, required: Balance }
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="delegatev2"><a class="header" href="#delegatev2">DelegateV2</a></h2>
+<p><code>DelegateV2</code> is a version of the <a href="RuntimeSpec/Actions.html#delegate-actions">delegate action</a> that a <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a> can sign.
+It is accepted at protocol versions 85 and 86.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct VersionedSignedDelegateAction {
+    pub delegate_action: VersionedDelegateActionPayload,
+    pub signature: Signature,
+}
+
+pub enum VersionedDelegateActionPayload {
+    V2(DelegateActionV2),
+}
+
+pub struct DelegateActionV2 {
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    pub actions: Vec&lt;NonDelegateAction&gt;,
+    /// Nonce of the signing key, advanced when this action is processed. For
+    /// a gas key it also selects which of the parallel nonces to advance.
+    pub nonce: TransactionNonce,
+    /// The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.
+    pub max_block_height: BlockHeight,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><code>DelegateActionV2</code> has the same fields as <code>DelegateAction</code>, except that <code>nonce</code> is a <a href="RuntimeSpec//RuntimeSpec/Transactions.html"><code>TransactionNonce</code></a>.
+The signature is over the SHA-256 hash of the Borsh encoding of the 4-byte prefix <code>(1 &lt;&lt; 30) + 611</code> (NEP-611), followed by the <code>VersionedDelegateActionPayload</code>.
+The payload starts with the variant byte <code>0</code> for <code>V2</code>.
+A <code>Delegate</code> action uses the prefix <code>(1 &lt;&lt; 30) + 366</code> (NEP-366) instead.
+A <code>TransactionNonce::Nonce</code> must be signed by a regular access key, and it is checked against the nonce of that key.
+A <code>TransactionNonce::GasKeyNonce</code> must be signed by a gas key, and it is checked against the nonce stored for its <code>nonce_index</code>.
+The relayer pays for the gas, as with <code>Delegate</code>. The balance of the gas key is not used.</p>
+<p>From protocol version 87 (nearcore 2.14.0), a new transaction or receipt with a <code>DelegateV2</code> action fails validation with the following error. A receipt created before protocol version 87 still executes.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>RemovedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+<span class="boring">}
+</span></code></pre></pre>
+<p>Besides the errors listed in <a href="RuntimeSpec/Actions.html#delegate-actions">Delegate Actions</a>, a <code>DelegateV2</code> action can fail with these execution errors:</p>
+<ul>
+<li><code>DelegateActionAccessKeyError(DelegateActionRequiresGasKey)</code> if the nonce is a <code>GasKeyNonce</code> and the key is not a gas key.</li>
+<li><code>DelegateActionAccessKeyError(DelegateActionRequiresNonGasKey)</code> if the nonce is a plain <code>Nonce</code> and the key is a gas key.</li>
+<li><code>DelegateActionInvalidNonceIndex { nonce_index: NonceIndex, num_nonces: NonceIndex }</code> if <code>nonce_index</code> is not less than the <code>num_nonces</code> of the gas key.</li>
 </ul>
 <h2 id="delegate-actions"><a class="header" href="#delegate-actions">Delegate Actions</a></h2>
 <p>Introduced with <a href="https://github.com/near/NEPs/blob/master/neps/nep-0366.md">NEP-366</a> to enable meta transactions.</p>
@@ -2805,7 +3053,7 @@ struct DelegateAction {
 <li>All actions inside <code>delegate_action.actions</code> are submitted with the <code>delegate_action.sender_id</code> as the predecessor, <code>delegate_action.receiver_id</code> as the receiver, and the relayer (predecessor of <code>DelegateAction</code>) as the signer.</li>
 <li>All gas and balance costs for submitting <code>delegate_action.actions</code> are subtracted from the relayer.</li>
 </ul>
-<h3 id="errors-7"><a class="header" href="#errors-7">Errors</a></h3>
+<h3 id="errors-9"><a class="header" href="#errors-9">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
 <li>If the list of Transaction actions contains several <code>DelegateAction</code></li>
@@ -2863,6 +3111,15 @@ DelegateActionAccessKeyError
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
+<li>If the action is a <code>Delegate</code> and its <code>public_key</code> belongs to a <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a>, the following error is returned. A <code>Delegate</code> action must be signed with a regular access key.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// A plain access key nonce does not select one of the gas key's nonces.
+DelegateActionAccessKeyError(DelegateActionRequiresNonGasKey)
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
 <li>If the <code>nonce</code> does match the <code>public_key</code> for the <code>sender_id</code></li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2908,7 +3165,7 @@ pub enum GlobalContractDeployMode {
 <li>The same code propagates globally, shard by shard.</li>
 <li>Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.</li>
 </ul>
-<h3 id="errors-8"><a class="header" href="#errors-8">Errors</a></h3>
+<h3 id="errors-10"><a class="header" href="#errors-10">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
 <li><code>ContractSizeExceeded</code> if the provided WebAssembly code is larger than <code>max_contract_size</code> (4MiB).</li>
@@ -2927,7 +3184,7 @@ pub enum GlobalContractDeployMode {
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Outcome</strong>:</p>
-<h3 id="errors-9"><a class="header" href="#errors-9">Errors</a></h3>
+<h3 id="errors-11"><a class="header" href="#errors-11">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
 <li><code>InvalidAccountId</code> if the provided account id does not follow the <a href="RuntimeSpec/../DataStructures/Account.html">AccountId specification</a>.</li>
@@ -2963,7 +3220,7 @@ take a while for it to propagate to all shards.)</li>
 </ul>
 </li>
 </ul>
-<h3 id="errors-10"><a class="header" href="#errors-10">Errors</a></h3>
+<h3 id="errors-12"><a class="header" href="#errors-12">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
 <li><code>InvalidDeterministicStateInitReceiver</code> if the receiver id is not derived from the provided <code>DeterministicAccountStateInit</code></li>
@@ -4323,6 +4580,18 @@ To compute the number of bytes for <code>function_call_permission</code> use <co
 </ul>
 <p>Inside <code>VMLogic</code>, the fees are tracked in the <code>GasCounter</code> struct.
 The VM itself is called in the <code>action_function_call</code> inside <code>Runtime</code>. When all actions are processed, the result is returned as a <code>VMOutcome</code>, which is later merged with <code>ActionResult</code>.</p>
+<h2 id="gas-key-transactions"><a class="header" href="#gas-key-transactions">Gas key transactions</a></h2>
+<p>From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a <a href="RuntimeSpec/Fees//DataStructures/AccessKey.html#gas-keys">gas key</a>.
+Its fees are the same as for a transaction signed with a regular access key, but its cost is paid from two balances:</p>
+<ul>
+<li>The gas cost is paid from the gas key balance. It is <code>gas_burnt</code> converted at the current gas price, plus <code>gas_remaining</code> converted at the receipt gas price.
+The receipt gas price is the larger of the current gas price and <code>min_gas_purchase_price</code>.</li>
+<li>The deposit cost, <code>total_deposit(transaction.actions)</code>, is paid from the account balance. It is the sum of the deposits of all actions, such as <code>Transfer</code>, <code>FunctionCall</code> and <code>TransferToGasKey</code>.</li>
+</ul>
+<p>If the gas key balance does not cover the gas cost, the transaction fails with <code>NotEnoughGasKeyBalance</code> and nothing is charged.
+If the account balance does not cover the deposits, or does not cover the storage of the account after them, the transaction fails with <code>NotEnoughBalanceForDeposit</code>.
+In that case the gas key is charged only for <code>gas_burnt</code>, at the current gas price. See <a href="RuntimeSpec/Fees//RuntimeSpec/Transactions.html#gas-key-transactions">Gas key transactions</a>.
+Gas refunds of a gas key transaction go back to the gas key balance, see <a href="RuntimeSpec/Fees/../Refunds.html#gas-key-balance-refunds">Refunds</a>.</p>
 <h1 id="example"><a class="header" href="#example">Example</a></h1>
 <!-- cspell:ignore VGYT Fwya Wckywk Ejuz -->
 <p>Let's say we have the following transaction:</p>
@@ -4463,7 +4732,7 @@ returned value. Eventually, these <code>DataReceipt</code> will be delivered to 
 One example could be a callback. In this case, we assume the new Receipt will send its Value
 Result to the <a href="RuntimeSpec/Receipts.html#output_data_receivers"><code>output_data_receivers</code></a> of the current
 <code>ActionReceipt</code>.</p>
-<h3 id="errors-11"><a class="header" href="#errors-11">Errors</a></h3>
+<h3 id="errors-13"><a class="header" href="#errors-13">Errors</a></h3>
 <p>As with other actions, errors can be divided into two categories: validation error and execution
 error.</p>
 <h4 id="validation-error"><a class="header" href="#validation-error">Validation Error</a></h4>
@@ -5167,6 +5436,14 @@ issued and when the gas refund arrived. In this case we use the best effort to r
 <li>the allowance should be set to <code>Some</code> limited value, instead of unlimited allowance (<code>None</code>)</li>
 <li>the runtime uses saturating add to increase the allowance, to avoid overflows</li>
 </ul>
+<h2 id="gas-key-balance-refunds"><a class="header" href="#gas-key-balance-refunds">Gas Key Balance refunds</a></h2>
+<p>When a transaction is signed with a <a href="RuntimeSpec/../DataStructures/AccessKey.html#gas-keys">gas key</a>, its gas is paid from the gas key balance.
+Gas refunds for this transaction, and for the receipts it leads to, go back to the gas key balance instead of the account balance.</p>
+<p>A gas refund is identified by the same condition as for allowance refunds: <code>signer_id == receiver_id &amp;&amp; predecessor_id == &quot;system&quot;</code>.
+For such a refund, the runtime looks up the access key of <code>signer_id</code> with the public key <code>signer_public_key</code>.
+If this key exists and is a gas key, the refund is added to the gas key balance, and the account balance does not change.
+Otherwise, the refund is added to the account balance, and the allowance refund described above applies.
+So if a gas key is deleted before a gas refund for it arrives, the refund goes to the account balance.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtime"><a class="header" href="#runtime">Runtime</a></h1>
 <p>Runtime layer is used to execute smart contracts and other actions created by the users and preserve the state between the executions.
@@ -5208,10 +5485,15 @@ The specification is defined in <code>near-vm-logic</code>, but it is exposed to
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="transactions"><a class="header" href="#transactions">Transactions</a></h1>
-<p>A transaction in Near is a list of <a href="RuntimeSpec/Actions.html">actions</a> and additional information:</p>
+<p>A transaction in Near is a list of <a href="RuntimeSpec/Actions.html">actions</a> and additional information. There are two versions of a transaction:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pub struct Transaction {
+</span>pub enum Transaction {
+    V0(TransactionV0),
+    V1(TransactionV1),
+}
+
+pub struct TransactionV0 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
     /// An access key which was used to sign a transaction
@@ -5219,15 +5501,46 @@ The specification is defined in <code>near-vm-logic</code>, but it is exposed to
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
-    /// Receiver account for this transaction. If
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec&lt;Action&gt;,
 }
+
+pub struct TransactionV1 {
+    pub signer_id: AccountId,
+    pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`,
+    /// and for gas key it also includes a `nonce_index`.
+    pub nonce: TransactionNonce,
+    pub receiver_id: AccountId,
+    pub block_hash: CryptoHash,
+    pub actions: Vec&lt;Action&gt;,
+    /// Controls nonce validation mode (monotonic or strict sequential).
+    pub nonce_mode: NonceMode,
+}
+
+pub enum TransactionNonce {
+    /// Simple nonce without index, used by ordinary access keys
+    Nonce { nonce: Nonce },
+    /// Nonce with index, used by gas keys
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
+}
+
+pub enum NonceMode {
+    /// Any nonce strictly greater than the current access key nonce (default behavior).
+    Monotonic,
+    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
+    Strict,
+}
 <span class="boring">}
 </span></code></pre></pre>
+<p>The fields of <code>TransactionV1</code> have the same meaning as in <code>TransactionV0</code>. Its <code>nonce</code> is a <code>TransactionNonce</code>, and its last field <code>nonce_mode</code> sets how the nonce is checked. See <a href="RuntimeSpec/Transactions.html#valid-transaction-nonce">Valid transaction nonce</a>. <code>NonceIndex</code> is a <code>u16</code>.</p>
+<p>A <code>TransactionV0</code> is Borsh-serialized as the struct alone, with no prefix. A <code>TransactionV1</code> is Borsh-serialized as the byte 1 followed by the <code>TransactionV1</code> struct. To tell the two apart, a decoder reads the first two bytes. A <code>TransactionV0</code> starts with the 4-byte little-endian length of <code>signer_id</code>, which is at most 64, so its second byte is always 0. A <code>TransactionV1</code> starts with the byte 1 followed by the length of <code>signer_id</code>, so its second byte is not 0.</p>
+<p><code>TransactionV1</code> is accepted from protocol version 85 (nearcore 2.13.0). Before that, it is rejected with <code>InvalidTransactionVersion</code>. A transaction signed with a <a href="RuntimeSpec/../DataStructures/AccessKey.html#gas-keys">gas key</a> must be a <code>TransactionV1</code> with <code>TransactionNonce::GasKeyNonce</code>. See <a href="RuntimeSpec/Transactions.html#gas-key-transactions">Gas key transactions</a>. <code>NonceMode::Strict</code> can only be set in a <code>TransactionV1</code>. A <code>TransactionV0</code> always uses <code>NonceMode::Monotonic</code>.</p>
 <h2 id="signed-transaction"><a class="header" href="#signed-transaction">Signed Transaction</a></h2>
 <p><code>SignedTransaction</code> is what the node receives from a wallet through JSON-RPC endpoint and then routed to the shard where <code>receiver_id</code> account lives. Signature proves an ownership of the corresponding <code>public_key</code> (which is an AccessKey for a particular account) as well as authenticity of the transaction itself.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -5236,8 +5549,10 @@ The specification is defined in <code>near-vm-logic</code>, but it is exposed to
     pub transaction: Transaction,
     /// A signature of a hash of the Borsh-serialized Transaction
     pub signature: Signature,
+}
 <span class="boring">}
 </span></code></pre></pre>
+<p>The signed hash covers the whole Borsh encoding of the <code>Transaction</code>, including the leading byte 1 of a <code>TransactionV1</code>.</p>
 <p>Take a look some <a href="RuntimeSpec/Scenarios/Scenarios.html">scenarios</a> how transaction can be applied.</p>
 <h2 id="batched-transaction"><a class="header" href="#batched-transaction">Batched Transaction</a></h2>
 <p>A <code>Transaction</code> can contain a list of actions. When there are more than one action in a transaction, we refer to such
@@ -5313,7 +5628,8 @@ TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas }
 <h4 id="valid-actions"><a class="header" href="#valid-actions">Valid actions</a></h4>
 <p>Whether each included action is valid. Details of such check can be found in <a href="RuntimeSpec/Actions.html">Actions</a>.</p>
 <h3 id="validation-with-state"><a class="header" href="#validation-with-state">Validation With State</a></h3>
-<p>After the basic validation is done, we check the transaction against current state to perform further validation.</p>
+<p>After the basic validation is done, we check the transaction against current state to perform further validation.
+A transaction signed with a gas key has some different checks, see <a href="RuntimeSpec/Transactions.html#gas-key-transactions">Gas key transactions</a>.</p>
 <h4 id="existing-signer_id"><a class="header" href="#existing-signer_id">Existing <code>signer_id</code></a></h4>
 <p>Whether <code>signer_id</code> exists. If not, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -5324,7 +5640,11 @@ SignerDoesNotExist { signer_id: AccountId },
 </span></code></pre></pre>
 <p>error is returned.</p>
 <h4 id="valid-transaction-nonce"><a class="header" href="#valid-transaction-nonce">Valid transaction nonce</a></h4>
-<p>Whether the transaction nonce is greater than the existing nonce on the access key. If not, a</p>
+<p>The transaction nonce is checked against the current nonce of the access key.
+For a gas key, the current nonce is the nonce stored for the <code>nonce_index</code> of the transaction.
+With <code>NonceMode::Monotonic</code>, which is the default, the transaction nonce must be greater than the current nonce.
+With <code>NonceMode::Strict</code>, the transaction nonce must be exactly the current nonce plus 1.
+<code>NonceMode::Strict</code> is available from protocol version 85 (nearcore 2.13.0). If the check fails, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Transaction nonce must be strictly greater than `account[access_key].nonce`.
@@ -5332,6 +5652,14 @@ InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
 <span class="boring">}
 </span></code></pre></pre>
 <p>error is returned.</p>
+<p>The transaction nonce must also be less than the height of the block that includes the transaction, multiplied by 1,000,000. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Transaction nonce is larger than the upper bound given by the block height
+NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned. A node does not know this block when a transaction is submitted, so it checks this bound only when it produces or applies a chunk.</p>
 <h4 id="enough-balance-to-cover-transaction-cost"><a class="header" href="#enough-balance-to-cover-transaction-cost">Enough balance to cover transaction cost</a></h4>
 <p>If <code>signer_id</code> account has enough balance to cover the cost of the transaction. If not, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -5383,6 +5711,64 @@ contains is not a <code>FunctionCall</code> action.</li>
 <li><code>InvalidAccessKeyError::ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId }</code> if transaction's <code>receiver_id</code> does not match the <code>receiver_id</code> of the access key.</li>
 <li><code>InvalidAccessKeyError::MethodNameMismatch { method_name: String }</code> if the name of the method that the transaction tries to call is not allowed by the access key.</li>
 </ul>
+<h3 id="gas-key-transactions-1"><a class="header" href="#gas-key-transactions-1">Gas key transactions</a></h3>
+<p>From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a <a href="RuntimeSpec/../DataStructures/AccessKey.html#gas-keys">gas key</a>.
+Such a transaction must be a <code>TransactionV1</code> with <code>TransactionNonce::GasKeyNonce { nonce, nonce_index }</code>.
+Its gas is paid from the gas key balance, and its deposits are paid from the account balance.
+The checks below replace the balance, allowance and storage checks of <a href="RuntimeSpec/Transactions.html#validation-with-state">Validation With State</a>.
+The other checks still apply. This includes the nonce check and, for a <code>GasKeyFunctionCall</code> key, the function call access key validations.</p>
+<h4 id="valid-nonce-index"><a class="header" href="#valid-nonce-index">Valid nonce index</a></h4>
+<p>The <code>nonce_index</code> must be less than the <code>num_nonces</code> of the gas key. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Transaction is specifying an invalid nonce index. Gas key transactions
+/// must have a nonce_index in valid range, regular transactions must not.
+InvalidNonceIndex { tx_nonce_index: Option&lt;NonceIndex&gt;, num_nonces: NonceIndex },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned. If the access key is not a gas key, the error has <code>num_nonces: 0</code>.
+The same error is returned with <code>tx_nonce_index: None</code> when a gas key signs a transaction without a <code>nonce_index</code>.
+That is a <code>TransactionV0</code> or a <code>TransactionV1</code> with <code>TransactionNonce::Nonce</code>.</p>
+<p>The transaction nonce is then checked against the nonce stored for <code>nonce_index</code>, as described in <a href="RuntimeSpec/Transactions.html#valid-transaction-nonce">Valid transaction nonce</a>.</p>
+<h4 id="enough-gas-key-balance"><a class="header" href="#enough-gas-key-balance">Enough gas key balance</a></h4>
+<p>The gas key balance must cover the gas cost of the transaction.
+The gas cost is the gas burnt to convert the transaction into a receipt, at the current gas price, plus the remaining gas of the receipt, at the receipt gas price.
+The receipt gas price is the larger of the current gas price and <code>min_gas_purchase_price</code>.
+See <a href="RuntimeSpec/Fees/Fees.html#gas-key-transactions">Fees</a>. If the balance is too low, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key does not have enough balance to cover gas costs.
+NotEnoughGasKeyBalance { signer_id: AccountId, balance: Balance, cost: Balance },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+<h4 id="enough-account-balance-for-deposits"><a class="header" href="#enough-account-balance-for-deposits">Enough account balance for deposits</a></h4>
+<p>The account balance must cover the sum of the deposits of all actions.
+After paying them, the account must still have enough balance for its storage. If not, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Gas key transaction failed because the account could not cover the deposit cost.
+/// Gas is still charged from the gas key in this case.
+NotEnoughBalanceForDeposit {
+    signer_id: AccountId,
+    balance: Balance,
+    cost: Balance,
+    reason: DepositCostFailureReason,
+}
+
+pub enum DepositCostFailureReason {
+    NotEnoughBalance,
+    LackBalanceForState,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.
+With <code>NotEnoughBalance</code>, the account balance does not cover the deposits. Then <code>balance</code> is the account balance and <code>cost</code> is the sum of the deposits.
+With <code>LackBalanceForState</code>, the balance left after the deposits does not cover the storage of the account. In this case, <code>balance</code> is that remaining balance and <code>cost</code> is the missing amount.</p>
+<p>Nodes reject such a transaction when it is submitted, and chunk producers do not include it.
+When a chunk contains such a transaction, the transaction fails when it is converted to a receipt, and no receipt is created.
+The gas key is still charged for the gas burnt to convert the transaction, at the current gas price, and the nonce for <code>nonce_index</code> is updated.
+The rest of the gas is not charged, so nothing is refunded. The account balance does not change.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="scenarios-1"><a class="header" href="#scenarios-1">Scenarios</a></h1>
 <p>In the following sections we go over the common scenarios that runtime takes care of.</p>
