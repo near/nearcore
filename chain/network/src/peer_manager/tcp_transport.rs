@@ -19,7 +19,7 @@ use near_async::time;
 use near_async::tokio::TokioRuntimeHandle;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::cmp::max;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use tokio::sync::oneshot;
@@ -275,6 +275,16 @@ impl NetworkTransport for TcpTransport {
         }
     }
 
+    fn stop_idle_tier3_connections(&self, now: time::Instant, idle_timeout: time::Duration) {
+        for conn in self.tier3.load().ready.values() {
+            let last_active =
+                max(conn.last_time_received_message.load(), conn.last_time_sent_message.load());
+            if now - last_active > idle_timeout {
+                conn.stop(None);
+            }
+        }
+    }
+
     fn shutdown(&self) {
         // Drop the sender — the listener's select! closes and the loop exits.
         drop(self.shutdown_tx.lock().take());
@@ -282,30 +292,24 @@ impl NetworkTransport for TcpTransport {
 
     fn transport_info(&self) -> TransportInfo {
         let tier2 = self.tier2.load();
-        // Include T3 peer stats so PMA's idle-connection cleanup can read
-        // last_time_received_message via transport_info instead of touching
-        // the Pool directly.
-        let tier3 = self.tier3.load();
-
-        let mut peer_stats: HashMap<PeerId, PeerTransportStats> = HashMap::new();
-        // T2 comes first; if the same peer_id appears in T3, the T2 entry
-        // is kept (via `or_insert_with`). Keying by peer_id collapses
-        // duplicates naturally.
-        for (peer_id, conn) in tier2.ready.iter().chain(tier3.ready.iter()) {
-            peer_stats.entry(peer_id.clone()).or_insert_with(|| {
+        let tier2_peer_stats = tier2
+            .ready
+            .iter()
+            .map(|(peer_id, conn)| {
                 let s = &conn.stats;
-                PeerTransportStats {
+                let stats = PeerTransportStats {
                     last_time_received_message: conn.last_time_received_message.load(),
                     last_time_peer_requested: conn.last_time_peer_requested.load(),
                     received_bytes_per_sec: s.received_bytes_per_sec.load(Ordering::Relaxed),
                     received_messages_per_sec: s.received_messages_per_sec.load(Ordering::Relaxed),
                     sent_bytes_per_sec: s.sent_bytes_per_sec.load(Ordering::Relaxed),
-                }
-            });
-        }
+                };
+                (peer_id.clone(), stats)
+            })
+            .collect();
         TransportInfo {
             pending_outbound: tier2.outbound_handshakes.iter().cloned().collect(),
-            peer_stats,
+            tier2_peer_stats,
         }
     }
 }

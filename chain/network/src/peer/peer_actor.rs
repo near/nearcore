@@ -457,6 +457,9 @@ impl PeerActor {
         tracing::trace!(target: "network", msg_len = bytes_len);
         let frame = stream::Frame::with_permit(bytes, permit);
         self.framed.send(frame);
+        if let PeerStatus::Ready(conn) = &self.peer_status {
+            conn.last_time_sent_message.store(self.clock.now());
+        }
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         let msg_type = msg.msg_variant();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
@@ -682,6 +685,7 @@ impl PeerActor {
                 .new_point(&metrics::Connection { tier, type_: self.peer_type }),
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
+            last_time_sent_message: AtomicCell::new(now),
             established_time: now,
         });
 
