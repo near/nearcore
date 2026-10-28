@@ -15,11 +15,12 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::gen_changes;
 use near_store::trie::AccessOptions;
-use near_store::{ShardTries, Trie, WrappedTrieChanges};
+use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
 use std::sync::Arc;
 
@@ -875,5 +876,53 @@ fn test_fork_chunk_tail_updates() {
         assert_eq!(store_update.tail(), 2);
         assert_eq!(store_update.fork_tail(), 3);
         assert_eq!(store_update.chunk_tail(), 0);
+    }
+}
+
+/// Undo-block deletes the head block's spice witnesses and contract accesses. Both are keyed by
+/// block hash and shard id, not by shard uid.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_clear_head_block_data_spice_witnesses() {
+    let mut chain = get_chain_with_num_shards(Clock::real(), 2);
+    let epoch_manager = chain.epoch_manager.clone();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = genesis;
+    let mut blocks = vec![prev_block.clone()];
+    for i in 1..=3 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            i,
+        );
+    }
+
+    let head = chain.head().unwrap().last_block_hash;
+    let shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id()).unwrap();
+    let columns = [DBCol::witnesses(), DBCol::contract_accesses()];
+    let mut store_update = chain.chain_store().store().store_update();
+    for shard_id in shard_layout.shard_ids() {
+        for col in columns {
+            store_update.set(col, &get_block_shard_id(&head, shard_id), &[]);
+        }
+    }
+    store_update.commit();
+
+    let mut chain_store_update = chain.mut_chain_store().store_update();
+    chain_store_update.clear_head_block_data(epoch_manager.as_ref()).unwrap();
+    chain_store_update.commit().unwrap();
+
+    let store = chain.chain_store().store();
+    for shard_id in shard_layout.shard_ids() {
+        for col in columns {
+            assert!(
+                !store.exists(col, &get_block_shard_id(&head, shard_id)),
+                "{col} of head block shard {shard_id} should have been deleted"
+            );
+        }
     }
 }
