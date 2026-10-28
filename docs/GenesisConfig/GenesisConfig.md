@@ -1,6 +1,11 @@
 # GenesisConfig
 
 The fields of `GenesisConfig` are the top-level keys of `genesis.json`.
+The first sections of this page explain the file format and where the node takes each setting from.
+The sections after them describe each field.
+
+## File format
+
 A field whose section below gives a default value is optional.
 All other fields are required, and a `genesis.json` file without one of them fails to parse.
 The `records` key is not part of `GenesisConfig`.
@@ -9,15 +14,24 @@ The node still needs the records from one of these places.
 The node ignores keys that it does not know.
 A misspelled optional field is ignored without a warning, and the node uses its default value.
 
-For mainnet and testnet, the node does not use the epoch settings from genesis.
-These settings are `num_block_producer_seats`, the kickout thresholds, `max_inflation_rate` and `fishermen_threshold`.
-They also include the optional fields at the end of this page.
-They do not include `shard_layout` and `use_production_config`.
-For these settings, mainnet and testnet use the epoch config that the node has built in for each protocol version (`core/primitives/res/epoch_configs/`).
-`epoch_length` is the exception: the node always reads it from genesis.
-Other chains use the files in the `epoch_configs` folder of the node home when that folder exists.
-Without that folder, a chain whose ID starts with `test-chain-` builds its epoch config from the genesis fields.
-Any other chain uses fixed test values and takes only `num_block_producer_seats`, `shard_layout` and `epoch_length` from genesis.
+## Where settings come from
+
+### Epoch settings
+
+The epoch settings are `num_block_producer_seats`, the kickout thresholds, `max_inflation_rate`, `fishermen_threshold` and the optional fields at the end of this page.
+The node does not use `use_production_config`. `shard_layout` has its own rules, described in [shard_layout](#shard_layout).
+The node takes the epoch settings from the first row of this table that matches the chain:
+
+| Chain | Source of the epoch settings |
+| --- | --- |
+| Mainnet and testnet | The epoch config that the node has built in for each protocol version (`core/primitives/res/epoch_configs/`) |
+| Any other chain whose node home has an `epoch_configs` folder | The files in that folder |
+| A chain whose ID starts with `test-chain-` | The genesis fields |
+| Any other chain | Fixed test values, except `num_block_producer_seats` and `shard_layout`, which come from genesis |
+
+On every chain, the node reads `epoch_length` from genesis, and this value replaces the `epoch_length` of the epoch config.
+
+### Runtime parameters
 
 Runtime parameters, such as fees, gas costs and VM limits, are not part of genesis.
 Each nearcore release contains them for every protocol version (`core/parameters/res/runtime_configs/`), and the node uses the set for the current protocol version.
