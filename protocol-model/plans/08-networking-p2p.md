@@ -13,7 +13,7 @@ route-back), and rate limiting. The transport for everything else in the protoco
 
 ## Code to read
 - `chain/network/src/network_protocol/mod.rs` and `network.proto` — `PeerMessage`,
-  `RoutedMessage` (V1/V2/V3), `TieredMessageBody`, handshake.
+  `RoutedMessage`, `TieredMessageBody`, handshake.
 - `chain/network/src/peer_manager/peer_manager_actor.rs` — connection lifecycle, event
   loop.
 - `chain/network/src/peer_manager/{connection,peer_store,network_state}/`,

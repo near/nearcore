@@ -1324,20 +1324,18 @@ impl PeerActor {
                     "received routed message");
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                if let Some(signature) = msg.signature() {
-                    let key = (msg.author().clone(), msg.target().clone(), signature.clone());
-                    let now = self.clock.now();
-                    if let Some(&t) = self.routed_message_cache.get(&key) {
-                        if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                            metrics::MessageDropped::Duplicate.inc(msg.body());
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                            tracing::debug!(target: "network", author = ?msg.author(), target = ?msg.target(), "dropping duplicated message");
-                            return;
-                        }
+                let key = (msg.author().clone(), msg.target().clone(), msg.signature().clone());
+                let now = self.clock.now();
+                if let Some(&t) = self.routed_message_cache.get(&key) {
+                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        metrics::MessageDropped::Duplicate.inc(msg.body());
+                        #[cfg(test)]
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
+                        tracing::debug!(target: "network", author = ?msg.author(), target = ?msg.target(), "dropping duplicated message");
+                        return;
                     }
-                    self.routed_message_cache.put(key, now);
                 }
+                self.routed_message_cache.put(key, now);
 
                 if let TieredMessageBody::T2(t2) = msg.body() {
                     if let T2MessageBody::ForwardTx(_) = t2.as_ref() {
