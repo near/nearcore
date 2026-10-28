@@ -436,6 +436,19 @@ impl ChunkExecutorActor {
             return Ok(());
         };
 
+        let sync_header = self.chain_store.get_block_header(&sync_hash)?;
+        if !sync_header.is_spice() {
+            // At the activation epoch `last_final` still sits in the non-spice epoch, in which
+            // case the snapshot is taken in the non-spice code path.
+            return Ok(());
+        }
+
+        if self.chain_store.spice_final_execution_head()?.height >= sync_header.height() {
+            // The final execution head is already at or past the sync block, so the flat head
+            // may be past it too, and the snapshot can no longer be built.
+            return Ok(());
+        }
+
         let tries = self.runtime_adapter.get_tries();
         if tries.get_flat_storage_manager().snapshot_hash_wanted() == Some(sync_hash)
             || tries.store().get_state_snapshot_hash().ok() == Some(sync_hash)
