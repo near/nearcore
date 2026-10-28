@@ -462,6 +462,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
+                p256_verify_v2: params.get(Parameter::P256VerifyV2)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

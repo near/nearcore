@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -214,6 +215,7 @@ expression: config_view
     "ml_dsa_verify_host_fn": true,
     "sha3_host_fns": true,
     "bls12381_not_in_group_fix": false,
+    "p256_verify_v2": true,
     "fix_contract_loading_cost": true,
     "universal_accounts": true,
     "limit_config": {

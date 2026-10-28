@@ -1,1 +1,4 @@
 max_globals_per_contract: { new: 65_536 }
+
+# Verify `p256_verify` signatures with `p256` 0.14 instead of 0.13.
+p256_verify_v2: { old: false, new: true }

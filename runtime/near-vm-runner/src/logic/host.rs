@@ -2095,6 +2095,154 @@ pub fn ed25519_verify(
     }
 }
 
+/// [`p256_verify`] before `P256VerifyV2`, using `p256` 0.13. Must stay in sync
+/// with [`p256_verify_v2`]: only the crate doing the parsing and verification
+/// may differ, gas charging and the order of checks must be identical.
+fn p256_verify_v1(
+    ctx: &mut HostCtx,
+    memory: &mut [u8],
+    signature_len: u64,
+    signature_ptr: u64,
+    message_len: u64,
+    message_ptr: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+) -> Result<u64> {
+    use p256_v13::ecdsa::signature::hazmat::PrehashVerifier;
+    use p256_v13::ecdsa::{Signature, VerifyingKey};
+
+    ctx.result_state.gas_counter.pay_base(p256_verify_base)?;
+
+    let signature = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            signature_ptr,
+            signature_len,
+        )?;
+        if vec.len() != 64 {
+            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                msg: "invalid signature length".to_string(),
+            }));
+        }
+        match Signature::from_slice(&vec) {
+            Ok(signature) => signature,
+            Err(_) => return Ok(false as u64),
+        }
+    };
+
+    let message = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        message_ptr,
+        message_len,
+    )?;
+    ctx.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
+
+    let public_key = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            public_key_ptr,
+            public_key_len,
+        )?;
+        if vec.len() != 33 {
+            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                msg: "invalid public key length".to_string(),
+            }));
+        }
+        match VerifyingKey::from_sec1_bytes(&vec) {
+            Ok(public_key) => public_key,
+            Err(_) => return Ok(false as u64),
+        }
+    };
+
+    match public_key.verify_prehash(&message, &signature) {
+        Err(_) => Ok(false as u64),
+        Ok(()) => Ok(true as u64),
+    }
+}
+
+/// [`p256_verify`] since `P256VerifyV2`, using `p256` 0.14. See
+/// [`p256_verify_v1`].
+fn p256_verify_v2(
+    ctx: &mut HostCtx,
+    memory: &mut [u8],
+    signature_len: u64,
+    signature_ptr: u64,
+    message_len: u64,
+    message_ptr: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+) -> Result<u64> {
+    use p256::ecdsa::signature::hazmat::PrehashVerifier;
+    use p256::ecdsa::{Signature, VerifyingKey};
+
+    ctx.result_state.gas_counter.pay_base(p256_verify_base)?;
+
+    let signature = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            signature_ptr,
+            signature_len,
+        )?;
+        if vec.len() != 64 {
+            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                msg: "invalid signature length".to_string(),
+            }));
+        }
+        match Signature::from_slice(&vec) {
+            Ok(signature) => signature,
+            Err(_) => return Ok(false as u64),
+        }
+    };
+
+    let message = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        message_ptr,
+        message_len,
+    )?;
+    ctx.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
+
+    let public_key = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            public_key_ptr,
+            public_key_len,
+        )?;
+        if vec.len() != 33 {
+            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                msg: "invalid public key length".to_string(),
+            }));
+        }
+        match VerifyingKey::from_sec1_bytes(&vec) {
+            Ok(public_key) => public_key,
+            Err(_) => return Ok(false as u64),
+        }
+    };
+
+    // Reject a prehash shorter than half the field size, as `p256` 0.13 does
+    // in `bits2field`; 0.14 zero-pads it instead. Pinned by
+    // `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`.
+    if message.len() < 16 {
+        return Ok(false as u64);
+    }
+
+    match public_key.verify_prehash(&message, &signature) {
+        Err(_) => Ok(false as u64),
+        Ok(()) => Ok(true as u64),
+    }
+}
+
 /// Verify a P-256 ECDSA signature given a prehashed message and a public key.
 ///
 /// The signature must be 64 bytes, encoded as `r || s`. The public key must
@@ -2161,61 +2309,28 @@ pub fn p256_verify(
     public_key_len: u64,
     public_key_ptr: u64,
 ) -> Result<u64> {
-    use p256::ecdsa::signature::hazmat::PrehashVerifier;
-    use p256::ecdsa::{Signature, VerifyingKey};
-
-    ctx.result_state.gas_counter.pay_base(p256_verify_base)?;
-
-    let signature = {
-        let vec = get_memory_or_register(
-            &mut ctx.result_state.gas_counter,
+    if ctx.config.p256_verify_v2 {
+        p256_verify_v2(
+            ctx,
             memory,
-            &ctx.registers,
-            signature_ptr,
             signature_len,
-        )?;
-        if vec.len() != 64 {
-            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
-                msg: "invalid signature length".to_string(),
-            }));
-        }
-        match Signature::from_slice(&vec) {
-            Ok(signature) => signature,
-            Err(_) => return Ok(false as u64),
-        }
-    };
-
-    let message = get_memory_or_register(
-        &mut ctx.result_state.gas_counter,
-        memory,
-        &ctx.registers,
-        message_ptr,
-        message_len,
-    )?;
-    ctx.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
-
-    let public_key = {
-        let vec = get_memory_or_register(
-            &mut ctx.result_state.gas_counter,
-            memory,
-            &ctx.registers,
-            public_key_ptr,
+            signature_ptr,
+            message_len,
+            message_ptr,
             public_key_len,
-        )?;
-        if vec.len() != 33 {
-            return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
-                msg: "invalid public key length".to_string(),
-            }));
-        }
-        match VerifyingKey::from_sec1_bytes(&vec) {
-            Ok(public_key) => public_key,
-            Err(_) => return Ok(false as u64),
-        }
-    };
-
-    match public_key.verify_prehash(&message, &signature) {
-        Err(_) => Ok(false as u64),
-        Ok(()) => Ok(true as u64),
+            public_key_ptr,
+        )
+    } else {
+        p256_verify_v1(
+            ctx,
+            memory,
+            signature_len,
+            signature_ptr,
+            message_len,
+            message_ptr,
+            public_key_len,
+            public_key_ptr,
+        )
     }
 }
 

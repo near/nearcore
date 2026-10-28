@@ -308,6 +308,9 @@ pub enum Parameter {
     // they are handled correctly. All other inputs were already handled
     // correctly.
     Bls12381NotInGroupFix,
+
+    // Verify `p256_verify` signatures with `p256` 0.14 instead of 0.13.
+    P256VerifyV2,
 }
 
 #[derive(

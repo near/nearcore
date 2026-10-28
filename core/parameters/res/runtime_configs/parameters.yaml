@@ -350,6 +350,7 @@ fix_ml_dsa_cost_charging: false
 ml_dsa_verify_host_fn: false
 sha3_host_fns: false
 bls12381_not_in_group_fix: false
+p256_verify_v2: false
 
 
 # Congestion Control configuration

@@ -13287,6 +13287,10 @@
             "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
             "type": "boolean"
           },
+          "p256_verify_v2": {
+            "description": "See [VMConfig::p256_verify_v2](crate::vm::Config::p256_verify_v2).",
+            "type": "boolean"
+          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",

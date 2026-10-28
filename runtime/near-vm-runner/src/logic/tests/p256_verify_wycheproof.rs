@@ -26,24 +26,30 @@ fn run_wycheproof(pubkey_hex: &str, msg_hex: &str, sig_hex: &str, expected: u64)
     let prehash = Sha256::digest(&message).to_vec();
     let public_key = hex::decode(pubkey_hex).expect("bad pk hex");
 
-    let mut builder = VMLogicBuilder::default();
-    let mut logic = builder.build();
+    for p256_verify_v2 in [false, true] {
+        let mut builder = VMLogicBuilder::default();
+        builder.config.p256_verify_v2 = p256_verify_v2;
+        let mut logic = builder.build();
 
-    let sig_ptr = logic.internal_mem_write(&signature).ptr;
-    let msg_ptr = logic.internal_mem_write(&prehash).ptr;
-    let pk_ptr = logic.internal_mem_write(&public_key).ptr;
+        let sig_ptr = logic.internal_mem_write(&signature).ptr;
+        let msg_ptr = logic.internal_mem_write(&prehash).ptr;
+        let pk_ptr = logic.internal_mem_write(&public_key).ptr;
 
-    let result = logic
-        .p256_verify(
-            signature.len() as u64,
-            sig_ptr,
-            prehash.len() as u64,
-            msg_ptr,
-            public_key.len() as u64,
-            pk_ptr,
-        )
-        .expect("p256_verify should not abort for well-formed 64-byte sig + 33-byte pk");
-    assert_eq!(result, expected, "wycheproof mismatch: expected {expected}, got {result}");
+        let result = logic
+            .p256_verify(
+                signature.len() as u64,
+                sig_ptr,
+                prehash.len() as u64,
+                msg_ptr,
+                public_key.len() as u64,
+                pk_ptr,
+            )
+            .expect("p256_verify should not abort for well-formed 64-byte sig + 33-byte pk");
+        assert_eq!(
+            result, expected,
+            "wycheproof mismatch with p256_verify_v2={p256_verify_v2}: expected {expected}, got {result}"
+        );
+    }
 }
 
 #[test]

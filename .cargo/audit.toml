@@ -106,10 +106,9 @@ ignore = [
     "RUSTSEC-2026-0369",
 
     # RUSTSEC-2026-0387: crypto-bigint timing leaks in operations on secret
-    # integers. Fixed in crypto-bigint >= 0.7.6. Reached only via p256 0.13,
-    # used by the `p256_verify` host function, which works on public inputs
-    # only (signature, digest, public key). The fix needs p256 0.14, which
-    # accepts messages shorter than 16 bytes that 0.13 rejects, a protocol
-    # change (see `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`).
+    # integers. Fixed in crypto-bigint >= 0.7.6. Reached only via p256 0.13
+    # (`p256_v13`), which the `p256_verify` host function uses before
+    # `P256VerifyV2` and which works on public inputs only (signature, digest,
+    # public key). Can be removed together with `p256_v13`.
     "RUSTSEC-2026-0387",
 ]

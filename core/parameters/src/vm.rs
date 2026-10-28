@@ -264,6 +264,12 @@ pub struct Config {
     /// inputs were already handled correctly.
     pub bls12381_not_in_group_fix: bool,
 
+    /// Verify `p256_verify` signatures with `p256` 0.14 instead of 0.13.
+    /// The switch happens at a protocol version so that any behavior
+    /// difference between the two cannot split nodes running different
+    /// binaries.
+    pub p256_verify_v2: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -305,6 +311,7 @@ impl Config {
         self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
         self.bls12381_not_in_group_fix = true;
+        self.p256_verify_v2 = true;
     }
 }
 

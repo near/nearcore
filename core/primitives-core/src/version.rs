@@ -96,6 +96,11 @@ pub enum ProtocolFeature {
     /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
     /// accepts it there and the header is handled like `BlockHeaderV6`.
     RejectBlockHeaderV7BeforeSpice,
+    /// Verify `p256_verify` signatures with `p256` 0.14 instead of 0.13, which
+    /// drops `crypto-bigint` 0.5 (security advisory 2026-0387). The switch
+    /// happens at a protocol version so that any behavior difference between
+    /// the two cannot split nodes running different binaries.
+    P256VerifyV2,
 }
 
 impl ProtocolFeature {
@@ -119,6 +124,7 @@ impl ProtocolFeature {
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
+            ProtocolFeature::P256VerifyV2 => 89,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

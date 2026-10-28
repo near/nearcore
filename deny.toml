@@ -131,4 +131,31 @@ skip = [
     { name = "num-bigint", version = "=0.3.3" },
     { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
+
+    # p256 0.14 (RustCrypto elliptic-curve 0.14) moved to digest 0.11,
+    # signature 3 and rand_core 0.10; the rest of the ecosystem hasn't caught up yet.
+    { name = "block-buffer", version = "=0.10.2" },
+    { name = "cpufeatures", version = "=0.2.11" },
+    { name = "crypto-common", version = "=0.1.3" },
+    { name = "digest", version = "=0.10.7" },
+    { name = "getrandom", version = "=0.3.1" },
+    { name = "hmac", version = "=0.12.1" },
+    { name = "rand_core", version = "=0.9.3" },
+    { name = "sha2", version = "=0.10.6" },
+    { name = "signature", version = "=2.2.0" },
+
+    # p256 0.13 is kept for the `p256_verify` host function before `P256VerifyV2`.
+    { name = "base16ct", version = "=0.2.0" },
+    { name = "const-oid", version = "=0.9.6" },
+    { name = "crypto-bigint", version = "=0.5.5" },
+    { name = "der", version = "=0.7.10" },
+    { name = "ecdsa", version = "=0.16.9" },
+    { name = "elliptic-curve", version = "=0.13.8" },
+    { name = "ff", version = "=0.13.1" },
+    { name = "group", version = "=0.13.0" },
+    { name = "p256", version = "=0.13.2" },
+    { name = "primeorder", version = "=0.13.6" },
+    { name = "rfc6979", version = "=0.4.0" },
+    { name = "sec1", version = "=0.7.3" },
+    { name = "spki", version = "=0.7.3" },
 ]

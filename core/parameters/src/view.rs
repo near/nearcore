@@ -247,6 +247,8 @@ pub struct VMConfigView {
     pub sha3_host_fns: bool,
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
+    /// See [VMConfig::p256_verify_v2](crate::vm::Config::p256_verify_v2).
+    pub p256_verify_v2: bool,
 
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
@@ -275,6 +277,7 @@ impl From<crate::vm::Config> for VMConfigView {
             ml_dsa_verify_host_fn: config.ml_dsa_verify_host_fn,
             sha3_host_fns: config.sha3_host_fns,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
+            p256_verify_v2: config.p256_verify_v2,
         }
     }
 }
