@@ -493,16 +493,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Vec<AccountId>, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-
-        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
-        let chunk_producers = chunk_producers_settlement
-            .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        Ok(chunk_producers
-            .iter()
-            .map(|index| epoch_info.validator_account_id(*index).clone())
-            .collect())
+        epoch_chunk_producers_for_shard(&epoch_info, &shard_layout, shard_id)
     }
 
     /// Returns all validators for a given epoch.
@@ -1019,6 +1010,24 @@ pub trait EpochManagerAdapter: Send + Sync {
         parent_hash: &CryptoHash,
         chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
+}
+
+/// AccountIds of the chunk producers assigned to `shard_id` in the epoch of `epoch_info` and
+/// `shard_layout`, in the epoch's settlement order.
+pub fn epoch_chunk_producers_for_shard(
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+    shard_id: ShardId,
+) -> Result<Vec<AccountId>, EpochError> {
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
+    let chunk_producers = epoch_info
+        .chunk_producers_settlement()
+        .get(shard_index)
+        .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+    Ok(chunk_producers
+        .iter()
+        .map(|index| epoch_info.validator_account_id(*index).clone())
+        .collect())
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {

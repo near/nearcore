@@ -387,7 +387,7 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
 }
 
 /// Six heights, an item from each of two shards at each, nothing pushed: every producer gets a
-/// request for its own ordinal of every shard's items at the lowest pulled heights only.
+/// request for its own ordinal of its shard's items at the lowest pulled heights only.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn only_the_lowest_pullable_heights_are_pulled() {
@@ -406,16 +406,16 @@ fn only_the_lowest_pullable_heights_are_pulled() {
 
     let requests = by_producer(manager.on_block_processed(&blocks[6]));
 
-    let expected_ids: BTreeSet<DataId> = blocks[..pulled_heights]
-        .iter()
-        .flat_map(|block| [receipt_id(block, 0, 2), receipt_id(block, 1, 2)])
-        .collect();
-    assert_eq!(requests.len(), TOTAL_PARTS);
-    for (ordinal, producer) in producers().iter().enumerate() {
-        let wants = &requests[producer];
-        assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
-        for requested in wants.values() {
-            assert_eq!(requested, &ordinals(&[ordinal as u64]));
+    assert_eq!(requests.len(), 2 * TOTAL_PARTS);
+    for from_shard in [0, 1] {
+        let expected_ids: BTreeSet<DataId> =
+            blocks[..pulled_heights].iter().map(|block| receipt_id(block, from_shard, 2)).collect();
+        for (ordinal, producer) in shard_producers(from_shard).iter().enumerate() {
+            let wants = &requests[producer];
+            assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
+            for requested in wants.values() {
+                assert_eq!(requested, &ordinals(&[ordinal as u64]));
+            }
         }
     }
 }
@@ -431,9 +431,7 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
-    let others: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("other{i}.near"))).collect();
-    manager.set_producers_for(1, others.clone());
+    let others = shard_producers(1);
     for block in &blocks[..6] {
         manager.track_block(&block);
     }

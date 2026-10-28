@@ -1,4 +1,6 @@
-pub use crate::adapter::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+pub use crate::adapter::{
+    CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter, epoch_chunk_producers_for_shard,
+};
 use crate::metrics::{
     DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT, EARLY_KICKOUT_BLACKLIST_SIZE,
     EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED, EARLY_KICKOUT_SAFETY_VALVE_FIRED,

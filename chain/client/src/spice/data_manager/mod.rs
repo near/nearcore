@@ -14,14 +14,20 @@ pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::{Block, Error};
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
-pub(crate) use policy::{FetchPolicies, FetchPolicy, ServePolicies, ServePolicy};
+use policy::receipt_proof;
+pub(crate) use policy::{ServePolicies, ServePolicy};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 pub use serve::MalformedDataRequest;
@@ -29,6 +35,7 @@ pub(crate) use serve::{Push, ServeError, ServeOutcome, SpiceDataServer};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
 use std::ops::Bound;
+use std::sync::Arc;
 
 /// Share of the parts an item is encoded into that suffice to decode it.
 pub const DATA_PARTS_RATIO: f64 = 0.6;
@@ -69,15 +76,30 @@ pub(crate) enum PartsOutcome {
     NotWanted,
 }
 
+/// The producers of `id` in the epoch of `epoch_info` and `shard_layout`, in the parts' encoding
+/// order. Fetching and serving both take part ordinals from this list.
+fn producers_in_epoch(
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+    id: &DataId,
+) -> Result<Vec<AccountId>, Error> {
+    match id {
+        DataId::ReceiptProof { source, .. } => {
+            Ok(epoch_chunk_producers_for_shard(epoch_info, shard_layout, source.shard_id)?)
+        }
+    }
+}
+
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager<P: FetchPolicy = FetchPolicies> {
+pub(crate) struct SpiceDataManager {
     encoders: ReedSolomonEncoderCache,
     chain_store: ChainStoreAdapter,
-    policies: P,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
@@ -93,17 +115,19 @@ pub(crate) struct SpiceDataManager<P: FetchPolicy = FetchPolicies> {
     final_height: Option<BlockHeight>,
 }
 
-impl<P: FetchPolicy> SpiceDataManager<P> {
+impl SpiceDataManager {
     pub(crate) fn new(
         pull_config: PullConfig,
         chain_store: ChainStoreAdapter,
-        policies: P,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
     ) -> Self {
         Self {
             pulls: Pulls::new(pull_config),
             encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
             chain_store,
-            policies,
+            epoch_manager,
+            shard_tracker,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
             delivered_items: HashSet::new(),
@@ -114,7 +138,36 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
 
     /// The producers of `id`, in the parts' encoding order.
     pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.policies.producers(id)
+        let header = self.chain_store.get_block_header(id.block_hash())?;
+        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
+        producers_in_epoch(&epoch_info, &shard_layout, id)
+    }
+
+    /// The ids of every data kind this node needs from `block`.
+    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
+    // witnesses move onto the engine (#16275).
+    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
+        receipt_proof::needed_items(self.epoch_manager.as_ref(), &self.shard_tracker, block)
+    }
+
+    /// Whether the item is completed as far as data distribution is concerned.
+    fn is_done(&self, id: &DataId) -> bool {
+        match id {
+            DataId::ReceiptProof { source, to_shard } => {
+                receipt_proof::is_done(&self.chain_store.store(), source, *to_shard)
+            }
+        }
+    }
+
+    /// The ids of every data kind that `block` makes pullable, tracked or not.
+    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
+        receipt_proof::made_pullable_by(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block,
+        )
     }
 
     /// Whether an item for `id` exists, in any state.
@@ -133,7 +186,7 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
 
     /// Adds the tracked items `block` makes pullable to `pulls`.
     fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
-        for id in self.policies.made_pullable_by(block)? {
+        for id in self.made_pullable_by(block)? {
             if let Some(item) = self.items.get(&id) {
                 self.pulls.mark_pullable(id, item.height);
             }
@@ -158,10 +211,18 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
         {
             return Ok(());
         }
-        for (id, producers) in self.policies.needed_items(block)? {
-            if self.items.contains_key(&id) || self.policies.is_done(&id) {
-                continue;
-            }
+        let epoch_info = self.epoch_manager.get_epoch_info(block.epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
+        let new_items_and_producers = self
+            .needed_items(block)?
+            .into_iter()
+            .filter(|id| !self.items.contains_key(id) && !self.is_done(id))
+            .map(|id| {
+                let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
+                Ok((id, producers))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        for (id, producers) in new_items_and_producers {
             self.items_by_height.entry(height).or_default().insert(id.clone());
             self.items.insert(id, FetchItem::new(height, producers));
         }
@@ -327,7 +388,7 @@ impl<P: FetchPolicy> SpiceDataManager<P> {
     /// Removes the items whose delivered data is in the store.
     fn remove_done_items(&mut self) {
         let done: Vec<DataId> =
-            self.delivered_items.iter().filter(|id| self.policies.is_done(id)).cloned().collect();
+            self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
         for id in done {
             self.remove_item(&id);
         }
