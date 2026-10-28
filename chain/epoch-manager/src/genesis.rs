@@ -28,10 +28,9 @@ impl EpochManager {
         // parent of genesis block that points to itself.
         // If we view it as block in epoch -1 and height -1, it naturally extends the
         // EpochId formula using T-2 for T=1, and height field is unused.
-        let block_info = Arc::new(BlockInfo::default());
         let mut store_update = self.store.store_update();
         self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
-        self.save_block_info(&mut store_update, block_info)?;
+        store_update.set_block_info(&BlockInfo::default());
         store_update.commit();
         Ok(())
     }

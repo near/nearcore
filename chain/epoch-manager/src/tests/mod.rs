@@ -526,19 +526,25 @@ fn test_validator_reward_one_validator() {
             ),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -1621,7 +1627,9 @@ fn test_chunk_producer_kickout() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1696,7 +1704,9 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1807,7 +1817,9 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 }),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1979,27 +1991,27 @@ fn test_validator_consistency() {
     }
 }
 
-/// Test that when epoch length is larger than the cache size of block info cache, there is
-/// no unexpected error.
+/// Recording an epoch and finalizing it walks each block exactly once.
 #[test]
-fn test_finalize_epoch_large_epoch_length() {
+fn test_aggregator_visits_each_block_once() {
+    const EPOCH_LENGTH: usize = 10;
     let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     // Pinned below EarlyKickout: its per-block seeder reads the aggregator once per block,
     // so the exact walk count asserted below only holds while the feature is off. The
-    // caching invariant itself is protocol-independent, and the seed path has its own
+    // walk-once invariant itself is protocol-independent, and the seed path has its own
     // coverage in the early_kickout tests.
     let mut epoch_manager = setup_default_epoch_manager_at_version(
         validators,
-        (BLOCK_CACHE_SIZE + 1) as u64,
+        EPOCH_LENGTH as u64,
         1,
         2,
         90,
         60,
         PV_BEFORE_EARLY_KICKOUT,
     );
-    let h = hash_range(BLOCK_CACHE_SIZE + 2);
+    let h = hash_range(EPOCH_LENGTH + 1);
     record_block_with_version(
         &mut epoch_manager,
         CryptoHash::default(),
@@ -2008,7 +2020,7 @@ fn test_finalize_epoch_large_epoch_length() {
         vec![],
         PV_BEFORE_EARLY_KICKOUT,
     );
-    for i in 1..=(BLOCK_CACHE_SIZE + 1) {
+    for i in 1..=EPOCH_LENGTH {
         record_block_with_version(
             &mut epoch_manager,
             h[i - 1],
@@ -2018,7 +2030,7 @@ fn test_finalize_epoch_large_epoch_length() {
             PV_BEFORE_EARLY_KICKOUT,
         );
     }
-    let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1])).unwrap();
+    let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[EPOCH_LENGTH])).unwrap();
     assert_eq!(
         epoch_info.validators_iter().map(|v| v.account_and_stake()).collect::<Vec<_>>(),
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
@@ -2031,7 +2043,7 @@ fn test_finalize_epoch_large_epoch_length() {
         ]),
     );
     assert_eq!(
-        BLOCK_CACHE_SIZE + 2,
+        EPOCH_LENGTH + 1,
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
         "Expected every block to be visited exactly once"
     );

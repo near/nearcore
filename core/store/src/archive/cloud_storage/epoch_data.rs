@@ -12,6 +12,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::views::LightClientBlockView;
 use near_schema_checker_lib::ProtocolSchema;
+use std::sync::Arc;
 
 /// Versioned container for epoch-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -51,7 +52,8 @@ pub fn build_epoch_data(
 ) -> Result<EpochData, Error> {
     let first_block_hash = store.chain_store().get_next_block_hash(prev_epoch_end)?;
     let epoch_store = store.epoch_store();
-    let epoch_first_block_info = epoch_store.get_block_info(&first_block_hash)?;
+    let epoch_first_block_info =
+        Arc::unwrap_or_clone(epoch_store.get_block_info(&first_block_hash)?);
     let epoch_id = *epoch_first_block_info.epoch_id();
     let epoch_info = epoch_store.get_epoch_info(&epoch_id)?;
 
