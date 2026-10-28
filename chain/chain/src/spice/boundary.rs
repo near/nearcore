@@ -1,6 +1,7 @@
 //! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
 //! are the first to be certified under spice.
 
+use crate::spice::core::new_uncertified_chunk_info;
 use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -13,8 +14,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
 use std::collections::HashSet;
-
-use crate::spice::core::new_uncertified_chunk_info;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
