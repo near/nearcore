@@ -209,6 +209,7 @@ fn deserialize_sync_routing_table_with_legacy_accounts() {
     assert_eq!(got, msg);
 }
 
+#[cfg(not(feature = "nightly"))]
 fn make_block_approval_message() -> RoutedMessage {
     let mut rng = make_rng(19385389);
     let signer = data::make_validator_signer(&mut rng);
