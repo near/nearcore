@@ -1427,7 +1427,7 @@ impl EpochManager {
         Ok(EpochManagerUpdate { store_update, epoch_end })
     }
 
-    /// [`EpochEnd`] of a block whose rows are committed.
+    /// [`EpochEnd`] of a block whose `BlockInfo` row is committed.
     fn get_epoch_end(&self, block_hash: &CryptoHash) -> Result<Option<EpochEnd>, EpochError> {
         let block_info = self.get_block_info(block_hash)?;
         if !self.is_next_block_in_next_epoch(&block_info)? {
