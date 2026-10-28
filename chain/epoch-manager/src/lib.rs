@@ -394,6 +394,7 @@ pub(crate) fn blacklist_for_epoch(
 
 /// Result of [`EpochManager::record_block_info`]: the writes to commit, plus what callers
 /// need to know about the block before the commit.
+#[must_use]
 pub struct EpochManagerUpdate {
     pub store_update: EpochStoreUpdateAdapter<'static>,
     /// Set when the block is the last block of its epoch, i.e. when
