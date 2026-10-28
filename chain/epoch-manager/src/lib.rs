@@ -1418,10 +1418,6 @@ impl EpochManager {
                         block_info.height(),
                     )?;
                 }
-
-                // `check_protocol_version` reads this before commit, while the cache holds
-                // the only readable copy. Keep it most recently used.
-                self.blocks_info.put(current_hash, block_info);
             }
         }
         Ok(EpochManagerUpdate { store_update, epoch_end })

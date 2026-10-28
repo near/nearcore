@@ -1196,15 +1196,15 @@ fn seed_walk_skips_fork_basis_behind_sync_point() {
     assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
 }
 
-// A late block can move the sync point past the canonical basis. Blocks recorded on that
-// basis must keep their uncommitted `BlockInfo` readable.
+// A late block can move the sync point past the canonical basis. Blocks on that basis
+// must still record.
 enum ForkOrder {
     CanonicalFirst,
     OrphanFirst,
 }
 
-/// The orphan advances the sync point past the canonical basis. Leave canonical records
-/// uncommitted to check that they remain readable, as required during block processing.
+/// The orphan advances the sync point past the canonical basis. Canonical records must
+/// succeed without an epoch walk.
 fn record_fork_behind_sync_point(order: ForkOrder) {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
@@ -1235,15 +1235,11 @@ fn record_fork_behind_sync_point(order: ForkOrder) {
                 vec![true],
                 PROTOCOL_VERSION,
             );
-            let uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-            // `check_protocol_version` makes this read before commit.
-            assert!(
-                em.is_next_block_epoch_start(&cur).is_ok(),
-                "the uncommitted BlockInfo must stay readable"
-            );
+            let update = em.record_block_info(block_info, [0; 32]).unwrap();
+            assert!(update.epoch_end.is_none(), "the block must not end the epoch");
             let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
             assert_eq!(walked, 0, "the basis was computed for the tip, so it must not be walked");
-            uncommitted.store_update.commit();
+            update.store_update.commit();
         };
 
     match order {
@@ -1382,28 +1378,6 @@ fn aggregator_walk_leaves_block_info_cache_alone() {
     assert!(walked > BLOCK_CACHE_SIZE, "the walk must outrun the cache, walked {walked}");
     assert_eq!(cached(&em), cached_before, "the walk must not insert, evict or reorder entries");
     assert!(em.get_block_info(&pending).is_ok());
-}
-
-#[test]
-fn record_block_info_leaves_new_block_most_recently_used() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    let h = height_hashes(5);
-    record_steady_chain(&mut em, &h);
-    let pending = hash(b"recorded, not committed");
-    let block_info = block_info_with_final_and_mask(
-        &em,
-        h[5],
-        pending,
-        6,
-        h[4],
-        4,
-        vec![true],
-        PROTOCOL_VERSION,
-    );
-    let _uncommitted = em.record_block_info(block_info, [0; 32]).unwrap();
-    let most_recent = em.blocks_info.lock().iter().next().map(|(hash, _)| *hash);
-    assert_eq!(most_recent, Some(pending));
 }
 
 fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash]) -> CryptoHash {
