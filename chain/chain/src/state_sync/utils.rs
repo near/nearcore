@@ -145,17 +145,20 @@ fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<bool>
 }
 
 /// The epoch's first block, walking back along the final chain from `last_final`, which must
-/// belong to `epoch_id`.
+/// belong to `epoch_id`. `None` while a header on the way is missing, as happens during epoch
+/// sync where headers are saved without their predecessors.
 fn first_block_of_epoch<T: ChainStoreAccess>(
     chain_store: &T,
     last_final: Arc<BlockHeader>,
     epoch_id: &EpochId,
-) -> Result<Arc<BlockHeader>, Error> {
+) -> Result<Option<Arc<BlockHeader>>, Error> {
     let mut first = last_final;
     loop {
-        let prev = chain_store.get_block_header(first.prev_hash())?;
+        let Some(prev) = maybe_get_block_header(chain_store, first.prev_hash())? else {
+            return Ok(None);
+        };
         if prev.epoch_id() != epoch_id || prev.height() == chain_store.get_genesis_height() {
-            return Ok(first);
+            return Ok(Some(first));
         }
         first = prev;
     }
