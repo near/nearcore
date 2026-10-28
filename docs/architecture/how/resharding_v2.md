@@ -2,6 +2,8 @@
 
 **DISCLAIMER**: This document describes Resharding V2, which `nearcore` no longer implements. nearcore 2.5.0 (protocol version 75) replaced it with Resharding V3, and nearcore 2.7.0 removed the Resharding V2 code. From protocol version 85 (nearcore 2.13.0), dynamic resharding chooses shard splits automatically, up to the `max_number_of_shards` limit in the epoch config. See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md) for the current design.
 
+The sections up to and including [Throttling](#throttling) describe current behavior. The [Resharding V2 design](#resharding-v2-design) section and the sections after it are history.
+
 ## Resharding
 
 Resharding is the process in which the shard layout changes. The primary purpose
@@ -13,8 +15,9 @@ number of shards.
 
 The resharding is described in more detail in the following NEPs:
 
-* [NEP-0040](https://github.com/near/NEPs/blob/master/neps/archive/0040-split-states.md)
-* [NEP-0508](https://github.com/near/NEPs/blob/master/neps/nep-0508.md)
+* [NEP-0568](https://github.com/near/NEPs/pull/568) describes Resharding V3, the current design.
+* [NEP-0508](https://github.com/near/NEPs/blob/master/neps/nep-0508.md) describes Resharding V2, an earlier design.
+* [NEP-0040](https://github.com/near/NEPs/blob/master/neps/archive/0040-split-states.md) describes the first design.
 
 ## Shard layout
 
@@ -51,6 +54,29 @@ See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/archi
 
 In both cases, the shard layout can change only at an epoch boundary.
 
+## Monitoring
+
+The monitoring section of [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md#8-monitoring) lists the current resharding metrics, from the split proposal to the end of the resharding. `near_resharding_status` is the primary metric for tracking the progress of a resharding.
+Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation.
+
+## Throttling
+
+The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file.
+
+* batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.
+* batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming.
+* catch_up_blocks - controls how many blocks the child shards catch up in one batch. Setting a smaller value will slow down the catch-up and make it less resource-consuming.
+
+The remaining fields in the ReshardingConfig are not used by Resharding V3 and should remain set to their default values.
+
+The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues.
+
+The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up.
+
+## Resharding V2 design
+
+The rest of this page describes how Resharding V2 worked. nearcore no longer implements it.
+
 ### Deeper technical details
 
 It all starts in ``preprocess_block`` - if the node sees, that the block it is
@@ -80,13 +106,11 @@ Then, when receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key 
 
 That is why we cannot move this trie entry type in the same way as others where account id is part of the key. Instead we do it by iterating over this queue and inserting entries to the queue of the relevant child shard.
 
-## Constraints
+### Constraints
 
 The state sync of the parent shard, the resharding and the catchup of the children shards must all complete within a single epoch.
 
-## Rollout
-
-### Flow
+### Rollout
 
 The resharding will be initiated by having it included in a dedicated protocol version together with neard. Here is the expected flow of events:
 
@@ -96,25 +120,7 @@ The resharding will be initiated by having it included in a dedicated protocol v
 * The resharding begins at the beginning of epoch E+1.
 * The network switches to the new shard layout in the first block of epoch E+2.
 
-### Monitoring
-
-The metrics in this section are the current ones, which Resharding V3 and dynamic resharding use.
-
-Resharding exposes a number of metrics and logs that allow for monitoring the resharding process as it is happening. Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation.
-
-* near_resharding_status is the primary metric that should be used for tracking the progress of resharding. It's tagged with a shard_uid label of the parent shard. No series is exported for a shard until a resharding is scheduled for it. It's set to corresponding ReshardingStatus enum and can take one of the following values
-  * -2 - Cancelled - resharding stopped before it completed, for example on node shutdown or when the child shards are no longer tracked.
-  * -1 - Failed - resharding failed at some stage.
-  * 1 - Scheduled - the node received the resharding event and waits for the resharding block to become final.
-  * 2 - Splitting flat storage - the flat storage of the parent shard is being split.
-  * 3 - Catching up - the flat storage of the child shards is catching up.
-  * 4 - Resharding trie state - the State column is being rewritten for the child shards.
-  * 5 - Done - resharding finished.
-* near_flat_storage_resharding_split_shard_processed_batches and near_flat_storage_resharding_split_shard_processed_bytes show the progress of the flat storage split. near_flat_storage_resharding_split_shard_batch_size is the size in bytes of each batch. near_flat_storage_resharding_status shows the flat storage resharding status of each shard.
-* near_state_col_resharding_processed_batches shows the progress of rewriting the State column.
-* near_resharding_start_timestamp_seconds is the Unix time when the resharding started. near_resharding_total_duration_seconds is the total time from the start until the State column step finishes. near_resharding_memtrie_split_duration_seconds is the time of the memtrie split at the resharding block. This split runs during block processing, so a slow split delays the block.
-
-The monitoring section of [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md#8-monitoring) also lists the metrics of the earlier steps, from the split proposal to the memtrie preload.
+#### Resharding V2 metrics
 
 The tables and screenshots below are Resharding V2 history. They use Resharding V2 metrics, which no longer exist. The duration column reflects how long Resharding V2 took to build the state of the new shards. The values were captured in a production-like environment before the Resharding V2 rollout.
 
@@ -142,22 +148,9 @@ Here is an example of what that may look like in a grafana dashboard. Please kee
 
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
 
-### Throttling
+### Future possibilities
 
-The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file.
-
-* batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.
-* batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming.
-
-The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values.
-
-The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues.
-
-The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up.
-
-## Future possibilities
-
-### Localize resharding to a single shard
+#### Localize resharding to a single shard
 
 Resharding V3 implements this: it changes only the data of the shard that is split. The text below is the original plan.
 
@@ -165,7 +158,7 @@ Currently when resharding we need to move the data for all shards even if only a
 
 This can be improved by changing how ShardUId works e.g. removing the version and instead using globally unique shard ids.
 
-### Dynamic resharding
+#### Dynamic resharding
 
 Dynamic resharding is implemented from protocol version 85 (nearcore 2.13.0). See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md). The text below is the original plan.
 
@@ -173,6 +166,6 @@ The current implementation relies on having the shard layout determined offline 
 
 The dynamic resharding would mean that the network itself can automatically determine that resharding is needed, what should be the new shard layout and schedule the resharding.  
 
-### Support different changes to shard layout
+#### Support different changes to shard layout
 
 The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account.
