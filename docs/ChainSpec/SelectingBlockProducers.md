@@ -220,8 +220,9 @@ select_validators(MAX_NUM_CV, min_stake_fraction, validator_proposals)
 
 ## Algorithm for assigning chunk validators to shards
 
-Chunk validators are assigned to shards through mandates. Every validator of the epoch takes part, including the
-block producers and chunk producers.
+Chunk validators are assigned to shards through mandates. A mandate is an amount of a validator's stake. At each
+height, each mandate is assigned to one shard, and the validator must validate the chunk of that shard. Every
+validator of the epoch takes part, including the block producers and chunk producers.
 
 - When the validators of the epoch are selected, a stake per mandate is chosen so that the validators hold about
   `target_validator_mandates_per_shard * num_shards` whole mandates in total. `target_validator_mandates_per_shard`
@@ -232,11 +233,21 @@ block producers and chunk producers.
   shard gets almost the same number of whole mandates. The partial mandates are shuffled and dealt in the same way.
   The random number generator for this is seeded with the epoch seed and the height.
 - A validator validates the chunk of a shard at a height if it holds at least one whole or partial mandate for
-  that shard at that height.
+  that shard at that height. It appears once in the chunk validators of that shard, with an assigned stake. The
+  assigned stake is the sum of the stake of all whole and partial mandates that the validator holds for that shard.
 - After the mandates are dealt, the validators of each shard are sorted by validator ID (their index in the epoch's
   validator list). They are then shuffled with the same random number generator, one shard at a time in order of
   shard index. The result is the shard's ordered chunk validators for that height. Block bodies list chunk
   endorsements in this order, and the height used is the chunk's `height_created`.
+
+A chunk is endorsed when the validators that endorse it hold more than two thirds of the total assigned stake of the
+shard's chunk validators. So an endorsement counts with the validator's assigned stake on that shard, not with its
+full stake.
+
+For example, say the stake per mandate is 10 NEAR. A validator with 25 NEAR holds two whole mandates of 10 NEAR and
+one partial mandate of 5 NEAR. If one whole mandate and the partial mandate go to a shard at some height, the
+validator appears once in the chunk validators of that shard, with 15 NEAR of assigned stake. One validator can hold
+several mandates for the same shard, so a shard can have fewer distinct chunk validators than mandates.
 
 ## Algorithm for sampling validators proportional to stake
 
