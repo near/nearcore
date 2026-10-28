@@ -100,7 +100,13 @@ fn drive(scenario: Scenario) {
     let budget = (BASE_EPOCH_BUDGET + EPOCH_BUDGET_PER_FAULT * driver.faults.len() as u64)
         * profile.epoch_length();
     for _ in 0..budget {
-        env.rpc_runner().run_for_number_of_blocks(1);
+        // The runner panics with a bare timeout when the chain stops producing blocks;
+        // say where it stopped and what the run looked like instead.
+        let head_before = env.rpc_node().head().height;
+        let tick = catch_unwind(AssertUnwindSafe(|| env.rpc_runner().run_for_number_of_blocks(1)));
+        if tick.is_err() {
+            panic!("the chain stalled at height {head_before}\n{}", driver.describe_setup());
+        }
         driver.observe(&mut env);
         if driver.reached_terminal_condition(&env) {
             driver.finish(&mut env);

@@ -34,6 +34,10 @@ const LOAD_START_OFFSET: i64 = -7;
 /// at `done`.
 const LOAD_END_EPOCH: u32 = 1;
 const CONTRACT_METHOD: &str = "log_something";
+/// The shard index the contract account lives on: the upper shard. A fault that silences
+/// it keeps the deploy and the call backlog in the pool, and the shard's first spice
+/// chunks congest until the pool's transactions expire, so such faults reject it.
+pub const CONTRACT_SHARD_INDEX: usize = 1;
 
 fn low_sender() -> AccountId {
     create_account_id("low_sender")
@@ -143,6 +147,8 @@ pub struct Loads {
     /// The heights each submitted transaction was included at, in new chunks. Filled by
     /// [`Self::scan_inclusions`] after the terminal condition.
     inclusion_heights: HashMap<CryptoHash, Vec<BlockHeight>>,
+    /// The deploy of the test contract, from `warmed_up` on.
+    deploy_tx: Option<CryptoHash>,
 }
 
 impl Loads {
@@ -155,15 +161,16 @@ impl Loads {
             submitted: Vec::new(),
             initial_receiver_balances: HashMap::new(),
             inclusion_heights: HashMap::new(),
+            deploy_tx: None,
         }
     }
 
     /// Reacts to a progress point: checks the accounts' shards at `Built`, deploys the contract at
     /// `WarmedUp`, and starts and ends the ticking.
-    pub fn on_progress(&mut self, env: &mut TestLoopEnv, progress: &Progress) {
+    pub fn on_progress(&mut self, env: &TestLoopEnv, progress: &Progress) {
         match progress {
             Progress::Built => assert_accounts_on_expected_shards(env),
-            Progress::WarmedUp => deploy_contract(env),
+            Progress::WarmedUp => self.deploy_tx = Some(deploy_contract(env)),
             Progress::Height { offset: LOAD_START_OFFSET, .. } => self.start(env),
             Progress::EpochAfter(epoch) if *epoch == LOAD_END_EPOCH => self.ending = true,
             _ => {}
@@ -215,8 +222,14 @@ impl Loads {
     /// Finds where each submitted transaction was included, scanning every block of the
     /// driver node up to `head_height`. Call after the terminal condition.
     pub fn scan_inclusions(&mut self, env: &TestLoopEnv, head_height: BlockHeight) {
-        let submitted: HashSet<CryptoHash> = self.submitted.iter().map(|tx| tx.hash).collect();
+        let mut submitted: HashSet<CryptoHash> = self.submitted.iter().map(|tx| tx.hash).collect();
+        submitted.insert(self.deploy_tx());
         self.inclusion_heights = scan_inclusions(&env.rpc_node(), &submitted, head_height);
+    }
+
+    /// The deploy of the test contract, submitted at `warmed_up`.
+    pub fn deploy_tx(&self) -> CryptoHash {
+        self.deploy_tx.expect("the contract is deployed at warmed_up")
     }
 
     /// The transactions `kind` submitted, in submission order.
@@ -272,8 +285,23 @@ pub fn scan_inclusions(
 /// apply did, and if that equals the block's own a replay using the block's own would
 /// still certify. The chunk gas limit is what makes the loads move it, and a change in
 /// costs that breaks that fails here, so the constant is adjusted by hand.
+///
+/// The check sizes the load, so it only applies when the two blocks at the boundary have
+/// every chunk. A missing chunk leaves nothing to replay with a price, and the chunk after
+/// it reports no gas used, so with a gap at either block the price can sit at its floor on
+/// both sides whatever the load; the plain scenario then carries the check.
 pub fn check_gas_price_moves(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
     let before_last_pre_spice = env.rpc_node().block(*last_pre_spice.header().prev_hash());
+    let gap_at_boundary = [last_pre_spice, before_last_pre_spice.as_ref()]
+        .iter()
+        .any(|block| block.header().chunk_mask().iter().any(|present| !*present));
+    if gap_at_boundary {
+        tracing::info!(
+            target: "test",
+            "a chunk is missing at the boundary, so the gas price check does not apply",
+        );
+        return Ok(());
+    }
     let before = before_last_pre_spice.header().next_gas_price();
     let at = last_pre_spice.header().next_gas_price();
     if before == at {
@@ -308,12 +336,18 @@ fn assert_accounts_on_expected_shards(env: &TestLoopEnv) {
         upper_shard_id,
         "upper_contract must be on the upper shard"
     );
+    assert_eq!(
+        shard_layout.get_shard_index(upper_shard_id).unwrap(),
+        CONTRACT_SHARD_INDEX,
+        "the contract's shard must have index {CONTRACT_SHARD_INDEX}",
+    );
 }
 
-/// Deploys the test contract on the contract account in the genesis epoch, so it is
-/// settled long before the boundary.
-fn deploy_contract(env: &mut TestLoopEnv) {
+/// Submits the deploy of the test contract on the contract account in the genesis epoch,
+/// so it is settled long before the boundary. It is not waited for: a fault silencing the
+/// contract's shard keeps it in the pool until the shard's first spice chunk, where it
+/// lands ahead of the calls, in nonce order; `exactly_once` checks it was included once.
+fn deploy_contract(env: &TestLoopEnv) -> CryptoHash {
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&upper_contract());
-    let deploy_tx_hash = env.rpc_node().submit_tx(deploy_tx);
-    env.rpc_runner().run_until_included(&[deploy_tx_hash]);
+    env.rpc_node().submit_tx(deploy_tx)
 }

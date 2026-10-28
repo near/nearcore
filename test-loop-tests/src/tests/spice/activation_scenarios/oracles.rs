@@ -645,6 +645,23 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
             }
         }
     }
+    // The deploy is submitted once at warmup and must have landed exactly once, whatever
+    // kept it in the pool.
+    let deploy_tx = run.loads.deploy_tx();
+    let deploy_inclusions = run.loads.inclusion_heights(&deploy_tx);
+    if deploy_inclusions.len() != 1 {
+        problems.push(format!(
+            "the contract deploy {deploy_tx} was included at {deploy_inclusions:?}, not once"
+        ));
+    }
+    match chain.get_execution_outcome(&deploy_tx) {
+        Ok(outcome) if succeeded(&outcome.outcome_with_id.outcome.status) => {}
+        Ok(outcome) => problems.push(format!(
+            "the contract deploy {deploy_tx} failed: {:?}",
+            outcome.outcome_with_id.outcome.status
+        )),
+        Err(err) => problems.push(format!("no outcome of the contract deploy {deploy_tx}: {err}")),
+    }
     for kind in LoadKind::TRANSFERS {
         let receiver = kind.receiver();
         let final_balance = node.view_account_query(&receiver).unwrap().amount;
@@ -674,22 +691,57 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
 
 // -- view_queries --
 
-/// Balances as of heights on both sides of the boundary for the transfer receivers, and an
-/// outcome pair spanning the boundary for each load. The heights are resolved through
-/// `get_block_hash_by_height` and those with no canonical block are left out; the last
-/// pre-spice block, the first spice block and the block below the terminal head always
-/// exist and are always queried.
+/// Balances as of heights on both sides of the boundary for the transfer receivers, an
+/// outcome pair spanning the boundary for the transfer load, and both outcomes of the
+/// calls on either side of it. The heights are resolved through `get_block_hash_by_height`
+/// and those with no canonical block are left out; the last pre-spice block, the first
+/// spice block and the block below the terminal head always exist and are always queried.
 fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(), String> {
     let node = env.rpc_node();
-    let chain_store = &node.client().chain.chain_store;
+    let chain = &node.client().chain;
     let boundary_height = run.last_pre_spice().header().height();
     let first_spice_height = run.first_spice().header().height();
     let last_queried_height = run.terminal_height - 1;
     let required = [boundary_height, first_spice_height, last_queried_height];
 
-    // The receiver's balance as of the block at height h: the deposit of a transfer
-    // included at height i rides a cross-shard receipt applied at i + 1, so it is visible
-    // exactly from state at h >= i + 1.
+    let outcome_height = |hash: CryptoHash| -> Result<BlockHeight, String> {
+        let outcome = chain
+            .get_execution_outcome(&hash)
+            .map_err(|err| format!("no outcome of {hash}: {err}"))?;
+        chain
+            .get_block_header(&outcome.block_hash)
+            .map(|header| header.height())
+            .map_err(|err| format!("no block of the outcome of {hash}: {err}"))
+    };
+    let receipt_ids = |tx_hash: CryptoHash| -> Result<Vec<CryptoHash>, String> {
+        chain
+            .get_execution_outcome(&tx_hash)
+            .map(|outcome| outcome.outcome_with_id.outcome.receipt_ids)
+            .map_err(|err| format!("no outcome of transaction {tx_hash}: {err}"))
+    };
+    let single_receipt = |tx_hash: CryptoHash| -> Result<CryptoHash, String> {
+        match receipt_ids(tx_hash)?[..] {
+            [receipt_id] => Ok(receipt_id),
+            ref ids => {
+                Err(format!("transaction {tx_hash} produced {} receipts, not one", ids.len()))
+            }
+        }
+    };
+
+    // Where each transfer's deposit landed: the height of the block whose chunk applied
+    // the receipt. With every chunk present that is the block after the inclusion; a
+    // missing chunk on the receiving shard defers it to that shard's next new chunk, which
+    // past the boundary is its first spice chunk.
+    let mut deposit_heights: HashMap<LoadKind, Vec<BlockHeight>> = HashMap::new();
+    for kind in LoadKind::TRANSFERS {
+        for tx in run.loads.txs(kind) {
+            let height = outcome_height(single_receipt(tx.hash)?)?;
+            deposit_heights.entry(kind).or_default().push(height);
+        }
+    }
+
+    // The receiver's balance as of the block at height h reflects exactly the deposits
+    // applied at or below h.
     for queried_height in [
         boundary_height - 2,
         boundary_height - 1,
@@ -698,7 +750,7 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
         boundary_height + 2,
         last_queried_height,
     ] {
-        let Ok(block_hash) = chain_store.get_block_hash_by_height(queried_height) else {
+        let Ok(block_hash) = chain.chain_store.get_block_hash_by_height(queried_height) else {
             ensure!(
                 !required.contains(&queried_height),
                 "no canonical block at height {queried_height}, which view queries must cover",
@@ -710,85 +762,84 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
             let balance = node.view_account_balance_at(block_hash, &receiver).map_err(|err| {
                 format!("view query of {receiver} at height {queried_height} must work: {err:?}")
             })?;
-            let executed_deposits = run
-                .loads
-                .txs(kind)
-                .filter(|tx| {
-                    run.loads
-                        .inclusion_heights(&tx.hash)
-                        .iter()
-                        .any(|height| *height < queried_height)
-                })
-                .count();
-            let expected = TRANSFER_AMOUNT.checked_mul(executed_deposits as u128).unwrap();
+            let landed = deposit_heights
+                .get(&kind)
+                .map_or(0, |heights| heights.iter().filter(|h| **h <= queried_height).count());
+            let expected = TRANSFER_AMOUNT.checked_mul(landed as u128).unwrap();
             let initial_balance = run.loads.initial_receiver_balance(kind);
             ensure!(
                 balance.checked_sub(initial_balance) == Some(expected),
                 "balance of {receiver} as of height {queried_height} is {} yoctoNEAR above its \
-                 initial balance, it must reflect exactly the {executed_deposits} receipts \
-                 executed by then",
+                 initial balance, it must reflect exactly the {landed} deposits applied by then",
                 balance.as_yoctonear().saturating_sub(initial_balance.as_yoctonear()),
             );
         }
     }
 
-    // An outcome pair spanning the boundary: the transaction's outcome sits in a
-    // pre-spice block, its receipt's outcome in a spice block.
-    let outcome_height = |hash: CryptoHash| -> Result<BlockHeight, String> {
-        let outcome = node
-            .client()
-            .chain
-            .get_execution_outcome(&hash)
-            .map_err(|err| format!("no outcome of {hash}: {err}"))?;
-        node.client()
-            .chain
-            .get_block_header(&outcome.block_hash)
-            .map(|header| header.height())
-            .map_err(|err| format!("no block of the outcome of {hash}: {err}"))
-    };
-    let included_at = |kind: LoadKind, height: BlockHeight| {
-        run.loads
-            .txs(kind)
-            .find(|tx| run.loads.inclusion_heights(&tx.hash).contains(&height))
-            .map(|tx| tx.hash)
-    };
-    let boundary_tx = LoadKind::TRANSFERS
-        .into_iter()
-        .find_map(|kind| included_at(kind, boundary_height))
-        .ok_or_else(|| {
-            format!(
-                "no transfer was included at the last pre-spice block, at height \
-                 {boundary_height}: the load precondition requires one, so a receipt is in flight \
-                 across the boundary",
-            )
-        })?;
-    let tx_height = outcome_height(boundary_tx)?;
+    // An outcome pair spanning the boundary: a transfer whose transaction outcome sits in
+    // a pre-spice block and whose receipt outcome sits in a spice block. There always is
+    // one: the transfer in the last pre-spice chunk of the shard whose last chunk is the
+    // later one has its receipt wait for the other shard's next new chunk, which is that
+    // shard's first spice chunk.
+    let mut spanning = None;
+    'transfers: for kind in LoadKind::TRANSFERS {
+        for tx in run.loads.txs(kind) {
+            let tx_height = outcome_height(tx.hash)?;
+            if tx_height > boundary_height {
+                continue;
+            }
+            let receipt_id = single_receipt(tx.hash)?;
+            let receipt_height = outcome_height(receipt_id)?;
+            if receipt_height > boundary_height {
+                spanning = Some((tx.hash, tx_height, receipt_id, receipt_height));
+                break 'transfers;
+            }
+        }
+    }
+    let (spanning_tx, tx_height, receipt_id, receipt_height) = spanning.ok_or_else(|| {
+        format!(
+            "no transfer has its transaction outcome at or below the last pre-spice height \
+             {boundary_height} and its receipt outcome above it; some receipt must be in \
+             flight across the boundary",
+        )
+    })?;
     ensure!(
-        tx_height == boundary_height,
-        "the outcome of the boundary transaction {boundary_tx} is at height {tx_height}, \
-         expected the last pre-spice height {boundary_height}",
+        run.loads.inclusion_heights(&spanning_tx).contains(&tx_height),
+        "the outcome of transaction {spanning_tx} is at height {tx_height}, not at its \
+         inclusion height {:?}",
+        run.loads.inclusion_heights(&spanning_tx),
     );
-    let receipt_id = node.tx_receipt_id(boundary_tx);
-    let receipt_height = outcome_height(receipt_id)?;
     ensure!(
-        receipt_height > boundary_height,
-        "the receipt {receipt_id} of the boundary transaction executed at height \
-         {receipt_height}, it must have executed under spice, above {boundary_height}",
+        chain
+            .get_block_header(&chain.chain_store.get_block_hash_by_height(receipt_height).unwrap())
+            .map_or(false, |header| header.is_spice()),
+        "the receipt {receipt_id} of transaction {spanning_tx} executed at height \
+         {receipt_height}, above the boundary, in a block that is not a spice block",
     );
 
-    // The call included at the last pre-spice block and the one included at the first
-    // spice block: both outcomes of each are retrievable. The call's receipt is local, so
-    // it executes in the same block as the transaction and need not span the boundary.
-    for height in [boundary_height, first_spice_height] {
-        let call_tx = included_at(LoadKind::ContractCall, height)
-            .ok_or_else(|| format!("no contract call was included at height {height}"))?;
-        outcome_height(call_tx)?;
-        let outcome = node.execution_outcome(call_tx);
+    // The last call included at or below the boundary and the first included above it:
+    // both outcomes of each are retrievable. The call's receipt is local, so it executes
+    // in the same block as the transaction and need not span the boundary.
+    let call_heights: Vec<(CryptoHash, BlockHeight)> = run
+        .loads
+        .txs(LoadKind::ContractCall)
+        .filter_map(|tx| run.loads.inclusion_heights(&tx.hash).first().map(|h| (tx.hash, *h)))
+        .collect();
+    let last_pre_spice_call =
+        call_heights.iter().filter(|(_, h)| *h <= boundary_height).max_by_key(|(_, h)| *h);
+    let first_spice_call =
+        call_heights.iter().filter(|(_, h)| *h >= first_spice_height).min_by_key(|(_, h)| *h);
+    for (side, call) in [("at or below", last_pre_spice_call), ("above", first_spice_call)] {
+        let (call_tx, height) = call.ok_or_else(|| {
+            format!("no contract call was included {side} the last pre-spice height")
+        })?;
+        outcome_height(*call_tx)?;
+        let receipt_ids = receipt_ids(*call_tx)?;
         ensure!(
-            !outcome.outcome.receipt_ids.is_empty(),
+            !receipt_ids.is_empty(),
             "the contract call {call_tx} included at height {height} produced no receipt",
         );
-        for receipt_id in outcome.outcome.receipt_ids {
+        for receipt_id in receipt_ids {
             outcome_height(receipt_id)?;
         }
     }
@@ -799,12 +850,17 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
 
 /// At least one validator fetched the contract code with a code request for a call chunk
 /// at or after the last pre-spice block, and the certified first spice chunk of the
-/// contract's shard was endorsed by a validator that did not apply it.
+/// contract's shard was endorsed by a validator that did not apply it. Relaxed whole when
+/// every validator applies every chunk itself, since nobody then validates from a witness
+/// or requests code.
 fn code_requested(
     env: &TestLoopEnv,
     run: &RunRecord,
     relaxations: &Relaxations,
 ) -> Result<(), String> {
+    if relaxations.is_whole(OracleId::CodeRequested) {
+        return Ok(());
+    }
     let node = env.rpc_node();
     let chain = &node.client().chain;
     let last_pre_spice_height = run.last_pre_spice().header().height();
@@ -820,9 +876,6 @@ fn code_requested(
          {last_pre_spice_height}) was observed, among {} requests",
         run.code_requests.len(),
     );
-    if relaxations.is_whole(OracleId::CodeRequested) {
-        return Ok(());
-    }
 
     // A validator that did not apply the contract shard's first spice chunk endorsed its
     // certified result, so it validated the chunk from the witness, which carries the
@@ -885,6 +938,7 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
     let last_pre_spice = run.last_pre_spice();
     let first_spice = run.first_spice();
     let last_pre_spice_height = last_pre_spice.header().height();
+    let first_spice_height = first_spice.header().height();
     let shard_layout = epoch_manager
         .get_shard_layout(last_pre_spice.header().epoch_id())
         .map_err(|err| format!("no shard layout at the last pre-spice block: {err}"))?;
@@ -956,18 +1010,45 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
         )
         .map_err(|err| format!("no undelivered receipts of shard {source_shard_id}: {err}"))?;
         for receipt in &undelivered_receipts {
+            let receipt_id = receipt.receipt_id();
+            let receiving_shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
             let receipt_outcome = chain
-                .get_execution_outcome(receipt.receipt_id())
-                .map_err(|err| format!("no outcome of {}: {err}", receipt.receipt_id()))?;
-            ensure!(
-                receipt_outcome.block_hash == *first_spice.hash(),
-                "the undelivered receipt {} must execute in the first spice block",
-                receipt.receipt_id(),
-            );
+                .get_execution_outcome(receipt_id)
+                .map_err(|err| format!("no outcome of {receipt_id}: {err}"))?;
+            if receipt_outcome.block_hash != *first_spice.hash() {
+                // Delivered to the first spice chunk but applied later. That is legitimate
+                // only when the chunk ran out of gas, on the backlog a gap leaves behind,
+                // and pushed its incoming receipts to the delayed queue.
+                let outcome_height = chain
+                    .get_block_header(&receipt_outcome.block_hash)
+                    .map(|header| header.height())
+                    .map_err(|err| format!("no block of the outcome of {receipt_id}: {err}"))?;
+                ensure!(
+                    outcome_height > first_spice_height,
+                    "the undelivered receipt {receipt_id} executed at height {outcome_height}, \
+                     before the first spice block at {first_spice_height}",
+                );
+                let shard_uid =
+                    ShardUId::from_shard_id_and_layout(receiving_shard_id, &shard_layout);
+                let chunk_extra = chain
+                    .chain_store
+                    .get_chunk_extra(first_spice.hash(), &shard_uid)
+                    .map_err(|err| {
+                        format!("no chunk extra of {shard_uid} at the first spice block: {err}")
+                    })?;
+                ensure!(
+                    chunk_extra.gas_used() >= chunk_extra.gas_limit(),
+                    "the undelivered receipt {receipt_id} executed at height {outcome_height}, \
+                     not in the first spice block at {first_spice_height}, though shard \
+                     {receiving_shard_id}'s first spice chunk had gas to spare: {} of {} used",
+                    chunk_extra.gas_used(),
+                    chunk_extra.gas_limit(),
+                );
+            }
             undelivered_receipt_ids_by_receiving_shard
-                .entry(shard_layout.account_id_to_shard_id(receipt.receiver_id()))
+                .entry(receiving_shard_id)
                 .or_default()
-                .push(*receipt.receipt_id());
+                .push(*receipt_id);
         }
     }
     for (receiving_shard_id, undelivered_receipt_ids) in undelivered_receipt_ids_by_receiving_shard

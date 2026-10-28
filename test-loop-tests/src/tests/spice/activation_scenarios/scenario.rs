@@ -156,6 +156,12 @@ pub trait Fault: Debug {
     /// The tag of the design's catalog.
     fn tag(&self) -> &'static str;
 
+    /// `Err` with why the fault's parameters are not runnable: a combination the design
+    /// rejects, or a parameter whose milestone has not landed yet.
+    fn validate(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Build-time work: accounts, clients and client config, through the builder.
     fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder
@@ -207,6 +213,7 @@ pub enum OracleId {
     NodeAgreement,
     GateQuiet,
     NoPanics,
+    ArchivalCrosses,
 }
 
 impl OracleId {
@@ -228,6 +235,7 @@ impl OracleId {
             OracleId::NodeAgreement => "node_agreement",
             OracleId::GateQuiet => "gate_quiet",
             OracleId::NoPanics => "no_panics",
+            OracleId::ArchivalCrosses => "archival_crosses",
         }
     }
 
@@ -249,7 +257,8 @@ impl OracleId {
             | OracleId::UndeliveredReceipts
             | OracleId::NodeAgreement
             | OracleId::GateQuiet
-            | OracleId::NoPanics => false,
+            | OracleId::NoPanics
+            | OracleId::ArchivalCrosses => false,
         }
     }
 }

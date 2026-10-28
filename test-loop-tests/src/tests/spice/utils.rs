@@ -98,6 +98,7 @@ fn install_endorsement_delay_handler(
                     target,
                     endorsement,
                 ));
+                state.lock().delayed += 1;
                 HandlerResult::Handled(NetworkResponses::NoResponse)
             }
             _ => HandlerResult::Unhandled(request),

@@ -151,10 +151,15 @@ pub fn resolve(scenario: &Scenario) -> Resolved {
 }
 
 /// The conflicts and unmet requirements of `scenario` on `profile`, one message each,
-/// naming the tags involved.
-fn conflicts(_scenario: &Scenario, _profile: Profile) -> Vec<String> {
-    // The design's conflicts (`gc_tight` with `node_crash`, and so on) and the
+/// naming the tags involved: what each fault rejects on its own, then the pairs the
+/// design lists.
+fn conflicts(scenario: &Scenario, _profile: Profile) -> Vec<String> {
+    // The cross-fault conflicts (`gc_tight` with `node_crash`, and so on) and the
     // requirements keyed by tag (`late_tracker` is profile A only) land here with the
     // faults they name.
-    Vec::new()
+    scenario
+        .faults()
+        .iter()
+        .filter_map(|fault| fault.validate().err().map(|error| format!("{}: {error}", fault.tag())))
+        .collect()
 }

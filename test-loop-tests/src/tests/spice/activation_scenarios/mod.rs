@@ -8,6 +8,10 @@
 //! oracles with the relaxations the faults declare.
 
 use driver::run_scenario;
+use faults::{
+    Archival, DropContractAccesses, EndorsementDelay, Kind, MissingChunk, Only, PartialDataFault,
+    Producers, ShardSkip, Shards, TrackAll, WindowEnd, WindowStart,
+};
 use near_o11y::testonly::init_test_logger;
 use scenario::Scenario;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -52,9 +56,107 @@ fn slow_test_spice_activation_scenario_empty() {
     run_scenarios(vec![Scenario::empty()]);
 }
 
+/// The cheapest fault through the scenario driver, run in CI, so the fault machinery is
+/// exercised and not just type-checked: both shards' chunks missing at the last pre-spice
+/// block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_activation_scenario_missing_chunk() {
+    run_scenarios(vec![Scenario::new().fault(MissingChunk::new())]);
+}
+
+/// The chunk patterns of the hand-written mixed-missing-chunks test, per shard index: the
+/// presence of the shard's chunks over the last four pre-spice heights, `x` missing.
+const MIXED_PATTERNS: [(&str, &str); 8] = [
+    ("....", "...x"),
+    ("...x", "...."),
+    ("....", ".x.x"),
+    ("x.x.", ".x.x"),
+    ("..x.", "x..x"),
+    (".xx.", "x.xx"),
+    ("xx..", "..xx"),
+    ("...x", ".xxx"),
+];
+
+/// The plain crossing, every fault on existing hooks on its own, and the pairs the design
+/// names.
+fn core_presets() -> Vec<Scenario> {
+    let mut presets = vec![
+        Scenario::empty(),
+        Scenario::new().fault(MissingChunk::new()),
+        Scenario::new().fault(MissingChunk::new().shards(Shards::Index(1))),
+        Scenario::new().fault(MissingChunk::new().at(-2..0)).fault(EndorsementDelay::new()),
+        Scenario::new().fault(ShardSkip::new()),
+        Scenario::new().fault(ShardSkip::new()).fault(EndorsementDelay::new().blocks(4)),
+        Scenario::new().fault(EndorsementDelay::new()),
+        Scenario::new()
+            .fault(EndorsementDelay::new().start(WindowStart::WarmedUp).end(WindowEnd::Done)),
+        Scenario::new().fault(PartialDataFault::new()),
+        Scenario::new().fault(PartialDataFault::new().kind(Kind::Drop)),
+        Scenario::new().fault(PartialDataFault::new().kind(Kind::Corrupt)),
+        Scenario::new().fault(PartialDataFault::new().kind(Kind::Equivocate)),
+        Scenario::new().fault(PartialDataFault::new().kind(Kind::Drop).only(Only::Witness)),
+        Scenario::new().fault(PartialDataFault::new().kind(Kind::Drop).only(Only::Receipts)),
+        Scenario::new()
+            .fault(PartialDataFault::new().kind(Kind::Corrupt).from(Producers::Producer(1))),
+        Scenario::new().fault(DropContractAccesses::new()),
+        // `shard_rotation` is not here: on profile A the shuffle does not swap the producer
+        // groups at the boundary, see the fault.
+        Scenario::new().fault(TrackAll::new()),
+        // Pairs and a triple across the mechanisms.
+        Scenario::new().fault(ShardSkip::new()).fault(MissingChunk::new().shards(Shards::Index(1))),
+        Scenario::new()
+            .fault(MissingChunk::new().at(-2..0))
+            .fault(PartialDataFault::new().kind(Kind::Drop)),
+        Scenario::new().fault(TrackAll::new()).fault(MissingChunk::new()),
+        Scenario::new()
+            .fault(
+                EndorsementDelay::new().start(WindowStart::Offset(-5)).end(WindowEnd::Offset(-1)),
+            )
+            .fault(
+                EndorsementDelay::new()
+                    .blocks(6)
+                    .start(WindowStart::Offset(0))
+                    .end(WindowEnd::Offset(3)),
+            ),
+        Scenario::new()
+            .fault(MissingChunk::new().pattern(0, "..x.").pattern(1, "x..x"))
+            .fault(EndorsementDelay::new())
+            .fault(PartialDataFault::new()),
+    ];
+    presets.extend(MIXED_PATTERNS.iter().map(|(low, upper)| {
+        Scenario::new().fault(MissingChunk::new().pattern(0, low).pattern(1, upper))
+    }));
+    presets
+}
+
 /// Preset group, run on request.
 #[test]
 #[ignore]
 fn ultra_slow_test_spice_activation_matrix_core() {
-    run_scenarios(vec![Scenario::empty()]);
+    run_scenarios(core_presets());
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_storage() {
+    run_scenarios(vec![
+        Scenario::new().fault(Archival::new()),
+        Scenario::new().fault(Archival::new()).fault(ShardSkip::new()),
+    ]);
+}
+
+/// SCENARIOS UNDER INVESTIGATION: each of these fails today on what looks like a product
+/// issue. This group is expected to fail
+/// until the issue is fixed; a scenario leaves it for the group it belongs to once it
+/// passes.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_under_investigation() {
+    run_scenarios(vec![
+        Scenario::new().fault(EndorsementDelay::new().blocks(24).end(WindowEnd::Done)),
+        // The same with no recovery: the chain stalls.
+        Scenario::new().fault(EndorsementDelay::new().blocks(25).end(WindowEnd::Done)),
+    ]);
 }

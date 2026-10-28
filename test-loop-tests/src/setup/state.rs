@@ -93,6 +93,8 @@ pub struct SharedState {
 pub struct SpiceEndorsementDelayState {
     pub installed_for: HashSet<String>,
     pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
+    /// Endorsements the handlers held back so far, so a test can check the delay fired.
+    pub delayed: u64,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
