@@ -645,9 +645,9 @@ impl EpochManager {
         // Epoch sync replaces the chain data used by these blacklists.
         self.chunk_producer_blacklists.lock().clear();
 
-        self.save_block_info(store_update, Arc::new(prev_epoch_first_block_info))?;
-        self.save_block_info(store_update, Arc::new(prev_epoch_prev_last_block_info))?;
-        self.save_block_info(store_update, Arc::new(prev_epoch_last_block_info))?;
+        store_update.set_block_info(&prev_epoch_first_block_info);
+        store_update.set_block_info(&prev_epoch_prev_last_block_info);
+        store_update.set_block_info(&prev_epoch_last_block_info);
         self.save_epoch_info(store_update, prev_epoch_id, Arc::new(prev_epoch_info))?;
         self.save_epoch_info(store_update, epoch_id, Arc::new(epoch_info))?;
         self.save_epoch_info(store_update, next_epoch_id, Arc::new(next_epoch_info))?;
@@ -1309,7 +1309,7 @@ impl EpochManager {
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?;
                 let genesis_height = block_info.height();
-                self.save_block_info(&mut store_update, Arc::new(block_info))?;
+                store_update.set_block_info(&block_info);
                 self.save_epoch_info(
                     &mut store_update,
                     &EpochId(current_hash),
@@ -1362,7 +1362,7 @@ impl EpochManager {
 
                 let block_info = Arc::new(block_info);
                 // Save current block info.
-                self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
+                store_update.set_block_info(&block_info);
                 // Seed chunk producers anchored at this block (chunks at height + 2)
                 // so every driver (chain, replay, tests) records them; the aggregator
                 // and the consensus reader read these rows for the block's grandchildren.
@@ -2160,15 +2160,6 @@ impl EpochManager {
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.store.get_block_info(hash)
-    }
-
-    fn save_block_info(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        block_info: Arc<BlockInfo>,
-    ) -> Result<(), EpochError> {
-        store_update.set_block_info(&block_info);
-        Ok(())
     }
 
     fn save_epoch_start(
