@@ -19,7 +19,7 @@ use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -464,7 +464,7 @@ impl NightshadeRuntime {
         let kind = self.store.get_db_kind();
         if let Some(DbKind::Hot) = kind {
             let Some(cold_head_epoch_start_height) =
-                get_epoch_start_height_from_cold_head(&self.store, epoch_manager)?
+                get_epoch_start_height_from_cold_head(&self.store, &self.epoch_manager.read())?
             else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
@@ -477,7 +477,10 @@ impl NightshadeRuntime {
         // latest fully-archived epoch and update `gc_stop_height` to the minimum.
         if self.is_cloud_archival_writer {
             let Some(cloud_head_epoch_start_height) =
-                get_epoch_start_height_from_cloud_head_prev_epoch(&self.store, epoch_manager)?
+                get_epoch_start_height_from_cloud_head_prev_epoch(
+                    &self.store,
+                    &self.epoch_manager.read(),
+                )?
             else {
                 return Err(Error::DBNotFoundErr(
                     "Cloud archival writer is configured, but CLOUD_WRITER_PREV_EPOCH_END is missing"
@@ -646,7 +649,7 @@ impl NightshadeRuntime {
 
 fn get_epoch_start_height_from_cold_head(
     store: &Store,
-    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_manager: &EpochManager,
 ) -> Result<Option<BlockHeight>, Error> {
     let Some(cold_head) = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY) else {
         return Ok(None);
@@ -657,7 +660,7 @@ fn get_epoch_start_height_from_cold_head(
 
 fn get_epoch_start_height_from_cloud_head_prev_epoch(
     store: &Store,
-    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_manager: &EpochManager,
 ) -> Result<Option<BlockHeight>, Error> {
     let Some(prev_epoch_end) = store.cloud_archival_store().writer_prev_epoch_end() else {
         return Ok(None);
