@@ -6,7 +6,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
-use near_chain::BlockHeader;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_network::client::StateResponse;
 use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -18,7 +18,8 @@ use near_primitives::state_sync::{
     PartOrHeader, ShardStateSyncResponse, ShardStateSyncResponseHeader, StateRequestAckBody,
 };
 use near_primitives::types::ShardId;
-use near_store::{DBCol, Store};
+use near_store::Store;
+use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -126,26 +127,6 @@ impl StateSyncDownloadSourcePeerSharedState {
     }
 }
 
-/// The hash a peer's snapshot serving `sync_hash` is advertised under, which is what
-/// `snapshot_hash_for_block` names for the snapshot a host takes for that sync hash. Spice
-/// snapshots the state the sync block's own chunks left behind, so the snapshot sits at the sync
-/// block; otherwise the host snapshots at the sync block's prev block, keyed by its prev prev.
-fn snapshot_hash_for_sync_hash(
-    store: &Store,
-    sync_hash: &CryptoHash,
-) -> Result<CryptoHash, near_chain::Error> {
-    let header = |hash: &CryptoHash| {
-        store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_bytes())
-            .ok_or_else(|| near_chain::Error::DBNotFoundErr(format!("No block header {hash}")))
-    };
-    let sync_header = header(sync_hash)?;
-    if sync_header.is_spice() {
-        return Ok(*sync_hash);
-    }
-    Ok(*header(sync_header.prev_hash())?.prev_hash())
-}
-
 impl StateSyncDownloadSourcePeer {
     async fn try_download(
         clock: Clock,
@@ -166,7 +147,7 @@ impl StateSyncDownloadSourcePeer {
         // here to pass as part of the network request.
         // TODO(saketh): it would be nice to migrate the network layer to the same hash. Under
         // spice it already is the sync hash; before spice it is still the prev prev block.
-        let snapshot_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
+        let snapshot_hash = snapshot_hash_for_sync_hash(&store.chain_store(), &key.sync_hash)?;
 
         let network_request = match &key.part_or_header {
             PartOrHeader::Part { part_idx } => {
@@ -347,18 +328,23 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
 
 #[cfg(test)]
 mod tests {
-    use super::snapshot_hash_for_sync_hash;
     use near_async::time::Clock;
-    use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+    use near_chain::state_snapshot_actor::{snapshot_hash_for_block, snapshot_hash_for_sync_hash};
     use near_chain::test_utils::get_chain_with_genesis;
     use near_chain::{BlockHeader, ChainStoreAccess as _};
     use near_chain_configs::test_genesis::TestGenesisBuilder;
     use near_primitives::hash::CryptoHash;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
-    use near_store::{DBCol, Store};
+    use near_store::DBCol;
+    use near_store::adapter::StoreAdapter as _;
+    use near_store::adapter::chain_store::ChainStoreAdapter;
 
-    /// A store holding `len` headers on top of a test genesis, and the headers, genesis first.
-    fn header_chain(protocol_version: ProtocolVersion, len: usize) -> (Store, Vec<BlockHeader>) {
+    /// A chain store holding `len` headers on top of a test genesis, and the headers, genesis
+    /// first.
+    fn header_chain(
+        protocol_version: ProtocolVersion,
+        len: usize,
+    ) -> (ChainStoreAdapter, Vec<BlockHeader>) {
         let genesis = TestGenesisBuilder::new()
             .genesis_time_from_clock(&Clock::real())
             .protocol_version(protocol_version)
@@ -378,7 +364,7 @@ mod tests {
             store_update.commit();
             headers.push(header);
         }
-        (store, headers)
+        (store.chain_store(), headers)
     }
 
     fn non_spice_protocol_version() -> ProtocolVersion {
