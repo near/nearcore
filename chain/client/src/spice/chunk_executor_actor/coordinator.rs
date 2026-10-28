@@ -400,7 +400,7 @@ impl ChunkExecutorActor {
             let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id: shard_uid.shard_id() };
             self.chain_store.get_chunk_certifying_block(&chunk_id).is_some()
         }) {
-            // The block is not fully certified yet.
+            // Not every snapshotted chunk is certified yet.
             return Ok(());
         }
 
