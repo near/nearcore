@@ -1,14 +1,14 @@
+use crate::spice::core::certification_window;
 use crate::types::BlockHeader;
 use crate::{Chain, ChainStoreAccess};
 use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
 use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, SpiceChunkId};
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 fn get_state_sync_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<Vec<u8>> {
@@ -491,49 +491,14 @@ impl Chain {
     }
 
     fn get_spice_certification_window_hashes(&self, sync_prev_block: &Block) -> Vec<CryptoHash> {
-        let parent_hash = *sync_prev_block.header().prev_hash();
-        let Ok(parent_header) = self.get_block_header(&parent_hash) else {
-            return vec![];
-        };
-        // Genesis and pre-spice blocks have no uncertified chunks.
-        if parent_header.is_genesis() || !parent_header.is_spice() {
-            return vec![];
-        }
-        let mut window = vec![parent_hash];
-        // Not downloaded yet: it is requested, and the walk resumes from here next time.
-        let Ok(parent) = self.get_block(&parent_hash) else {
-            return window;
-        };
-        let mut certified: HashSet<SpiceChunkId> = parent
-            .spice_core_statements()
-            .iter_execution_results()
-            .map(|(chunk_id, _)| chunk_id.clone())
-            .collect();
-        let mut prev_hash = *parent_header.prev_hash();
-        loop {
-            let Ok(header) = self.get_block_header(&prev_hash) else {
-                break;
-            };
-            if header.is_genesis() || !header.is_spice() {
-                break;
-            }
-            let Ok(shard_ids) = self.epoch_manager.shard_ids(header.epoch_id()) else {
-                break;
-            };
-            if shard_ids.iter().all(|shard_id| {
-                certified.contains(&SpiceChunkId { block_hash: prev_hash, shard_id: *shard_id })
-            }) {
-                break;
-            }
-            window.push(prev_hash);
-            let Ok(block) = self.get_block(&prev_hash) else {
-                break;
-            };
-            certified.extend(
-                block.spice_core_statements().iter_execution_results().map(|(id, _)| id.clone()),
-            );
-            prev_hash = *header.prev_hash();
-        }
-        window
+        certification_window(
+            &self.chain_store.store().chain_store(),
+            self.epoch_manager.as_ref(),
+            sync_prev_block.header().prev_hash(),
+        )
+        .unwrap_or_else(|err| {
+            tracing::warn!(target: "sync", ?err, "cannot walk the spice certification window");
+            vec![]
+        })
     }
 }

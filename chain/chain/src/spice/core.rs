@@ -1168,44 +1168,30 @@ fn compute_uncertified_chunks_from_bodies(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-    // The window, newest first, and every chunk its bodies certify.
-    let mut uncertified_blocks_window = Vec::new();
-    let mut certified: HashSet<SpiceChunkId> = HashSet::new();
-    let mut next_hash = *block_hash;
-    loop {
-        let block = chain_store.get_block(&next_hash)?;
-        certified.extend(
-            block.spice_core_statements().iter_execution_results().map(|(id, _)| id.clone()),
-        );
-        next_hash = *block.header().prev_hash();
-        uncertified_blocks_window.push(block);
+    let uncertified_blocks_window = certification_window(chain_store, epoch_manager, block_hash)?
+        .iter()
+        .rev()
+        .map(|hash| chain_store.get_block(hash))
+        .collect::<Result<Vec<_>, _>>()?;
 
-        let candidate = chain_store.get_block_header(&next_hash)?;
-        if candidate.is_genesis()
-            || !candidate.is_spice()
-            || epoch_manager.get_shard_layout(candidate.epoch_id())?.shard_ids().all(|shard_id| {
-                certified.contains(&SpiceChunkId { block_hash: *candidate.hash(), shard_id })
-            })
-        {
-            break;
-        }
-    }
-    uncertified_blocks_window.reverse();
-    // The last block before the window.
-    let prev = chain_store
-        .get_block_header(uncertified_blocks_window.first().unwrap().header().prev_hash())?;
+    let Some(first) = uncertified_blocks_window.first() else {
+        return Err(Error::Other(String::from("Empty uncertified blocks window")));
+    };
+    let prev_to_window = chain_store.get_block_header(first.header().prev_hash())?;
 
-    let mut uncertified_chunks = if prev.is_genesis() {
+    let mut uncertified_chunks = if prev_to_window.is_genesis() {
         Vec::new()
-    } else if !prev.is_spice() {
-        boundary_uncertified_chunks(epoch_manager, &prev)?
+    } else if !prev_to_window.is_spice() {
+        boundary_uncertified_chunks(epoch_manager, &prev_to_window)?
     } else {
         certified_chunks_outside_window(chain_store, epoch_manager, &uncertified_blocks_window)?
     };
+
     for block in &uncertified_blocks_window {
         (uncertified_chunks, _) =
             advance_uncertified_chunks(chain_store, epoch_manager, block, uncertified_chunks)?;
     }
+
     Ok(uncertified_chunks)
 }
 
@@ -1217,22 +1203,20 @@ fn certified_chunks_outside_window(
     window: &[Arc<Block>],
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let window_hashes: HashSet<&CryptoHash> = window.iter().map(|block| block.hash()).collect();
-    let mut chunks = Vec::new();
-    for block in window {
-        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
-            if window_hashes.contains(&chunk_id.block_hash) {
-                continue;
-            }
-            let header = chain_store.get_block_header(&chunk_id.block_hash)?;
-            chunks.push(new_uncertified_chunk_info(
+
+    window
+        .iter()
+        .flat_map(|block| block.spice_core_statements().iter_execution_results())
+        .filter(|(chunk_id, _)| !window_hashes.contains(&chunk_id.block_hash))
+        .map(|(chunk_id, _)| {
+            new_uncertified_chunk_info(
                 epoch_manager,
-                &header,
+                chain_store.get_block_header(&chunk_id.block_hash)?.as_ref(),
                 chunk_id.shard_id,
                 /*certifiable_since_height=*/ None,
-            )?);
-        }
-    }
-    Ok(chunks)
+            )
+        })
+        .collect()
 }
 
 /// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty
@@ -1510,4 +1494,41 @@ pub(crate) fn new_uncertified_chunk_info(
         present_fallback_endorsements: Vec::new(),
         certifiable_since_height,
     })
+}
+
+pub(crate) fn certification_window(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Vec<CryptoHash>, Error> {
+    let header = chain_store.get_block_header(block_hash)?;
+    if header.is_genesis() || !header.is_spice() {
+        return Ok(Vec::new());
+    }
+
+    let mut window = Vec::new();
+    let mut certified: HashSet<SpiceChunkId> = HashSet::new();
+    let mut next_hash = *block_hash;
+
+    loop {
+        window.push(next_hash);
+        let Ok(block) = chain_store.get_block(&next_hash) else {
+            break;
+        };
+        certified.extend(
+            block.spice_core_statements().iter_execution_results().map(|(id, _)| id.clone()),
+        );
+        next_hash = *block.header().prev_hash();
+
+        let candidate = chain_store.get_block_header(&next_hash)?;
+        if candidate.is_genesis()
+            || !candidate.is_spice()
+            || epoch_manager.get_shard_layout(candidate.epoch_id())?.shard_ids().all(|shard_id| {
+                certified.contains(&SpiceChunkId { block_hash: next_hash, shard_id })
+            })
+        {
+            break;
+        }
+    }
+    Ok(window)
 }
