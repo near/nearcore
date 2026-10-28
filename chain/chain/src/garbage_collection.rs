@@ -427,6 +427,8 @@ impl ChainStore {
             let block_height = self.get_block_height(&block_hash)?;
             if block_height <= last_certified_height {
                 store_update.delete(DBCol::witnesses(), &key);
+                // Contract accesses are written atomically with the witness under the same key.
+                store_update.delete(DBCol::contract_accesses(), &key);
                 entries_cleared += 1;
             }
         }
@@ -970,9 +972,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
             // TODO(spice): Add other relevant columns here
             #[cfg(feature = "protocol_feature_spice")]
-            self.gc_col(DBCol::witnesses(), &block_shard_id);
+            self.gc_col(DBCol::witnesses(), &get_block_shard_id(&block_hash, shard_id));
             #[cfg(feature = "protocol_feature_spice")]
-            self.gc_col(DBCol::contract_accesses(), &block_shard_id);
+            self.gc_col(DBCol::contract_accesses(), &get_block_shard_id(&block_hash, shard_id));
             #[cfg(feature = "protocol_feature_spice")]
             self.gc_col(
                 DBCol::chunk_certifying_block(),
