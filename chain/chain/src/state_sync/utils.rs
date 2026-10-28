@@ -145,20 +145,17 @@ fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<bool>
 }
 
 /// The epoch's first block, walking back along the final chain from `last_final`, which must
-/// belong to `epoch_id`. `None` while a header on the way is missing, as happens during epoch
-/// sync where headers are saved without their predecessors.
+/// belong to `epoch_id`.
 fn first_block_of_epoch<T: ChainStoreAccess>(
     chain_store: &T,
     last_final: Arc<BlockHeader>,
     epoch_id: &EpochId,
-) -> Result<Option<Arc<BlockHeader>>, Error> {
+) -> Result<Arc<BlockHeader>, Error> {
     let mut first = last_final;
     loop {
-        let Some(prev) = maybe_get_block_header(chain_store, first.prev_hash())? else {
-            return Ok(None);
-        };
+        let prev = chain_store.get_block_header(first.prev_hash())?;
         if prev.epoch_id() != epoch_id || prev.height() == chain_store.get_genesis_height() {
-            return Ok(Some(first));
+            return Ok(first);
         }
         first = prev;
     }
@@ -188,9 +185,7 @@ fn on_new_spice_header<T: ChainStoreAccess>(
         // Finality has not reached this epoch yet, so its first block is not final.
         return Ok(());
     }
-    let Some(first) = first_block_of_epoch(chain_store, last_final, epoch_id)? else {
-        return Ok(());
-    };
+    let first = first_block_of_epoch(chain_store, last_final, epoch_id)?;
     store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), first.hash());
     store_update.delete_all(DBCol::StateSyncNewChunks);
     Ok(())
