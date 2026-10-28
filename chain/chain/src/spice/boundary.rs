@@ -130,7 +130,7 @@ pub(crate) fn boundary_uncertified_chunks(
 }
 
 /// Writes the `DBCol::uncertified_chunks` row of the last pre-spice block `header`.
-fn write_boundary_uncertified_chunks(
+pub(crate) fn write_boundary_uncertified_chunks(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
