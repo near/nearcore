@@ -104,10 +104,9 @@ impl StateSnapshot {
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                // Spice writes a shard's flat state delta under the block whose chunk
-                // produced it, and snapshots the state that block left behind, so the head
-                // is the block itself. Otherwise the snapshot needs to sit at a height that
-                // lets it replay the shard's last chunk.
+                // Spice serves the state after the sync block's chunks, so the head is that block.
+                // Otherwise the snapshot needs to sit at a height that lets it replay the shard's
+                // last chunk.
                 let desired_flat_head = if block.is_spice_block() {
                     Some(*block.hash())
                 } else {
