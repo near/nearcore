@@ -31,6 +31,13 @@ impl TestLoopEnv {
     /// While adding a new node to the environment, we can iterate through all the drop_conditions
     /// and register them with the new node's peer_manager_actor.
     pub fn drop(mut self, drop_condition: DropCondition) -> Self {
+        self.add_drop_condition(drop_condition);
+        self
+    }
+
+    /// Same as [`Self::drop`], but borrows the environment, so a drop condition can be added
+    /// from code that holds `&mut TestLoopEnv`, for example at a point of a running test.
+    pub fn add_drop_condition(&mut self, drop_condition: DropCondition) {
         for data in &self.node_datas {
             data.register_drop_condition(
                 &mut self.test_loop.data,
@@ -39,7 +46,6 @@ impl TestLoopEnv {
             );
         }
         self.shared_state.drop_conditions.push(drop_condition);
-        self
     }
 
     /// Reach block with height `genesis_height + 3`. Check that it can be done

@@ -1,5 +1,13 @@
 //! Tests for crossing the pre-spice -> spice activation boundary.
 
+use super::activation_scenarios::loads::scan_inclusions;
+use super::activation_scenarios::oracles::{
+    assert_boundary_crossed_without_missing_chunks, assert_boundary_results_validated,
+    assert_supply_subtracts_certified_burn_once, observed_chunk_pattern, prev_block,
+};
+use super::activation_scenarios::{
+    drop_chunks_marked_missing, run_until_estimated_first_spice_height,
+};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -8,10 +16,9 @@ use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::boundary_synthesis::{
-    execution_result_and_receipt_proofs_from_pre_spice_apply, get_undelivered_receipt_proofs,
-    get_undelivered_receipts,
+    get_undelivered_receipt_proofs, get_undelivered_receipts,
 };
-use near_chain::{Block, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_chain::{Block, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -23,7 +30,6 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
 use std::collections::{HashMap, HashSet};
-use std::ops::Range;
 use std::sync::Arc;
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
@@ -216,28 +222,8 @@ fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickl
     env.rpc_runner().run_until_certified(head_height);
 
     // Scan every block's new chunks for the submitted transactions.
-    let node = env.rpc_node();
     let submitted: HashSet<CryptoHash> = submitted.into_iter().collect();
-    let mut multi_inclusions: HashMap<CryptoHash, Vec<BlockHeight>> = HashMap::new();
-    let genesis_height = node.client().chain.chain_store.get_genesis_height();
-    for height in genesis_height + 1..=head_height {
-        let Ok(block_hash) = node.client().chain.chain_store.get_block_hash_by_height(height)
-        else {
-            continue;
-        };
-        let block = node.client().chain.get_block(&block_hash).unwrap();
-        for chunk_header in block.chunks().iter() {
-            if !chunk_header.is_new_chunk() {
-                continue;
-            }
-            let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-            for tx in chunk.to_transactions() {
-                if submitted.contains(&tx.get_hash()) {
-                    multi_inclusions.entry(tx.get_hash()).or_default().push(height);
-                }
-            }
-        }
-    }
+    let multi_inclusions = scan_inclusions(&env.rpc_node(), &submitted, head_height);
     let mut inclusion_heights = HashMap::new();
     for (tx_hash, heights) in multi_inclusions {
         assert_eq!(heights.len(), 1, "transaction {tx_hash} included more than once: {heights:?}");
@@ -245,191 +231,6 @@ fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickl
     }
     assert_eq!(inclusion_heights.len(), submitted.len(), "every transfer must be included");
     BoundaryTrickle { last_pre_spice, head_height, initial_receiver_balance, inclusion_heights }
-}
-
-fn prev_block(env: &TestLoopEnv, block: &Block) -> Arc<Block> {
-    env.rpc_node().block(*block.header().prev_hash())
-}
-
-/// The blocks above `height` on `node`'s chain, oldest first, up to the head.
-fn blocks_after(node: &TestLoopNode<'_>, height: BlockHeight) -> Vec<Arc<Block>> {
-    let mut blocks = Vec::new();
-    let mut block = node.head_block();
-    while block.header().height() > height {
-        let prev_hash = *block.header().prev_hash();
-        blocks.push(block);
-        block = node.block(prev_hash);
-    }
-    blocks.reverse();
-    blocks
-}
-
-/// From the last pre-spice block to the head no height is skipped and no chunk is
-/// missing: the boundary costs nothing in liveness. Execution advanced past it.
-fn assert_boundary_crossed_without_missing_chunks(env: &TestLoopEnv, last_pre_spice: &Block) {
-    let node = env.rpc_node();
-    let last_pre_spice_height = last_pre_spice.header().height();
-    assert!(node.head_block().is_spice_block());
-    let final_execution_head =
-        node.client().chain.chain_store.spice_final_execution_head().unwrap();
-    assert!(
-        final_execution_head.height > last_pre_spice_height,
-        "execution must advance past the boundary",
-    );
-
-    let blocks = blocks_after(&node, last_pre_spice_height);
-    assert_eq!(
-        blocks.len() as BlockHeightDelta,
-        node.head().height - last_pre_spice_height,
-        "height skipped crossing the boundary",
-    );
-    for block in &blocks {
-        assert!(
-            block.header().chunk_mask().iter().all(|mask| *mask),
-            "chunk missing at height {} crossing the boundary",
-            block.header().height(),
-        );
-    }
-}
-
-/// Every block after the last pre-spice block subtracts from the supply exactly the burn
-/// of the blocks its core statements newly certify. So the last pre-spice block's burn,
-/// the one its pre-spice apply wrote, enters the supply once, at the block certifying
-/// it, and never again. Returns that block's height.
-///
-/// The expected burn comes from the core statements alone, independent of the production
-/// code: a block certifies in the block whose core statements carry its last missing
-/// shard's result. Inflation is zero, so there is no minting term. Assumes the shard
-/// layout does not change from the last pre-spice block to the head.
-fn assert_supply_subtracts_certified_burn_once(
-    env: &TestLoopEnv,
-    last_pre_spice: &Block,
-) -> BlockHeight {
-    let node = env.rpc_node();
-    let client = node.client();
-    let shard_layout =
-        client.epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
-    let num_shards = shard_layout.num_shards() as usize;
-
-    // The burn in the last pre-spice block's chunk extras. A missing chunk's extra
-    // repeats the burn of the last chunk applied on its shard.
-    let mut last_pre_spice_burnt = Balance::ZERO;
-    for shard_uid in shard_layout.shard_uids() {
-        let chunk_extra =
-            client.chain.chain_store.get_chunk_extra(last_pre_spice.hash(), &shard_uid).unwrap();
-        last_pre_spice_burnt =
-            last_pre_spice_burnt.checked_add(chunk_extra.balance_burnt()).unwrap();
-    }
-    assert!(
-        last_pre_spice_burnt > Balance::ZERO,
-        "the last pre-spice block must burn gas for the supply identity to be meaningful",
-    );
-
-    let mut shards_by_block: HashMap<CryptoHash, HashSet<ShardId>> = HashMap::new();
-    let mut burnt_by_block: HashMap<CryptoHash, Balance> = HashMap::new();
-    let mut certifying_height = None;
-    let mut prev_supply = last_pre_spice.header().total_supply();
-    for block in blocks_after(&node, last_pre_spice.header().height()) {
-        let mut expected_burn = Balance::ZERO;
-        for (chunk_id, execution_result) in block.spice_core_statements().iter_execution_results() {
-            let shards = shards_by_block.entry(chunk_id.block_hash).or_default();
-            assert!(
-                shards.insert(chunk_id.shard_id),
-                "result of {chunk_id:?} appears in two blocks' core statements",
-            );
-            let burnt = burnt_by_block.entry(chunk_id.block_hash).or_default();
-            *burnt = burnt.checked_add(execution_result.chunk_extra.balance_burnt()).unwrap();
-            if shards.len() == num_shards {
-                expected_burn = expected_burn.checked_add(*burnt).unwrap();
-                if chunk_id.block_hash == *last_pre_spice.hash() {
-                    certifying_height = Some(block.header().height());
-                }
-            }
-        }
-        assert_eq!(
-            block.header().total_supply(),
-            prev_supply.checked_sub(expected_burn).unwrap(),
-            "block {} must subtract exactly the burn of the blocks it newly certifies",
-            block.header().height(),
-        );
-        prev_supply = block.header().total_supply();
-    }
-    let certifying_height = certifying_height.expect("the last pre-spice block must certify");
-    assert_eq!(
-        burnt_by_block[last_pre_spice.hash()],
-        last_pre_spice_burnt,
-        "the certified burn of the last pre-spice block differs from its pre-spice apply",
-    );
-    certifying_height
-}
-
-/// The certified execution results of the last pre-spice block must be exactly what
-/// its pre-spice apply produced, for every shard, and each must be endorsed by at
-/// least one validator that never ran that apply. Such a validator can only have
-/// endorsed by validating the boundary witness, replaying the apply from the witness
-/// and arriving at the same result.
-fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Block) {
-    let rpc_node = env.rpc_node();
-    let client = rpc_node.client();
-    let epoch_manager = client.epoch_manager.as_ref();
-    let core_reader = &client.chain.spice_core_reader;
-    let shard_layout = epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
-
-    let certified = core_reader.get_execution_results_by_shard_id(last_pre_spice.header()).unwrap();
-    assert_eq!(
-        certified.len(),
-        shard_layout.num_shards() as usize,
-        "every chunk of the last pre-spice block must be certified",
-    );
-
-    for shard_id in shard_layout.shard_ids() {
-        let certified = certified[&shard_id].as_ref();
-        // The rpc node tracks every shard, so it applied the last pre-spice block in
-        // full the pre-spice way; this is the result the boundary attests.
-        let (applied, _) = execution_result_and_receipt_proofs_from_pre_spice_apply(
-            &client.chain.chain_store,
-            epoch_manager,
-            last_pre_spice,
-            shard_id,
-        )
-        .unwrap();
-        assert_eq!(
-            certified, &applied,
-            "certified result of shard {shard_id} differs from the pre-spice apply",
-        );
-
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let mut stateless_endorsers = Vec::new();
-        for (index, data) in env.node_datas.iter().enumerate() {
-            let applied_locally = env
-                .node(index)
-                .client()
-                .chain
-                .chain_store
-                .get_chunk_extra(last_pre_spice.hash(), &shard_uid)
-                .is_ok();
-            if applied_locally {
-                continue;
-            }
-            let Some(endorsement) =
-                core_reader.get_endorsement(last_pre_spice.hash(), shard_id, &data.account_id)
-            else {
-                continue;
-            };
-            assert_eq!(
-                endorsement.execution_result_hash,
-                certified.compute_hash(),
-                "{} endorsed a different result for shard {shard_id} than certified",
-                data.account_id,
-            );
-            stateless_endorsers.push(data.account_id.clone());
-        }
-        assert!(
-            !stateless_endorsers.is_empty(),
-            "no validator without the pre-spice apply of shard {shard_id} endorsed its boundary \
-             chunk; the boundary witness validation went unexercised",
-        );
-    }
 }
 
 /// Kill a node when its head is the last pre-spice block and restart it once the other
@@ -594,49 +395,6 @@ fn test_protocol_upgrade_to_spice_view_queries() {
         outcome_height(&receipt_outcome) > boundary_height,
         "the boundary transaction's receipt must have executed under spice",
     );
-}
-
-/// Runs until the rpc node knows the height of the first spice block, and returns it.
-fn run_until_estimated_first_spice_height(env: &mut TestLoopEnv) -> BlockHeight {
-    let estimated_first_spice_height = |node: &TestLoopNode<'_>| {
-        node.client()
-            .epoch_manager
-            .get_estimated_protocol_upgrade_block_height(node.head().last_block_hash)
-            .unwrap()
-    };
-    env.rpc_runner()
-        .run_until(|node| estimated_first_spice_height(node).is_some(), Duration::seconds(100));
-    estimated_first_spice_height(&env.rpc_node()).unwrap()
-}
-
-/// Drops `shard_index`'s chunk at every height `pattern` marks 'x'. The pattern covers
-/// the last `pattern.len()` pre-spice heights, oldest first.
-fn drop_chunks_marked_missing(env: TestLoopEnv, shard_index: usize, pattern: &str) -> TestLoopEnv {
-    let first_height_offset = -(pattern.len() as i64);
-    pattern.chars().enumerate().filter(|(_, presence)| *presence == 'x').fold(
-        env,
-        |env, (position, _)| {
-            let offset = first_height_offset + position as i64;
-            env.drop(DropCondition::ProtocolUpgradeChunkRange(
-                ProtocolFeature::Spice.protocol_version(),
-                HashMap::from([(shard_index, offset..offset + 1)]),
-            ))
-        },
-    )
-}
-
-/// The chunk presence of `shard_index` at `heights`: 'x' missing, '.' present.
-fn observed_chunk_pattern(
-    chain: &Chain,
-    shard_index: usize,
-    heights: Range<BlockHeight>,
-) -> String {
-    heights
-        .map(|height| {
-            let block = chain.get_block_by_height(height).unwrap();
-            if block.chunks()[shard_index].is_new_chunk(height) { '.' } else { 'x' }
-        })
-        .collect()
 }
 
 /// Receipts sent pre-spice to a shard that misses chunks before the boundary are pending

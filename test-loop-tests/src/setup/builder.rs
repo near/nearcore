@@ -51,8 +51,9 @@ pub(crate) struct TestLoopBuilder {
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
     runtime_config_store: Option<RuntimeConfigStore>,
-    /// Custom function to change the configs before constructing each client.
-    config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
+    /// Custom functions to change the configs before constructing each client, applied in
+    /// the order they were added.
+    config_modifiers: Vec<Box<dyn Fn(&mut ClientConfig, usize)>>,
     /// Controls warmup behavior. See `skip_warmup` and `delay_warmup`.
     warmup_mode: WarmupMode,
     /// Whether all nodes must track all shards.
@@ -98,7 +99,7 @@ impl TestLoopBuilder {
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
-            config_modifier: None,
+            config_modifiers: Vec::new(),
             warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
@@ -391,13 +392,13 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Custom function to change the configs before constructing each client.
+    /// Custom function to change the configs before constructing each client. Can be called
+    /// more than once; the modifiers are applied in the order they were added.
     pub fn config_modifier(
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
     ) -> Self {
-        assert!(self.config_modifier.is_none());
-        self.config_modifier = Some(Box::new(modifier));
+        self.config_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -619,7 +620,7 @@ impl TestLoopBuilder {
                 TrackedShardsConfig::AllShards
             };
 
-            if let Some(config_modifier) = &self.config_modifier {
+            for config_modifier in &self.config_modifiers {
                 config_modifier(client_config, idx);
             }
         };
