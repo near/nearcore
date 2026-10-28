@@ -266,7 +266,7 @@ impl AccountKeySignedPayload {
     pub fn signature(&self) -> &near_crypto::Signature {
         &self.signature
     }
-    pub fn verify(&self, key: &PublicKey) -> Result<(), ()> {
+    fn verify(&self, key: &PublicKey) -> Result<(), ()> {
         match self.signature.verify(&self.payload, key) {
             true => Ok(()),
             false => Err(()),
