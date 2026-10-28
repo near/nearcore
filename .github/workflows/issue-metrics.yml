@@ -29,7 +29,7 @@ jobs:
         echo "LAST_MONTH=$first_day..$last_day" >> $GITHUB_OUTPUT
 
     - name: Run issue-metrics tool
-      uses: github/issue-metrics@v2
+      uses: github-community-projects/issue-metrics@v2
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SEARCH_QUERY: 'repo:near/nearcore is:issue created:${{ steps.last-month.outputs.LAST_MONTH }}'
