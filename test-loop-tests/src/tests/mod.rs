@@ -33,6 +33,7 @@ mod earliest_available;
 mod early_kickout_boundary;
 #[cfg(feature = "test_features")]
 mod early_kickout_e2e;
+#[cfg(feature = "test_features")]
 mod early_kickout_probe;
 mod early_kickout_withheld_block;
 mod early_prepare_transactions;
