@@ -104,7 +104,7 @@ NEAR validators provide their resources in exchange for a reward `epochReward[t]
 
 | Name | Description |
 | - | - |
-| `epochReward[t]` | `= coinbaseReward[t] * (1 - TREASURY_PCT)`. This is the most that validators can earn in epoch[t], shared by stake and scaled by uptime. It equals `validator_reward[t]` in [Validator Rewards Calculation](#validator-rewards-calculation). The part that validators do not earn is not minted. Validators do not receive transaction fees (see [Contract Rewards](#contract-rewards)). |
+| `epochReward[t]` | `= coinbaseReward[t] * (1 - TREASURY_PCT)`. This is the most that validators can earn in epoch[t], shared by stake and scaled by uptime. It equals `validator_reward_pool[t]` in [Validator Rewards Calculation](#validator-rewards-calculation). The part that validators do not earn is not minted. Validators do not receive transaction fees (see [Contract Rewards](#contract-rewards)). |
 | `coinbaseReward[t]` | The reward budget of epoch[t]. It is the part of a yearly budget of `REWARD_PCT_PER_YEAR` of the total supply, in proportion to the duration of the epoch. It equals `total_reward[t]` in [Validator Rewards Calculation](#validator-rewards-calculation). |
 
 
@@ -124,30 +124,36 @@ for more information.
 At the end of every epoch `T`, next algorithm gets executed to determine validators for epoch `T + 2`:
 
 1. For every validator in `epoch[T]` determine `num_blocks_produced`, `num_chunks_produced` and `num_endorsements_produced` based on what they produced during the epoch.
-2. Remove validators that produced too little in `epoch[T]`:
-   - validators for whom `num_blocks_produced < num_blocks_expected * BLOCK_PRODUCER_KICKOUT_THRESHOLD` or `num_chunks_produced < num_chunks_expected * CHUNK_PRODUCER_KICKOUT_THRESHOLD`;
-   - validators that were not expected to produce any blocks or chunks, and for whom `num_endorsements_produced < num_endorsements_expected * CHUNK_VALIDATOR_KICKOUT_THRESHOLD`.
-
-   Some validators are exempt from these removals, so that one epoch does not remove too much stake when many validators are below the thresholds.
-   The epoch config parameter `validator_max_kickout_stake_perc` sets the limit. It is 30 on mainnet.
-   Validators are sorted by online ratio, from the best to the worst.
-   The online ratio here is the mean of the block, chunk and endorsement production ratios, counting only the roles where the validator was expected to produce something.
-   Unlike the reward calculation below, this step uses the endorsement ratio as it is.
-   Validators with the same online ratio are ordered by stake, higher stake first, and then by account ID in descending order.
-   In this order, validators are exempt until the exempt stake is at least `100 - validator_max_kickout_stake_perc` percent of the total stake of `epoch[T]` (70% on mainnet).
-   A validator that was kicked out in the previous epoch cannot be exempt.
-
-   If every validator of `epoch[T]` is either removed in this step or was kicked out in the previous epoch, one of them is not removed in this step.
-   It is the validator with the most produced blocks among the validators that were not kicked out in the previous epoch.
-   On a tie, the validator that comes first in the validator list is kept.
-   If every validator was kicked out in the previous epoch, no validator is kept.
-   The removals described next still apply to the kept validator.
-
-   Block producers are also removed if the last block they produced in `epoch[T]` signaled a protocol version lower than the protocol version chosen for epoch `T + 2`.
-   The exemption applies only to the removals for producing too little.
-   It does not apply to this protocol version rule or to validators that unstake (see step 3).
+2. Remove validators of `epoch[T]` by the [kickout rules](#kickout-rules) below.
 3. Collect `proposals`, if validator was also a validator in `epoch[T]`, considered stake of the proposal is `0 if proposal.stake == 0 else proposal.stake + reward[proposal.account_id]`.
 4. Use the chunk/block producer selection algorithms outlined in [Selecting Chunk and Block Producers](../ChainSpec/SelectingBlockProducers.md).
+
+#### Kickout rules
+
+Step 2 removes validators that produced too little, and block producers that signaled an old protocol version.
+The stake exemption and the keep-one rule below protect validators only from removals for producing too little.
+They do not apply to the protocol version rule or to validators that unstake (see step 3).
+
+**Performance thresholds.** A validator is removed for producing too little in `epoch[T]` if:
+
+- `num_blocks_produced < num_blocks_expected * BLOCK_PRODUCER_KICKOUT_THRESHOLD` or `num_chunks_produced < num_chunks_expected * CHUNK_PRODUCER_KICKOUT_THRESHOLD`;
+- or it was not expected to produce any blocks or chunks, and `num_endorsements_produced < num_endorsements_expected * CHUNK_VALIDATOR_KICKOUT_THRESHOLD`.
+
+**Stake exemption.** Some validators are exempt from the performance removals, so that one epoch does not remove too much stake when many validators are below the thresholds.
+The epoch config parameter `validator_max_kickout_stake_perc` sets the limit. It is 30 on mainnet.
+Validators are sorted by online ratio, from the best to the worst.
+The online ratio here is the mean of the block, chunk and endorsement production ratios, counting only the roles where the validator was expected to produce something.
+Unlike the reward calculation below, this rule uses the endorsement ratio as it is.
+Validators with the same online ratio are ordered by stake, higher stake first, and then by account ID in descending order.
+In this order, validators are exempt until the exempt stake is at least `100 - validator_max_kickout_stake_perc` percent of the total stake of `epoch[T]` (70% on mainnet).
+A validator that was kicked out in the previous epoch cannot be exempt.
+
+**Keep-one rule.** If every validator of `epoch[T]` is either removed for producing too little or was kicked out in the previous epoch, one validator is kept.
+It is the validator with the most produced blocks among the validators that were not kicked out in the previous epoch.
+On a tie, the validator that comes first in the validator list is kept.
+If every validator was kicked out in the previous epoch, no validator is kept.
+
+**Protocol version rule.** Block producers are also removed if the last block they produced in `epoch[T]` signaled a protocol version lower than the protocol version chosen for epoch `T + 2`.
 
 ### Validator Rewards Calculation
 
@@ -170,13 +176,13 @@ After that a fraction of the reward goes to the treasury and the remaining amoun
 
 ```python
 treasury_reward[t] = floor(total_reward[t] * protocol_reward_rate)
-validator_reward[t] = total_reward[t] - treasury_reward[t]
+validator_reward_pool[t] = total_reward[t] - treasury_reward[t]
 ```
 
 `protocol_reward_rate` is `TREASURY_PCT`. It is 1/10 on mainnet.
 The treasury gets `treasury_reward[t]` in every epoch, regardless of what the validators earn.
 
-Validators removed for producing too few blocks, chunks or chunk endorsements (step 2 of [Validator Selection](#validator-selection)) get no reward.
+Validators removed for producing too few blocks, chunks or chunk endorsements (see [Kickout rules](#kickout-rules)) get no reward.
 Validators kicked out for other reasons, such as an old protocol version, are rewarded by the same rules as other validators.
 For all other validators, uptime is the mean of the block, chunk and chunk endorsement ratios, adjusted with the `ONLINE_THRESHOLD_MIN` and `ONLINE_THRESHOLD_MAX` parameters.
 Only the roles where the validator was expected to produce something are counted.
@@ -206,20 +212,20 @@ Where `num_blocks_expected[t][j]`, `num_chunks_expected[t][j]` and `num_endorsem
 The specific `validator[t][j]` reward for epoch `t` is then proportional to the fraction of stake of this validator from total stake:
 
 ```python
-validator_reward[t][j] = floor(uptime[t][j] * stake[t][j] * validator_reward[t] / total_stake[t])
+validator_reward[t][j] = floor(uptime[t][j] * stake[t][j] * validator_reward_pool[t] / total_stake[t])
 ```
 
 Here `total_stake[t]` is the total stake of all validators of epoch `t`, including the validators that get no reward.
 Each validator reward is added to the locked balance (stake) of the validator.
 
 The amount minted for epoch `t` is `treasury_reward[t]` plus the sum of all `validator_reward[t][j]`.
-The part of `validator_reward[t]` that validators do not earn is not minted.
+The part of `validator_reward_pool[t]` that validators do not earn is not minted.
 The minted amount is added to the total supply in the first block of the next epoch.
 
 ### Slashing
 
 NEAR does not slash stake.
-A validator that produces too few blocks, chunks or chunk endorsements can be kicked out of the validator set (see [Validator Selection](#validator-selection)).
+A validator that produces too few blocks, chunks or chunk endorsements can be kicked out of the validator set (see [Kickout rules](#kickout-rules)).
 A validator kicked out this way gets no reward for that epoch, but its stake is not reduced.
 
 ## Protocol Treasury
