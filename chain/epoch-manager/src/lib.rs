@@ -1037,8 +1037,6 @@ impl EpochManager {
             return Ok(next_shard_layout.clone());
         }
 
-        debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
-
         let Some((shard_id, boundary_account)) = block_info.shard_split() else {
             return Ok(next_shard_layout.clone());
         };
@@ -1208,11 +1206,7 @@ impl EpochManager {
             .then(|| next_epoch_info.epoch_height() + 1)
             .or_else(|| next_epoch_info.last_resharding());
 
-        let strategy = AssignmentStrategy::select(
-            next_next_epoch_version,
-            &next_shard_layout,
-            &next_next_shard_layout,
-        );
+        let strategy = AssignmentStrategy::select(&next_shard_layout, &next_next_shard_layout);
         RESHARDING_ASSIGNMENT_STRATEGY.with_label_values(&[strategy.metrics_label()]).inc();
 
         let next_next_epoch_info = match proposals_to_epoch_info(

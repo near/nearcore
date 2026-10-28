@@ -400,7 +400,6 @@ mod tests {
                     BandwidthRequests::empty(),
                     None,
                     &signer,
-                    pre_spice_protocol_version(),
                 ));
                 *chunk_header.height_included_mut() = height;
                 chunk_header

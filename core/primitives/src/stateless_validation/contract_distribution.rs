@@ -381,13 +381,8 @@ impl ContractCodeResponse {
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
         signer: &ValidatorSigner,
-        protocol_version: ProtocolVersion,
     ) -> std::io::Result<Self> {
-        if ProtocolFeature::SignedContractCodeResponse.enabled(protocol_version) {
-            ContractCodeResponseV2::encode(next_chunk, contracts, signer).map(Self::V2)
-        } else {
-            ContractCodeResponseV1::encode(next_chunk, contracts).map(Self::V1)
-        }
+        ContractCodeResponseV2::encode(next_chunk, contracts, signer).map(Self::V2)
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {

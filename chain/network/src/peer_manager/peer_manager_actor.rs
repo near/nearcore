@@ -100,7 +100,9 @@ pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Durati
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
 /// The length of time that a Tier3 connection is allowed to idle before it is stopped
-const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
+pub(crate) const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
+/// How often to check for idle Tier3 connections.
+const TIER3_IDLE_CHECK_INTERVAL: time::Duration = time::Duration::seconds(5);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -201,6 +203,20 @@ impl messaging::Actor for PeerManagerActor {
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+
+        // Periodically close idle Tier3 connections.
+        self.handle.spawn("stop tier3 idle connections loop", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let transport = self.transport.clone();
+            let mut interval = time::Interval::new(clock.now(), TIER3_IDLE_CHECK_INTERVAL);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    Self::stop_tier3_idle_connections(&clock, &state, transport.as_ref());
+                }
+            }
+        });
 
         // Connect to TIER1 proxies and broadcast the list those connections periodically.
         let tier1 = self.state.config.tier1.clone();
@@ -404,7 +420,7 @@ impl PeerManagerActor {
         let info = self.transport.transport_info();
         let mut total_bytes_per_sec: u64 = 0;
         let mut total_messages_per_sec: u64 = 0;
-        for (peer_id, stat) in &info.peer_stats {
+        for (peer_id, stat) in &info.tier2_peer_stats {
             let bytes_per_sec = stat.received_bytes_per_sec;
             let messages_per_sec = stat.received_messages_per_sec;
             if bytes_per_sec > REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC
@@ -495,7 +511,7 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let info = self.transport.transport_info();
-        let stats = &info.peer_stats;
+        let stats = &info.tier2_peer_stats;
         let t2_peers = self.state.peers.tier2();
         let t2_count = t2_peers.len();
 
@@ -585,24 +601,17 @@ impl PeerManagerActor {
     /// can be lost if the timeout is reached precisely while it is in flight. For simplicity we
     /// accept this risk; network requests are understood as unreliable and the requesting node has
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
-    fn stop_tier3_idle_connections(&self) {
-        let now = self.clock.now();
-        let info = self.transport.transport_info();
-        let t3_peers = self.state.peers.tier3();
-        let idle_peers: Vec<PeerId> = t3_peers
-            .into_iter()
-            .filter_map(|(id, _)| {
-                let stat = info.peer_stats.get(&id)?;
-                (now - stat.last_time_received_message > TIER3_IDLE_TIMEOUT).then_some(id)
-            })
-            .collect();
-        for peer_id in &idle_peers {
-            self.transport.disconnect_peer(peer_id, None);
-        }
+    fn stop_tier3_idle_connections(
+        clock: &time::Clock,
+        state: &NetworkState,
+        transport: &dyn NetworkTransport,
+    ) {
+        let now = clock.now();
+        transport.stop_idle_tier3_connections(now, TIER3_IDLE_TIMEOUT);
         // Clean up stale pending Tier3 request entries for peers that never connected back.
         // retain() does a full scan of the map, but this is fine: the map is bounded by the
         // number of in-flight state sync requests (typically tens at most).
-        self.state
+        state
             .pending_tier3_requests
             .retain(|_, sent_at| now - *sent_at <= PENDING_TIER3_REQUEST_TIMEOUT);
     }
@@ -672,9 +681,6 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
-        // Close Tier3 connections which have been idle for too long
-        self.stop_tier3_idle_connections();
-
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
@@ -718,7 +724,7 @@ impl PeerManagerActor {
         let genesis_id = self.state.genesis_id.clone();
 
         let info = self.transport.transport_info();
-        let stats = &info.peer_stats;
+        let stats = &info.tier2_peer_stats;
 
         let t2_snapshot = self.state.peers.tier2();
         let t1_snapshot = self.state.peers.tier1();

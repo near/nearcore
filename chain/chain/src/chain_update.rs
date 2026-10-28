@@ -270,23 +270,21 @@ impl<'a> ChainUpdate<'a> {
             self.epoch_manager.record_block_info(block_info, *block.header().random_value())?;
         self.chain_store_update.merge(epoch_manager_update.into());
 
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            // If this is the first block of the epoch, update epoch sync proof.
-            // We use prev_hash (not last_final_block) because last_final_block can skip
-            // over epoch boundaries when heights are skipped (e.g. dead validator's turn),
-            // causing the proof update to be missed for that epoch.
-            // prev_hash of the first block in epoch T is always the last block of epoch T-1.
-            //
-            // The downside of using prev_hash is that due to forks we may end up hitting the
-            // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
-            // is idempotent.
-            if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
-                let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update =
-                    update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
-                self.chain_store_update.merge(epoch_manager_update.into());
-            }
+        // If this is the first block of the epoch, update epoch sync proof.
+        // We use prev_hash (not last_final_block) because last_final_block can skip
+        // over epoch boundaries when heights are skipped (e.g. dead validator's turn),
+        // causing the proof update to be missed for that epoch.
+        // prev_hash of the first block in epoch T is always the last block of epoch T-1.
+        //
+        // The downside of using prev_hash is that due to forks we may end up hitting the
+        // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
+        // is idempotent.
+        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
+            let epoch_store = self.chain_store_update.store().epoch_store();
+            let epoch_manager_update =
+                update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
+            self.chain_store_update.merge(epoch_manager_update.into());
         }
 
         // Add validated block to the db, even if it's not the canonical fork.

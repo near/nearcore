@@ -3965,7 +3965,6 @@ fn test_handling_batched_data_request_gates_entries_separately() {
         vec![],
         Balance::ZERO,
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         0,
         ChunkEndorsementsBitmap::new(0),
         None,

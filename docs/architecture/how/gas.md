@@ -155,11 +155,28 @@ contract pays for the gas, so there is no `attached_gas` and the
 
 The contract pays for all the gas the call uses from its balance, at the gas
 price of the call: the gas it burns, the gas attached to function calls, and
-the execution fees of all actions and receipts. The balance takes the place of
-the prepaid gas, so the call fails with `GasExceeded` once it uses more gas
-than the balance pays for, and spending the balance on deposits lowers that
-limit. A promise gets exactly the gas it was created with: unspent gas is not
-distributed by weight, because there is no prepaid gas to distribute.
+the execution fees of all actions and receipts. As in other calls, the VM only
+counts the gas against the fixed limits above; the runtime charges the
+contract after the call, and rejects the call if the balance can't pay. A
+rejected call pays nothing, so the VM doesn't need to stop a call as soon as
+the balance runs out: the call can't do more unpaid work than any call the
+contract rejects. While the call runs, its balance is the real balance of the
+contract, which it can spend on deposits and transfers; if it doesn't leave
+enough to pay for the fees and the gas, the call is rejected. This is the same
+way storage staking is checked after a call. A promise gets
+exactly the gas it was created with: unspent gas is not distributed by weight,
+because there is no prepaid gas to distribute.
+
+Before the method runs, the call burns the fees of a self-addressed function
+call with the same method name and input: receipt creation, the function call
+base fee, and the per-byte fee for the method name and the payload, each with
+its send and execution part. There is no signature, so there is no signature
+verification fee. The fees count toward `max_gas_burnt_external`, so a larger
+payload leaves less of the budget to the method. With the largest payload the
+fees are about 8 Tgas. The contract must be able to afford the fees, or the
+call is rejected before any contract code is loaded. Like the rest of the
+call, the fees are charged after the call, and only if the contract accepts
+it.
 
 ### Contract Reward
 

@@ -4,12 +4,13 @@ use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, StateRequestAck, StateResponseInfo,
-    StateResponseInfoV2, T2MessageBody, TieredMessageBody,
+    StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
+use crate::peer::testonly::PeerHandle;
 use crate::peer_manager;
 use crate::peer_manager::connection::PoolError;
-use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::{Event, TIER3_IDLE_TIMEOUT};
 use crate::peer_manager::testonly::ActorHandler;
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
@@ -468,4 +469,158 @@ async fn routed_requests_answered_over_tier3() {
             })
             .await;
     }
+}
+
+/// Sends `msg` from `peer` and waits until the peer manager with the `events` processes it.
+/// Panics if any of the connections `open` is closed first.
+async fn send_and_wait(
+    events: &mut broadcast::Receiver<Event>,
+    peer: &PeerHandle,
+    msg: PeerMessage,
+    open: &[tcp::StreamId],
+) {
+    peer.send(msg.clone()).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(_, processed) if processed == msg => Some(()),
+            Event::ConnectionClosed(ev) if open.contains(&ev.stream_id) => {
+                panic!("connection closed: {}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
+}
+
+/// Waits until the connection `closed` is closed. Panics if any of the connections `open` is
+/// closed first.
+async fn wait_closed(
+    events: &mut broadcast::Receiver<Event>,
+    closed: tcp::StreamId,
+    open: &[tcp::StreamId],
+) {
+    events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.stream_id == closed => Some(()),
+            Event::ConnectionClosed(ev) if open.contains(&ev.stream_id) => {
+                panic!("connection closed: {}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
+}
+
+// Verify that a Tier3 connection is closed once nothing has been sent or received on it for
+// TIER3_IDLE_TIMEOUT, regardless of the traffic on a Tier2 connection to the same peer, and that
+// the Tier2 connection stays open.
+#[tokio::test]
+async fn idle_timeout_ignores_tier2() {
+    init_test_logger();
+    let mut rng = make_rng(921853251);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    // Connect to a peer on both Tier2 and Tier3, and to another peer on Tier3 only.
+    let cfg = chain.make_config(rng);
+    let conn = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
+    let t2_stream_id = conn.stream.id();
+    let t2_peer = conn.handshake(&clock.clock()).await;
+    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T3).await;
+    let t3_stream_id = conn.stream.id();
+    let t3_peer = conn.handshake(&clock.clock()).await;
+    let conn = pm.start_outbound(chain.clone(), chain.make_config(rng), tcp::Tier::T3).await;
+    let idle_stream_id = conn.stream.id();
+    let _idle_peer = conn.handshake(&clock.clock()).await;
+
+    let mut events = pm.events.from_now();
+    let t2_msg = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![] });
+    let t3_msg = PeerMessage::VersionedStateResponse(state_response(
+        ShardId::new(0),
+        CryptoHash::hash_borsh(rng.r#gen::<u64>()),
+        None,
+    ));
+    let open = [t2_stream_id, t3_stream_id];
+
+    // Let the Tier2 connection idle for longer than TIER3_IDLE_TIMEOUT, but not the Tier3
+    // connection to the same peer. Once the Tier3 connection to the other peer is closed for
+    // being idle, both connections to the peer are still open.
+    clock.advance(TIER3_IDLE_TIMEOUT - time::Duration::seconds(1));
+    send_and_wait(&mut events, &t3_peer, t3_msg.clone(), &open).await;
+    clock.advance(time::Duration::seconds(2));
+    wait_closed(&mut events, idle_stream_id, &open).await;
+    send_and_wait(&mut events, &t3_peer, t3_msg, &open).await;
+    send_and_wait(&mut events, &t2_peer, t2_msg.clone(), &open).await;
+
+    // Now let the Tier3 connection idle for longer than TIER3_IDLE_TIMEOUT, but not the Tier2
+    // connection. The Tier3 connection is closed, and the Tier2 connection stays open.
+    let step = TIER3_IDLE_TIMEOUT / 2 + time::Duration::seconds(1);
+    clock.advance(step);
+    send_and_wait(&mut events, &t2_peer, t2_msg.clone(), &open).await;
+    clock.advance(step);
+    wait_closed(&mut events, t3_stream_id, &[t2_stream_id]).await;
+    send_and_wait(&mut events, &t2_peer, t2_msg, &[t2_stream_id]).await;
+}
+
+// Verify that a Tier3 connection on which messages are only sent, as when a host answers requests
+// that it received over Tier2, isn't closed while it is in use.
+#[tokio::test]
+async fn idle_timeout_counts_sent_messages() {
+    init_test_logger();
+    let mut rng = make_rng(921853252);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    // Connect to a peer which the test sends messages to, and to another peer whose connection
+    // stays idle.
+    let conn = pm.start_outbound(chain.clone(), chain.make_config(rng), tcp::Tier::T3).await;
+    let stream_id = conn.stream.id();
+    let peer = conn.handshake(&clock.clock()).await;
+    let conn = pm.start_outbound(chain.clone(), chain.make_config(rng), tcp::Tier::T3).await;
+    let idle_stream_id = conn.stream.id();
+    let _idle_peer = conn.handshake(&clock.clock()).await;
+    let mut events = pm.events.from_now();
+
+    // Send a message to the peer shortly before the connection times out.
+    clock.advance(TIER3_IDLE_TIMEOUT - time::Duration::seconds(1));
+    let msg = PeerMessage::VersionedStateResponse(state_response(
+        ShardId::new(0),
+        CryptoHash::hash_borsh(rng.r#gen::<u64>()),
+        None,
+    ));
+    let mut peer_events = peer.events.from_now();
+    let (peer_id, sent_msg) = (peer.cfg.id(), Arc::new(msg.clone()));
+    let sent = pm
+        .with_state_and_transport(move |_, transport| async move {
+            transport.send_message(tcp::Tier::T3, peer_id, sent_msg)
+        })
+        .await;
+    assert!(sent);
+    peer_events
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(tcp::Tier::T3, received) if received == msg => Some(()),
+            _ => None,
+        })
+        .await;
+
+    // Pass the timeout counting from the last message received on the connection, but not from
+    // the message sent. Once the idle connection is closed, the connection to the peer is still
+    // open.
+    clock.advance(time::Duration::seconds(2));
+    wait_closed(&mut events, idle_stream_id, &[stream_id]).await;
+    send_and_wait(&mut events, &peer, msg, &[stream_id]).await;
 }

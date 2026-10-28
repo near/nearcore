@@ -4,7 +4,7 @@
 
 Dynamic resharding is a protocol-level feature for the NEAR blockchain that enables automatic splitting of shards based on runtime state size, without requiring a protocol upgrade. It replaces the legacy "static resharding" approach where shard layout changes were hard-coded into specific protocol versions.
 
-The feature is gated behind the `ProtocolFeature::DynamicResharding` protocol feature flag.
+The feature stabilized at protocol version 85 and is unconditionally enabled since the current `MIN_SUPPORTED_PROTOCOL_VERSION`.
 
 ### Key Design Principles
 
@@ -121,11 +121,11 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 
 ### 2.6 Validator Assignment Across Resharding
 
-Gated by `ProtocolFeature::StickyReshardingValidatorAssignment` (protocol version 85). Without the feature, an epoch with a layout change reassigns all chunk producers from scratch by `ShardIndex`, forcing every producer to potentially state-sync a different shard. With the feature, `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
+Stabilized at protocol version 85 (together with dynamic resharding itself). `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
 
 - **`CarryOver`**: layouts equal — copy the prev assignment by `ShardIndex`.
-- **`StickyResharding`**: feature on and `new_layout` is derived from `prev_layout` — preserve the prev assignment by `ShardId`. Unchanged shards keep their chunk producers; a parent that splits has its producers distributed across its children via greedy stake-balanced bin-packing (`bin_pack_into_children` in `chain/epoch-manager/src/shard_assignment.rs`).
-- **`Fresh`**: feature off, or sticky construction failed (e.g. non-derived layouts in tests).
+- **`StickyResharding`**: `new_layout` is derived from `prev_layout` — preserve the prev assignment by `ShardId`. Unchanged shards keep their chunk producers; a parent that splits has its producers distributed across its children via greedy stake-balanced bin-packing (`bin_pack_into_children` in `chain/epoch-manager/src/shard_assignment.rs`).
+- **`Fresh`**: fallback when sticky construction fails (e.g. non-derived layouts in tests).
 
 The strategy is built once in `select` (validating the prev->new shard-id mapping) and consumed by `assign_chunk_producers_to_shards`. On a sticky-resharding epoch the per-epoch `chunk_producer_assignment_changes_limit` is raised to `num_chunk_producers / num_shards` so freshly split children can reach target population in one go rather than being chronically understaffed.
 
@@ -171,7 +171,7 @@ Limitations:
 
 ### Runtime (`chain/chain/src/runtime/mod.rs`)
 
-- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Gates on `DynamicResharding` feature flag, checks if the next block could be the last of the epoch (`is_next_block_possibly_last_in_epoch`), checks the resharding cooldown (`can_reshard`), then delegates to `check_dynamic_resharding`.
+- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Checks if the next block could be the last of the epoch (`is_next_block_possibly_last_in_epoch`), checks the resharding cooldown (`can_reshard`), then delegates to `check_dynamic_resharding`.
 - **`check_dynamic_resharding`** -- Module-level function implementing the threshold-based decision logic (max shards, force/block lists, memory threshold, min child size).
 
 ### Epoch Manager (`chain/epoch-manager/src/lib.rs`)

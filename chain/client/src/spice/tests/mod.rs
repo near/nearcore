@@ -165,7 +165,6 @@ fn pre_spice_chunk_headers(
                 BandwidthRequests::empty(),
                 None,
                 &chunk_signer,
-                pre_spice_protocol_version(),
             ));
             *chunk_header.height_included_mut() = height;
             chunk_header
