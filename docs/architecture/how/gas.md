@@ -39,13 +39,40 @@ are all fixed, except for function calls where the user needs to specify the att
 gas amount for the dynamic execution part.
 (See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
 
-The gas burnt for converting the `SignedTransaction` into a receipt is charged
-at the current `gas price`. All other gas, including the gas attached to
-function calls, is bought at the receipt gas price. From protocol version 85
-(nearcore 2.13.0), the receipt gas price is the higher of the `gas price` and
-`min_gas_purchase_price`, which is 1 NEAR per Pgas (10^9 yoctoNEAR per gas).
-From protocol version 78 to 84, it was equal to the `gas price`. Unused gas is refunded later, and
-so is the price difference for gas that is burnt at a lower price.
+The `gas amount` is not a field of `SignedTransaction`, nor is it something the
+signer can choose. It is only a virtual field that is computed on-chain following
+the protocol's rules.
+
+The `gas price` is a variable that may change during the execution of the
+transaction. The way it is implemented today, a single transaction can be
+charged a different gas price for different receipts.
+
+From protocol version 85 (nearcore 2.13.0), with the adoption of
+[NEP-642](https://github.com/near/NEPs/pull/642), the gas of a transaction is
+priced in three steps:
+
+| Step | Gas | Price |
+| --- | --- | --- |
+| Convert the `SignedTransaction` into a receipt | The gas burnt for the conversion | The current `gas price` |
+| Buy gas for the receipt | All other gas, including the gas attached to function calls | The receipt gas price: the higher of the current `gas price` and `min_gas_purchase_price`, which is 1 NEAR per Pgas (10^9 yoctoNEAR per gas) |
+| Execute the receipt | The gas that the receipt burns | The burn price: the lower of the receipt gas price and the `gas price` of the block that executes the receipt |
+
+The signer pays for the first two steps upfront. After a receipt is executed,
+the signer gets a refund for the gas that the receipt did not use, at the
+receipt gas price. The refund also includes the price difference for the burnt
+gas, which is `gas_burnt * (receipt_gas_price - burn_price)`. If the receipt
+creates an account, the runtime keeps part of this price difference and burns
+it as the account creation charge. At the usual gas price, the execution fee
+for creating the account and this charge add up to `account_creation_charge`
+(0.007 NEAR).
+
+For example, a receipt with 100 Tgas bought at 1 NEAR per Pgas costs 0.1 NEAR
+upfront. Say it burns 20 Tgas at a burn price of 0.1 NEAR per Pgas, and it
+attaches no gas to new receipts. Then its execution costs 0.002 NEAR, and the
+refund is 0.098 NEAR. That is 0.08 NEAR for the 80 Tgas that the receipt did
+not use, plus 0.018 NEAR for the price difference of the 20 Tgas that it
+burnt. The example leaves out the conversion step and the gas refund fee,
+which is currently 0.
 
 If the account has insufficient balance to pay for the gas and the attached
 deposits, it will fail with a `NotEnoughBalance` error, with the required
@@ -58,19 +85,13 @@ too small, the transaction fails with a `NotEnoughGasKeyBalance` error. Gas
 refunds for such a transaction go back to the gas key balance. If the gas key
 no longer exists, they go to the account balance.
 
-The `gas amount` is not a field of `SignedTransaction`, nor is it something the
-signer can choose. It is only a virtual field that is computed on-chain following
-the protocol's rules.
+#### Earlier gas pricing
 
-The `gas price` is a variable that may change during the execution of the
-transaction. The way it is implemented today, a single transaction can be
-charged a different gas price for different receipts.
-
-Already we can see a fundamental problem: Gas is bought once at the beginning
-but the gas price may change during execution. To solve this incompatibility,
-the protocol used to calculate a pessimistic gas price for the initial purchase.
-Later on, the delta between real and pessimistic gas prices would be refunded at
-the end of every receipt execution.
+Gas is bought once at the beginning, but the gas price may change during
+execution. Before protocol version 78, the protocol solved this with a
+pessimistic gas price for the initial purchase. Later on, the delta between
+real and pessimistic gas prices would be refunded at the end of every receipt
+execution.
 
 Generating a refund receipts for every executed function call has become a
 non-trivial overhead, limiting total throughput. Therefore, with the adoption of
@@ -83,21 +104,12 @@ price changes, it also meant that transactions with deep receipt calls could end
 up with a cheaper gas price competing for the same chunk space. The community
 took note of this trade-off and agreed to take it.
 
-From protocol version 85 (nearcore 2.13.0), with the adoption of
-[NEP-642](https://github.com/near/NEPs/pull/642), gas is no longer bought and
-burnt at the same price. The gas attached to a receipt is bought at the higher
-of the block gas price and `min_gas_purchase_price`, which is 1 NEAR per Pgas.
-Each receipt burns gas at the lower of this purchase price and the gas price of
-the block that executes it. The price difference for the burnt gas is refunded
-together with the unused gas. So, unlike from protocol version 78 to 84, almost
-every receipt again produces a gas refund receipt when the gas price is below
-`min_gas_purchase_price`. If the receipt creates an account, part of this
-price difference is kept and burnt as the account creation charge. At the usual
-gas price, the execution fee for creating the account and this charge add up to
-`account_creation_charge` (0.007 NEAR). A transaction that creates no account
-costs the same as before at the usual gas price. But the signer needs a larger
-balance upfront, because `min_gas_purchase_price` is 10 times the lowest block
-gas price of 0.1 NEAR per Pgas.
+Protocol version 85 changed this again, as described above. Compared with
+protocol versions 78 to 84, almost every receipt again produces a gas refund
+receipt when the gas price is below `min_gas_purchase_price`. A transaction
+that creates no account costs the same at the usual gas price. But the signer
+needs a larger balance upfront, because `min_gas_purchase_price` is 10 times
+the lowest block gas price of 0.1 NEAR per Pgas.
 
 ### Burning Gas
 
@@ -308,8 +320,12 @@ is still executed for free, since the gas price is set to 0. This keeps it in
 line with balance refunds. However, when the gas refund is produced, at least 1
 Tgas has been burnt on receipt execution, which more than covers for a transfer.
 
-Finally, we can have a complete diagram, including the gas refund penalty.
+The following diagram is a historical illustration of the complete gas flow.
+It shows the contract reward, which was paid up to protocol version 86, and
+the proposed 5% gas refund fee, which is currently 0. It also buys and burns gas
+at one gas price, as from protocol version 78 to 84. The current rules are
+described above.
 
-![Complete Gas Flow
+![Historical Complete Gas Flow
 Diagram](https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-2867060321 -->
