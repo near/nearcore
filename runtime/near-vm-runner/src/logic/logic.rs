@@ -27,6 +27,10 @@ pub struct ExecutionResultState {
     pub(crate) return_data: ReturnData,
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
+    ///
+    /// In an external contract call the contract also pays for the gas it
+    /// uses. The runtime charges that cost after the call, so it is not
+    /// deducted here.
     pub(crate) current_account_balance: Balance,
     /// Total amount subsidized by skipping balance deduction for 1 yoctoNEAR
     /// attached deposits on zero-balance contract promise calls.

@@ -52,13 +52,13 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -195,7 +195,7 @@ impl TestEnv {
         }
 
         epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     genesis_hash,
                     0,
@@ -205,7 +205,6 @@ impl TestEnv {
                     vec![],
                     vec![],
                     genesis_total_supply,
-                    genesis_protocol_version,
                     genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -375,7 +374,7 @@ impl TestEnv {
             self.last_shard_proposals.insert(shard_id, proposals);
         }
         self.epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     new_hash,
                     new_height,
@@ -385,7 +384,6 @@ impl TestEnv {
                     self.last_proposals.clone(),
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
-                    self.runtime.genesis_config.protocol_version,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
@@ -889,7 +887,7 @@ fn test_state_sync() {
         };
         new_env
             .epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     cur_hash,
                     i,
@@ -899,7 +897,6 @@ fn test_state_sync() {
                     new_env.last_proposals,
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![

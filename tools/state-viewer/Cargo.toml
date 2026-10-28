@@ -48,7 +48,7 @@ near-primitives-core.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
@@ -61,7 +61,7 @@ sandbox = [
     "near-chain/sandbox",
     "near-client/sandbox",
     "near-o11y/sandbox",
-    "node-runtime/sandbox",
+    "near-runtime/sandbox",
 ]
 
 nightly = [
@@ -77,7 +77,7 @@ nightly = [
     "near-primitives/nightly",
     "near-store/nightly",
     "nearcore/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
     "testlib/nightly",
 ]
 

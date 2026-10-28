@@ -37,7 +37,7 @@ tokens from the balance of the signer's account. The fee is calculated as `gas
 amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
-(See [here](https://docs.near.org/protocol/gas#cost-for-common-actions) for more details.)
+(See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
 
 If the account has insufficient balance to pay for this, it will fail with a
 `NotEnoughBalance` error, with the required balance included in the error message.
@@ -140,6 +140,43 @@ gas that is computed after the current call has finished. This allows attaching
 100% of unspent gas to a call. If there are multiple calls, this allows
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.
+
+### Gas in External Contract Calls
+
+External contract calls (the `ExternalContractCalls` protocol feature, not yet
+stable) let a contract authorize a call from a user who has no balance. The
+contract pays for the gas, so there is no `attached_gas` and the
+`prepaid_gas()` host function fails. Instead, two limits apply:
+
+- The call can burn at most `max_gas_burnt_external`, 20 Tgas. This bounds the
+  work done before the contract has decided to accept the call.
+- The gas burnt plus the gas attached to outgoing promises can be at most
+  `max_total_prepaid_gas`.
+
+The contract pays for all the gas the call uses from its balance, at the gas
+price of the call: the gas it burns, the gas attached to function calls, and
+the execution fees of all actions and receipts. As in other calls, the VM only
+counts the gas against the fixed limits above; the runtime charges the
+contract after the call, and rejects the call if the balance can't pay. A
+rejected call pays nothing, so the VM doesn't need to stop a call as soon as
+the balance runs out: the call can't do more unpaid work than any call the
+contract rejects. While the call runs, its balance is the real balance of the
+contract, which it can spend on deposits and transfers; if it doesn't leave
+enough to pay for the fees and the gas, the call is rejected. This is the same
+way storage staking is checked after a call. A promise gets
+exactly the gas it was created with: unspent gas is not distributed by weight,
+because there is no prepaid gas to distribute.
+
+Before the method runs, the call burns the fees of a self-addressed function
+call with the same method name and input: receipt creation, the function call
+base fee, and the per-byte fee for the method name and the payload, each with
+its send and execution part. There is no signature, so there is no signature
+verification fee. The fees count toward `max_gas_burnt_external`, so a larger
+payload leaves less of the budget to the method. With the largest payload the
+fees are about 8 Tgas. The contract must be able to afford the fees, or the
+call is rejected before any contract code is loaded. Like the rest of the
+call, the fees are charged after the call, and only if the contract accepts
+it.
 
 ### Contract Reward
 

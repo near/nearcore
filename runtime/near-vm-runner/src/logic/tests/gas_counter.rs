@@ -1,13 +1,17 @@
 use crate::logic::MemSlice;
+use crate::logic::errors::FunctionCallError;
+use crate::logic::logic::Result;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
-use crate::logic::{HostError, VMLogicError};
+use crate::logic::{ExecutionMode, HostError, VMLogicError};
 use crate::tests::test_builder::test_builder;
 use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::Balance;
+use std::sync::Arc;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -123,6 +127,181 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call ignores the prepaid gas of the context and burns at most
+/// `max_gas_burnt_external`.
+#[test]
+fn test_external_cant_burn_more_than_max_gas_burnt_external() {
+    let gas_limit = 10u64.pow(14);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    let mut logic = logic_builder.build();
+
+    let result = logic.gas_opcodes(op_limit * 2);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasLimitExceeded)));
+    let outcome = logic.compute_outcome();
+
+    // `used_gas` is not checked: on hitting the burnt limit, `GasCounter`
+    // records the gas it failed to burn as promise gas (see
+    // https://github.com/near/nearcore/issues/5148).
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call can attach more gas to promises than it can burn, up to
+/// `max_total_prepaid_gas`.
+#[test]
+fn test_external_attach_more_than_max_gas_burnt_external() {
+    let gas_limit = 10u64.pow(14);
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    logic_builder.context.account_balance = Balance::from_near(1);
+    let mut logic = logic_builder.build();
+
+    promise_create(&mut logic, b"contract.near", 0, gas_limit * 2)
+        .expect("should create a promise");
+    let outcome = logic.compute_outcome();
+
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert!(outcome.used_gas > Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call cannot use more than `max_total_prepaid_gas` in total.
+#[test]
+fn test_external_cant_attach_more_than_max_total_prepaid_gas() {
+    let gas_limit = 10u64.pow(14);
+
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.config.limit_config.max_gas_burnt_external = Gas::from_gas(gas_limit);
+    logic_builder.config.limit_config.max_total_prepaid_gas = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::ZERO;
+    logic_builder.context.account_balance = Balance::from_near(1);
+    let mut logic = logic_builder.build();
+
+    let result = promise_create(&mut logic, b"contract.near", 0, gas_limit * 3);
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::GasExceeded)));
+    let outcome = logic.compute_outcome();
+
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit * 3));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
+}
+
+/// An external call with the given contract balance.
+fn external_logic_builder(balance: Balance) -> VMLogicBuilder {
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.context.account_balance = balance;
+    logic_builder
+}
+
+/// An external call whose fees burnt `fee_gas`.
+fn external_logic_builder_with_fee(fee_gas: Gas) -> VMLogicBuilder {
+    let mut logic_builder = VMLogicBuilder::external();
+    logic_builder.context.execution_mode = ExecutionMode::External { fee_gas };
+    logic_builder
+}
+
+/// The VM does not charge an external call for its gas, the runtime does after
+/// the call. The gas is not limited by the contract balance, and the balance
+/// seen by the contract and left by the call does not change with the gas.
+#[test]
+fn test_external_gas_not_charged_by_vm() {
+    let balance = Balance::from_yoctonear(1);
+    let mut logic_builder = external_logic_builder(balance);
+    let mut logic = logic_builder.build();
+
+    logic.gas_opcodes(1_000_000).expect("should burn gas");
+    promise_create(&mut logic, b"contract.near", 0, Gas::from_teragas(100).as_gas())
+        .expect("should create a promise");
+    logic.account_balance(0).expect("account_balance should succeed");
+    let got = u128::from_le_bytes(logic.internal_mem_read(0, 16).try_into().unwrap());
+    assert_eq!(got, balance.as_yoctonear());
+    let outcome = logic.compute_outcome();
+    assert!(outcome.used_gas > Gas::from_teragas(100));
+    assert_eq!(outcome.balance, balance);
+}
+
+/// An external call can spend all of its balance on deposits, whatever gas it
+/// used; the runtime rejects the call afterwards if the balance left can't pay
+/// for the gas.
+#[test]
+fn test_external_deposit_limited_by_balance_only() {
+    let balance = Balance::from_near(1);
+    let transfer = |amount: Balance| {
+        let mut logic_builder = external_logic_builder(balance);
+        let mut logic = logic_builder.build();
+        promise_create(&mut logic, b"contract.near", 0, Gas::from_teragas(100).as_gas())
+            .expect("should create a promise");
+        let index = promise_batch_create(&mut logic, "bob.near").expect("should create a promise");
+        let amount = logic.internal_mem_write(&amount.as_yoctonear().to_le_bytes());
+        let result = logic.promise_batch_action_transfer(index, amount.ptr);
+        (result, logic.compute_outcome().balance)
+    };
+
+    let (result, balance_left) = transfer(balance);
+    result.expect("transferring the whole balance should succeed");
+    assert_eq!(balance_left, Balance::ZERO);
+
+    let (result, _) = transfer(balance.checked_add(Balance::from_yoctonear(1)).unwrap());
+    assert_eq!(result, Err(VMLogicError::HostError(HostError::BalanceExceeded)));
+}
+
+/// The fees of an external call count toward its burn budget, and the limits
+/// do not depend on the contract balance.
+#[test]
+fn test_external_fee_lowers_burn_budget() {
+    let logic_builder = VMLogicBuilder::external();
+    let limit_config = &logic_builder.config.limit_config;
+    let budget = limit_config.max_gas_burnt_external;
+    let fee_gas = Gas::from_teragas(1);
+    let limits = ExecutionMode::External { fee_gas }.gas_limits(limit_config, Gas::ZERO);
+    assert_eq!(limits.max_gas_burnt, budget.checked_sub(fee_gas).unwrap());
+    assert_eq!(limits.prepaid_gas, limit_config.max_total_prepaid_gas);
+
+    // Fees above the budget leave nothing to burn.
+    let fee_gas = budget.checked_add(Gas::from_gas(1)).unwrap();
+    let limits = ExecutionMode::External { fee_gas }.gas_limits(limit_config, Gas::ZERO);
+    assert_eq!(limits.max_gas_burnt, Gas::ZERO);
+}
+
+/// When the fees of an external call use up its budget, the call fails before
+/// the contract is loaded.
+#[test]
+fn test_external_fee_exceeding_budget_aborts_loading() {
+    let fee_gas = VMLogicBuilder::external().config.limit_config.max_gas_burnt_external;
+    let logic_builder = external_logic_builder_with_fee(fee_gas);
+    let gas_counter = logic_builder.context.make_gas_counter(&logic_builder.config);
+    let Err(abort) = gas_counter.charge_loading_base("main") else {
+        panic!("charging the loading base should fail");
+    };
+    let outcome = abort.into_outcome(&logic_builder.context, Arc::new(logic_builder.config));
+    assert_eq!(outcome.aborted, Some(FunctionCallError::HostError(HostError::GasExceeded)));
+    assert_eq!(outcome.burnt_gas, Gas::ZERO);
+}
+
+/// In an internal call the gas comes from the prepaid gas, not from the
+/// contract balance.
+#[test]
+fn test_internal_gas_not_charged_to_contract() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let balance = logic_builder.context.account_balance;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    promise_create(&mut logic, b"contract.near", 0, Gas::from_teragas(10).as_gas())
+        .expect("should create a promise");
+    assert_eq!(logic.result_state().current_account_balance, balance);
+    let outcome = logic.compute_outcome();
+    assert_eq!(outcome.balance, balance);
 }
 
 #[test]

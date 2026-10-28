@@ -4,7 +4,7 @@ use crate::{
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -232,31 +232,29 @@ impl TestEpochConfigBuilder {
     }
 
     pub fn build(self) -> EpochConfig {
-        let epoch_config = EpochConfigBuilder::default()
-            .epoch_length(self.epoch_length)
-            .shard_layout(self.shard_layout)
-            .num_block_producer_seats(self.num_block_producer_seats)
-            .num_chunk_producer_seats(self.num_chunk_producer_seats)
-            .num_chunk_validator_seats(self.num_chunk_validator_seats)
-            .target_validator_mandates_per_shard(self.target_validator_mandates_per_shard)
-            .minimum_validators_per_shard(self.minimum_validators_per_shard)
-            .block_producer_kickout_threshold(self.block_producer_kickout_threshold)
-            .chunk_producer_kickout_threshold(self.chunk_producer_kickout_threshold)
-            .chunk_validator_only_kickout_threshold(self.chunk_validator_only_kickout_threshold)
-            .validator_max_kickout_stake_perc(self.validator_max_kickout_stake_perc)
-            .online_min_threshold(self.online_min_threshold)
-            .online_max_threshold(self.online_max_threshold)
-            .fishermen_threshold(self.fishermen_threshold)
-            .protocol_upgrade_stake_threshold(self.protocol_upgrade_stake_threshold)
-            .minimum_stake_divisor(self.minimum_stake_divisor)
-            .minimum_stake_ratio(self.minimum_stake_ratio)
-            .chunk_producer_assignment_changes_limit(self.chunk_producer_assignment_changes_limit)
-            .shuffle_shard_assignment_for_chunk_producers(
-                self.shuffle_shard_assignment_for_chunk_producers,
-            )
-            .max_inflation_rate(self.max_inflation_rate)
-            .build()
-            .expect("field init missing");
+        let epoch_config = EpochConfig {
+            epoch_length: self.epoch_length,
+            shard_layout_config: ShardLayoutConfig::Static { shard_layout: self.shard_layout },
+            num_block_producer_seats: self.num_block_producer_seats,
+            num_chunk_producer_seats: self.num_chunk_producer_seats,
+            num_chunk_validator_seats: self.num_chunk_validator_seats,
+            target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
+            minimum_validators_per_shard: self.minimum_validators_per_shard,
+            block_producer_kickout_threshold: self.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: self.chunk_validator_only_kickout_threshold,
+            validator_max_kickout_stake_perc: self.validator_max_kickout_stake_perc,
+            online_min_threshold: self.online_min_threshold,
+            online_max_threshold: self.online_max_threshold,
+            fishermen_threshold: self.fishermen_threshold,
+            protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: self.minimum_stake_divisor,
+            minimum_stake_ratio: self.minimum_stake_ratio,
+            chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
+            shuffle_shard_assignment_for_chunk_producers: self
+                .shuffle_shard_assignment_for_chunk_producers,
+            max_inflation_rate: self.max_inflation_rate,
+        };
         tracing::debug!(?epoch_config);
         epoch_config
     }

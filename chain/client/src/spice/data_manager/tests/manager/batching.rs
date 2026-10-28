@@ -17,8 +17,7 @@ fn a_producers_wants_are_packed_into_requests_within_the_wire_caps() {
     let ids = [receipt_id(&blocks[0], 0, 1), receipt_id(&blocks[1], 0, 1)];
     // The same producer backs both items, so it is asked for the four gaps of each.
     let run = |config: PullConfig| {
-        let mut manager = TestManager::new(&chain);
-        manager.set_pull_config(config);
+        let mut manager = TestManager::with_pull_config(&chain, 1, config);
         for (block, id) in blocks.iter().zip(&ids) {
             manager.track_block(&block);
             manager.push_and_assert_collecting(
@@ -71,8 +70,7 @@ fn an_items_ask_larger_than_one_request_spans_requests() {
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     let backer = producers()[0].clone();
     let id = receipt_id(&blocks[0], 0, 1);
-    let mut manager = TestManager::new(&chain);
-    manager.set_pull_config(config);
+    let mut manager = TestManager::with_pull_config(&chain, 1, config);
     manager.track_block(&blocks[0]);
     manager.push_and_assert_collecting(
         &backer,

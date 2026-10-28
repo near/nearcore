@@ -1,9 +1,10 @@
 mod account_cost_increase;
-mod account_cost_increase_diff;
 mod backfill_receipt_to_tx;
+mod ban_universal_account_transfer;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
+mod block_header_v7_before_spice;
 mod bug_repro;
 mod cache_warming;
 mod catching_up;
@@ -35,6 +36,7 @@ mod early_kickout_e2e;
 mod early_kickout_probe;
 mod early_kickout_withheld_block;
 mod early_prepare_transactions;
+mod ecc_reserved_method;
 mod eth_implicit_missing_global_contract;
 mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;
@@ -88,6 +90,7 @@ mod split_storage;
 mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
+mod transaction_cost_invariants;
 mod tx_inclusion_with_missed_chunks;
 mod universal_account_id;
 mod unknown_prev_chunk_preemption;

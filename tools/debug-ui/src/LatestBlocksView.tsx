@@ -597,8 +597,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </div>
                 <div className="explanation">Skipped chunks have grey background.</div>
                 <div className="explanation">
-                    Red text means that we don&apos;t know this producer (it&apos;s not present in
-                    our announce account list).
+                    Red text means that we don&apos;t know this producer (we have not received its
+                    AccountData).
                 </div>
                 {!!error && <div className="error">{(error as Error).stack}</div>}
                 <div className="missed-blocks">

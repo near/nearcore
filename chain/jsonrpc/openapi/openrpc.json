@@ -1285,7 +1285,7 @@
           },
           {
             "const": "MalformedUniversalStateInit",
-            "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
+            "description": "The bytes of a `UniversalStateInit` action are not the canonical borsh of a\nstate init. Action validation rejects such an action before it runs, so this\nonly fires if that check was bypassed.",
             "type": "string"
           },
           {
@@ -1308,6 +1308,28 @@
               "AccountNotInitialized"
             ],
             "title": "AccountNotInitialized",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `FunctionCall` action called the method reserved for external contract calls.\nThat method only runs in an external call or a view call.",
+            "properties": {
+              "ReservedMethodName": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReservedMethodName"
+            ],
+            "title": "ReservedMethodName",
             "type": "object"
           }
         ],
@@ -2299,7 +2321,7 @@
           },
           {
             "const": "MalformedUniversalStateInit",
-            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
+            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the\ncanonical representation of the struct.",
             "type": "string"
           },
           {
@@ -2393,6 +2415,28 @@
               "TotalNumberOfStateInitEntriesExceeded"
             ],
             "title": "TotalNumberOfStateInitEntriesExceeded",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A transfer to a universal account while transfers to them are banned.",
+            "properties": {
+              "TransferToUniversalAccountNotAllowed": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TransferToUniversalAccountNotAllowed"
+            ],
+            "title": "TransferToUniversalAccountNotAllowed",
             "type": "object"
           }
         ],
@@ -4279,12 +4323,6 @@
             "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_pairing_element": {
-            "$ref": "#/components/schemas/NearGas"
-          },
-          "contract_compile_base": {
-            "$ref": "#/components/schemas/NearGas"
-          },
-          "contract_compile_bytes": {
             "$ref": "#/components/schemas/NearGas"
           },
           "contract_loading_base": {
@@ -6384,6 +6422,33 @@
             ],
             "title": "MlDsaVerifyInvalidInput",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`method_name` is not allowed in external contract calls",
+            "properties": {
+              "ProhibitedInExternalCall": {
+                "properties": {
+                  "method_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ProhibitedInExternalCall"
+            ],
+            "title": "ProhibitedInExternalCall",
+            "type": "object"
+          },
+          {
+            "const": "DepositInExternalCall",
+            "description": "An external contract call has an attached deposit, which it cannot have",
+            "type": "string"
           }
         ],
         "title": "HostError"
@@ -7164,13 +7229,6 @@
       "LimitConfig": {
         "description": "Describes limits for VM and Runtime.\nTODO #4139: consider switching to strongly-typed wrappers instead of raw quantities",
         "properties": {
-          "account_id_validity_rules_version": {
-            "default": 2,
-            "description": "Deprecated: full account id validation is always enforced, so this is\nalways `2`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "initial_memory_pages": {
             "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
             "format": "uint32",
@@ -7253,6 +7311,14 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_gas_burnt_external": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
@@ -8087,7 +8153,7 @@
         "type": "string"
       },
       "RawStateInit": {
-        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Two encodings of the same logical value\nare two different accounts, which is deliberate: canonical encoding cannot be\nenforced end to end anyway, since contracts serialize their own nested state\ninside the opaque storage values.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
+        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. From `CanonicalUniversalStateInit` on, only\nthe canonical encoding is accepted (see `UniversalStateInit::from_raw_strict`), so\neach logical value has one ID.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
         "title": "RawStateInit",
         "type": "string"
       },
@@ -9209,17 +9275,6 @@
               "integer",
               "null"
             ]
-          },
-          "ttl_account_id_router": {
-            "description": "Time to persist Accounts Id in the router without removing them.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
           },
           "tx_routing_height_horizon": {
             "description": "If the node is not a chunk producer within that many blocks, then route\nto upcoming chunk producers.",
@@ -11776,7 +11831,7 @@
         "type": "object"
       },
       "SpiceChunkEndorsementStats": {
-        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV8`) and consumed by reward and kickout.",
         "properties": {
           "expected": {
             "format": "uint32",
@@ -12758,15 +12813,6 @@
         ],
         "title": "StorageError"
       },
-      "StorageGetMode": {
-        "description": "This enum represents if a storage_get call will be performed through flat storage or trie",
-        "enum": [
-          "FlatStorage",
-          "Trie"
-        ],
-        "title": "StorageGetMode",
-        "type": "string"
-      },
       "StorageUsageConfigView": {
         "description": "Describes cost of storage per block",
         "properties": {
@@ -13199,18 +13245,6 @@
             "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
             "type": "boolean"
           },
-          "chain_id_host_fn": {
-            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
-            "type": "boolean"
-          },
-          "discard_custom_sections": {
-            "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
-            "type": "boolean"
-          },
-          "eth_implicit_accounts": {
-            "description": "Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.",
-            "type": "boolean"
-          },
           "ext_costs": {
             "allOf": [
               {
@@ -13223,23 +13257,11 @@
             "description": "See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).",
             "type": "boolean"
           },
-          "gas_key_host_fns": {
-            "description": "See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).",
-            "type": "boolean"
-          },
-          "global_contract_host_fns": {
-            "description": "Deprecated: the global contract host functions are always enabled, so this is\nalways `true`.",
-            "type": "boolean"
-          },
           "grow_mem_cost": {
             "description": "Gas cost of a growing memory by single page.",
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
-          },
-          "implicit_account_creation": {
-            "description": "Deprecated",
-            "type": "boolean"
           },
           "limit_config": {
             "allOf": [
@@ -13265,18 +13287,6 @@
             "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
             "type": "boolean"
           },
-          "one_yocto_on_promise": {
-            "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
-            "type": "boolean"
-          },
-          "p256_verify_host_fn": {
-            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
-            "type": "boolean"
-          },
-          "reftypes_bulk_memory": {
-            "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
-            "type": "boolean"
-          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",
@@ -13286,14 +13296,6 @@
           "sha3_host_fns": {
             "description": "See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).",
             "type": "boolean"
-          },
-          "storage_get_mode": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/StorageGetMode"
-              }
-            ],
-            "description": "Deprecated: contract storage is always read through flat storage, so this is\nalways `FlatStorage`."
           },
           "universal_accounts": {
             "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",
@@ -13306,10 +13308,6 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
-          },
-          "yield_with_id_host_fns": {
-            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
-            "type": "boolean"
           }
         },
         "title": "VMConfigView",
@@ -13761,7 +13759,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "NEAR Protocol JSON-RPC API",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "methods": [
     {

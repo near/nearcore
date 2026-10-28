@@ -1,18 +1,14 @@
-//! Cost tests for the `AccountCostIncrease` protocol feature.
+//! Cross-cutting cost invariants that every supported way to pay for a transaction must satisfy.
 //!
-//! Each test runs a [`Scenario`] (a transaction to execute) both before the feature (protocol
-//! version `AccountCostIncrease - 1`) and after it (the latest protocol version) and compares
-//! the cost. Account creation adds `account_creation_charge` per account. The expectation also
-//! accounts for unrelated protocol features enabled between the compared versions, such as the
-//! loading base charged by `FixContractLoadingCost` for a call to a missing contract. See
-//! [`expected_cost_diff`] for the precise expectation.
+//! Each test runs a [`Scenario`] (a transaction to execute) and checks:
+//!   - The net balance decrease across the payer's accounts and any accounts a deposit is
+//!     transferred to equals the tokens the transaction reports burnt (deposits net out).
+//!   - For the [`FunctionCallKey`] method, the function-call key's allowance drops by exactly
+//!     the amount the account was debited (allowance is a spending budget tied to the account,
+//!     not a separate pool - counting it in the balance would double-count the gas).
 //!
-//! The cost is measured as the net balance decrease across the payer's accounts and any accounts a
-//! deposit is transferred to (so deposits net out). That equals the tokens the transaction reports
-//! burnt, which is cross-checked against the transaction outcome. A function call key's allowance
-//! is checked separately (it must change by exactly the amount the account was debited), since
-//! counting it in the balance would double-count the gas - it is paid from the account, not the
-//! allowance.
+//! These invariants are consensus-neutral - any mismatch indicates a bug in how fees, refunds,
+//! or relayer accounting are propagated.
 //!
 //! Each scenario runs through a list of [`SubmitMethod`]s, covering every way the gas can be paid
 //! for: signed directly with a full access key, a function call access key or relayed as a meta
@@ -30,7 +26,6 @@ use near_async::time::Duration;
 use near_client::QueryError;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::{ExtCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
@@ -42,21 +37,15 @@ use near_primitives::deterministic_account_id::{
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
-use near_primitives::types::{AccountId, Balance, Gas, Nonce, ProtocolVersion};
+use near_primitives::types::{AccountId, Balance, Gas, Nonce};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::backwards_compatible_rs_contract;
-use node_runtime::config::total_send_fees;
 use std::collections::BTreeMap;
-use testlib::fees_utils::FeeHelper;
 
-/// Gas price, pinned (min == max) so it stays constant for a deterministic before/after
-/// comparison. Set to the realistic mainnet minimum gas price of 0.0001 NEAR/TGas, which is
-/// exactly 10x below the feature's `min_gas_purchase_price` (0.001 NEAR/Tgas) - i.e. the gas
-/// attached to receipts is genuinely purchased at 10x the price it is burned at.
+/// Gas price, pinned (min == max) so it stays constant across the test.
 const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 /// Initial balance of every genesis account used by the tests.
 const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
@@ -69,14 +58,13 @@ const FUNCTION_CALL_GAS: Gas = Gas::from_teragas(30);
 const CALL_PROMISE_GAS: Gas = Gas::from_teragas(100);
 /// Amount transferred in transfer scenarios.
 const TRANSFER_AMOUNT: Balance = Balance::from_millinear(1);
-/// Large epoch length so the chain doesn't upgrade its protocol version away from the genesis
-/// version while the test runs.
+/// Large epoch length so the chain doesn't upgrade its protocol version while the test runs.
 const EPOCH_LENGTH: u64 = 100_000;
 
-/// The different ways a transaction can be submitted, all of which the feature must treat
-/// consistently. The delegate variants differ only in the relayer's outer signature - the inner
-/// delegate action is always signed by the sender's full access key, since the outer signature
-/// is what determines how the meta transaction is paid for.
+/// The different ways a transaction can be submitted, all of which must satisfy the same
+/// cost invariants. The delegate variant differs only in the relayer's outer signature - the
+/// inner delegate action is always signed by the sender's full access key, since the outer
+/// signature is what determines how the meta transaction is paid for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SubmitMethod {
     /// Signed directly with the account's full access key.
@@ -96,9 +84,7 @@ const ALL_METHODS: &[SubmitMethod] = &[FullAccessKey, FunctionCallKey, DelegateF
 /// do, such as creating an account).
 const FULL_ACCESS_METHODS: &[SubmitMethod] = &[FullAccessKey, DelegateFullAccessKey];
 
-/// Methods used by the deterministic-state-init scenarios. Delegated `DeterministicStateInit`
-/// is only valid from `FixDelegatedDeterministicStateInit`, which stabilizes together with
-/// `AccountCostIncrease`, so the before env rejects it as an invalid transaction.
+/// Methods used by the deterministic-state-init scenarios.
 const DETERMINISTIC_STATE_INIT_METHODS: &[SubmitMethod] = &[FullAccessKey];
 
 impl SubmitMethod {
@@ -139,11 +125,8 @@ fn receiver() -> AccountId {
     create_account_id("receiver")
 }
 
-/// A transaction whose cost to run is compared before and after the feature, described
-/// independently of how it is submitted.
+/// A transaction whose cost invariants to check, described independently of how it is submitted.
 struct Scenario {
-    /// Number of accounts the scenario creates. Determines the expected extra charge.
-    accounts_created: u64,
     /// Builds the transaction. Receives the submitting method's index, used to derive unique
     /// names for the accounts the scenario creates.
     build: fn(index: usize) -> ScenarioTx,
@@ -162,9 +145,6 @@ struct ScenarioTx {
     deposit_recipients: Vec<AccountId>,
     /// Whether the transaction is expected to succeed.
     expect_success: bool,
-    /// Whether the scenario calls an account without a contract. Such a call starts charging the
-    /// contract-loading base when `FixContractLoadingCost` is enabled.
-    charges_missing_contract_loading_base: bool,
     /// Actions run via the actor's full access key to `receiver` before measuring (not
     /// counted), e.g. to pre-create the receiver so the measured transaction does not create it.
     pre_setup: Vec<Action>,
@@ -178,7 +158,6 @@ impl ScenarioTx {
             actions,
             deposit_recipients: vec![],
             expect_success: true,
-            charges_missing_contract_loading_base: false,
             pre_setup: vec![],
         }
     }
@@ -194,14 +173,13 @@ fn function_call_signer(account: &AccountId) -> Signer {
     InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "fc_key").into()
 }
 
-/// Build an environment at the given protocol version, provisioned so that every submission
+/// Build an environment at the current protocol version, provisioned so that every submission
 /// method can run every scenario: the test contract is deployed (directly and as a global
 /// contract), the actor gets a function call key.
-fn build_env(protocol_version: ProtocolVersion) -> TestLoopEnv {
+fn build_env() -> TestLoopEnv {
     let accounts = [actor(), relayer(), contract(), receiver()];
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
-        .protocol_version(protocol_version)
         .epoch_length(EPOCH_LENGTH)
         .gas_prices(GAS_PRICE, GAS_PRICE)
         .add_user_accounts(&accounts, INITIAL_BALANCE)
@@ -234,10 +212,6 @@ fn provision_env(env: &mut TestLoopEnv) {
             access_key: fc_key,
         }))];
 
-        // The before env runs at `AccountCostIncrease.protocol_version() - 1`, where the latest
-        // test contract's newest host-function imports don't exist yet and fail to link. Both
-        // envs must run the same code for a fair cost comparison, so they both get the
-        // backwards-compatible build.
         vec![
             node.tx_deploy_contract(&contract(), backwards_compatible_rs_contract().to_vec()),
             node.tx_deploy_global_contract(
@@ -251,16 +225,6 @@ fn provision_env(env: &mut TestLoopEnv) {
     env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
     // Run one extra block to make the state final, some functions can't read data from the latest block.
     env.rpc_runner().run_for_number_of_blocks(1);
-}
-
-/// Assert that the chain is currently running with the expected `AccountCostIncrease` state.
-fn assert_feature_state(env: &TestLoopEnv, expected_enabled: bool) {
-    let protocol_version = env.rpc_node().protocol_version_at_head();
-    assert_eq!(
-        ProtocolFeature::AccountCostIncrease.enabled(protocol_version),
-        expected_enabled,
-        "unexpected AccountCostIncrease state at protocol version {protocol_version}",
-    );
 }
 
 /// Balance of an account, treating a missing account as zero.
@@ -445,11 +409,12 @@ struct BalanceSnapshot {
     fc_allowance: Option<Balance>,
 }
 
-/// Run `scenario` via `method` in `env` and return its cost: the net decrease across every
-/// account the user controls (payer + relayer + any deposit recipients), which equals the
-/// tokens burnt by the transaction. Cross-checks that against the transaction outcome, and for
-/// the [`FunctionCallKey`] method checks the allowance changed by the account's gas debit.
-fn measure_cost(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario) -> Balance {
+/// Run `scenario` via `method` in `env` and check:
+///   - The net decrease across every account the user controls (payer + relayer + any deposit
+///     recipients) equals the tokens burnt by the transaction.
+///   - For the [`FunctionCallKey`] method, the allowance changed by exactly the account's
+///     gas debit.
+fn check_cost_invariants(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario) {
     let tx = (scenario.build)(method.index());
 
     // Pre-setup, e.g. to pre-create the receiver. Run via the actor's full key, not measured.
@@ -505,102 +470,17 @@ fn measure_cost(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario
         );
     }
 
-    cost
+    assert!(cost > Balance::ZERO, "{method:?}: cost must be positive, got {cost}");
 }
 
-/// Expected cost difference (after minus before the feature, in yoctoNEAR) for running
-/// `scenario` via `method`.
-///
-/// Each created account costs an extra `account_creation_charge`, minus the create-account exec
-/// gas the receipt already burns at the regular price. Calls to a missing contract also account
-/// for the loading base introduced by `FixContractLoadingCost`.
-///
-/// Delegate methods see an additional meta-transaction adjustment: a relayed transaction
-/// charges each inner action's send fee one extra time (the relayer->sender hop), and the
-/// feature moved part of the create_account / deterministic_state_init fee from send to exec
-/// (same total), making that extra hop cheaper after the feature. The adjustment is computed
-/// from the configs for the scenario's actual actions, so it is automatically 0 when no
-/// rebalanced send fee appears in the transaction (function calls, and `call_promise` whose
-/// account creation happens in receipts the contract spawns rather than in the transaction's
-/// own actions).
-fn expected_cost_diff(
-    scenario: &Scenario,
-    method: SubmitMethod,
-    before_config: &RuntimeConfig,
-    after_config: &RuntimeConfig,
-) -> i128 {
-    let charge_per_account =
-        FeeHelper::new(after_config.clone(), GAS_PRICE).extra_account_creation_charge();
-    let account_charge = charge_per_account
-        .checked_mul(u128::from(scenario.accounts_created))
-        .unwrap()
-        .as_yoctonear() as i128;
-    let tx = (scenario.build)(method.index());
-    let price = GAS_PRICE.as_yoctonear() as i128;
-    let loading_base = |config: &RuntimeConfig| {
-        if tx.charges_missing_contract_loading_base && config.wasm_config.fix_contract_loading_cost
-        {
-            config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).as_gas() as i128
-        } else {
-            0
-        }
-    };
-    let loading_charge = (loading_base(after_config) - loading_base(before_config)) * price;
-    if !method.is_delegate() {
-        return account_charge + loading_charge;
-    }
-
-    let sender_is_receiver = actor() == tx.receiver;
-    let send_fee = |config: &RuntimeConfig| {
-        total_send_fees(config, sender_is_receiver, &tx.actions, &tx.receiver).unwrap().gas.as_gas()
-            as i128
-    };
-    account_charge + loading_charge + (send_fee(after_config) - send_fee(before_config)) * price
-}
-
-/// Run a single scenario across multiple submission methods, comparing the cost of running it
-/// before and after the `AccountCostIncrease` feature and asserting the difference matches
-/// [`expected_cost_diff`].
+/// Run a single scenario across multiple submission methods, checking the cost invariants hold
+/// for each.
 fn run_cost_test(scenario: Scenario, methods: &[SubmitMethod]) {
     init_test_logger();
 
-    // The feature is only enabled on nightly today. Skip when it isn't enabled in this build;
-    // the tests then re-enable themselves automatically once it is enabled at PROTOCOL_VERSION
-    // (e.g. when it is stabilized).
-    if !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let before_version = ProtocolFeature::AccountCostIncrease.protocol_version() - 1;
-    let mut before_env = build_env(before_version);
-    let mut after_env = build_env(PROTOCOL_VERSION);
-    assert_feature_state(&before_env, false);
-    assert_feature_state(&after_env, true);
-
-    let before_config =
-        before_env.rpc_node().client().runtime_adapter.get_runtime_config(before_version).clone();
-    let after_config =
-        after_env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION).clone();
-
+    let mut env = build_env();
     for &method in methods {
-        let cost_before = measure_cost(&mut before_env, method, &scenario);
-        let cost_after = measure_cost(&mut after_env, method, &scenario);
-        assert!(
-            cost_before > Balance::ZERO && cost_after > Balance::ZERO,
-            "{method:?}: cost must be positive (before {cost_before}, after {cost_after})",
-        );
-
-        let actual_diff = cost_after.as_yoctonear() as i128 - cost_before.as_yoctonear() as i128;
-        let expected_diff = expected_cost_diff(&scenario, method, &before_config, &after_config);
-        tracing::info!(
-            target: "test",
-            "{method:?}: before={cost_before} after={cost_after} diff={actual_diff} expected={expected_diff}",
-        );
-        assert_eq!(
-            actual_diff, expected_diff,
-            "{method:?}: cost difference {actual_diff} != expected {expected_diff} \
-             (before {cost_before}, after {cost_after})",
-        );
+        check_cost_invariants(&mut env, method, &scenario);
     }
 }
 
@@ -632,7 +512,6 @@ fn test_create_account() {
     // A single `CreateAccount` action creating a fresh sub-account of the actor.
     run_cost_test(
         Scenario {
-            accounts_created: 1,
             build: |index| {
                 ScenarioTx::new(
                     sub_account(index),
@@ -646,30 +525,24 @@ fn test_create_account() {
 
 #[test]
 fn test_function_call() {
-    // A single function call; creates no account, so cost is identical before and after.
+    // A single function call.
     run_cost_test(
-        Scenario {
-            accounts_created: 0,
-            build: |_| ScenarioTx::new(contract(), vec![log_something_action()]),
-        },
+        Scenario { build: |_| ScenarioTx::new(contract(), vec![log_something_action()]) },
         ALL_METHODS,
     );
 }
 
 #[test]
 fn test_transfer_to_named_account() {
-    // Transfer to an existing named account; no account is created, so cost is unchanged.
-    run_cost_test(
-        Scenario { accounts_created: 0, build: |_| transfer_to(receiver()) },
-        FULL_ACCESS_METHODS,
-    );
+    // Transfer to an existing named account.
+    run_cost_test(Scenario { build: |_| transfer_to(receiver()) }, FULL_ACCESS_METHODS);
 }
 
 #[test]
 fn test_transfer_creating_near_implicit_account() {
     // Transfer to a non-existent NEAR-implicit account, which creates it.
     run_cost_test(
-        Scenario { accounts_created: 1, build: |index| transfer_to(near_implicit_account(index)) },
+        Scenario { build: |index| transfer_to(near_implicit_account(index)) },
         FULL_ACCESS_METHODS,
     );
 }
@@ -680,7 +553,6 @@ fn test_transfer_to_existing_near_implicit_account() {
     // account is created and no creation charge applies.
     run_cost_test(
         Scenario {
-            accounts_created: 0,
             build: |index| ScenarioTx {
                 // Pre-create the implicit account with an initial transfer (not measured).
                 pre_setup: vec![transfer_action()],
@@ -695,7 +567,7 @@ fn test_transfer_to_existing_near_implicit_account() {
 fn test_transfer_creating_eth_implicit_account() {
     // Transfer to a non-existent ETH-implicit account, which creates it.
     run_cost_test(
-        Scenario { accounts_created: 1, build: |index| transfer_to(eth_implicit_account(index)) },
+        Scenario { build: |index| transfer_to(eth_implicit_account(index)) },
         FULL_ACCESS_METHODS,
     );
 }
@@ -703,15 +575,11 @@ fn test_transfer_creating_eth_implicit_account() {
 #[test]
 fn test_create_account_then_failing_call() {
     // `CreateAccount` followed by a `FunctionCall` on the new (contract-less) account, which
-    // fails - rolling back the whole receipt, so the account is NOT created and no creation
-    // charge is applied. `FixContractLoadingCost` still charges the loading base before discovering
-    // that the account has no contract.
+    // fails - rolling back the whole receipt, so the account is NOT created.
     run_cost_test(
         Scenario {
-            accounts_created: 0,
             build: |index| ScenarioTx {
                 expect_success: false,
-                charges_missing_contract_loading_base: true,
                 ..ScenarioTx::new(
                     sub_account(index),
                     vec![Action::CreateAccount(CreateAccountAction {}), log_something_action()],
@@ -725,13 +593,9 @@ fn test_create_account_then_failing_call() {
 #[test]
 fn test_create_account_then_successful_call() {
     // `CreateAccount`, point the new account at the global contract with `UseGlobalContract`,
-    // then call a method on it that succeeds. The account is created (charge applies); using a
-    // global contract keeps the account zero-balance, so no funding transfer is needed and the
-    // only thing the new account receives is the function-call reward (left in the gross cost,
-    // not tracked).
+    // then call a method on it that succeeds.
     run_cost_test(
         Scenario {
-            accounts_created: 1,
             build: |index| {
                 let use_global_contract =
                     Action::UseGlobalContract(Box::new(UseGlobalContractAction {
@@ -754,12 +618,9 @@ fn test_create_account_then_successful_call() {
 #[test]
 fn test_create_two_accounts_via_call_promise() {
     // A single `call_promise` function call that spawns two promises, each creating a new
-    // sub-account of the contract. Two accounts are created, so the creation charge applies
-    // twice. The created accounts get no deposit (bare creation) and the contract only receives
-    // the function-call reward, so there are no deposit recipients to track.
+    // sub-account of the contract.
     run_cost_test(
         Scenario {
-            accounts_created: 2,
             build: |index| {
                 let first = create_account_id(&format!("a{index}.{}", contract()));
                 let second = create_account_id(&format!("b{index}.{}", contract()));
@@ -786,7 +647,6 @@ fn test_deterministic_state_init_creating_account() {
     // A `DeterministicStateInit` action that creates a new (zero-balance) deterministic account.
     run_cost_test(
         Scenario {
-            accounts_created: 1,
             build: |index| {
                 let (account, action) = deterministic_state_init(index);
                 ScenarioTx::new(account, vec![action])
@@ -799,10 +659,9 @@ fn test_deterministic_state_init_creating_account() {
 #[test]
 fn test_deterministic_state_init_to_existing_account() {
     // `DeterministicStateInit` on a deterministic account that already exists (pre-created in
-    // setup). Re-initialization creates no account, so no creation charge applies.
+    // setup). Re-initialization creates no account.
     run_cost_test(
         Scenario {
-            accounts_created: 0,
             build: |index| {
                 let (account, action) = deterministic_state_init(index);
                 ScenarioTx {

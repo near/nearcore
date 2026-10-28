@@ -150,6 +150,37 @@ return acknowledgements over Tier 2, then connect back to the requester over
 Tier 3 to send the state headers and parts. State response payloads are accepted
 only on Tier 3 connections.
 
+A node puts its own public address into its state requests, so that hosts can
+connect back to it, and into its snapshot advertisements, described below. It is
+`network.experimental.tier3_public_addr` if configured. Otherwise the node
+learns it from its Tier 2 peers, each of which reports the IP at which it sees
+the node. Reports of non-public IPs are ignored, and so are reports of IPs in
+the other address family than the listen address, unless the node listens on
+`[::]`, which accepts both. The node uses its listen port and the IP reported
+from the most network groups of peers (/16 for IPv4, /32 for IPv6). Reports stop
+counting when their peer disconnects. With
+`network.allow_private_ip_in_public_addrs`, meant for local test networks,
+private IPs are accepted.
+
+Hosts also accept requests sent directly over a Tier 3 connection opened by the
+requester, and send the acknowledgement and the response back over that
+connection. A node accepts up to `network.max_inbound_tier3_connections`
+(64 by default) such connections at a time. Requesters do not send direct
+requests yet.
+
+Snapshot host advertisements are versioned, and version 2 adds the host's own
+listening address: its public address as observed by its peers, or
+`tier3_public_addr` if configured. The host signs the address together with the
+snapshot fields, so relays cannot alter it. A host advertises each snapshot
+once, so its address stays fixed until its next snapshot. A host that does not
+know its address yet when it creates a snapshot does not advertise that
+snapshot. Version 2 advertisements keep a legacy signature over the snapshot
+fields alone, which is the only one older nodes verify. Older nodes relay them
+as version 1, without the address, and a version 2 copy replaces a version 1
+copy of the same snapshot. Until every node accepts advertisements without the
+legacy signature, nodes drop them instead of relaying. State requests do not
+yet use these addresses.
+
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for
 non-archival nodes, as that data would be garbage collected after a few epochs

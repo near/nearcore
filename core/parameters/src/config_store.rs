@@ -4,7 +4,7 @@ use crate::config::{
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -22,10 +22,11 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
+    (89, include_config!("89.yaml")),
     (129, include_config!("129.yaml")),
+    (150, include_config!("150.yaml")),
     (155, include_config!("155.yaml")),
     (157, include_config!("157.yaml")),
 ];
@@ -143,7 +144,14 @@ impl RuntimeConfigStore {
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
+    ///
+    /// Protocol versions below `MIN_SUPPORTED_PROTOCOL_VERSION` are clamped up: the current
+    /// binary no longer carries the per-version diffs for those versions (they were folded
+    /// into the base config), so an exact historical replay is not possible. Archival callers
+    /// that replay very old blocks should run a binary that still supports those protocol
+    /// versions.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
+        let protocol_version = protocol_version.max(MIN_SUPPORTED_PROTOCOL_VERSION);
         self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
@@ -154,7 +162,9 @@ impl RuntimeConfigStore {
     }
 
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
+    /// See [`Self::get_config`] for the clamping behavior.
     pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
+        let protocol_version = protocol_version.max(MIN_SUPPORTED_PROTOCOL_VERSION);
         self.store
             .range_mut((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
@@ -248,8 +258,8 @@ mod tests {
         let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
         let mock_diff_str = r#"
         ml_dsa_65_verification_cost: {
-          old: 0,
-          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+          old: 100_000_000_000,
+          new: { gas: 200_000_000_000, compute: 300_000_000_000 },
         }
         "#;
         base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
@@ -257,7 +267,7 @@ mod tests {
 
         assert_eq!(
             modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
-            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
+            ParameterCost::new(Gas::from_gas(200_000_000_000), 300_000_000_000),
         );
     }
 
@@ -341,6 +351,34 @@ mod tests {
         // accumulate, so if the feature moved to a later version and the diff stayed
         // put, the flag would still read as on at the feature's own version.
         assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
+    }
+
+    /// Make sure that protocol feature flag and runtime config are in sync for
+    /// the external contract calls gas budget.
+    #[test]
+    fn test_external_contract_calls_budget() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let budget =
+            |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
+        assert_eq!(budget(version), Gas::from_teragas(20));
+        assert_eq!(budget(version - 1), Gas::ZERO);
+    }
+
+    /// Same pairing for the canonical universal state init: the flag and the fees it comes
+    /// with must switch on at the version of the protocol feature, and not before.
+    #[test]
+    fn test_canonical_universal_state_init_enabled() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let before = store.get_config(version - 1);
+        let after = store.get_config(version);
+        assert!(!before.wasm_config.canonical_universal_state_init);
+        assert!(after.wasm_config.canonical_universal_state_init);
+        // The fees are repriced for the check, in the same version.
+        let per_entry = ActionCosts::universal_state_init_entry;
+        assert_eq!(before.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
+        assert_ne!(after.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions

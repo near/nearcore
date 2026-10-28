@@ -42,10 +42,10 @@ use near_primitives::types::{
     BlockExecutionResults, BlockHeight, ChunkExecutionResult, Gas, NumBlocks, ShardId, SpiceChunkId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use node_runtime::SignedValidPeriodTransactions;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;

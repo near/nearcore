@@ -92,6 +92,11 @@ pub struct SpiceBoundaryChunkStateWitness {
     pub contract_accesses: BTreeSet<CodeHash>,
     /// Old-chunk transitions to replay after the main transition, oldest first.
     pub implicit_transitions: Vec<ChunkStateTransition>,
+    /// Receipts this shard sent pre-spice that a target shard has not applied by the
+    /// end of the last pre-spice block, because the target's chunks are missing since
+    /// they were sent. Keyed by the hash of the chunk that carried them, with one proof
+    /// per target that missed them in the order of the block's shard layout.
+    pub undelivered_receipt_proofs: HashMap<ChunkHash, Vec<ReceiptProof>>,
 }
 
 impl SpiceChunkStateWitness {

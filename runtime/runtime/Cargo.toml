@@ -1,12 +1,12 @@
 [package]
-name = "node-runtime"
+name = "near-runtime"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+description = "Transaction and receipt processing runtime of the NEAR node"
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
 
 [lints]
 workspace = true
@@ -33,7 +33,12 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
-near-store.workspace = true
+# Declared directly rather than via `workspace = true` so the runtime can opt
+# out of near-store's default `rocksdb` feature: it only needs the trie/store
+# APIs, and embedders using the in-memory store should not have to build
+# RocksDB. Keep this on one line: cargo-workspaces adds the `version` to it at
+# publish time.
+near-store = { path = "../../core/store", default-features = false }
 near-vm-runner = { workspace = true, features = ["wasmtime_vm"] }
 
 [features]
@@ -65,6 +70,6 @@ tempfile.workspace = true
 expect-test.workspace = true
 
 near-chain-configs.workspace = true
-near-store = { workspace = true, features = ["test_features"] }
+near-store = { path = "../../core/store", default-features = false, features = ["test_features"] }
 near-test-contracts.workspace = true
 testlib.workspace = true

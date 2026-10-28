@@ -510,6 +510,9 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      # near-store (with its default `rocksdb` feature) builds librocksdb-sys.
+      - uses: ./.github/actions/install-clang
+        if: steps.run-job.outcome == 'success'
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         if: steps.run-job.outcome == 'success'
         with:

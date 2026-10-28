@@ -2,7 +2,7 @@
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 51;
+pub const DB_VERSION: DbVersion = 52;
 
 /// Minimum supported database version. This is a property of the current binary.
 pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;
@@ -48,6 +48,7 @@ pub enum DbKind {
 #[derive(Clone, Copy)]
 pub(crate) struct DbMetadata {
     /// Version of the database.
+    #[cfg_attr(not(feature = "rocksdb"), allow(dead_code))]
     pub version: DbVersion,
 
     /// Kind of the database.

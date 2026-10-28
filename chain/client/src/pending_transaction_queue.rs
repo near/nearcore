@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
-use node_runtime::config::tx_cost;
+use near_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};

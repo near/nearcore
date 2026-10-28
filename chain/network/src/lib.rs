@@ -3,11 +3,11 @@ pub use crate::peer_manager::tcp_transport::TcpTransport;
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
 
 mod accounts_data;
-mod announce_accounts;
 mod network_protocol;
 mod peer;
 mod peer_manager;
 mod private_messages;
+mod public_addr;
 mod rate_limits;
 mod snapshot_hosts;
 mod stats;

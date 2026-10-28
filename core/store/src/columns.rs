@@ -1,4 +1,3 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
@@ -127,10 +126,9 @@ pub enum DBCol {
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
     EpochStart,
-    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account announcement
-    /// - *Rows*: AccountId (str)
-    /// - *Content type*: AnnounceAccount
-    AccountAnnouncements,
+    /// Deprecated.
+    #[strum(serialize = "AccountAnnouncements")]
+    _AccountAnnouncements,
     /// Next block hashes in the sequence of the canonical chain blocks.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: BlockHash (CryptoHash)
@@ -652,8 +650,7 @@ impl DBCol {
             // TODO(#15465): the indexer reads this column too, so a split-storage
             // archival node loses it to gc and cannot serve it past the horizon.
             DBCol::ProcessedReceiptIds => false,
-            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
-            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
+            DBCol::BlockHeader => true,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::_BlockExtra
@@ -662,7 +659,7 @@ impl DBCol {
             | DBCol::_Peers
             | DBCol::RecentOutboundConnections
             | DBCol::BlockMerkleTree
-            | DBCol::AccountAnnouncements
+            | DBCol::_AccountAnnouncements
             | DBCol::EpochLightClientBlocks
             | DBCol::PeerComponent
             | DBCol::LastComponentNonce
@@ -749,7 +746,7 @@ impl DBCol {
             | DBCol::EpochSyncProof
             | DBCol::EpochValidatorInfo => GcPolicy::Permanent,
 
-            DBCol::AccountAnnouncements
+            DBCol::_AccountAnnouncements
             | DBCol::_BlockExtra
             | DBCol::BlockMisc
             | DBCol::BlockPerHeight  // gc_col_block_per_height
@@ -821,7 +818,7 @@ impl DBCol {
                 &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId]
             }
             DBCol::EpochStart => &[DBKeyType::EpochId],
-            DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
+            DBCol::_AccountAnnouncements => &[DBKeyType::AccountId],
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
             DBCol::EpochLightClientBlocks => &[DBKeyType::EpochId],
             DBCol::_ReceiptIdToShardId => &[DBKeyType::ReceiptHash],

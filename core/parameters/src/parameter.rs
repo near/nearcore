@@ -195,6 +195,7 @@ pub enum Parameter {
 
     // Smart contract limits
     MaxGasBurnt,
+    MaxGasBurntExternal,
     MaxGasBurntView,
     MaxStackHeight,
     InitialMemoryPages,
@@ -245,8 +246,10 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past protocol version 87, where the feature is enabled.
+    // past protocol version 88, where the feature is enabled.
     UniversalAccounts,
+    // Flag for the `CanonicalUniversalStateInit` protocol feature.
+    CanonicalUniversalStateInit,
     FixMlDsaCostCharging,
 
     // Congestion Control
@@ -292,27 +295,12 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
 
-    // Flag to enable gas key host functions
-    GasKeyHostFns,
-
-    // Flag to allow 1 yoctoNEAR on promise function calls without balance
-    OneYoctoOnPromise,
-
-    // Flag to enable the P-256 verification host function
-    P256VerifyHostFn,
-
     // Flag to enable the ML-DSA-65 verification host function
     MlDsaVerifyHostFn,
 
     // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
     #[strum(serialize = "sha3_host_fns")]
     Sha3HostFns,
-
-    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
-    YieldWithIdHostFns,
-
-    // Flag to enable chain_id host function (NEP-638)
-    ChainIdHostFn,
 
     // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
     // functions (NEP-488). These points lie on the curve but outside the G1/G2
@@ -373,6 +361,7 @@ impl Parameter {
     pub fn vm_limits() -> slice::Iter<'static, Parameter> {
         [
             Parameter::MaxGasBurnt,
+            Parameter::MaxGasBurntExternal,
             Parameter::MaxStackHeight,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,

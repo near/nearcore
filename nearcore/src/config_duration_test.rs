@@ -1,5 +1,6 @@
 use crate::config::Config;
 use near_jsonrpc::RpcConfig;
+use near_network::config::{ConnectionEncoding, SignedStructFormat};
 use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
@@ -69,7 +70,8 @@ fn test_config_duration_all_std() {
                     routing_graph_max_edges_per_source: Some(50_000),
                     routing_graph_max_peers: Some(100_000),
                     routing_graph_max_edges: Some(1_000_000),
-                    routing_graph_max_accounts_per_message: Some(10_000),
+                    connection_encoding: Some(ConnectionEncoding::PreferBorsh),
+                    signed_struct_format: Some(SignedStructFormat::AcceptBorsh),
                 },
                 ..Default::default()
             },

@@ -61,7 +61,7 @@ near-telemetry.workspace = true
 near-rpc-probe = { workspace = true, optional = true }
 near-transactions-generator = { workspace = true, optional = true }
 near-vm-runner.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 near-config-utils.workspace = true
 near-chain-primitives.workspace = true
 
@@ -135,16 +135,16 @@ nightly = [
     "near-telemetry/nightly",
     "near-transactions-generator/nightly",
     "near-vm-runner/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
     "testlib/nightly",
 ]
 sandbox = [
     "near-client/sandbox",
     "near-jsonrpc/sandbox",
     "near-o11y/sandbox",
-    "node-runtime/sandbox",
+    "near-runtime/sandbox",
 ]
-io_trace = ["node-runtime/io_trace"]
+io_trace = ["near-runtime/io_trace"]
 
 rpc_probe = ["near-rpc-probe"]
 tx_generator = ["near-transactions-generator"]
@@ -155,5 +155,5 @@ ignored = [
     "near-client-primitives",
     "near-parameters",
     "near-pool",
-    "node-runtime",
+    "near-runtime",
 ]

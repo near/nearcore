@@ -19,6 +19,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -31,9 +32,6 @@ pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE: usize = 50_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE: usize = 50_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_PEERS: usize = 100_000;
 pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES: usize = 1_000_000;
-/// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
-/// Sized at ~10x the realistic validator count to leave headroom.
-pub const DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE: usize = 10_000;
 
 /// Default size of the semaphore which limits the total size of the outgoing messages.
 pub const DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 3 * GIB as usize;
@@ -140,6 +138,77 @@ impl SocketOptions {
     }
 }
 
+/// How messages are encoded on a connection, and which encodings are accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionEncoding {
+    /// Send and accept protobuf only, like 2.14 and older releases.
+    ProtobufOnly,
+    /// Send borsh when the peer supports it, accept both borsh and protobuf.
+    PreferBorsh,
+    /// Send and accept borsh only.
+    BorshOnly,
+}
+
+/// Which format is used to sign structs, and which signed formats are accepted.
+/// Some structs are currently signed over protobuf-serialized bytes,
+/// this will be migrated to signing over borsh-serialized bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignedStructFormat {
+    /// Sign with protobuf, accept protobuf only.
+    ProtobufOnly,
+    /// Sign with protobuf, accept both protobuf and borsh.
+    AcceptBorsh,
+    /// Sign with borsh, accept both protobuf and borsh.
+    SendBorsh,
+    /// Sign with borsh, accept borsh only.
+    BorshOnly,
+}
+
+/// Controls the transition of the network protocol from protobuf to borsh serialization.
+///
+/// It applies to two things: the serialization of messages sent on a connection and the signatures
+/// of structs signed over serialized bytes. The transition is rolled out over a few releases, see
+/// the presets below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NetworkTransitionConfig {
+    /// Encoding of messages on a connection.
+    pub connection_encoding: ConnectionEncoding,
+    /// Encoding of signed structs.
+    pub signed_struct_format: SignedStructFormat,
+}
+
+impl NetworkTransitionConfig {
+    /// Uses only protobuf, like 2.14 and older releases.
+    pub const PROTOBUF_ONLY: Self = Self {
+        connection_encoding: ConnectionEncoding::ProtobufOnly,
+        signed_struct_format: SignedStructFormat::ProtobufOnly,
+    };
+    /// Full support for borsh, which is used when both peers support it.
+    /// Structs are still signed using protobuf.
+    pub const RELEASE_2_15: Self = Self {
+        connection_encoding: ConnectionEncoding::PreferBorsh,
+        signed_struct_format: SignedStructFormat::AcceptBorsh,
+    };
+    /// Protobuf messages are banned on connections, structs are signed using borsh.
+    pub const RELEASE_2_16: Self = Self {
+        connection_encoding: ConnectionEncoding::BorshOnly,
+        signed_struct_format: SignedStructFormat::SendBorsh,
+    };
+    /// Protobuf-signed structs are banned.
+    pub const RELEASE_2_17: Self = Self {
+        connection_encoding: ConnectionEncoding::BorshOnly,
+        signed_struct_format: SignedStructFormat::BorshOnly,
+    };
+    /// Preset used by the current release.
+    pub const CURRENT: Self = Self::RELEASE_2_15;
+}
+
+impl Default for NetworkTransitionConfig {
+    fn default() -> Self {
+        Self::CURRENT
+    }
+}
+
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -148,6 +217,9 @@ pub struct NetworkConfig {
     pub validator: ValidatorConfig,
     /// If set, overrides the auto-discovered public address for Tier3 state sync.
     pub tier3_public_addr: Option<SocketAddr>,
+    /// Whether the node can take a private IP reported by its peers as its public address.
+    /// For local test networks only.
+    pub allow_private_ip_in_public_addrs: bool,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -167,6 +239,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Maximum number of inbound Tier3 connections.
+    pub max_inbound_tier3_connections: u32,
     /// Socket options for peer connections.
     pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
@@ -181,8 +255,6 @@ pub struct NetworkConfig {
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: time::Duration,
-    /// Time to persist Accounts Id in the router without removing them.
-    pub ttl_account_id_router: time::Duration,
     /// Number of hops a message is allowed to travel before being dropped.
     /// This is used to avoid infinite loop because of inconsistent view of the network
     /// by different nodes.
@@ -227,12 +299,12 @@ pub struct NetworkConfig {
     pub routing_graph_max_peers: usize,
     /// Maximum total number of edges stored in the routing graph.
     pub routing_graph_max_edges: usize,
-    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
-    pub routing_graph_max_accounts_per_message: usize,
     /// Size of the semaphore which limits the total size of the outgoing messages.
     pub outgoing_queue_limiter_capacity_bytes: usize,
     /// Maximum capacity of the write buffer of a single connection.
     pub max_write_buffer_capacity_bytes: usize,
+    /// Controls the transition from protobuf to borsh serialization.
+    pub transition: NetworkTransitionConfig,
 
     #[cfg(test)]
     pub(crate) event_sink:
@@ -291,8 +363,11 @@ impl NetworkConfig {
         if let Some(v) = overrides.routing_graph_max_edges {
             self.routing_graph_max_edges = v;
         }
-        if let Some(v) = overrides.routing_graph_max_accounts_per_message {
-            self.routing_graph_max_accounts_per_message = v;
+        if let Some(v) = overrides.connection_encoding {
+            self.transition.connection_encoding = v;
+        }
+        if let Some(v) = overrides.signed_struct_format {
+            self.transition.signed_struct_format = v;
         }
     }
 
@@ -373,6 +448,7 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: cfg.experimental.tier3_public_addr,
+            allow_private_ip_in_public_addrs: cfg.allow_private_ip_in_public_addrs,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -415,6 +491,7 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            max_inbound_tier3_connections: cfg.max_inbound_tier3_connections,
             socket_options: SocketOptions {
                 recv_buffer_size: cfg.so_recv_buffer_size,
                 send_buffer_size: cfg.so_send_buffer_size,
@@ -424,7 +501,6 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
-            ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             push_info_period: time::Duration::milliseconds(100),
@@ -445,13 +521,13 @@ impl NetworkConfig {
             routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
-            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
             outgoing_queue_limiter_capacity_bytes: cfg
                 .outgoing_queue_limiter_capacity_bytes
                 .unwrap_or(DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES),
             max_write_buffer_capacity_bytes: cfg
                 .max_write_buffer_capacity_bytes
                 .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES),
+            transition: NetworkTransitionConfig::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -484,6 +560,8 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: None,
+            // Test nodes connect to each other over the loopback interface.
+            allow_private_ip_in_public_addrs: true,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
@@ -504,13 +582,13 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            max_inbound_tier3_connections: 64,
             socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: time::Duration::seconds(5),
-            ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
             push_info_period: time::Duration::milliseconds(100),
@@ -535,9 +613,9 @@ impl NetworkConfig {
             routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
-            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
             outgoing_queue_limiter_capacity_bytes: DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
             max_write_buffer_capacity_bytes: DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
+            transition: NetworkTransitionConfig::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -611,10 +689,6 @@ impl NetworkConfig {
             self.routing_graph_max_edges_per_source <= self.routing_graph_max_edges,
             "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
         );
-        anyhow::ensure!(
-            self.routing_graph_max_accounts_per_message > 0,
-            "routing_graph_max_accounts_per_message must be > 0"
-        );
 
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
@@ -650,6 +724,7 @@ impl std::ops::Deref for VerifiedConfig {
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
+    use crate::config::{ConnectionEncoding, SignedStructFormat};
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
@@ -660,6 +735,7 @@ mod test {
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
+    use serde_json::from_str;
 
     #[test]
     fn test_network_config() {
@@ -762,9 +838,14 @@ mod test {
                 &overrides.routing_graph_max_edges
             ));
             assert!(check_override_field(
-                &before.routing_graph_max_accounts_per_message,
-                &after.routing_graph_max_accounts_per_message,
-                &overrides.routing_graph_max_accounts_per_message
+                &before.transition.connection_encoding,
+                &after.transition.connection_encoding,
+                &overrides.connection_encoding
+            ));
+            assert!(check_override_field(
+                &before.transition.signed_struct_format,
+                &after.transition.signed_struct_format,
+                &overrides.signed_struct_format
             ));
         };
         let no_overrides = NetworkConfigOverrides::default();
@@ -778,7 +859,8 @@ mod test {
         overrides.routing_graph_max_edges_per_source = Some(20_000);
         overrides.routing_graph_max_peers = Some(30_000);
         overrides.routing_graph_max_edges = Some(40_000);
-        overrides.routing_graph_max_accounts_per_message = Some(5_000);
+        overrides.connection_encoding = Some(ConnectionEncoding::BorshOnly);
+        overrides.signed_struct_format = Some(SignedStructFormat::SendBorsh);
 
         let nc_before =
             config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
@@ -792,6 +874,19 @@ mod test {
         nc_after.override_config(overrides.clone());
         check_fields(&nc_before, &nc_after, &overrides);
         assert!(nc_after.verify().is_ok());
+    }
+
+    #[test]
+    fn test_network_transition_overrides_json() {
+        let overrides: NetworkConfigOverrides = from_str(
+            r#"{
+                "connection_encoding": "BorshOnly",
+                "signed_struct_format": "SendBorsh"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(overrides.connection_encoding, Some(ConnectionEncoding::BorshOnly));
+        assert_eq!(overrides.signed_struct_format, Some(SignedStructFormat::SendBorsh));
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the
@@ -847,11 +942,6 @@ mod test {
         let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.routing_graph_max_edges_per_source = 100;
         nc.routing_graph_max_edges = 50;
-        assert!(nc.verify().is_err());
-
-        // max_accounts_per_message = 0 should fail.
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
-        nc.routing_graph_max_accounts_per_message = 0;
         assert!(nc.verify().is_err());
 
         // Valid config should pass.

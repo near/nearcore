@@ -4,8 +4,6 @@ use crate::types as primitives;
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
-use near_primitives::account::id::AccountId;
-use near_primitives::network::AnnounceAccount;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::DBCol;
 use std::io;
@@ -13,17 +11,6 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
-
-pub struct AccountIdFormat;
-impl Format for AccountIdFormat {
-    type T = AccountId;
-    fn encode<W: io::Write>(a: &AccountId, w: &mut W) -> io::Result<()> {
-        w.write_all(a.as_bytes())
-    }
-    fn decode(a: &[u8]) -> Result<AccountId, Error> {
-        std::str::from_utf8(a).map_err(invalid_data)?.parse().map_err(invalid_data)
-    }
-}
 
 /// A Borsh representation of the primitives::ConnectionInfo.
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -59,13 +46,6 @@ impl BorshRepr for ConnectionInfoRepr {
 
 /////////////////////////////////////////////
 // Columns
-
-pub(super) struct AccountAnnouncements;
-impl Column for AccountAnnouncements {
-    const COL: DBCol = DBCol::AccountAnnouncements;
-    type Key = AccountIdFormat;
-    type Value = Borsh<AnnounceAccount>;
-}
 
 pub(super) struct RecentOutboundConnections;
 impl Column for RecentOutboundConnections {

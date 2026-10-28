@@ -41,7 +41,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
@@ -100,7 +100,9 @@ pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Durati
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
 /// The length of time that a Tier3 connection is allowed to idle before it is stopped
-const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
+pub(crate) const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
+/// How often to check for idle Tier3 connections.
+const TIER3_IDLE_CHECK_INTERVAL: time::Duration = time::Duration::seconds(5);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -129,7 +131,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
@@ -202,6 +203,20 @@ impl messaging::Actor for PeerManagerActor {
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+
+        // Periodically close idle Tier3 connections.
+        self.handle.spawn("stop tier3 idle connections loop", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let transport = self.transport.clone();
+            let mut interval = time::Interval::new(clock.now(), TIER3_IDLE_CHECK_INTERVAL);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    Self::stop_tier3_idle_connections(&clock, &state, transport.as_ref());
+                }
+            }
+        });
 
         // Connect to TIER1 proxies and broadcast the list those connections periodically.
         let tier1 = self.state.config.tier1.clone();
@@ -405,7 +420,7 @@ impl PeerManagerActor {
         let info = self.transport.transport_info();
         let mut total_bytes_per_sec: u64 = 0;
         let mut total_messages_per_sec: u64 = 0;
-        for (peer_id, stat) in &info.peer_stats {
+        for (peer_id, stat) in &info.tier2_peer_stats {
             let bytes_per_sec = stat.received_bytes_per_sec;
             let messages_per_sec = stat.received_messages_per_sec;
             if bytes_per_sec > REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC
@@ -496,7 +511,7 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let info = self.transport.transport_info();
-        let stats = &info.peer_stats;
+        let stats = &info.tier2_peer_stats;
         let t2_peers = self.state.peers.tier2();
         let t2_count = t2_peers.len();
 
@@ -586,24 +601,17 @@ impl PeerManagerActor {
     /// can be lost if the timeout is reached precisely while it is in flight. For simplicity we
     /// accept this risk; network requests are understood as unreliable and the requesting node has
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
-    fn stop_tier3_idle_connections(&self) {
-        let now = self.clock.now();
-        let info = self.transport.transport_info();
-        let t3_peers = self.state.peers.tier3();
-        let idle_peers: Vec<PeerId> = t3_peers
-            .into_iter()
-            .filter_map(|(id, _)| {
-                let stat = info.peer_stats.get(&id)?;
-                (now - stat.last_time_received_message > TIER3_IDLE_TIMEOUT).then_some(id)
-            })
-            .collect();
-        for peer_id in &idle_peers {
-            self.transport.disconnect_peer(peer_id, None);
-        }
+    fn stop_tier3_idle_connections(
+        clock: &time::Clock,
+        state: &NetworkState,
+        transport: &dyn NetworkTransport,
+    ) {
+        let now = clock.now();
+        transport.stop_idle_tier3_connections(now, TIER3_IDLE_TIMEOUT);
         // Clean up stale pending Tier3 request entries for peers that never connected back.
         // retain() does a full scan of the map, but this is fine: the map is bounded by the
         // number of in-flight state sync requests (typically tens at most).
-        self.state
+        state
             .pending_tier3_requests
             .retain(|_, sent_at| now - *sent_at <= PENDING_TIER3_REQUEST_TIMEOUT);
     }
@@ -673,9 +681,6 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
-        // Close Tier3 connections which have been idle for too long
-        self.stop_tier3_idle_connections();
-
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
@@ -719,7 +724,7 @@ impl PeerManagerActor {
         let genesis_id = self.state.genesis_id.clone();
 
         let info = self.transport.transport_info();
-        let stats = &info.peer_stats;
+        let stats = &info.tier2_peer_stats;
 
         let t2_snapshot = self.state.peers.tier2();
         let t1_snapshot = self.state.peers.tier1();
@@ -736,6 +741,22 @@ impl PeerManagerActor {
         let sent_total: u64 = t2_infos.iter().map(|p| p.sent_bytes_per_sec).sum();
         let recv_total: u64 = t2_infos.iter().map(|p| p.received_bytes_per_sec).sum();
 
+        let accounts_data = self.state.accounts_data.load();
+        let known_producers = accounts_data
+            .keys_by_id
+            .iter()
+            .filter_map(|(account_id, keys)| {
+                let data = keys.iter().find_map(|key| accounts_data.data.get(key))?;
+                Some(KnownProducer {
+                    account_id: account_id.clone(),
+                    peer_id: data.peer_id.clone(),
+                    // TODO: fill in the address.
+                    addr: None,
+                    next_hops: self.state.graph.routing_table.view_route(&data.peer_id),
+                })
+            })
+            .collect();
+
         NetworkInfo {
             connected_peers: t2_infos,
             tier1_connections: t1_infos,
@@ -743,21 +764,9 @@ impl PeerManagerActor {
             peer_max_count: self.state.config.max_num_peers,
             sent_bytes_per_sec: sent_total,
             received_bytes_per_sec: recv_total,
-            known_producers: self
-                .state
-                .account_announcements
-                .get_announcements()
-                .into_iter()
-                .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id.clone(),
-                    // TODO: fill in the address.
-                    addr: None,
-                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
-                })
-                .collect(),
-            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
-            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
+            known_producers,
+            tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
+            tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }
     }
 
@@ -988,6 +997,16 @@ impl PeerManagerActor {
                     return NetworkResponses::NoResponse;
                 }
 
+                // Don't advertise the snapshot if we don't know our public address yet, so that
+                // every advertisement carries one.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    tracing::warn!(
+                        target: "network",
+                        "skipping snapshot host info broadcast: own public address is not known"
+                    );
+                    return NetworkResponses::NoResponse;
+                };
+
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         shards_len = shards.len(),
@@ -1026,6 +1045,7 @@ impl PeerManagerActor {
                     sync_hash,
                     epoch_height,
                     shards,
+                    addr,
                     &self.state.config.node_key,
                 ));
 
@@ -1039,14 +1059,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason, &*self.transport);
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                let state = self.state.clone();
-                let transport = self.transport.clone();
-                self.handle.spawn("announce_account", async move {
-                    state.add_accounts(vec![announce_account], transport).await;
-                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
@@ -1519,9 +1531,9 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     .try_acquire(STATE_SYNC_RESPONSE_BYTES);
 
                 // Process the request.
-                // Unconditionally produce an ack to be sent back over tier2.
+                // Unconditionally produce an ack.
                 // Optionally produce a response to be sent over tier3.
-                let (tier2_ack, maybe_tier3_response) = match request.body {
+                let (ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
                         let (ack, response) = if response_permit.is_none() {
                             tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
@@ -1545,12 +1557,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         };
 
                         (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
+                            StateRequestAck {
                                 shard_id,
                                 sync_hash,
                                 part_or_header: PartOrHeader::Header,
                                 body: ack,
-                            }).into(),
+                            },
                             response
                         )
                     }
@@ -1577,12 +1589,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         };
 
                         (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
+                            StateRequestAck {
                                 shard_id,
                                 sync_hash,
                                 part_or_header: PartOrHeader::Part { part_idx },
                                 body: ack,
-                            }).into(),
+                            },
                             response
                         )
                     }
@@ -1591,16 +1603,22 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let sender: PeerId = request.peer_info.id.clone();
 
                 // Send an ack for the request
-                tracing::debug!(target: "network", ?tier2_ack, %sender, "ack state request from host");
-                let routed_message = state.sign_message(
-                    &clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(sender.clone()),
-                        body: tier2_ack,
-                    },
-                );
-                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, transport.as_ref()) {
-                    tracing::debug!(target: "network", sender = %sender, "failed to route ack");
+                tracing::debug!(target: "network", ?ack, %sender, is_direct = request.is_direct, "ack state request from host");
+                if request.is_direct {
+                    if !transport.send_message(tcp::Tier::T3, sender.clone(), Arc::new(PeerMessage::StateRequestAck(ack))) {
+                        tracing::debug!(target: "network", sender = %sender, "failed to send ack, tier3 connection is closed");
+                    }
+                } else {
+                    let routed_message = state.sign_message(
+                        &clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::PeerId(sender.clone()),
+                            body: T2MessageBody::StateRequestAck(ack).into(),
+                        },
+                    );
+                    if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, transport.as_ref()) {
+                        tracing::debug!(target: "network", sender = %sender, "failed to route ack");
+                    }
                 }
 
                 let Some(tier3_response) = maybe_tier3_response else {
@@ -1610,10 +1628,11 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 // had a permit (the Busy branch above clears it).
                 let response_permit = response_permit.expect("permit set when response present");
 
-                // Establish a tier3 connection if we don't have one already.
+                // Establish a tier3 connection if we don't have one already. Direct requests are
+                // answered only over the connection that the requester opened.
                 let already_connected_t3 =
                     state.peers.is_connected_on_tier(&sender, tcp::Tier::T3);
-                if !already_connected_t3 {
+                if !request.is_direct && !already_connected_t3 {
                     if let Err(err) = transport
                         .connect_to_peer(&clock, request.peer_info.clone(), tcp::Tier::T3)
                         .await
@@ -1705,10 +1724,10 @@ impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
                     .get_hosts()
                     .iter()
                     .map(|h| SnapshotHostInfoView {
-                        peer_id: h.peer_id.clone(),
-                        sync_hash: h.sync_hash,
-                        epoch_height: h.epoch_height,
-                        shards: h.shards.clone().into_iter().map(Into::into).collect(),
+                        peer_id: h.peer_id().clone(),
+                        sync_hash: h.sync_hash(),
+                        epoch_height: h.epoch_height(),
+                        shards: h.shards().iter().copied().map(Into::into).collect(),
                     })
                     .collect::<Vec<_>>(),
             }),

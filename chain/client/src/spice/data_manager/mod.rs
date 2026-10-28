@@ -1,20 +1,19 @@
-//! Fetch-engine state for SPICE data distribution.
+//! Fetch engine and serve side for SPICE data distribution.
 
 mod data_id;
-mod fetchable;
+mod encode;
 mod item;
 mod pending;
+mod policy;
 mod pull;
+mod serve;
 
 pub use data_id::DataId;
-pub(crate) use fetchable::DataPolicy;
-use fetchable::ReceiptProofPolicy;
+pub(crate) use encode::{EncodedData, encode};
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::{Block, Error};
-use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
@@ -22,10 +21,17 @@ use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
-pub(crate) use pull::{PullConfig, PullRequest};
+pub(crate) use policy::{FetchPolicies, FetchPolicy, ServePolicies, ServePolicy};
+use pull::Pulls;
+pub(crate) use pull::{Config as PullConfig, PullRequest};
+pub use serve::MalformedDataRequest;
+pub(crate) use serve::{Push, ServeError, ServeOutcome, SpiceDataServer};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
-use std::sync::Arc;
+use std::ops::Bound;
+
+/// Share of the parts an item is encoded into that suffice to decode it.
+pub const DATA_PARTS_RATIO: f64 = 0.6;
 
 #[cfg(test)]
 mod tests;
@@ -63,50 +69,12 @@ pub(crate) enum PartsOutcome {
     NotWanted,
 }
 
-/// The per-data-type policies, one per [`DataId`] variant.
-pub(crate) struct Policies {
-    receipt_proofs: ReceiptProofPolicy,
-}
-
-impl Policies {
-    pub(crate) fn new(
-        chain_store: ChainStoreAdapter,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
-    ) -> Self {
-        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
-    }
-
-    fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
-        match id {
-            DataId::ReceiptProof { .. } => &self.receipt_proofs,
-        }
-    }
-}
-
-/// Fans out per-block queries over every policy; dispatches per-id calls to the policy
-/// of `id`'s data type.
-impl DataPolicy for Policies {
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
-        self.receipt_proofs.needed_items(block)
-    }
-
-    fn is_done(&self, id: &DataId) -> bool {
-        self.for_id(id).is_done(id)
-    }
-
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        self.receipt_proofs.made_pullable_by(block)
-    }
-}
-
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
-    pull_config: PullConfig,
+pub(crate) struct SpiceDataManager<P: FetchPolicy = FetchPolicies> {
     encoders: ReedSolomonEncoderCache,
     chain_store: ChainStoreAdapter,
     policies: P,
@@ -114,33 +82,39 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, HashSet<DataId>>,
-    /// Ids of tracked items that may be pulled, by their block's height.
-    pullable_items: BTreeMap<BlockHeight, HashSet<DataId>>,
     /// Ids of tracked items whose decode was handed to the consumer. Only their data can be
     /// in the store.
     delivered_items: HashSet<DataId>,
+    /// Pulls open and in flight, and the config pacing and packing new ones.
+    pulls: Pulls,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
+    /// Highest consensus final head height seen at a trigger.`None` until the first trigger.
+    final_height: Option<BlockHeight>,
 }
 
-impl<P: DataPolicy> SpiceDataManager<P> {
+impl<P: FetchPolicy> SpiceDataManager<P> {
     pub(crate) fn new(
         pull_config: PullConfig,
-        data_parts_ratio: f64,
         chain_store: ChainStoreAdapter,
         policies: P,
     ) -> Self {
         Self {
-            pull_config,
-            encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            pulls: Pulls::new(pull_config),
+            encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
             chain_store,
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
-            pullable_items: BTreeMap::new(),
             delivered_items: HashSet::new(),
             final_execution_head: None,
+            final_height: None,
         }
+    }
+
+    /// The producers of `id`, in the parts' encoding order.
+    pub(crate) fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        self.policies.producers(id)
     }
 
     /// Whether an item for `id` exists, in any state.
@@ -150,18 +124,18 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     }
 
     /// Starts tracking every item this node needs from `block` and doesn't already have or
-    /// track, then adds the tracked items `block` makes pullable to `pullable_items`.
+    /// track, then adds the tracked items `block` makes pullable to `pulls`.
     /// Idempotent.
     pub(crate) fn track_block(&mut self, block: &Block) -> Result<(), Error> {
         self.track_block_items(block.header())?;
         self.mark_pullable_by(block)
     }
 
-    /// Adds the tracked items `block` makes pullable to `pullable_items`.
+    /// Adds the tracked items `block` makes pullable to `pulls`.
     fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
         for id in self.policies.made_pullable_by(block)? {
             if let Some(item) = self.items.get(&id) {
-                self.pullable_items.entry(item.height).or_default().insert(id);
+                self.pulls.mark_pullable(id, item.height);
             }
         }
         Ok(())
@@ -178,6 +152,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
+        // A block off the canonical chain at or below the final head can never be applied.
+        if self.final_height.is_some_and(|final_height| height <= final_height)
+            && self.canonical_block_hash(height)? != Some(*block.hash())
+        {
+            return Ok(());
+        }
         for (id, producers) in self.policies.needed_items(block)? {
             if self.items.contains_key(&id) || self.policies.is_done(&id) {
                 continue;
@@ -189,8 +169,9 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     }
 
     /// The block was processed at `now`: expires the items at or below the final execution
-    /// head, tracks the items needed from the block, adds the tracked items the block makes
-    /// pullable to `pullable_items`, removes the delivered items already in the store, and
+    /// head, drops the items off the canonical chain at or below the consensus final head,
+    /// tracks the items needed from the block, adds the tracked items the block makes
+    /// pullable to `pulls`, removes the delivered items already in the store, and
     /// returns the requests for the pullable rest, grouped by producer. A failed chain read is
     /// logged and skips only its own step.
     pub(crate) fn on_block_processed(
@@ -202,6 +183,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             Ok(height) => self.expire_at_or_below(height),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
+            }
+        }
+        match self.chain_store.final_head() {
+            Ok(final_head) => self.drop_forks_at_or_below(final_head.height),
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final head");
             }
         }
         match self.chain_store.get_block(block_hash) {
@@ -218,7 +205,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             }
         }
         self.remove_done_items();
-        self.pull_requests(now)
+        self.pulls.to_issue(now, &self.items)
     }
 
     /// Height of the final execution head; the genesis height before the first one is recorded.
@@ -268,7 +255,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
                     .ok_or(SenderFault::InvalidMerkleProof)?;
             verified.push(part);
         }
-        item.note_pull_response(sender);
+        self.pulls.record_answer(id, sender);
         let encoder = self.encoders.entry(total_parts);
         for part in verified {
             match item.insert_part(&encoder, id, producer_index, part) {
@@ -297,10 +284,43 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         };
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
-        self.pullable_items = self.pullable_items.split_off(&next_height);
+        self.pulls.forget_below(next_height);
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");
             self.delivered_items.remove(&id);
+        }
+    }
+
+    /// Removes the items off the canonical chain at heights newly at or below `final_height`.
+    fn drop_forks_at_or_below(&mut self, final_height: BlockHeight) {
+        let from = match self.final_height {
+            Some(checked) if checked >= final_height => return,
+            Some(checked) => Bound::Excluded(checked),
+            None => Bound::Unbounded,
+        };
+        self.final_height = Some(final_height);
+        let mut forks = Vec::new();
+        for (&height, ids) in self.items_by_height.range((from, Bound::Included(final_height))) {
+            let canonical = match self.canonical_block_hash(height) {
+                Ok(canonical) => canonical,
+                Err(err) => {
+                    tracing::error!(target: "spice_data_distribution", ?err, height, "failed to read the canonical block");
+                    continue;
+                }
+            };
+            forks.extend(ids.iter().filter(|id| Some(*id.block_hash()) != canonical).cloned());
+        }
+        for id in forks {
+            self.remove_item(&id);
+        }
+    }
+
+    /// Hash of the canonical block at `height`; `None` if the canonical chain has none there.
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+        match self.chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => Ok(Some(hash)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
         }
     }
 
@@ -318,7 +338,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             return;
         };
         remove_indexed(&mut self.items_by_height, item.height, id);
-        remove_indexed(&mut self.pullable_items, item.height, id);
+        self.pulls.forget(id, item.height);
         self.delivered_items.remove(id);
     }
 }

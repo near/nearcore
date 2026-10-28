@@ -12,10 +12,10 @@
 //! The fix bounds `prepaid_gas` by `max_gas_burnt` in view mode, so the guest
 //! gas global reflects the cap and an unbounded loop aborts promptly.
 
-use crate::logic::VMContext;
 use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{ExecutionMode, VMContext};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
@@ -52,7 +52,7 @@ fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: Some(ViewConfig { max_gas_burnt: cap }),
+        execution_mode: ExecutionMode::View(ViewConfig { max_gas_burnt: cap }),
         output_data_receivers: vec![],
     };
 

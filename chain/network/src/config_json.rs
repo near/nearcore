@@ -1,11 +1,9 @@
+use crate::config::{ConnectionEncoding, SignedStructFormat};
 use crate::network_protocol::PeerAddr;
 use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
 use std::net::SocketAddr;
-
-/// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;
 
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
@@ -22,6 +20,10 @@ fn default_ideal_connections_lo() -> u32 {
 /// Upper bound of the ideal number of connections.
 fn default_ideal_connections_hi() -> u32 {
     35
+}
+/// Maximum number of inbound Tier3 connections.
+fn default_max_inbound_tier3_connections() -> u32 {
+    64
 }
 /// Default socket options for peer connections.
 fn default_so_recv_buffer_size() -> Option<u32> {
@@ -43,10 +45,6 @@ fn default_safe_set_size() -> u32 {
 /// if we are an archival node.
 fn default_archival_peer_connections_lower_bound() -> u32 {
     10
-}
-/// Time to persist Accounts Id in the router without removing them in seconds.
-fn default_ttl_account_id_router() -> Duration {
-    Duration::seconds(TTL_ACCOUNT_ID_ROUTER)
 }
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
@@ -113,6 +111,9 @@ pub struct Config {
     /// Upper bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_hi")]
     pub ideal_connections_hi: u32,
+    /// Maximum number of inbound Tier3 connections.
+    #[serde(default = "default_max_inbound_tier3_connections")]
+    pub max_inbound_tier3_connections: u32,
     #[serde(default = "default_so_recv_buffer_size")]
     pub so_recv_buffer_size: Option<u32>,
     #[serde(default = "default_so_send_buffer_size")]
@@ -141,10 +142,6 @@ pub struct Config {
     /// It can be IP:Port or IP (to blacklist all connections coming from this address).
     #[serde(default)]
     pub blacklist: Vec<String>,
-    /// Time to persist Accounts Id in the router without removing them in seconds.
-    #[serde(default = "default_ttl_account_id_router")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub ttl_account_id_router: Duration,
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
@@ -197,6 +194,8 @@ pub struct Config {
     pub public_addrs: Vec<PeerAddr>,
     /// For local tests only (localnet). Allows specifying IPs from private range
     /// (which are not visible from the public internet) in public_addrs field.
+    /// Also lets the node take a private IP reported by its peers as its own address
+    /// for Tier3 state sync.
     #[serde(default)]
     pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
@@ -347,8 +346,12 @@ pub struct NetworkConfigOverrides {
     pub routing_graph_max_peers: Option<usize>,
     /// Maximum total number of edges stored in the routing graph.
     pub routing_graph_max_edges: Option<usize>,
-    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
-    pub routing_graph_max_accounts_per_message: Option<usize>,
+    /// See `NetworkTransitionConfig::connection_encoding`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_encoding: Option<ConnectionEncoding>,
+    /// See `NetworkTransitionConfig::signed_struct_format`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_struct_format: Option<SignedStructFormat>,
 }
 
 impl Default for Config {
@@ -361,6 +364,7 @@ impl Default for Config {
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
             ideal_connections_hi: default_ideal_connections_hi(),
+            max_inbound_tier3_connections: default_max_inbound_tier3_connections(),
             so_recv_buffer_size: default_so_recv_buffer_size(),
             so_send_buffer_size: default_so_send_buffer_size(),
             peer_recent_time_window: default_peer_recent_time_window(),
@@ -370,7 +374,6 @@ impl Default for Config {
             skip_sync_wait: false,
             ban_window: Duration::hours(3),
             blacklist: vec![],
-            ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_states_cache_size: default_peer_states_cache_size(),

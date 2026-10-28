@@ -1,6 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::types::Gas;
+use near_primitives_core::universal_state_init::DecodeMode;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -43,22 +44,6 @@ impl VMKind {
     }
 }
 
-// Only kept for `VMConfigView` compatibility: contract storage reads always go
-// through flat storage since the `FlatStorageReads` protocol feature. The doc
-// comment below is the OpenAPI description of this type, so it is left as is.
-/// This enum represents if a storage_get call will be performed through flat storage or trie
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum StorageGetMode {
-    FlatStorage,
-    Trie,
-}
-
-/// The only value `LimitConfig::account_id_validity_rules_version` takes.
-fn default_account_id_validity_rules_version() -> u64 {
-    2
-}
-
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -66,6 +51,9 @@ fn default_account_id_validity_rules_version() -> u64 {
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
+    /// Max amount of gas that can be burnt by an external contract call,
+    /// excluding gas attached to promises.
+    pub max_gas_burnt_external: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -194,10 +182,6 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
-    /// Deprecated: full account id validation is always enforced, so this is
-    /// always `2`.
-    #[serde(default = "default_account_id_validity_rules_version")]
-    pub account_id_validity_rules_version: u64,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
@@ -245,11 +229,15 @@ pub struct Config {
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past protocol version 87, where the feature is enabled.
+    // past protocol version 88, where the feature is enabled.
     pub universal_accounts: bool,
 
-    /// Whether to enable gas key host functions.
-    pub gas_key_host_fns: bool,
+    /// Enable the `CanonicalUniversalStateInit` protocol feature: a universal state init is
+    /// accepted only in its canonical borsh encoding, which is also what its fees are counted
+    /// on. Turns on the check behind the status of `universal_state_init_to_account_id`.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 88, where the feature is enabled.
+    pub canonical_universal_state_init: bool,
 
     /// Enable the `FixMlDsaCostCharging` protocol feature, which fixes two
     /// related ML-DSA-65 cost-charging issues:
@@ -261,14 +249,6 @@ pub struct Config {
     ///   signer shard.
     pub fix_ml_dsa_cost_charging: bool,
 
-    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
-    /// call without requiring the calling contract to have sufficient balance.
-    pub one_yocto_on_promise: bool,
-
-    /// Whether to enable the P-256 ECDSA signature verification host function.
-    /// NEP-635: <https://github.com/near/NEPs/pull/635>
-    pub p256_verify_host_fn: bool,
-
     /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
     /// function.
     pub ml_dsa_verify_host_fn: bool,
@@ -276,13 +256,6 @@ pub struct Config {
     /// Whether to enable the `sha3_256`, `sha3_384` and `sha3_512` (FIPS-202)
     /// host functions.
     pub sha3_host_fns: bool,
-
-    /// Whether to enable the promise_yield_create_with_id and
-    /// promise_yield_resume_with_yield_id host functions.
-    pub yield_with_id_host_fns: bool,
-
-    /// Whether to enable the chain_id host function (NEP-638).
-    pub chain_id_host_fn: bool,
 
     /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
     /// functions. These points lie on the curve but outside the G1/G2
@@ -304,6 +277,12 @@ impl Config {
         s.finish()
     }
 
+    /// How the host function `universal_state_init_to_account_id` checks its bytes: `Strict`
+    /// once `canonical_universal_state_init` is on, and `Lenient` before.
+    pub fn state_init_decode_mode(&self) -> DecodeMode {
+        DecodeMode::strict_if(self.canonical_universal_state_init)
+    }
+
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
@@ -315,18 +294,16 @@ impl Config {
         self.linear_op_base_cost = 0;
         self.linear_op_unit_cost = 0;
         self.limit_config.max_gas_burnt = Gas::MAX;
+        self.limit_config.max_gas_burnt_external = Gas::MAX;
     }
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.universal_accounts = true;
-        self.gas_key_host_fns = true;
+        self.canonical_universal_state_init = true;
         self.fix_ml_dsa_cost_charging = true;
-        self.p256_verify_host_fn = true;
         self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
-        self.yield_with_id_host_fns = true;
-        self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;
     }
 }

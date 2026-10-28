@@ -22,7 +22,7 @@ use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_vm_runner::logic::PreparedContractGasCounter;
+use near_vm_runner::logic::{ExecutionMode, PreparedContractGasCounter};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -241,7 +241,7 @@ impl ReceiptPreparationPipeline {
                     let Ok(ContractPreparation::Ready { contract: code_ext, gas_counter }) = self
                         .prepare_contract_metadata(
                             &account_id,
-                            account.contract().into_owned(),
+                            account,
                             state_update,
                             function_call,
                             AccessOptions::NO_SIDE_EFFECTS,
@@ -326,7 +326,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn prepare_contract_metadata(
         &self,
         account_id: &AccountId,
-        account_contract: AccountContract,
+        account: &Account,
         state_update: &TrieUpdate,
         function_call: &FunctionCallAction,
         access: AccessOptions,
@@ -337,10 +337,11 @@ impl ReceiptPreparationPipeline {
             &self.storage,
             &self.chain_id,
             account_id,
-            account_contract,
+            account,
             state_update,
             function_call,
-            None,
+            // TODO(ecc): Make speculative preparation work for ECC
+            &ExecutionMode::Internal,
             access,
             protocol_version,
         )

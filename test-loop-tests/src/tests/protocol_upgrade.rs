@@ -191,14 +191,20 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// The mainnet-derived epoch config
+// rotates the producers' shard assignments at each epoch boundary, so rotated-in
+// producers must state sync, which spice does not support yet: a spice chain stores no
+// incoming receipts, so the state sync header cannot be built and the sync never
+// completes. The spice activation itself is covered by
+// tests/spice/activation_boundary.rs, with pinned assignments.
+// TODO(spice-test): blocked on state sync under spice.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): blocked on state sync, see slow_test_protocol_upgrade_no_missing_chunks.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
@@ -209,7 +215,7 @@ fn slow_test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): blocked on state sync, see slow_test_protocol_upgrade_no_missing_chunks.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
@@ -223,7 +229,8 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 /// There was a bug which caused `test_protocol_upgrade` to always upgrade to `PROTOCOL_VERSION`,
 /// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): blocked on state sync, see slow_test_protocol_upgrade_no_missing_chunks.
+// In a spice build both versions have spice enabled too.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
@@ -232,7 +239,7 @@ fn slow_test_protocol_upgrade_not_latest() {
 /// Test protocol upgrade that skips a version, jumping straight from
 /// `PROTOCOL_VERSION - 2` to `PROTOCOL_VERSION` in a single epoch transition.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): blocked on state sync, see slow_test_protocol_upgrade_no_missing_chunks.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_skip_version() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION, HashMap::new());

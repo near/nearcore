@@ -1,5 +1,6 @@
 use crate::network_protocol::{
-    MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, SnapshotHostInfoVerificationError, testonly as data,
+    MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, SnapshotHostInfoV1, SnapshotHostInfoV2,
+    SnapshotHostInfoVerificationError, testonly as data,
 };
 use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache, priority_score};
 use crate::testonly::assert_is_superset;
@@ -23,7 +24,8 @@ fn make_snapshot_host_info(
     secret_key: &SecretKey,
 ) -> SnapshotHostInfo {
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
-    SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key)
+    let addr = "192.0.2.1:24567".parse().unwrap();
+    SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, addr, secret_key)
 }
 
 fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
@@ -173,6 +175,100 @@ async fn duplicate_peer_id() {
     // this type of malicious behavior is detected before verification even begins;
     // no partial data is stored
     assert_eq!(0, cache.get_hosts().len());
+}
+
+/// The contents of `info`, which must be V2.
+fn into_v2(info: SnapshotHostInfo) -> SnapshotHostInfoV2 {
+    match info {
+        SnapshotHostInfo::V2(info) => info,
+        SnapshotHostInfo::V1(_) => panic!("expected a V2 info"),
+    }
+}
+
+/// The copy of `info` relayed by an older node, which drops the fields it doesn't know.
+fn strip_new_fields(info: &SnapshotHostInfoV2) -> SnapshotHostInfo {
+    SnapshotHostInfo::V1(SnapshotHostInfoV1 {
+        peer_id: info.peer_id.clone(),
+        sync_hash: info.sync_hash,
+        epoch_height: info.epoch_height,
+        shards: info.shards.clone(),
+        signature: info.legacy_signature.clone().unwrap(),
+    })
+}
+
+#[tokio::test]
+async fn signed_info_replaces_stripped_copy() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let key = data::make_secret_key(&mut rng);
+    let peer = PeerId::new(key.public_key());
+    let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let signed = into_v2(make_snapshot_host_info(&peer, 1, vec![ShardId::new(0)], &key));
+    let stripped = Arc::new(strip_new_fields(&signed));
+    let signed = Arc::new(SnapshotHostInfo::V2(signed));
+
+    // A stripped copy is accepted and relayed while it is all we have.
+    let res = cache.insert(vec![stripped.clone()]).await;
+    assert_eq!(unwrap(&res), &vec![stripped.clone()]);
+    // The signed copy replaces it and is relayed once.
+    let res = cache.insert(vec![signed.clone()]).await;
+    assert_eq!(unwrap(&res), &vec![signed.clone()]);
+    for info in [&stripped, &signed] {
+        let res = cache.insert(vec![info.clone()]).await;
+        assert!(unwrap(&res).is_empty());
+    }
+    assert_eq!(cache.get_host_info(&peer), Some(signed));
+}
+
+#[tokio::test]
+async fn info_without_legacy_signature_is_dropped() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let key = data::make_secret_key(&mut rng);
+    let peer = PeerId::new(key.public_key());
+    let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let info = into_v2(make_snapshot_host_info(&peer, 1, vec![ShardId::new(0)], &key));
+    let info = SnapshotHostInfo::V2(SnapshotHostInfoV2 { legacy_signature: None, ..info });
+    // Dropped without an error, so the sender is not banned.
+    let res = cache.insert(vec![Arc::new(info)]).await;
+    assert!(unwrap(&res).is_empty());
+    assert_eq!(0, cache.get_hosts().len());
+}
+
+#[tokio::test]
+async fn all_signatures_are_verified() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let key = data::make_secret_key(&mut rng);
+    let peer = PeerId::new(key.public_key());
+    let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let info = into_v2(make_snapshot_host_info(&peer, 1, vec![ShardId::new(0)], &key));
+    // Carries valid signatures, but over a different snapshot.
+    let other = into_v2(make_snapshot_host_info(&peer, 2, vec![ShardId::new(0)], &key));
+    let bad_signature = SnapshotHostInfoV2 { signature: other.signature.clone(), ..info.clone() };
+    // Older nodes ban whoever relays an invalid legacy signature, even when `signature` is valid.
+    let bad_legacy_signature =
+        SnapshotHostInfoV2 { legacy_signature: other.legacy_signature, ..info };
+    for info in [
+        SnapshotHostInfo::V2(bad_signature),
+        strip_new_fields(&bad_legacy_signature),
+        SnapshotHostInfo::V2(bad_legacy_signature),
+    ] {
+        let res = cache.insert(vec![Arc::new(info)]).await;
+        assert_eq!(
+            Some(SnapshotHostInfoError::VerificationError(
+                SnapshotHostInfoVerificationError::InvalidSignature
+            )),
+            res.1
+        );
+        assert_eq!(0, cache.get_hosts().len());
+    }
 }
 
 #[tokio::test]
@@ -529,6 +625,7 @@ fn make_snapshot_hosts_info(
             sync_hash,
             epoch_height,
             sid_vec(&[0, 1, 2, 3]),
+            "192.0.2.1:24567".parse().unwrap(),
             &key,
         ));
         peers.push(info);

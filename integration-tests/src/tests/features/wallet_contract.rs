@@ -23,10 +23,10 @@ use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_primitives_core::{account::AccessKey, hash::hash, types::BlockHeight};
+use near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use near_runtime::config::total_prepaid_gas;
 use near_store::ShardUId;
 use near_test_contracts::wallet_contract::legacy_localnet;
-use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
-use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.

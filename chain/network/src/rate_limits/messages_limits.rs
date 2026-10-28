@@ -342,6 +342,9 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             },
         },
         PeerMessage::SyncSnapshotHosts(_) => Some((SyncSnapshotHosts, 1)),
+        PeerMessage::StateRequestHeader(_, _) => Some((StateHeaderRequest, 1)),
+        PeerMessage::StateRequestPart(_, _, _) => Some((StatePartRequest, 1)),
+        PeerMessage::StateRequestAck(_) => Some((StateRequestAck, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
         PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
@@ -602,7 +605,7 @@ mod tests {
 
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let header = test_chunk_header(prev_block_hash, &signer, 0);
+        let header = test_chunk_header(prev_block_hash, &signer);
         let epoch_id = EpochId(CryptoHash::default());
 
         let v1 = PartialEncodedStateWitness::new(

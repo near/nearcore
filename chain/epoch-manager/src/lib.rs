@@ -1037,8 +1037,6 @@ impl EpochManager {
             return Ok(next_shard_layout.clone());
         }
 
-        debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
-
         let Some((shard_id, boundary_account)) = block_info.shard_split() else {
             return Ok(next_shard_layout.clone());
         };
@@ -1208,11 +1206,7 @@ impl EpochManager {
             .then(|| next_epoch_info.epoch_height() + 1)
             .or_else(|| next_epoch_info.last_resharding());
 
-        let strategy = AssignmentStrategy::select(
-            next_next_epoch_version,
-            &next_shard_layout,
-            &next_next_shard_layout,
-        );
+        let strategy = AssignmentStrategy::select(&next_shard_layout, &next_next_shard_layout);
         RESHARDING_ASSIGNMENT_STRATEGY.with_label_values(&[strategy.metrics_label()]).inc();
 
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -1263,6 +1257,13 @@ impl EpochManager {
         block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+        // Check that genesis block doesn't have any proposals.
+        let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
+        assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
+        tracing::debug!(target: "epoch_manager",
+            height = block_info.height(),
+            proposals = ?prev_validator_proposals,
+            "record_block_info");
         let current_hash = *block_info.hash();
         let result = self.record_block_info_impl(block_info, rng_seed);
         if result.is_err() {
@@ -1947,23 +1948,6 @@ impl EpochManager {
             epoch_height,
             validator_reward_paid_prev_epoch: cur_epoch_info.validator_reward().clone(),
         })
-    }
-
-    pub fn add_validator_proposals(
-        &mut self,
-        block_info: BlockInfo,
-        random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
-        // Check that genesis block doesn't have any proposals.
-        let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
-        assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
-        tracing::debug!(target: "epoch_manager",
-            height = block_info.height(),
-            proposals = ?prev_validator_proposals,
-            "add_validator_proposals");
-        // Deal with validator proposals and epoch finishing.
-        let rng_seed = random_value.0;
-        self.record_block_info(block_info, rng_seed)
     }
 
     /// Get minimum stake allowed at current block. Attempts to stake with a lower stake will be
