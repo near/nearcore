@@ -20,6 +20,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
+use crate::spice::boundary::write_boundary_uncertified_chunks;
 use crate::spice::core::{
     SpiceCoreReader, record_uncertified_chunks_by_advancing, record_uncertified_chunks_from_bodies,
 };
@@ -1680,18 +1681,29 @@ impl Chain {
             // and credits its parent's endorsements against its grandparent's, and this node
             // processed neither block.
             let chain_store = self.chain_store.store().chain_store();
-            record_uncertified_chunks_from_bodies(
-                &chain_store,
-                self.epoch_manager.as_ref(),
-                prev_block.header().prev_hash(),
-            )?;
-            // The parent's row is its own parent's advanced over it, which is cheaper and says
-            // the same thing as walking the bodies a second time.
-            record_uncertified_chunks_by_advancing(
-                &chain_store,
-                self.epoch_manager.as_ref(),
-                &prev_block,
-            )?;
+
+            if prev_block.header().is_spice() {
+                record_uncertified_chunks_from_bodies(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header().prev_hash(),
+                )?;
+                record_uncertified_chunks_by_advancing(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    &prev_block,
+                )?;
+            } else {
+                // The sync block is the first spice block, so its parent is the last pre-spice
+                // block, whose row block processing would have seeded.
+                let mut store_update = chain_store.store().store_update();
+                write_boundary_uncertified_chunks(
+                    &mut store_update,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header(),
+                )?;
+                store_update.commit();
+            }
         }
 
         // State sync moves the head without processing a block, so the tracker has to be told
