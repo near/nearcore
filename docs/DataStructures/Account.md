@@ -179,6 +179,8 @@ bytes. Then use the following formula: `'0s' + keccak256(bytes)[12:32].hex()`.
 
 Deterministic accounts cannot be created with a `CreateAccount` action.
 A `Transfer` that is the only action of its receipt creates the account, but without code or data.
+A refund receipt cannot create an account, even when its only action is a `Transfer` (see [Refunds](../RuntimeSpec/Refunds.md)).
+If a refund goes to a deterministic account that does not exist yet, the refund fails and its amount is burnt.
 A special action, `DeterministicStateInitAction`, is required to initialize it.
 This action validates that the account id matches its initial state.
 
