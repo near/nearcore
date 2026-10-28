@@ -1156,7 +1156,6 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// TODO(13709): Remove V1 support after forward compatible release.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1300,7 +1299,6 @@ impl RoutedMessage {
     }
 
     /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
-    /// TODO(13709): Remove V1 support after forward compatible release.
     pub fn msg_v1(self) -> RoutedMessageV1 {
         match self {
             RoutedMessage::V1(msg) => msg,
