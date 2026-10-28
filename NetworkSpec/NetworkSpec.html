@@ -157,18 +157,22 @@
 <p>When a node receives a handshake from other node it will decline this connection if one of the following situations happens:</p>
 <ol>
 <li>Other node has different genesis.</li>
-<li>Edge nonce is too low</li>
+<li>The edge nonce is even, or it is 20 minutes or more away from the current time on the node's clock.</li>
 </ol>
+<p>If the edge nonce is not greater than the nonce of the latest edge between the two nodes, the node does not decline the connection. It replies with a <code>LastEdge</code> message, and the other node retries with a higher nonce. See <a href="#edge">Edge</a>.</p>
 <h4 id="edge"><a class="header" href="#edge">Edge</a></h4>
 <p>Edges are used to let other nodes in the network know that there is currently an active connection between a pair of nodes. See the definition of <a href="Messages.html#edge">this data structure</a>.</p>
 <p>If the nonce of the edge is odd, it denotes an <code>Added</code> edge, otherwise it denotes a <code>Removed</code> edge. Each node should keep track of the nonce used for edges between every pair of nodes. Peer C believes that the peers A and B are currently connected if and only if the edge with the highest nonce known to C for them has an odd nonce.</p>
 <p>When two nodes successfully connect to each other, they broadcast the new edge to let other peers know about this connection. When a node is disconnected from other node, it should bump the nonce by 1, sign the new edge and broadcast it to let other nodes know that the connection was removed.</p>
 <p>A removed connection will be valid, if it contains valid information from the added edge it is invalidating. This prevents peers bump nonce by more than one when deleting an edge.</p>
-<p>When node A proposes an edge to B with nonce X, it will only accept it and sign it iff:</p>
+<p>When a node opens a connection, it picks the nonce of the new edge from the current Unix time in seconds. If that number is even, the node adds 1, so the nonce is odd. If the node already knows an edge with the other peer, it uses the larger of this value and the next odd number after that edge's nonce.</p>
+<p>When node A proposes an edge to B with nonce X in a handshake, B accepts it and signs it only if all of the following hold:</p>
 <ul>
-<li>X = 1 and B doesn't know about any previous edge between A and B</li>
-<li>X is odd and X &gt; Y where Y is the nonce of the edge with the highest nonce between A and B known to B.</li>
+<li>X is odd.</li>
+<li>X, read as a Unix time in seconds, is less than 20 minutes away from the current time on B's clock.</li>
+<li>If B knows an edge between A and B, X is greater than Y, the highest nonce among the edges between A and B that B knows.</li>
 </ul>
+<p>If X is not greater than Y, B does not sign the edge. B replies with a <code>LastEdge</code> message that holds its edge with nonce Y. A then proposes a new nonce: the larger of the next odd number after Y and a fresh nonce from the current time.</p>
 <!-- TODO: What is a valid edge: pseudo code -->
 <h2 id="routing-table"><a class="header" href="#routing-table">Routing Table</a></h2>
 <p>Every node maintains a routing table with all existing connections and relevant information to route messages. The explicit graph with all active connection is stored at all times.</p>

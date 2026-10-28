@@ -2031,18 +2031,22 @@ equal to the maximum of the last three stakes and the highest proposal in the cu
 <p>When a node receives a handshake from other node it will decline this connection if one of the following situations happens:</p>
 <ol>
 <li>Other node has different genesis.</li>
-<li>Edge nonce is too low</li>
+<li>The edge nonce is even, or it is 20 minutes or more away from the current time on the node's clock.</li>
 </ol>
+<p>If the edge nonce is not greater than the nonce of the latest edge between the two nodes, the node does not decline the connection. It replies with a <code>LastEdge</code> message, and the other node retries with a higher nonce. See <a href="NetworkSpec/NetworkSpec.html#edge">Edge</a>.</p>
 <h4 id="edge"><a class="header" href="#edge">Edge</a></h4>
 <p>Edges are used to let other nodes in the network know that there is currently an active connection between a pair of nodes. See the definition of <a href="NetworkSpec/Messages.html#edge">this data structure</a>.</p>
 <p>If the nonce of the edge is odd, it denotes an <code>Added</code> edge, otherwise it denotes a <code>Removed</code> edge. Each node should keep track of the nonce used for edges between every pair of nodes. Peer C believes that the peers A and B are currently connected if and only if the edge with the highest nonce known to C for them has an odd nonce.</p>
 <p>When two nodes successfully connect to each other, they broadcast the new edge to let other peers know about this connection. When a node is disconnected from other node, it should bump the nonce by 1, sign the new edge and broadcast it to let other nodes know that the connection was removed.</p>
 <p>A removed connection will be valid, if it contains valid information from the added edge it is invalidating. This prevents peers bump nonce by more than one when deleting an edge.</p>
-<p>When node A proposes an edge to B with nonce X, it will only accept it and sign it iff:</p>
+<p>When a node opens a connection, it picks the nonce of the new edge from the current Unix time in seconds. If that number is even, the node adds 1, so the nonce is odd. If the node already knows an edge with the other peer, it uses the larger of this value and the next odd number after that edge's nonce.</p>
+<p>When node A proposes an edge to B with nonce X in a handshake, B accepts it and signs it only if all of the following hold:</p>
 <ul>
-<li>X = 1 and B doesn't know about any previous edge between A and B</li>
-<li>X is odd and X &gt; Y where Y is the nonce of the edge with the highest nonce between A and B known to B.</li>
+<li>X is odd.</li>
+<li>X, read as a Unix time in seconds, is less than 20 minutes away from the current time on B's clock.</li>
+<li>If B knows an edge between A and B, X is greater than Y, the highest nonce among the edges between A and B that B knows.</li>
 </ul>
+<p>If X is not greater than Y, B does not sign the edge. B replies with a <code>LastEdge</code> message that holds its edge with nonce Y. A then proposes a new nonce: the larger of the next odd number after Y and a fresh nonce from the current time.</p>
 <!-- TODO: What is a valid edge: pseudo code -->
 <h2 id="routing-table"><a class="header" href="#routing-table">Routing Table</a></h2>
 <p>Every node maintains a routing table with all existing connections and relevant information to route messages. The explicit graph with all active connection is stored at all times.</p>
@@ -2165,10 +2169,10 @@ def on_routed_message_received(self, routed_message, sender):
 <p><a href="https://github.com/nearprotocol/nearcore/issues/2395#issuecomment-610077017">Github comment</a></p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="messages-2"><a class="header" href="#messages-2">Messages</a></h1>
-<p>All message sent in the network are of type <code>PeerMessage</code>. They are encoded using <a href="https://borsh.io/">Borsh</a> which allows a rich structure, small size and fast encoding/decoding. For details about data structures used as part of the message see the <a href="https://github.com/nearprotocol/nearcore">reference code</a>.</p>
+<p>All messages sent in the network are of type <code>PeerMessage</code>. A <code>PeerMessage</code> is encoded with <a href="https://protobuf.dev/">Protocol Buffers</a>, using the schema in <a href="https://github.com/near/nearcore/blob/master/chain/network/src/network_protocol/network.proto">network.proto</a>. Some fields of that schema are <code>bytes</code> fields that hold <a href="https://borsh.io/">Borsh</a> data, for example signatures, public keys, <code>PeerInfo</code>, edges, blocks, block headers, transactions and routed messages. The Rust structures below show either this Borsh data or the Rust types that nearcore uses in memory. For details about data structures used as part of the message see the <a href="https://github.com/nearprotocol/nearcore">reference code</a>.</p>
 <h2 id="encoding"><a class="header" href="#encoding">Encoding</a></h2>
-<p>A <code>PeerMessage</code> is converted into an array of bytes (<code>Vec&lt;u8&gt;</code>) using borsh serialization. An encoded message is conformed by 4 bytes with the length of the serialized <code>PeerMessage</code> concatenated with the serialized <code>PeerMessage</code>.</p>
-<p>Check <a href="https://github.com/nearprotocol/borsh#specification">Borsh specification</a> details to see how it handles each data structure.</p>
+<p>A <code>PeerMessage</code> is converted into an array of bytes (<code>Vec&lt;u8&gt;</code>) using protobuf serialization. An encoded message is the length of the serialized <code>PeerMessage</code> as a 4-byte little-endian unsigned integer, followed by the serialized <code>PeerMessage</code>.</p>
+<p>The Borsh data inside <code>bytes</code> fields follows the <a href="https://github.com/nearprotocol/borsh#specification">Borsh specification</a>.</p>
 <h2 id="data-structures-3"><a class="header" href="#data-structures-3">Data structures</a></h2>
 <h3 id="peerid"><a class="header" href="#peerid">PeerID</a></h3>
 <p>The id of a peer in the network is its <a href="https://github.com/nearprotocol/nearcore/blob/master/core/crypto/src/signature.rs">PublicKey</a>.</p>
@@ -2198,28 +2202,47 @@ def on_routed_message_received(self, routed_message, sender):
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains edge information.
-    Sync(SyncData),
-    RequestUpdateNonce(EdgeInfo),
-    ResponseUpdateNonce(Edge),
-    PeersRequest,
-    PeersResponse(Vec&lt;PeerInfo&gt;),
+    SyncRoutingTable(RoutingTableUpdate),
+    RequestUpdateNonce(PartialEdgeInfo),
+
+    SyncAccountsData(SyncAccountsData),
+
+    PeersRequest(PeersRequest),
+    PeersResponse(PeersResponse),
+
     BlockHeadersRequest(Vec&lt;CryptoHash&gt;),
-    BlockHeaders(Vec&lt;BlockHeader&gt;),
+    BlockHeaders(Vec&lt;Arc&lt;BlockHeader&gt;&gt;),
+
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc&lt;Block&gt;),
+    OptimisticBlock(OptimisticBlock),
+
     Transaction(SignedTransaction),
-    Routed(RoutedMessage),
+    Routed(Box&lt;RoutedMessage&gt;),
+
     /// Gracefully disconnect from other peer.
-    Disconnect,
-    Challenge(Challenge),
+    Disconnect(Disconnect),
+    Challenge(Box&lt;Challenge&gt;),
+
+    SyncSnapshotHosts(SyncSnapshotHosts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>This is the Rust enum that nearcore 2.14.0 uses in memory. <code>Arc</code> and <code>Box</code> do not change the encoding. On the wire, each variant is sent in its own field of the protobuf <code>PeerMessage</code>, and a message sets only one of these fields. For example, <code>Routed</code> is sent in the <code>routed</code> field. Its <code>borsh</code> field holds the Borsh encoding of the <a href="NetworkSpec/Messages.html#routedmessage"><code>RoutedMessageV1</code></a> structure below. nearcore also accepts a routed message in the <code>routed_v3</code> field, but it does not send one. A received <code>update_nonce_response</code> field is handled as a <code>SyncRoutingTable</code> message with one edge. nearcore does not send this field.</p>
+<p><code>RequestUpdateNonce</code> carries a <code>PartialEdgeInfo</code>, which is the <a href="NetworkSpec/Messages.html#edgeinfo">EdgeInfo</a> structure below. <code>PeersRequest</code> has the optional limits <code>max_peers</code> and <code>max_direct_peers</code>. <code>PeersResponse</code> has two lists of <code>PeerInfo</code>: <code>peers</code> and <code>direct_peers</code>. <code>Disconnect</code> has a <code>remove_from_connection_store</code> flag. Challenges are disabled, and nodes ignore a <code>Challenge</code> message.</p>
 <h3 id="handshake"><a class="header" href="#handshake">Handshake</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2273,7 +2296,7 @@ def on_routed_message_received(self, routed_message, sender):
 <h3 id="routedmessage"><a class="header" href="#routedmessage">RoutedMessage</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct RoutedMessage {
+</span>struct RoutedMessageV1 {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
     target: PeerIdOrHash,
@@ -2293,31 +2316,43 @@ def on_routed_message_received(self, routed_message, sender):
 <h3 id="routedmessagebody"><a class="header" href="#routedmessagebody">RoutedMessageBody</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>enum RoutedMessageBody {
-    BlockApproval(Approval),
-    ForwardTx(SignedTransaction),
-
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(FinalExecutionOutcomeView),
-    QueryRequest {
-        query_id: String,
-        block_id_or_finality: BlockIdOrFinality,
-        request: QueryRequest,
-    },
-    QueryResponse {
-        query_id: String,
-        response: Result&lt;QueryResponse, String&gt;,
-    },
-    ReceiptOutcomeRequest(CryptoHash),
-    ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunk),
-    Ping(Ping),
-    Pong(Pong),
+</span>#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum RoutedMessageBody {
+    BlockApproval(Approval) = 0,
+    ForwardTx(SignedTransaction) = 1,
+    TxStatusRequest(AccountId, CryptoHash) = 2,
+    TxStatusResponse(FinalExecutionOutcomeView) = 3,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 12,
+    /// Ping/Pong used for testing networking and routing.
+    Ping(Ping) = 14,
+    Pong(Pong) = 15,
+    VersionedPartialEncodedChunk(PartialEncodedChunk) = 16,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 18,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 21,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
+    VersionedChunkEndorsement(ChunkEndorsement) = 24,
+    StatePartRequest(StatePartRequest) = 27,
+    ChunkContractAccesses(ChunkContractAccesses) = 28,
+    ContractCodeRequest(ContractCodeRequest) = 29,
+    ContractCodeResponse(ContractCodeResponse) = 30,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 31,
+    StateHeaderRequest(StateHeaderRequest) = 32,
+    SpicePartialData(SpicePartialData) = 33,
+    StateRequestAck(StateRequestAck) = 34,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
+    SpiceDataRequest(SpiceDataRequest) = 36,
+    SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
+    SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
+    SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
+    VersionedPartialEncodedStateWitness(VersionedPartialEncodedStateWitness) = 40,
+    VersionedPartialEncodedStateWitnessForward(VersionedPartialEncodedStateWitness) = 41,
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>The number after each variant is its Borsh enum tag. Tags that are missing from the list belonged to variants that nearcore removed. The <code>Spice</code> variants belong to a protocol feature that is not part of any stable protocol version.</p>
 <h2 id="cryptohash"><a class="header" href="#cryptohash">CryptoHash</a></h2>
 <p><code>CryptoHash</code> are objects with 256 bits of information.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2329,207 +2364,22 @@ pub struct CryptoHash(pub Digest);
 </span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="routing-table-exchange-algorithm"><a class="header" href="#routing-table-exchange-algorithm">Routing table exchange algorithm</a></h1>
-<!-- cspell:ignore neps -->
-<ul>
-<li>Proposal Name: New routing table exchange algorithm</li>
-<li>Start Date: 6/21/2021</li>
-<li>NEP PR: <a href="https://github.com/near/nearcore/pull/4112"><code>nearprotocol/neps#0000</code></a></li>
-<li>Issue(s): https://github.com/near/nearcore/issues/3838.</li>
-<li><a href="https://github.com/near/NEPs/pull/220">GitHub PR</a></li>
-</ul>
-<h1 id="summary"><a class="header" href="#summary">Summary</a></h1>
-<p>Currently, every node on the network stores its own copy of the <a href="NetworkSpec/./NetworkSpec.html#routing-table">Routing Graph</a>.
-The process of exchanging and verifying edges requires sending full copy of routing table on every synchronization.
-Sending full copy of routing table is wasteful, in this spec we propose a solution, which allows doing partial  synchronization.
-This should reduce both bandwidth used, and amount of CPU time.</p>
-<p>Typically, only one full sync would be required when a node connects to the network for the first time.
-For given two nodes doing synchronization, we propose a method, which requires bandwidth/processing time proportional to the size of data which needs to be exchanged for given nodes.</p>
-<h1 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h1>
-<p>In this spec we describe the implementation of <code>Routing Graph Reconciliation</code> algorithm using Inverse Bloom Filters.
-An overview of different <code>Routing Graph Reconciliation</code> algorithms can be a found at
-<a href="https://github.com/pmnoxx/docs/blob/piotr-test-markdown/near/ROUTING_GRAPH_RECONCILIATION.pdf">ROUTING_GRAPH_RECONCILIATION.pdf</a></p>
-<p>The process of exchanging <code>routing tables</code> involves exchanging edges between a pair of nodes.
-For given nodes <code>A</code>, <code>B</code>, that involves adding edges which <code>A</code> has, but <code>B</code> doesn't and vice-versa.
-For each connection we create a data structure <a href="NetworkSpec/RoutingTableExchangeAlgorithm.html#ibfset">IbfSet</a>.
-It stores <code>Inverse Bloom Filters</code> <a href="NetworkSpec/RoutingTableExchangeAlgorithm.html#ibf">Ibf</a> of powers of <code>2^k</code> for <code>k</code> in range <code>10..17</code>.
-This allows us to recover around <code>2^17 / 1.3</code> edges with <code>99%</code> probability according to <a href="https://www.ics.uci.edu/%7Eeppstein/pubs/EppGooUye-SIGCOMM-11.pdf">Efficient Set Reconciliation without Prior Context</a>.
-Otherwise, we do full routing table exchange.</p>
-<p>We have chosen a minimum size of <code>Ibf</code> to be <code>2^10</code>, because the overhead of processing <code>IBF</code> of smaller size of negligible, and to reduce the number of messages required in exchange.
-On the other side, we limit <code>Ibf</code> to size of <code>2^17</code> to reduce memory usage required for each data structure.</p>
-<h1 id="routing-table-1"><a class="header" href="#routing-table-1">Routing Table</a></h1>
-<p>We are extending [Routing Table](NetworkSpec.md#Routing Table) by additional field <code>peer_ibf_set</code></p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct RoutingTable {
-   /// Other fields
-   ///    ..
-   /// Data structure used for exchanging routing tables.
-   pub peer_ibf_set: IbfPeerSet,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>peer_ibf_set</code> - a helper data structure, which allows doing partial synchronization.</li>
-</ul>
-<h1 id="ibfpeerset"><a class="header" href="#ibfpeerset">IbfPeerSet</a></h1>
-<p><code>IbfPeerSet</code> contains a mapping between <code>PeerId</code> and <code>IbfSet</code>.
-It's used to store metadata for each peer, which can be used to compute set difference between routing tables of current peer and peer contained in the mapping.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct SimpleEdge {
-  pub key: (PeerId, PeerId),
-  pub nonce: u64,
-}
-
-pub struct IbfPeerSet {
-    peer2seed: HashMap&lt;PeerId, u64&gt;,
-    unused_seeds: Vec&lt;u64&gt;,
-    seed2ibf: HashMap&lt;u64, IbfSet&lt;SimpleEdge&gt;&gt;,
-    slot_map: SlotMap,
-    edges: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>peer2seed</code> - contains a mapping from <code>PeerId</code> to <code>seed</code> used to generate <code>IbfSet</code></li>
-<li><code>unused_seeds</code> - list of currently unused seeds, which will be used for new incoming connections</li>
-<li><code>seed2ibf</code> - contains a mapping from <code>seed</code> to <code>IbfSet</code></li>
-<li><code>slot_map</code> - a helper data structure, which is used to store <code>Edges</code>, this allows us to save memory by not storing
-duplicates.</li>
-<li><code>edges</code> - total number of edges in the data structure</li>
-</ul>
-<h1 id="messages-3"><a class="header" href="#messages-3">Messages</a></h1>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct RoutingSyncV2 {
-    pub version: u64,
-    pub known_edges: u64,
-    pub ibf_level: u64,
-    pub ibf: Vec&lt;IbfElem&gt;,
-    pub request_all_edges: bool,
-    pub seed: u64,
-    pub edges: Vec&lt;Edge&gt;,
-    pub requested_edges: Vec&lt;u64&gt;,
-    pub done: bool,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>version</code> - version of routing table, currently 0, for future use</li>
-<li><code>known_edges</code> - number of edges peer knows about, this allows us to decide whenever to request all edges
-immediately or not.</li>
-<li><code>ibf_level</code> - level of inverse bloom filter requested from <code>10</code> to <code>17</code>.</li>
-<li><code>request_all_edges</code> - true if peer decides to request all edges from other peer</li>
-<li><code>seed</code> - seed used to generate ibf</li>
-<li><code>edges</code> - list of edges send to the other peer</li>
-<li><code>requested_edges</code> - list of hashes of edges peer want to get</li>
-<li><code>done</code> - true if it's the last message in synchronization</li>
-</ul>
-<h2 id="ibfset"><a class="header" href="#ibfset">IbfSet</a></h2>
-<p>Structure used to represent set of <code>Inverse Bloom Filters</code> for given peer.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct IbfSet&lt;T: Hash + Clone&gt; {
-    seed: u64,
-    ibf: Vec&lt;Ibf&gt;,
-    h2e: HashMap&lt;u64, SlotMapId&gt;,
-    hasher: DefaultHasher,
-    pd: PhantomData&lt;T&gt;,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>seed</code> - seed used to generate IbfSet</li>
-<li><code>ibf</code> - list of <code>Inverse Bloom Filters</code> with sizes from <code>10</code> to <code>17</code>.</li>
-<li><code>h2e</code> - mapping from hash of given edge to id of the edge. This is used to save memory, to avoid storing multiple
-copies of given edge.</li>
-<li><code>hasher</code> - hashing function</li>
-</ul>
-<h2 id="ibf"><a class="header" href="#ibf">Ibf</a></h2>
-<p>Structure representing Reverse Bloom Filter.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct Ibf {
-    k: i32,
-    pub data: Vec&lt;IbfElem&gt;,
-    hasher: IbfHasher,
-    pub seed: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>k</code> - number of elements in vector</li>
-<li><code>data</code> - vector of elements of bloom filter</li>
-<li><code>seed</code> - seed of each inverse bloom filter</li>
-<li><code>hasher</code> - hashing function</li>
-</ul>
-<h2 id="ibfelem"><a class="header" href="#ibfelem">IbfElem</a></h2>
-<p>Element of bloom filter</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct IbfElem {
-    xor_elem: u64,
-    xor_hash: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>xor_element</code> - xor of hashes of edges stored in given box</li>
-<li><code>xor_hash</code> - xor of hashes of hashes of edges stored in give n box</li>
-</ul>
-<h2 id="routing-table-exchange"><a class="header" href="#routing-table-exchange">Routing table exchange</a></h2>
-<p>The process of exchanging routing tables involves multiple steps.
-It could be reduced if needed by adding an estimator of how many edges differ, but it's not implemented for sake of simplicity.</p>
-<h2 id="step-1"><a class="header" href="#step-1">Step 1</a></h2>
-<p>Peer <code>A</code> connects to peer <code>B</code>.</p>
-<h2 id="step-2"><a class="header" href="#step-2">Step 2</a></h2>
-<p>Peer <code>B</code> chooses unique <code>seed</code>, and generates <code>IbfPeerSet</code> based on seed and all known edges in
-[Routing Table](NetworkSpec.md#Routing Table).</p>
-<h2 id="step-3---10"><a class="header" href="#step-3---10">Step 3 - 10</a></h2>
-<p>On odd steps peer <code>B</code> sends message to peer <code>A</code>, with Ibf of size <code>2^(step+7)</code>.
-On even steps, peer <code>A</code> does it.</p>
-<ul>
-<li>Case 1 - if we were unable to find all edges we continue to the next step.</li>
-<li>Case 2 - otherwise, we know what the set difference is.
-We compute the set of hashes of edges given node knows about, and doesn't know about.
-Current peer sends to the other peer the edges it knows about, and asks about edges, based on hashes, it doesn't know about the other peer.
-The other peer sends the response, and the routing table exchange ends.</li>
-</ul>
-<h2 id="step-11"><a class="header" href="#step-11">Step 11</a></h2>
-<p>In case the synchronization isn't done yet, each side sends list of hashes of edges it knows about.</p>
-<h2 id="step-12"><a class="header" href="#step-12">Step 12</a></h2>
-<p>Each side sends list of edges the other side requested.</p>
-<h1 id="security-considerations"><a class="header" href="#security-considerations">Security considerations</a></h1>
-<h3 id="avoid-extra-computation-if-another-peer-reconnects-to-server"><a class="header" href="#avoid-extra-computation-if-another-peer-reconnects-to-server">Avoid extra computation if another peer reconnects to server</a></h3>
-<p>In order to avoid extra computation whenever a peer reconnects to server, we can keep a pool of <code>IbfPeerSet</code> structures.
-The number of such structures which we need to keep is going to be equal to the peak number of incoming connections, which servers have had plus the number of outgoing connections.</p>
-<h3 id="producing-edges-where-there-is-a-hash-collision"><a class="header" href="#producing-edges-where-there-is-a-hash-collision">Producing edges, where there is a hash collision</a></h3>
-<p>We use unique <code>IbfPeerSet</code> structure, for each connection, this prevents seeds to be guessed.
-Therefore, we are resistant to that type of attack.</p>
-<h1 id="memory-overhead"><a class="header" href="#memory-overhead">Memory overhead</a></h1>
-<p>For each connection we need to use approximately <code>(2^10 + ... 2^17) * sizeof(IbfElem) bytes = 2^18 * 16 bytes = 4 MiB</code>.
-Assuming we keep extra <code>40</code> of such data structures, we would need extra <code>160 MiB</code>.</p>
-<h1 id="performance-overhead"><a class="header" href="#performance-overhead">Performance overhead</a></h1>
-<p>On each update we need up update each <code>IbfSet</code> structure <code>3*8 = 24</code> times.
-Assuming we keep <code>40</code> such data structures, that requires up to <code>960</code> updates.</p>
-<h1 id="alternative-approaches"><a class="header" href="#alternative-approaches">Alternative approaches</a></h1>
-<h3 id="only-use-one-ibfpeerset-structure-for-everyone"><a class="header" href="#only-use-one-ibfpeerset-structure-for-everyone">Only use one <code>IbfPeerSet</code> structure for everyone</a></h3>
-<p>This would reduce number of updates we need to do, and memory usage.
-However, it would be possible to guess the hash function used, which would expose us to security vulnerability.
-It would be simple to produce two edges, such that there is a hash collision, which would cause routing table exchange to fail.</p>
-<h3 id="increase-number-of-ibfset-structures-per-ibfpeerset"><a class="header" href="#increase-number-of-ibfset-structures-per-ibfpeerset">Increase number of <code>IbfSet</code> structures per <code>IbfPeerSet</code></a></h3>
-<p>In theory, we could increase the sizes of <code>IBF</code> structures used from <code>2^10..2^17</code> to <code>2^10..2^20</code>.
-This would allow us to recover the set difference if it's up to <code>2^20/3</code> instead of <code>2^17/3</code> at cost of increasing memory overhead from <code>160 MiB to 640 Mib</code>.</p>
-<h3 id="simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer"><a class="header" href="#simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer">Simplify algorithm to only exchange list of hashes of known edges of each peer</a></h3>
-<p>Each edge has a size of about 400 bytes.
-Let's assume we need to send 1 million edges.
-By sending list of 4 bytes hashes of all known edges on each synchronization we would only need to send <code>4 MiB</code> of metadata plus the size of edges that differ.
-This approach would be simpler, but not as efficient in terms of bandwidth.
-That would still be an improvement of having to send just <code>4 MiB</code> over <code>400 MiB</code> with existing implementation.</p>
-<h1 id="future-improvements"><a class="header" href="#future-improvements">Future improvements</a></h1>
-<h2 id="reduce-memory-usage"><a class="header" href="#reduce-memory-usage">Reduce memory usage</a></h2>
-<h3 id="used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions"><a class="header" href="#used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions">Used a fixed number of <code>IbfPeerSet</code> structures for each node Theoretically, smaller number of sets could be used. For example 10, this would require estimating how likely it is to produce edges such that they produce collisions</a></h3>
-<p>It may be still possible to generate offline such set of edges that can cause recovery of edges from <code>IBF</code> to fail for one node.</p>
+<p>Every node on the network stores its own copy of the <a href="NetworkSpec/./NetworkSpec.html#routing-table">Routing Graph</a>.
+nearcore exchanges this graph in two steps.
+When a connection is set up, the two nodes do a full sync.
+After that, they send only incremental updates.</p>
+<p>After a handshake on a TIER2 connection completes, each node sends one <code>SyncRoutingTable</code> message to the other node.
+The message holds a <code>RoutingTableUpdate</code> with all edges that the node knows.
+After that, a node broadcasts only edges that it has not seen before, also in <code>SyncRoutingTable</code> messages.
+Up to nearcore 2.14.0, these messages also carry account announcements.
+TIER1 and TIER3 connections do not exchange the routing table.
+See the <a href="NetworkSpec/./NetworkSpec.html#synchronization">Synchronization</a> section of the network specification and the <a href="NetworkSpec/./Messages.html#peermessage">PeerMessage</a> listing.</p>
+<h1 id="removed-proposal"><a class="header" href="#removed-proposal">Removed proposal</a></h1>
+<p>An earlier <a href="https://github.com/near/NEPs/pull/220">proposal</a> described a partial exchange that sends only the difference between two routing tables.
+It used Inverse Bloom Filters and a <code>RoutingSyncV2</code> message.
+nearcore had a prototype of it behind a nightly-only build feature.
+nearcore 1.28.0 removed the prototype, and it was never active on mainnet or testnet.
+The <code>RoutingSyncV2</code> message does not exist on the network.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="overview-2"><a class="header" href="#overview-2">Overview</a></h1>
 <p>This chapter covers the NEAR Protocol runtime specification.</p>
@@ -3725,7 +3575,7 @@ See https://stackoverflow.com/a/5923961 that explains that null termination is n
 </span></code></pre></pre>
 <p>Special import kept for compatibility with AssemblyScript contracts. Not called by smart contracts directly, but instead
 called by the code generated by AssemblyScript.</p>
-<h1 id="future-improvements-1"><a class="header" href="#future-improvements-1">Future Improvements</a></h1>
+<h1 id="future-improvements"><a class="header" href="#future-improvements">Future Improvements</a></h1>
 <p>In the future we can have some of the registers to be on the guest.
 For instance a guest can tell the host that it has some pre-allocated memory that it wants to be used for the register,
 e.g.</p>
@@ -8488,7 +8338,7 @@ auto-generated code (in our case Rust code) - that can be directly imported into
 your library.</p>
 <p>The main benefit of protocol buffers is their backwards compatibility (as long
 as you adhere to the rules and don’t reuse the same field ids).</p>
-<h2 id="summary-1"><a class="header" href="#summary-1">Summary</a></h2>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
 <p>So to recap what we’ve learned:</p>
 <p>JSON - mostly used for external APIs - look for serde::Serialize/Deserialize</p>
 <p>Proto - currently being developed to be used for network connections - objects
@@ -9503,7 +9353,9 @@ struct.</p>
 <p>Each <code>edge</code> is represented by the <code>Edge</code> structure. It contains the following:</p>
 <ul>
 <li>pair of nodes represented by their public keys.</li>
-<li><code>nonce</code> - a unique number representing the state of an edge. Starting with <code>1</code>.
+<li><code>nonce</code> - a number representing the state of an edge. A new edge gets an odd
+nonce based on the current Unix time in seconds. See
+<a href="architecture/../NetworkSpec/NetworkSpec.html#edge">Edge</a> for the exact rules.
 Odd numbers represent an active edge. Even numbers represent an edge in which
 one of the nodes, confirmed that the edge is removed.</li>
 <li>Signatures from both peers for active edges.</li>
@@ -9756,11 +9608,12 @@ happens asynchronously.</p>
 <p>Actor messages can be found by looking for structs used with the async messaging helpers (for
 example types that appear in <code>Handler&lt;...&gt;</code> implementations or multi-sender definitions).</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
-<p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
-<a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
-them. We have to maintain backward compatibility. Only messages implementing
-<code>BorshSerialize</code>, <code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for
-database storage.</p>
+<p>Nodes exchange messages as protobuf <code>PeerMessage</code> messages, defined in
+<code>chain/network/src/network_protocol/network.proto</code>. Some fields of these
+messages hold <code>borsh</code>-encoded bytes (see <a href="https://borsh.io/">borsh.io</a>), for
+example signatures, edges, blocks, transactions and routed messages. We should
+be careful when making changes to them. We have to maintain backward
+compatibility. We also use <code>borsh</code> for database storage.</p>
 <h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
 <p>Near runs a <code>json REST server</code> using the axum framework. All messages sent
 and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>

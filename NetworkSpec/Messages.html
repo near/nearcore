@@ -142,10 +142,10 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="messages"><a class="header" href="#messages">Messages</a></h1>
-<p>All message sent in the network are of type <code>PeerMessage</code>. They are encoded using <a href="https://borsh.io/">Borsh</a> which allows a rich structure, small size and fast encoding/decoding. For details about data structures used as part of the message see the <a href="https://github.com/nearprotocol/nearcore">reference code</a>.</p>
+<p>All messages sent in the network are of type <code>PeerMessage</code>. A <code>PeerMessage</code> is encoded with <a href="https://protobuf.dev/">Protocol Buffers</a>, using the schema in <a href="https://github.com/near/nearcore/blob/master/chain/network/src/network_protocol/network.proto">network.proto</a>. Some fields of that schema are <code>bytes</code> fields that hold <a href="https://borsh.io/">Borsh</a> data, for example signatures, public keys, <code>PeerInfo</code>, edges, blocks, block headers, transactions and routed messages. The Rust structures below show either this Borsh data or the Rust types that nearcore uses in memory. For details about data structures used as part of the message see the <a href="https://github.com/nearprotocol/nearcore">reference code</a>.</p>
 <h2 id="encoding"><a class="header" href="#encoding">Encoding</a></h2>
-<p>A <code>PeerMessage</code> is converted into an array of bytes (<code>Vec&lt;u8&gt;</code>) using borsh serialization. An encoded message is conformed by 4 bytes with the length of the serialized <code>PeerMessage</code> concatenated with the serialized <code>PeerMessage</code>.</p>
-<p>Check <a href="https://github.com/nearprotocol/borsh#specification">Borsh specification</a> details to see how it handles each data structure.</p>
+<p>A <code>PeerMessage</code> is converted into an array of bytes (<code>Vec&lt;u8&gt;</code>) using protobuf serialization. An encoded message is the length of the serialized <code>PeerMessage</code> as a 4-byte little-endian unsigned integer, followed by the serialized <code>PeerMessage</code>.</p>
+<p>The Borsh data inside <code>bytes</code> fields follows the <a href="https://github.com/nearprotocol/borsh#specification">Borsh specification</a>.</p>
 <h2 id="data-structures"><a class="header" href="#data-structures">Data structures</a></h2>
 <h3 id="peerid"><a class="header" href="#peerid">PeerID</a></h3>
 <p>The id of a peer in the network is its <a href="https://github.com/nearprotocol/nearcore/blob/master/core/crypto/src/signature.rs">PublicKey</a>.</p>
@@ -175,28 +175,47 @@
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains edge information.
-    Sync(SyncData),
-    RequestUpdateNonce(EdgeInfo),
-    ResponseUpdateNonce(Edge),
-    PeersRequest,
-    PeersResponse(Vec&lt;PeerInfo&gt;),
+    SyncRoutingTable(RoutingTableUpdate),
+    RequestUpdateNonce(PartialEdgeInfo),
+
+    SyncAccountsData(SyncAccountsData),
+
+    PeersRequest(PeersRequest),
+    PeersResponse(PeersResponse),
+
     BlockHeadersRequest(Vec&lt;CryptoHash&gt;),
-    BlockHeaders(Vec&lt;BlockHeader&gt;),
+    BlockHeaders(Vec&lt;Arc&lt;BlockHeader&gt;&gt;),
+
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc&lt;Block&gt;),
+    OptimisticBlock(OptimisticBlock),
+
     Transaction(SignedTransaction),
-    Routed(RoutedMessage),
+    Routed(Box&lt;RoutedMessage&gt;),
+
     /// Gracefully disconnect from other peer.
-    Disconnect,
-    Challenge(Challenge),
+    Disconnect(Disconnect),
+    Challenge(Box&lt;Challenge&gt;),
+
+    SyncSnapshotHosts(SyncSnapshotHosts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>This is the Rust enum that nearcore 2.14.0 uses in memory. <code>Arc</code> and <code>Box</code> do not change the encoding. On the wire, each variant is sent in its own field of the protobuf <code>PeerMessage</code>, and a message sets only one of these fields. For example, <code>Routed</code> is sent in the <code>routed</code> field. Its <code>borsh</code> field holds the Borsh encoding of the <a href="#routedmessage"><code>RoutedMessageV1</code></a> structure below. nearcore also accepts a routed message in the <code>routed_v3</code> field, but it does not send one. A received <code>update_nonce_response</code> field is handled as a <code>SyncRoutingTable</code> message with one edge. nearcore does not send this field.</p>
+<p><code>RequestUpdateNonce</code> carries a <code>PartialEdgeInfo</code>, which is the <a href="#edgeinfo">EdgeInfo</a> structure below. <code>PeersRequest</code> has the optional limits <code>max_peers</code> and <code>max_direct_peers</code>. <code>PeersResponse</code> has two lists of <code>PeerInfo</code>: <code>peers</code> and <code>direct_peers</code>. <code>Disconnect</code> has a <code>remove_from_connection_store</code> flag. Challenges are disabled, and nodes ignore a <code>Challenge</code> message.</p>
 <h3 id="handshake"><a class="header" href="#handshake">Handshake</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -250,7 +269,7 @@
 <h3 id="routedmessage"><a class="header" href="#routedmessage">RoutedMessage</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct RoutedMessage {
+</span>struct RoutedMessageV1 {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
     target: PeerIdOrHash,
@@ -270,31 +289,43 @@
 <h3 id="routedmessagebody"><a class="header" href="#routedmessagebody">RoutedMessageBody</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>enum RoutedMessageBody {
-    BlockApproval(Approval),
-    ForwardTx(SignedTransaction),
-
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(FinalExecutionOutcomeView),
-    QueryRequest {
-        query_id: String,
-        block_id_or_finality: BlockIdOrFinality,
-        request: QueryRequest,
-    },
-    QueryResponse {
-        query_id: String,
-        response: Result&lt;QueryResponse, String&gt;,
-    },
-    ReceiptOutcomeRequest(CryptoHash),
-    ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunk),
-    Ping(Ping),
-    Pong(Pong),
+</span>#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum RoutedMessageBody {
+    BlockApproval(Approval) = 0,
+    ForwardTx(SignedTransaction) = 1,
+    TxStatusRequest(AccountId, CryptoHash) = 2,
+    TxStatusResponse(FinalExecutionOutcomeView) = 3,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 12,
+    /// Ping/Pong used for testing networking and routing.
+    Ping(Ping) = 14,
+    Pong(Pong) = 15,
+    VersionedPartialEncodedChunk(PartialEncodedChunk) = 16,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 18,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 21,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
+    VersionedChunkEndorsement(ChunkEndorsement) = 24,
+    StatePartRequest(StatePartRequest) = 27,
+    ChunkContractAccesses(ChunkContractAccesses) = 28,
+    ContractCodeRequest(ContractCodeRequest) = 29,
+    ContractCodeResponse(ContractCodeResponse) = 30,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 31,
+    StateHeaderRequest(StateHeaderRequest) = 32,
+    SpicePartialData(SpicePartialData) = 33,
+    StateRequestAck(StateRequestAck) = 34,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
+    SpiceDataRequest(SpiceDataRequest) = 36,
+    SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
+    SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
+    SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
+    VersionedPartialEncodedStateWitness(VersionedPartialEncodedStateWitness) = 40,
+    VersionedPartialEncodedStateWitnessForward(VersionedPartialEncodedStateWitness) = 41,
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>The number after each variant is its Borsh enum tag. Tags that are missing from the list belonged to variants that nearcore removed. The <code>Spice</code> variants belong to a protocol feature that is not part of any stable protocol version.</p>
 <h2 id="cryptohash"><a class="header" href="#cryptohash">CryptoHash</a></h2>
 <p><code>CryptoHash</code> are objects with 256 bits of information.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]

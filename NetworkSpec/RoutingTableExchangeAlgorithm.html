@@ -142,207 +142,22 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="routing-table-exchange-algorithm"><a class="header" href="#routing-table-exchange-algorithm">Routing table exchange algorithm</a></h1>
-<!-- cspell:ignore neps -->
-<ul>
-<li>Proposal Name: New routing table exchange algorithm</li>
-<li>Start Date: 6/21/2021</li>
-<li>NEP PR: <a href="https://github.com/near/nearcore/pull/4112"><code>nearprotocol/neps#0000</code></a></li>
-<li>Issue(s): https://github.com/near/nearcore/issues/3838.</li>
-<li><a href="https://github.com/near/NEPs/pull/220">GitHub PR</a></li>
-</ul>
-<h1 id="summary"><a class="header" href="#summary">Summary</a></h1>
-<p>Currently, every node on the network stores its own copy of the <a href="./NetworkSpec.html#routing-table">Routing Graph</a>.
-The process of exchanging and verifying edges requires sending full copy of routing table on every synchronization.
-Sending full copy of routing table is wasteful, in this spec we propose a solution, which allows doing partial  synchronization.
-This should reduce both bandwidth used, and amount of CPU time.</p>
-<p>Typically, only one full sync would be required when a node connects to the network for the first time.
-For given two nodes doing synchronization, we propose a method, which requires bandwidth/processing time proportional to the size of data which needs to be exchanged for given nodes.</p>
-<h1 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h1>
-<p>In this spec we describe the implementation of <code>Routing Graph Reconciliation</code> algorithm using Inverse Bloom Filters.
-An overview of different <code>Routing Graph Reconciliation</code> algorithms can be a found at
-<a href="https://github.com/pmnoxx/docs/blob/piotr-test-markdown/near/ROUTING_GRAPH_RECONCILIATION.pdf">ROUTING_GRAPH_RECONCILIATION.pdf</a></p>
-<p>The process of exchanging <code>routing tables</code> involves exchanging edges between a pair of nodes.
-For given nodes <code>A</code>, <code>B</code>, that involves adding edges which <code>A</code> has, but <code>B</code> doesn't and vice-versa.
-For each connection we create a data structure <a href="#ibfset">IbfSet</a>.
-It stores <code>Inverse Bloom Filters</code> <a href="#ibf">Ibf</a> of powers of <code>2^k</code> for <code>k</code> in range <code>10..17</code>.
-This allows us to recover around <code>2^17 / 1.3</code> edges with <code>99%</code> probability according to <a href="https://www.ics.uci.edu/%7Eeppstein/pubs/EppGooUye-SIGCOMM-11.pdf">Efficient Set Reconciliation without Prior Context</a>.
-Otherwise, we do full routing table exchange.</p>
-<p>We have chosen a minimum size of <code>Ibf</code> to be <code>2^10</code>, because the overhead of processing <code>IBF</code> of smaller size of negligible, and to reduce the number of messages required in exchange.
-On the other side, we limit <code>Ibf</code> to size of <code>2^17</code> to reduce memory usage required for each data structure.</p>
-<h1 id="routing-table"><a class="header" href="#routing-table">Routing Table</a></h1>
-<p>We are extending [Routing Table](NetworkSpec.md#Routing Table) by additional field <code>peer_ibf_set</code></p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct RoutingTable {
-   /// Other fields
-   ///    ..
-   /// Data structure used for exchanging routing tables.
-   pub peer_ibf_set: IbfPeerSet,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>peer_ibf_set</code> - a helper data structure, which allows doing partial synchronization.</li>
-</ul>
-<h1 id="ibfpeerset"><a class="header" href="#ibfpeerset">IbfPeerSet</a></h1>
-<p><code>IbfPeerSet</code> contains a mapping between <code>PeerId</code> and <code>IbfSet</code>.
-It's used to store metadata for each peer, which can be used to compute set difference between routing tables of current peer and peer contained in the mapping.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct SimpleEdge {
-  pub key: (PeerId, PeerId),
-  pub nonce: u64,
-}
-
-pub struct IbfPeerSet {
-    peer2seed: HashMap&lt;PeerId, u64&gt;,
-    unused_seeds: Vec&lt;u64&gt;,
-    seed2ibf: HashMap&lt;u64, IbfSet&lt;SimpleEdge&gt;&gt;,
-    slot_map: SlotMap,
-    edges: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>peer2seed</code> - contains a mapping from <code>PeerId</code> to <code>seed</code> used to generate <code>IbfSet</code></li>
-<li><code>unused_seeds</code> - list of currently unused seeds, which will be used for new incoming connections</li>
-<li><code>seed2ibf</code> - contains a mapping from <code>seed</code> to <code>IbfSet</code></li>
-<li><code>slot_map</code> - a helper data structure, which is used to store <code>Edges</code>, this allows us to save memory by not storing
-duplicates.</li>
-<li><code>edges</code> - total number of edges in the data structure</li>
-</ul>
-<h1 id="messages"><a class="header" href="#messages">Messages</a></h1>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct RoutingSyncV2 {
-    pub version: u64,
-    pub known_edges: u64,
-    pub ibf_level: u64,
-    pub ibf: Vec&lt;IbfElem&gt;,
-    pub request_all_edges: bool,
-    pub seed: u64,
-    pub edges: Vec&lt;Edge&gt;,
-    pub requested_edges: Vec&lt;u64&gt;,
-    pub done: bool,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>version</code> - version of routing table, currently 0, for future use</li>
-<li><code>known_edges</code> - number of edges peer knows about, this allows us to decide whenever to request all edges
-immediately or not.</li>
-<li><code>ibf_level</code> - level of inverse bloom filter requested from <code>10</code> to <code>17</code>.</li>
-<li><code>request_all_edges</code> - true if peer decides to request all edges from other peer</li>
-<li><code>seed</code> - seed used to generate ibf</li>
-<li><code>edges</code> - list of edges send to the other peer</li>
-<li><code>requested_edges</code> - list of hashes of edges peer want to get</li>
-<li><code>done</code> - true if it's the last message in synchronization</li>
-</ul>
-<h2 id="ibfset"><a class="header" href="#ibfset">IbfSet</a></h2>
-<p>Structure used to represent set of <code>Inverse Bloom Filters</code> for given peer.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct IbfSet&lt;T: Hash + Clone&gt; {
-    seed: u64,
-    ibf: Vec&lt;Ibf&gt;,
-    h2e: HashMap&lt;u64, SlotMapId&gt;,
-    hasher: DefaultHasher,
-    pd: PhantomData&lt;T&gt;,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>seed</code> - seed used to generate IbfSet</li>
-<li><code>ibf</code> - list of <code>Inverse Bloom Filters</code> with sizes from <code>10</code> to <code>17</code>.</li>
-<li><code>h2e</code> - mapping from hash of given edge to id of the edge. This is used to save memory, to avoid storing multiple
-copies of given edge.</li>
-<li><code>hasher</code> - hashing function</li>
-</ul>
-<h2 id="ibf"><a class="header" href="#ibf">Ibf</a></h2>
-<p>Structure representing Reverse Bloom Filter.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct Ibf {
-    k: i32,
-    pub data: Vec&lt;IbfElem&gt;,
-    hasher: IbfHasher,
-    pub seed: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>k</code> - number of elements in vector</li>
-<li><code>data</code> - vector of elements of bloom filter</li>
-<li><code>seed</code> - seed of each inverse bloom filter</li>
-<li><code>hasher</code> - hashing function</li>
-</ul>
-<h2 id="ibfelem"><a class="header" href="#ibfelem">IbfElem</a></h2>
-<p>Element of bloom filter</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct IbfElem {
-    xor_elem: u64,
-    xor_hash: u64,
-}
-<span class="boring">}
-</span></code></pre></pre>
-<ul>
-<li><code>xor_element</code> - xor of hashes of edges stored in given box</li>
-<li><code>xor_hash</code> - xor of hashes of hashes of edges stored in give n box</li>
-</ul>
-<h2 id="routing-table-exchange"><a class="header" href="#routing-table-exchange">Routing table exchange</a></h2>
-<p>The process of exchanging routing tables involves multiple steps.
-It could be reduced if needed by adding an estimator of how many edges differ, but it's not implemented for sake of simplicity.</p>
-<h2 id="step-1"><a class="header" href="#step-1">Step 1</a></h2>
-<p>Peer <code>A</code> connects to peer <code>B</code>.</p>
-<h2 id="step-2"><a class="header" href="#step-2">Step 2</a></h2>
-<p>Peer <code>B</code> chooses unique <code>seed</code>, and generates <code>IbfPeerSet</code> based on seed and all known edges in
-[Routing Table](NetworkSpec.md#Routing Table).</p>
-<h2 id="step-3---10"><a class="header" href="#step-3---10">Step 3 - 10</a></h2>
-<p>On odd steps peer <code>B</code> sends message to peer <code>A</code>, with Ibf of size <code>2^(step+7)</code>.
-On even steps, peer <code>A</code> does it.</p>
-<ul>
-<li>Case 1 - if we were unable to find all edges we continue to the next step.</li>
-<li>Case 2 - otherwise, we know what the set difference is.
-We compute the set of hashes of edges given node knows about, and doesn't know about.
-Current peer sends to the other peer the edges it knows about, and asks about edges, based on hashes, it doesn't know about the other peer.
-The other peer sends the response, and the routing table exchange ends.</li>
-</ul>
-<h2 id="step-11"><a class="header" href="#step-11">Step 11</a></h2>
-<p>In case the synchronization isn't done yet, each side sends list of hashes of edges it knows about.</p>
-<h2 id="step-12"><a class="header" href="#step-12">Step 12</a></h2>
-<p>Each side sends list of edges the other side requested.</p>
-<h1 id="security-considerations"><a class="header" href="#security-considerations">Security considerations</a></h1>
-<h3 id="avoid-extra-computation-if-another-peer-reconnects-to-server"><a class="header" href="#avoid-extra-computation-if-another-peer-reconnects-to-server">Avoid extra computation if another peer reconnects to server</a></h3>
-<p>In order to avoid extra computation whenever a peer reconnects to server, we can keep a pool of <code>IbfPeerSet</code> structures.
-The number of such structures which we need to keep is going to be equal to the peak number of incoming connections, which servers have had plus the number of outgoing connections.</p>
-<h3 id="producing-edges-where-there-is-a-hash-collision"><a class="header" href="#producing-edges-where-there-is-a-hash-collision">Producing edges, where there is a hash collision</a></h3>
-<p>We use unique <code>IbfPeerSet</code> structure, for each connection, this prevents seeds to be guessed.
-Therefore, we are resistant to that type of attack.</p>
-<h1 id="memory-overhead"><a class="header" href="#memory-overhead">Memory overhead</a></h1>
-<p>For each connection we need to use approximately <code>(2^10 + ... 2^17) * sizeof(IbfElem) bytes = 2^18 * 16 bytes = 4 MiB</code>.
-Assuming we keep extra <code>40</code> of such data structures, we would need extra <code>160 MiB</code>.</p>
-<h1 id="performance-overhead"><a class="header" href="#performance-overhead">Performance overhead</a></h1>
-<p>On each update we need up update each <code>IbfSet</code> structure <code>3*8 = 24</code> times.
-Assuming we keep <code>40</code> such data structures, that requires up to <code>960</code> updates.</p>
-<h1 id="alternative-approaches"><a class="header" href="#alternative-approaches">Alternative approaches</a></h1>
-<h3 id="only-use-one-ibfpeerset-structure-for-everyone"><a class="header" href="#only-use-one-ibfpeerset-structure-for-everyone">Only use one <code>IbfPeerSet</code> structure for everyone</a></h3>
-<p>This would reduce number of updates we need to do, and memory usage.
-However, it would be possible to guess the hash function used, which would expose us to security vulnerability.
-It would be simple to produce two edges, such that there is a hash collision, which would cause routing table exchange to fail.</p>
-<h3 id="increase-number-of-ibfset-structures-per-ibfpeerset"><a class="header" href="#increase-number-of-ibfset-structures-per-ibfpeerset">Increase number of <code>IbfSet</code> structures per <code>IbfPeerSet</code></a></h3>
-<p>In theory, we could increase the sizes of <code>IBF</code> structures used from <code>2^10..2^17</code> to <code>2^10..2^20</code>.
-This would allow us to recover the set difference if it's up to <code>2^20/3</code> instead of <code>2^17/3</code> at cost of increasing memory overhead from <code>160 MiB to 640 Mib</code>.</p>
-<h3 id="simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer"><a class="header" href="#simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer">Simplify algorithm to only exchange list of hashes of known edges of each peer</a></h3>
-<p>Each edge has a size of about 400 bytes.
-Let's assume we need to send 1 million edges.
-By sending list of 4 bytes hashes of all known edges on each synchronization we would only need to send <code>4 MiB</code> of metadata plus the size of edges that differ.
-This approach would be simpler, but not as efficient in terms of bandwidth.
-That would still be an improvement of having to send just <code>4 MiB</code> over <code>400 MiB</code> with existing implementation.</p>
-<h1 id="future-improvements"><a class="header" href="#future-improvements">Future improvements</a></h1>
-<h2 id="reduce-memory-usage"><a class="header" href="#reduce-memory-usage">Reduce memory usage</a></h2>
-<h3 id="used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions"><a class="header" href="#used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions">Used a fixed number of <code>IbfPeerSet</code> structures for each node Theoretically, smaller number of sets could be used. For example 10, this would require estimating how likely it is to produce edges such that they produce collisions</a></h3>
-<p>It may be still possible to generate offline such set of edges that can cause recovery of edges from <code>IBF</code> to fail for one node.</p>
+<p>Every node on the network stores its own copy of the <a href="./NetworkSpec.html#routing-table">Routing Graph</a>.
+nearcore exchanges this graph in two steps.
+When a connection is set up, the two nodes do a full sync.
+After that, they send only incremental updates.</p>
+<p>After a handshake on a TIER2 connection completes, each node sends one <code>SyncRoutingTable</code> message to the other node.
+The message holds a <code>RoutingTableUpdate</code> with all edges that the node knows.
+After that, a node broadcasts only edges that it has not seen before, also in <code>SyncRoutingTable</code> messages.
+Up to nearcore 2.14.0, these messages also carry account announcements.
+TIER1 and TIER3 connections do not exchange the routing table.
+See the <a href="./NetworkSpec.html#synchronization">Synchronization</a> section of the network specification and the <a href="./Messages.html#peermessage">PeerMessage</a> listing.</p>
+<h1 id="removed-proposal"><a class="header" href="#removed-proposal">Removed proposal</a></h1>
+<p>An earlier <a href="https://github.com/near/NEPs/pull/220">proposal</a> described a partial exchange that sends only the difference between two routing tables.
+It used Inverse Bloom Filters and a <code>RoutingSyncV2</code> message.
+nearcore had a prototype of it behind a nightly-only build feature.
+nearcore 1.28.0 removed the prototype, and it was never active on mainnet or testnet.
+The <code>RoutingSyncV2</code> message does not exist on the network.</p>
 
                     </main>
 

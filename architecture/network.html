@@ -265,7 +265,9 @@ struct.</p>
 <p>Each <code>edge</code> is represented by the <code>Edge</code> structure. It contains the following:</p>
 <ul>
 <li>pair of nodes represented by their public keys.</li>
-<li><code>nonce</code> - a unique number representing the state of an edge. Starting with <code>1</code>.
+<li><code>nonce</code> - a number representing the state of an edge. A new edge gets an odd
+nonce based on the current Unix time in seconds. See
+<a href="../NetworkSpec/NetworkSpec.html#edge">Edge</a> for the exact rules.
 Odd numbers represent an active edge. Even numbers represent an edge in which
 one of the nodes, confirmed that the edge is removed.</li>
 <li>Signatures from both peers for active edges.</li>
@@ -518,11 +520,12 @@ happens asynchronously.</p>
 <p>Actor messages can be found by looking for structs used with the async messaging helpers (for
 example types that appear in <code>Handler&lt;...&gt;</code> implementations or multi-sender definitions).</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
-<p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
-<a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
-them. We have to maintain backward compatibility. Only messages implementing
-<code>BorshSerialize</code>, <code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for
-database storage.</p>
+<p>Nodes exchange messages as protobuf <code>PeerMessage</code> messages, defined in
+<code>chain/network/src/network_protocol/network.proto</code>. Some fields of these
+messages hold <code>borsh</code>-encoded bytes (see <a href="https://borsh.io/">borsh.io</a>), for
+example signatures, edges, blocks, transactions and routed messages. We should
+be careful when making changes to them. We have to maintain backward
+compatibility. We also use <code>borsh</code> for database storage.</p>
 <h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
 <p>Near runs a <code>json REST server</code> using the axum framework. All messages sent
 and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
