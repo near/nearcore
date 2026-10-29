@@ -516,7 +516,6 @@ pub async fn start_with_config_and_synchronization_impl(
         actor_system.new_future_spawner("cloud archival").into(),
         config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
-        runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
         shard_tracker.clone(),
