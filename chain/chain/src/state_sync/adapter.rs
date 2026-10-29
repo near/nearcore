@@ -9,8 +9,7 @@ use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
 use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::{BlockHeader, Tip};
-use near_primitives::block_body::BlockBody;
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, verify_path_with_index};
 use near_primitives::sharding::{
@@ -278,29 +277,27 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
-        let (certifying_block_hash, certifying_block_body, execution_result) =
-            self.certifying_block_body(&chunk_id)?;
+        let (certifying_block, execution_result) = self.certifying_block(&chunk_id)?;
         let state_root = *execution_result.chunk_extra.state_root();
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &sync_hash, &state_root)?;
         Ok(ShardStateSyncResponseHeader::V3(ShardStateSyncResponseHeaderV3 {
             state_root,
             state_root_node,
-            certifying_block_hash,
-            certifying_block_body,
+            certifying_block,
         }))
     }
 
-    /// The body of the block that commits the chunk's execution result, with its hash.
+    /// The block that commits the chunk's execution result, with that result.
     ///
     /// The committing block comes from the `chunk_certifying_block` index, which is written when
     /// a block becomes final, so serving a header at all means the chunk is certified. The body
     /// carries the result whole; the receiving node checks it against the header's
     /// `block_body_hash`.
-    fn certifying_block_body(
+    fn certifying_block(
         &self,
         chunk_id: &SpiceChunkId,
-    ) -> Result<(CryptoHash, BlockBody, ChunkExecutionResult), Error> {
+    ) -> Result<(Arc<Block>, ChunkExecutionResult), Error> {
         let Some(certifying_block_hash) = self.chain_store.get_chunk_certifying_block(chunk_id)
         else {
             return Err(Error::Other(format!(
@@ -318,12 +315,7 @@ impl ChainStateSyncAdapter {
             )));
         };
         let execution_result = execution_result.clone();
-        let Some(body) = certifying_block.body() else {
-            return Err(Error::Other(format!(
-                "certifying block {certifying_block_hash} has no versioned body"
-            )));
-        };
-        Ok((certifying_block_hash, body.clone(), execution_result))
+        Ok((certifying_block, execution_result))
     }
 
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
@@ -389,7 +381,7 @@ impl ChainStateSyncAdapter {
         // after the sync block's own chunk ran, and snapshots it at the sync block itself.
         let (state_root, root_node_hash, snapshot_hash) = if header.is_spice() {
             let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
-            let (_, _, execution_result) = self.certifying_block_body(&chunk_id)?;
+            let (_, execution_result) = self.certifying_block(&chunk_id)?;
             (*execution_result.chunk_extra.state_root(), sync_hash, sync_hash)
         } else {
             let prev_block = self.chain_store.get_block(header.prev_hash())?;
@@ -652,10 +644,7 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
-        let (Some(certifying_block_hash), Some(certifying_block_body)) = (
-            shard_state_header.spice_certifying_block_hash(),
-            shard_state_header.spice_certifying_block_body(),
-        ) else {
+        let Some(certifying_block) = shard_state_header.spice_certifying_block() else {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: a spice header must carry a certifying block".into(),
@@ -665,7 +654,7 @@ impl ChainStateSyncAdapter {
         // 1. The certifying block must be final and descend from the sync block. Execution
         // results are committed by a later block, and only a final descendant's commitment says
         // anything about the chain the node is syncing to.
-        let certifying_header = self.chain_store.get_block_header(certifying_block_hash)?;
+        let certifying_header = self.chain_store.get_block_header(certifying_block.hash())?;
         if !self.is_final_descendant_of_sync_block(&certifying_header, &sync_hash)? {
             byzantine_assert!(false);
             return Err(Error::Other(
@@ -673,15 +662,21 @@ impl ChainStateSyncAdapter {
             ));
         }
 
-        // 2. The body must be the one that header commits to. The header came from header sync,
-        // so this is what makes everything read out of the body below trustworthy.
+        // 2. The block must be the one header sync gave the node.
+        if certifying_block.header() != certifying_header.as_ref() {
+            byzantine_assert!(false);
+            return Err(Error::Other(
+                "set_shard_state failed: certifying block header differs from the stored one"
+                    .into(),
+            ));
+        }
         let Some(block_body_hash) = certifying_header.block_body_hash() else {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: certifying block header commits no body hash".into(),
             ));
         };
-        if certifying_block_body.compute_hash() != block_body_hash {
+        if certifying_block.compute_block_body_hash() != Some(block_body_hash) {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: certifying block body does not match block_body_hash"

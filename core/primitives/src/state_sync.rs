@@ -1,4 +1,4 @@
-use crate::block_body::BlockBody;
+use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::sharding::{
@@ -142,13 +142,9 @@ pub struct ShardStateSyncResponseHeaderV3 {
     /// The state root node of that trie.
     pub state_root_node: StateRootNode,
     /// The block whose core statements commit the chunk's execution result. The node checks
-    /// that it is final and descends from the sync block, and must hold its header already.
-    pub certifying_block_hash: CryptoHash,
-    /// That block's body, checked against the header's `block_body_hash`. The execution
-    /// result the node records as the sync block's `ChunkExtra` is read out of it, so every
-    /// field of it is committed on chain - including the gas limit, congestion info and
-    /// bandwidth requests that `chunk_execution_root` alone does not cover.
-    pub certifying_block_body: BlockBody,
+    /// it is final and descends from the sync block, and that its body matches the
+    /// `block_body_hash` of the header it already holds.
+    pub certifying_block: Arc<Block>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -281,21 +277,12 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
-    /// The hash of the block certifying the sync block's chunk, present exactly on V3.
+    /// The block certifying the sync block's chunk, present exactly on V3.
     #[inline]
-    pub fn spice_certifying_block_hash(&self) -> Option<&CryptoHash> {
+    pub fn spice_certifying_block(&self) -> Option<&Block> {
         match self {
             Self::V1(_) | Self::V2(_) => None,
-            Self::V3(header) => Some(&header.certifying_block_hash),
-        }
-    }
-
-    /// The body of that block, present exactly on V3.
-    #[inline]
-    pub fn spice_certifying_block_body(&self) -> Option<&BlockBody> {
-        match self {
-            Self::V1(_) | Self::V2(_) => None,
-            Self::V3(header) => Some(&header.certifying_block_body),
+            Self::V3(header) => Some(&header.certifying_block),
         }
     }
 
@@ -305,8 +292,9 @@ impl ShardStateSyncResponseHeader {
     /// is only trustworthy once `set_state_header` has checked it against the certifying
     /// block header's `block_body_hash`.
     pub fn spice_execution_result(&self, chunk_id: &SpiceChunkId) -> Option<&ChunkExecutionResult> {
-        let body = self.spice_certifying_block_body()?;
-        body.spice_core_statements()
+        let block = self.spice_certifying_block()?;
+        block
+            .spice_core_statements()
             .iter_execution_results()
             .find(|(id, _)| *id == chunk_id)
             .map(|(_, result)| result)
