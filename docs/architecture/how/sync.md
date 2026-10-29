@@ -155,9 +155,11 @@ requesters at a time.
 
 Requests to hosts whose advertisement carries no address, such as hosts on
 older releases, are routed over Tier 2 along with the requester's own public
-address. These hosts return acknowledgements over Tier 2, then connect back to
-the requester over Tier 3 to send the state headers and parts. State response
-payloads are accepted only on Tier 3 connections.
+address. A node routes its requests to all hosts this way if
+`network.experimental.direct_state_requests_disabled` is set. The hosts return
+acknowledgements over Tier 2, then connect back to the requester over Tier 3 to
+send the state headers and parts. State response payloads are accepted only on
+Tier 3 connections.
 
 Snapshot host advertisements are versioned, and version 2 adds the host's own
 listening address: its public address as observed by its peers, or

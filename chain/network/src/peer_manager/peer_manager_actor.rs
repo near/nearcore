@@ -804,7 +804,8 @@ impl PeerManagerActor {
     /// Sends a state request to the snapshot host selected for it. A host which advertises its
     /// address is sent the request over Tier3. Hosts on older releases don't advertise their
     /// address, so the request is routed to them over Tier2 with our own public address, and they
-    /// connect back to send the response over Tier3.
+    /// connect back to send the response over Tier3. This legacy path will be removed in a future
+    /// release. With `direct_state_requests_disabled`, the requests to all hosts are routed.
     fn send_state_request(
         &self,
         host: PeerId,
@@ -812,8 +813,9 @@ impl PeerManagerActor {
         sync_hash: CryptoHash,
         part_or_header: PartOrHeader,
     ) -> NetworkResponses {
-        if let Some(host_addr) =
-            self.state.snapshot_hosts.get_host_info(&host).and_then(|info| info.addr())
+        if !self.state.config.direct_state_requests_disabled
+            && let Some(host_addr) =
+                self.state.snapshot_hosts.get_host_info(&host).and_then(|info| info.addr())
         {
             tracing::debug!(
                 target: "network",

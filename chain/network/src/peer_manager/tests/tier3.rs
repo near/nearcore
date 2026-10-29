@@ -728,6 +728,32 @@ async fn requests_routed_to_host_without_addr() {
     assert_eq!(send_request(&requester, request).await, NetworkResponses::MyPublicAddrNotKnown);
 }
 
+// Verify that a node with direct state requests disabled routes state requests over Tier2 even to a
+// snapshot host which advertises its address.
+#[tokio::test]
+async fn requests_routed_if_direct_requests_disabled() {
+    init_test_logger();
+    let mut rng = make_rng(921853250);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let mut cfg = chain.make_config(rng);
+    cfg.direct_state_requests_disabled = true;
+    let requester =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await;
+    let host = chain.make_config(rng);
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let host_addr = host.node_addr.as_ref().map(|addr| **addr);
+    advertise_snapshot(&requester, &host, snapshot_hash, shard_id, host_addr).await;
+    let request =
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx: 0 };
+    assert_eq!(send_request(&requester, request).await, NetworkResponses::MyPublicAddrNotKnown);
+}
+
 /// Makes `pm` aware of a snapshot that `host` advertises with `addr` as its address, requests a
 /// part of it, and checks that `pm` tells the client that the request wasn't sent.
 async fn request_not_sent(

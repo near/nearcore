@@ -292,6 +292,10 @@ impl Default for Tier1Config {
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
@@ -313,6 +317,9 @@ pub struct ExperimentalConfig {
     /// state sync connections. Format: "IP:port" (e.g. "203.0.113.5:24567").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier3_public_addr: Option<SocketAddr>,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub direct_state_requests_disabled: bool,
 
     /// See `NetworkConfig`.
     /// Fields set here will override the NetworkConfig fields.

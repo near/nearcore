@@ -145,6 +145,9 @@ pub struct NetworkConfig {
     pub validator: ValidatorConfig,
     /// If set, overrides the auto-discovered public address for Tier3 state sync.
     pub tier3_public_addr: Option<SocketAddr>,
+    /// If true, state requests are routed to snapshot hosts over Tier2, even if the hosts
+    /// advertise their address.
+    pub direct_state_requests_disabled: bool,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -365,6 +368,7 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: cfg.experimental.tier3_public_addr,
+            direct_state_requests_disabled: cfg.experimental.direct_state_requests_disabled,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -475,6 +479,7 @@ impl NetworkConfig {
             node_key,
             validator,
             tier3_public_addr: None,
+            direct_state_requests_disabled: false,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
