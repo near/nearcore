@@ -185,6 +185,9 @@ fn on_new_spice_header<T: ChainStoreAccess>(
         // Finality has not reached this epoch yet, so its first block is not final.
         return Ok(());
     }
+    if last_final.height() == chain_store.get_genesis_height() {
+        return Ok(());
+    }
     let first = first_block_of_epoch(chain_store, last_final, epoch_id)?;
     store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), first.hash());
     store_update.delete_all(DBCol::StateSyncNewChunks);
