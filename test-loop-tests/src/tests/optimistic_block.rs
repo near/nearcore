@@ -3,6 +3,8 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 #[cfg(feature = "test_features")]
 use crate::setup::network_rules::Action;
+#[cfg(feature = "test_features")]
+use crate::setup::task_delays::task_names;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -341,17 +343,12 @@ fn test_optimistic_apply_memtrie_gc_race() {
 
     // `skip_warmup`: default warmup asserts all chunks produced in the first
     // few blocks, too tight while one node's optimistic-apply is slowed.
-    let mut env: TestLoopEnv = get_builder(num_shards)
-        .track_all_shards()
-        .task_delay_fn({
-            let slow_node = slow_node.clone();
-            move |account, task_name| {
-                (account == &slow_node && task_name == "apply_chunks_optimistic")
-                    .then(|| Duration::seconds(5))
-            }
-        })
-        .skip_warmup()
-        .build();
+    let mut env: TestLoopEnv = get_builder(num_shards).track_all_shards().skip_warmup().build();
+    env.delay_task_for_account(
+        &slow_node,
+        task_names::APPLY_CHUNKS_OPTIMISTIC,
+        Duration::seconds(5),
+    );
 
     // `run_for` (not `run_until_head_height`): the bug is time-based — the
     // 5s-delayed optimistic apply tasks need virtual time to fire after their

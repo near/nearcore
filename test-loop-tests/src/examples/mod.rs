@@ -10,4 +10,5 @@ mod network_rules;
 mod node_lifecycle;
 mod resharding;
 mod setup;
+mod task_delays;
 mod validator_rotation;

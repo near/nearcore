@@ -3,6 +3,7 @@ use super::drop_condition::DropCondition;
 use super::network_rules::{Action, RuleHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use super::task_delays::TaskDelayHandle;
 use crate::utils::account::{archival_account_id, rpc_account_id};
 use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
@@ -71,6 +72,32 @@ impl TestLoopEnv {
         action: Action,
     ) -> RuleHandle {
         self.shared_state.network_rules.add(account_id.clone(), matches, action)
+    }
+
+    /// From now on the task `task_name` of node `index` takes `delay` in test-loop time, in
+    /// place of the spawner's default, until the handle is lifted. The delay is keyed by the
+    /// node's account, so it stays on a node that is killed and restarted. See
+    /// [`super::task_delays`] for the task names.
+    pub fn delay_task(&self, index: usize, task_name: &str, delay: Duration) -> TaskDelayHandle {
+        self.delay_task_for_account(&self.node_datas[index].account_id, task_name, delay)
+    }
+
+    /// [`Self::delay_task`] for the node of `account_id`, which need not exist yet.
+    pub fn delay_task_for_account(
+        &self,
+        account_id: &AccountId,
+        task_name: &str,
+        delay: Duration,
+    ) -> TaskDelayHandle {
+        let task_name = task_name.to_string();
+        self.shared_state.task_delays.add(account_id.clone(), move |name| name == task_name, delay)
+    }
+
+    /// [`Self::delay_task`] on every node, the ones added later included: one handle covers
+    /// them all.
+    pub fn delay_task_on_all_nodes(&self, task_name: &str, delay: Duration) -> TaskDelayHandle {
+        let task_name = task_name.to_string();
+        self.shared_state.task_delays.add_for_all(move |name| name == task_name, delay)
     }
 
     /// From now on node `index` drops every request it sends that `matches`.

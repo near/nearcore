@@ -7,6 +7,7 @@ use super::peer_manager_actor::{
     ViewClientSenderForTestLoopNetwork,
 };
 use super::spice_partial_data_faults::SpicePartialDataFaultState;
+use super::task_delays::TaskDelays;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::sender::TestLoopSender;
@@ -77,11 +78,8 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
-    /// Optional per-`(account, task_name)` override of the spawner's
-    /// artificial virtual delay. `None` for a given pair falls back to the
-    /// test-loop default. Used by tests that need to slow specific tasks on
-    /// specific nodes.
-    pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
+    /// The delays on the background tasks of each node, see [`TaskDelays`].
+    pub task_delays: TaskDelays,
     /// The rules on what each node sends, see [`NetworkRules`].
     pub network_rules: NetworkRules,
     /// Fault injection for spice data distribution, armed by tests.

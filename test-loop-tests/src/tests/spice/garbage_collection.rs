@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::task_delays::task_names;
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
@@ -60,9 +61,9 @@ fn test_spice_garbage_collection_witnesses() {
         .delay_warmup()
         .build();
 
-    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    let execution_delay = 4;
-    env.delay_endorsements_propagation(execution_delay);
+    // Every node's chunk execution takes longer than a block, so execution lags behind
+    // consensus and witnesses of uncertified blocks pile up.
+    let slowed = env.delay_task_on_all_nodes(task_names::SPICE_APPLY_CHUNKS, Duration::seconds(1));
     env = env.warmup();
 
     // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
@@ -74,7 +75,7 @@ fn test_spice_garbage_collection_witnesses() {
                 .map_or(0, |header| header.height())
                 >= 10
         },
-        Duration::seconds(20),
+        Duration::seconds(40),
     );
     let shard_tracker = env.node(0).client().shard_tracker.clone();
     let tracked_shards: Vec<_> = shard_layout
@@ -82,6 +83,7 @@ fn test_spice_garbage_collection_witnesses() {
         // This gets tracked shards for genesis, but it should not change during the test.
         .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
         .collect();
+    assert!(slowed.matched() > 0, "no chunk execution was slowed");
     assert_witness_gc_invariant(&env.node(0), &tracked_shards);
 }
 

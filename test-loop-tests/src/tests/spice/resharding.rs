@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::task_delays::task_names;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use itertools::Itertools as _;
@@ -61,8 +62,9 @@ fn test_spice_certified_results_across_resharding() {
         .delay_warmup()
         .build();
 
-    let execution_delay = 2;
-    env.delay_endorsements_propagation(execution_delay);
+    // The node's chunk execution takes longer than a block, so certification lags behind
+    // consensus across the resharding.
+    let slowed = env.delay_task_on_all_nodes(task_names::SPICE_APPLY_CHUNKS, Duration::seconds(1));
     env = env.warmup();
 
     let epoch_manager = env.validator().client().epoch_manager.clone();
@@ -72,13 +74,14 @@ fn test_spice_certified_results_across_resharding() {
             let epoch_id = node.head().epoch_id;
             epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
-        Duration::seconds((3 * epoch_length) as i64),
+        Duration::seconds((6 * epoch_length) as i64),
     );
     let new_epoch_start = env.validator().head().height;
 
     // Run a few more blocks in the resharded epoch to exercise the code path
     // where last_certified_block is in the old epoch but current block is in the new epoch.
     env.validator_runner().run_for_number_of_blocks(5);
+    assert!(slowed.matched() > 0, "no chunk execution was slowed");
 
     // Assert that the first block of the resharded epoch has its last certified
     // block in the previous epoch with a different number of shards.

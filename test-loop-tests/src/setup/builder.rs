@@ -4,6 +4,7 @@ use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use super::task_delays::TaskDelays;
 use crate::utils::account::{
     archival_account_id, create_validators_spec, rpc_account_id, validators_spec_clients,
 };
@@ -80,13 +81,6 @@ pub(crate) struct TestLoopBuilder {
     /// the corresponding pool entry's transport returns `Err(msg)` instead of
     /// dispatching the request. Used to simulate unreachable / stale nodes.
     rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
-    /// Optional per-`(account, task_name)` override of the spawner's
-    /// artificial virtual delay. Returning `None` falls back to the
-    /// test-loop default. Returning `Some(d)` sets the delay for that task.
-    /// Only consulted by the client's `AsyncComputationMultiSpawner` (which
-    /// runs `apply_chunks` and other async client computation); other
-    /// per-node spawners still use the fixed test-loop default.
-    task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
 }
 
 impl TestLoopBuilder {
@@ -110,21 +104,7 @@ impl TestLoopBuilder {
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
             rpc_pool_fault_handles: HashMap::new(),
-            task_delay_fn: None,
         }
-    }
-
-    /// Override the test-loop spawner's artificial virtual delay per
-    /// `(account, task_name)`. Returning `None` falls back to the test-loop
-    /// default. Used by tests that need to slow specific tasks on specific
-    /// nodes (e.g. delay `"apply_chunks_optimistic"` on one validator to
-    /// repro the optimistic-apply / memtrie GC race).
-    pub(crate) fn task_delay_fn(
-        mut self,
-        delay_fn: impl Fn(&AccountId, &str) -> Option<Duration> + Send + Sync + 'static,
-    ) -> Self {
-        self.task_delay_fn = Some(Arc::new(delay_fn));
-        self
     }
 
     pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
@@ -584,7 +564,7 @@ impl TestLoopBuilder {
             disable_compiled_contract_cache: self.disable_compiled_contract_cache,
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
-            task_delay_fn: self.task_delay_fn.clone(),
+            task_delays: TaskDelays::default(),
             network_rules: NetworkRules::default(),
             spice_partial_data_faults: Default::default(),
         };

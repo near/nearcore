@@ -76,7 +76,7 @@ pub fn setup_client(
         drop_conditions,
         load_memtries_for_tracked_shards,
         disable_compiled_contract_cache,
-        task_delay_fn,
+        task_delays,
         ..
     } = shared_state;
 
@@ -101,9 +101,19 @@ pub fn setup_client(
         ..Default::default()
     };
 
+    // The spawners' default per-task virtual delays; a test overrides them per account and
+    // task through `TestLoopEnv::delay_task`, which every spawner below consults.
+    let task_delay = |default: Duration| {
+        let task_delays = task_delays.clone();
+        let account_id = account_id.clone();
+        move |task_name: &str| task_delays.delay_for(&account_id, task_name).unwrap_or(default)
+    };
+
     let sync_jobs_actor = SyncJobsActor::new(
         client_adapter.as_multi_sender(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
+        ),
     );
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
@@ -172,17 +182,8 @@ pub fn setup_client(
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
-    // Default per-task virtual delay for the test-loop spawner. Tests can
-    // override per `(account, task_name)` via `TestLoopBuilder::task_delay_fn`.
-    const DEFAULT_TASK_DELAY: Duration = Duration::milliseconds(80);
-    let validation_task_delay_fn = task_delay_fn.clone();
-    let validation_acc = account_id.clone();
-    let task_delay_fn = task_delay_fn.clone();
-    let acc = account_id.clone();
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner(identifier, move |task_name| {
-            task_delay_fn.as_ref().and_then(|f| f(&acc, task_name)).unwrap_or(DEFAULT_TASK_DELAY)
-        }),
+        test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
     ));
 
     let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
@@ -295,7 +296,9 @@ pub fn setup_client(
         validator_signer.clone(),
         client_config.save_latest_witnesses,
         client_config.save_invalid_witnesses,
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
+        ),
         client_config.orphan_state_witness_pool_size,
         client_config.orphan_state_witness_max_size.as_u64(),
     );
@@ -375,9 +378,16 @@ pub fn setup_client(
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        // Heavy contract compilation.
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
+        ),
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(10))),
+        ),
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(10))),
+        ),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(
@@ -486,7 +496,9 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
+        ),
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
@@ -514,17 +526,9 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_writer_adapter.as_sender(),
-        // The same per-`(account, task_name)` override as the client's spawner, so a test
-        // can slow a chunk-only validator's witness validation.
-        ApplyChunksSpawner::Custom(Arc::new(test_loop.async_computation_spawner(
-            identifier,
-            move |task_name| {
-                validation_task_delay_fn
-                    .as_ref()
-                    .and_then(|f| f(&validation_acc, task_name))
-                    .unwrap_or(DEFAULT_TASK_DELAY)
-            },
-        ))),
+        ApplyChunksSpawner::Custom(Arc::new(
+            test_loop.async_computation_spawner(identifier, task_delay(Duration::milliseconds(80))),
+        )),
     );
 
     let spice_chunk_validator_sender = test_loop.data.register_actor(

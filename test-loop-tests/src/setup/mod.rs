@@ -7,3 +7,4 @@ pub(crate) mod rpc;
 pub mod setup;
 pub mod spice_partial_data_faults;
 pub mod state;
+pub mod task_delays;

@@ -1,11 +1,12 @@
 //! Spice-native test: congestion control and bandwidth scheduling under lagging
 //! execution (the defining property of spice). Drives a multi-shard workload with
-//! an artificial endorsement-propagation delay so execution provably trails
-//! consensus, and asserts backpressure accrues and the bandwidth scheduler runs in
-//! that regime. Congestion/bandwidth come from the previous block's executed
+//! every node's chunk execution slowed past the block time so execution provably
+//! trails consensus, and asserts backpressure accrues and the bandwidth scheduler
+//! runs in that regime. Congestion/bandwidth come from the previous block's executed
 //! `ChunkExtra` (see `build_spice_apply_chunk_block_context`).
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::task_delays::task_names;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_o11y::testonly::init_test_logger;
@@ -23,8 +24,6 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
     init_test_logger();
 
     let epoch_length = 50;
-    // Delay endorsement propagation so that execution provably trails consensus.
-    let execution_delay = 3;
 
     // 4 shards; the contract (and many senders) live on shard 0.
     let boundary_accounts =
@@ -45,7 +44,9 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
         .track_all_shards()
         .delay_warmup()
         .build();
-    env.delay_endorsements_propagation(execution_delay);
+    // Every node's chunk execution takes longer than a block, so execution provably trails
+    // consensus.
+    let slowed = env.delay_task_on_all_nodes(task_names::SPICE_APPLY_CHUNKS, Duration::seconds(1));
     let mut env = env.warmup();
 
     // Deploy the contract on the congested shard.
@@ -115,9 +116,10 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
                 )
             })
         },
-        Duration::seconds(120),
+        Duration::seconds(240),
     );
 
+    assert!(slowed.matched() > 0, "no chunk execution was slowed");
     assert!(max_lag >= 2, "expected execution to lag block production, max_lag={max_lag}");
     assert!(
         max_delayed_gas > 0,

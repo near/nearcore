@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::network_rules::Action;
+use crate::setup::task_delays::task_names;
 use crate::tests::spice::utils::ENDORSEMENT_DELAY_RULE;
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use crate::utils::get_node_data;
@@ -162,6 +163,11 @@ fn test_spice_chain() {
     }
 }
 
+/// How long a block's chunk execution takes on a slowed node: longer than the shortest
+/// block, so execution lags behind consensus by a few blocks, and short of the longest, so
+/// the chain slows down to it instead of running an epoch ahead.
+const SLOW_EXECUTION: Duration = Duration::seconds(1);
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_delayed_execution() {
@@ -183,9 +189,9 @@ fn test_spice_chain_with_delayed_execution() {
         .delay_warmup()
         .build();
 
-    let execution_delay = 4;
-    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    env.delay_endorsements_propagation(execution_delay);
+    // Every node's chunk execution takes longer than a block, so execution lags behind
+    // consensus and the chain slows down to it.
+    let slowed = env.delay_task_on_all_nodes(task_names::SPICE_APPLY_CHUNKS, SLOW_EXECUTION);
 
     env = env.warmup();
 
@@ -194,11 +200,12 @@ fn test_spice_chain_with_delayed_execution() {
         &receiver,
         Balance::from_near(1),
     );
-    env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(10));
+    env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(30));
 
     let view_account_result =
         env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
+    assert!(slowed.matched() > 0, "no chunk execution was slowed");
 }
 
 /// Test that consensus cannot be more than one epoch ahead of certification.
@@ -259,8 +266,8 @@ fn test_spice_epoch_gated_by_certification() {
     );
 }
 
-/// Sets up a spice env with delayed endorsements so execution lags behind
-/// consensus, and runs until there is a gap of at least 3 blocks.
+/// Sets up a spice env where every node's chunk execution takes longer than a block, so
+/// execution lags behind consensus, and runs until there is a gap of at least 3 blocks.
 fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let num_producers = 2;
     let num_validators = 0;
@@ -269,9 +276,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
 
     let producer_account = clients[0].clone();
     let env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
-
-    let execution_delay = 4;
-    env.delay_endorsements_propagation(execution_delay);
+    let slowed = env.delay_task_on_all_nodes(task_names::SPICE_APPLY_CHUNKS, SLOW_EXECUTION);
 
     let mut env = env.warmup();
 
@@ -283,6 +288,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
         },
         Duration::seconds(20),
     );
+    assert!(slowed.matched() > 0, "no chunk execution was slowed");
 
     (env, producer_account)
 }
