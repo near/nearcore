@@ -41,7 +41,6 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpListener;
 
 /// Limit on inbound Tier3 connections, kept low so that the tests don't need many file
 /// descriptors.
@@ -757,10 +756,9 @@ async fn request_not_sent(
     );
 }
 
-// Verify that a node tells the client right away when it can't send a state request to a snapshot
-// host, because nothing listens on the host's address or because the host never answers the
-// handshake. The configured `handshake_timeout` is an hour, so the latter relies on
-// `TIER3_HANDSHAKE_TIMEOUT`.
+// Verify that a node tells the client when it can't send a state request because connecting to the
+// snapshot host fails fast: nothing listens on the host's address, or a different node listens
+// there and rejects the handshake.
 #[tokio::test]
 async fn unreachable_hosts_reported() {
     init_test_logger();
@@ -779,8 +777,10 @@ async fn unreachable_hosts_reported() {
     let host = chain.make_config(rng);
     request_not_sent(&requester, &host, **host.node_addr.as_ref().unwrap(), rng).await;
 
-    // This host's listener accepts connections, but nothing ever answers on them.
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // A different node listens on this host's address, and rejects the handshake meant for the host.
+    let other_cfg = chain.make_config(rng);
+    let other =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), other_cfg, chain.clone()).await;
     let host = chain.make_config(rng);
-    request_not_sent(&requester, &host, listener.local_addr().unwrap(), rng).await;
+    request_not_sent(&requester, &host, other.peer_info().addr.unwrap(), rng).await;
 }
