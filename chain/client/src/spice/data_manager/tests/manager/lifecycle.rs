@@ -31,19 +31,17 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
     );
-    let policies = FetchPolicies::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        shard_tracker,
-    );
 
     let ids = |block: &Block, pairs: &[(u64, u64)]| -> HashSet<DataId> {
         pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
     };
     // Destinations are the shards applied in the next block: 0 and 1 in both cases.
-    assert_eq!(needed_receipt_ids(&policies, &earlier), ids(&earlier, &[(2, 0), (2, 1)]),);
     assert_eq!(
-        needed_receipt_ids(&policies, &last_pre_spice),
+        needed_receipt_ids(&chain, &shard_tracker, &earlier),
+        ids(&earlier, &[(2, 0), (2, 1)]),
+    );
+    assert_eq!(
+        needed_receipt_ids(&chain, &shard_tracker, &last_pre_spice),
         ids(&last_pre_spice, &[(1, 0), (1, 1), (2, 0), (2, 1)]),
     );
 }
@@ -265,7 +263,7 @@ fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
     let certifier = certifying_block(&blocks[0], &chunk_ids);
 
     let made_pullable: HashSet<DataId> =
-        manager.manager.policies.made_pullable_by(&certifier).unwrap().into_iter().collect();
+        manager.manager.made_pullable_by(&certifier).unwrap().into_iter().collect();
     assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
 }
 
@@ -343,23 +341,15 @@ fn a_done_item_is_removed_at_the_processed_block_without_a_request() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn producers_are_resolved_when_the_item_is_tracked_and_never_at_the_trigger() {
+fn each_item_is_pulled_from_the_chunk_producers_of_its_source_shard() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 2);
     let block = &blocks[0];
     let mut manager = TestManager::applying(&chain, 2);
-    let shard1_producers: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("shard1-producer{i}.near"))).collect();
-    manager.set_producers_for(1, shard1_producers.clone());
+    let shard1_producers = shard_producers(1);
     let from_shard0 = receipt_id(block, 0, 2);
     let from_shard1 = receipt_id(block, 1, 2);
 
     manager.track_block(&block);
-
-    // The producer sets change after tracking; the items keep the ones resolved then.
-    let swapped: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("swapped{i}.near"))).collect();
-    manager.set_producers_for(0, swapped.clone());
-    manager.set_producers_for(1, swapped);
     manager.certify_up_to(1);
 
     let requests = by_producer(manager.on_block_processed(&blocks[1]));
@@ -457,37 +447,38 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_failed_needed_items_on_the_processed_block_still_pulls_the_older_pullable_items() {
+fn a_pull_asks_each_producer_for_the_part_its_push_carries() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.track_block(&blocks[0]);
-    let older = receipt_id(&blocks[0], 0, 1);
-    let failing = receipt_id(&blocks[1], 0, 1);
-    manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
+    let id = manager.track_needed_proof(&blocks[0]);
     manager.certify_up_to(1);
+    let mut server = test_server(&chain);
 
     let requests = by_producer(manager.on_block_processed(&blocks[1]));
 
-    for (ordinal, producer) in producers().iter().enumerate() {
-        assert_eq!(requests[producer][&older], ordinals(&[ordinal as u64]));
+    for producer in producers() {
+        let push = server.build_push(&producer, &id, &receipt_data(0, 1)).unwrap();
+        assert_eq!(requests[&producer][&id], ordinals(&[push.part.part_ord]));
     }
-    assert!(!manager.is_tracking(&failing));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_failed_needed_items_on_the_processed_block_still_removes_the_done_items() {
+fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_removes_the_done_ones() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.track_block(&blocks[0]);
-    let older = receipt_id(&blocks[0], 0, 1);
-    let failing = receipt_id(&blocks[1], 0, 1);
-    manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
-    manager.deliver(&producers()[0], &older, &receipt_data(0, 1));
-    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    let pullable = manager.track_needed_proof(&blocks[0]);
+    let done = manager.track_needed_proof(&blocks[1]);
+    manager.certify_up_to(2);
+    manager.deliver(&producers()[0], &done, &receipt_data(0, 1));
+    save_proof(&chain, &blocks[1], &receipt_data(0, 1));
 
-    manager.on_block_processed(&blocks[1]);
+    let requests =
+        by_producer(manager.manager.on_block_processed(&hash(b"unknown"), manager.clock.now()));
 
-    assert!(!manager.is_tracking(&older));
-    assert!(!manager.is_tracking(&failing));
+    for (ordinal, producer) in producers().iter().enumerate() {
+        assert_eq!(requests[producer][&pullable], ordinals(&[ordinal as u64]));
+        assert!(!requests[producer].contains_key(&done));
+    }
+    assert!(!manager.is_tracking(&done));
 }

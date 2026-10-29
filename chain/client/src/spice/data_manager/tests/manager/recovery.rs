@@ -107,7 +107,7 @@ fn single_honest_setup() -> (Vec<Arc<Block>>, DataId, TestManager, Liars, Produc
     let liars = Liars::new(liar_producers);
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     manager.certify_up_to(1);
-    // The chain is dropped with the setup; the store outlives it inside the policies.
+    // The chain is dropped with the setup; the store outlives it inside the manager.
     let honest = ProducerParts {
         producer: honest_producer.clone(),
         ordinal: liar_producers.len() as u64,
