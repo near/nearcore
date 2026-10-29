@@ -21,6 +21,7 @@ use near_chain::spice::boundary_synthesis::{
     get_undelivered_receipts,
 };
 use near_chain::{Block, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
@@ -402,7 +403,7 @@ fn stateless_endorser(
     if relaxations.is_whole(OracleId::StatelessEndorser) {
         return Ok(());
     }
-    check_stateless_endorsers(env, run.last_pre_spice())
+    check_stateless_endorsers(env, run.last_pre_spice(), &run.dead_nodes)
 }
 
 /// The certified execution results of the last pre-spice block must be exactly what its
@@ -413,7 +414,7 @@ fn stateless_endorser(
 pub fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Block) {
     panic_on_error(
         check_boundary_results(env, last_pre_spice)
-            .and_then(|()| check_stateless_endorsers(env, last_pre_spice)),
+            .and_then(|()| check_stateless_endorsers(env, last_pre_spice, &HashSet::new())),
     );
 }
 
@@ -459,7 +460,11 @@ fn check_boundary_results(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(
 
 /// For every shard some endorser of the boundary chunk never ran the pre-spice apply, and
 /// endorsed the certified result.
-fn check_stateless_endorsers(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
+fn check_stateless_endorsers(
+    env: &TestLoopEnv,
+    last_pre_spice: &Block,
+    dead_nodes: &HashSet<usize>,
+) -> Result<(), String> {
     let rpc_node = env.rpc_node();
     let client = rpc_node.client();
     let core_reader = &client.chain.spice_core_reader;
@@ -478,6 +483,9 @@ fn check_stateless_endorsers(env: &TestLoopEnv, last_pre_spice: &Block) -> Resul
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let mut stateless_endorsers = Vec::new();
         for (index, data) in env.node_datas.iter().enumerate() {
+            if dead_nodes.contains(&index) {
+                continue;
+            }
             let applied_locally = env
                 .node(index)
                 .client()
@@ -593,13 +601,28 @@ fn succeeded(status: &ExecutionStatus) -> bool {
 
 /// Every transaction of every load is included once, every outcome succeeded, and every
 /// deposit lands once: each transfer receiver's balance grew by the amount times the
-/// number of transfers to it.
-fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(), String> {
+/// number of transfers to it. A fault that silences a shard for an epoch relaxes it for
+/// the loads whose sender lives there: the producers' pools diverge while nothing is
+/// produced, so once production resumes a transaction can be included after a later
+/// nonce of its account and fail with a stale nonce. Such a transaction counts as
+/// included, not as a deposit.
+fn exactly_once(
+    env: &TestLoopEnv,
+    run: &RunRecord,
+    relaxations: &Relaxations,
+) -> Result<(), String> {
     const MAX_REPORTED_PROBLEMS: usize = 5;
     let node = env.rpc_node();
     let chain = &node.client().chain;
+    let shard_layout = chain
+        .epoch_manager
+        .get_shard_layout(run.last_pre_spice().header().epoch_id())
+        .map_err(|err| format!("no shard layout at the last pre-spice block: {err}"))?;
     let mut problems = Vec::new();
+    let mut succeeded_transfers: HashMap<LoadKind, u128> = HashMap::new();
     for kind in LoadKind::ALL {
+        let sender_shard = shard_layout.account_id_to_shard_id(&kind.sender());
+        let stale_nonce_tolerated = relaxations.shard_relaxed(OracleId::ExactlyOnce, sender_shard);
         for tx in run.loads.txs(kind) {
             let inclusion_heights = run.loads.inclusion_heights(&tx.hash);
             if inclusion_heights.len() != 1 {
@@ -619,6 +642,9 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
                     continue;
                 }
             };
+            if stale_nonce_tolerated && is_stale_nonce(&outcome.status) {
+                continue;
+            }
             if !succeeded(&outcome.status) {
                 problems.push(format!(
                     "transaction {} of the {} failed: {:?}",
@@ -626,6 +652,7 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
                     kind.name(),
                     outcome.status,
                 ));
+                continue;
             }
             for receipt_id in &outcome.receipt_ids {
                 match chain.get_execution_outcome(receipt_id) {
@@ -643,30 +670,38 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
                     )),
                 }
             }
+            if LoadKind::TRANSFERS.contains(&kind) {
+                *succeeded_transfers.entry(kind).or_default() += 1;
+            }
         }
     }
     // The deploy is submitted once at warmup and must have landed exactly once, whatever
-    // kept it in the pool.
+    // kept it in the pool; unless garbage collection took its block, under `gc_tight`.
     let deploy_tx = run.loads.deploy_tx();
-    let deploy_inclusions = run.loads.inclusion_heights(&deploy_tx);
-    if deploy_inclusions.len() != 1 {
-        problems.push(format!(
-            "the contract deploy {deploy_tx} was included at {deploy_inclusions:?}, not once"
-        ));
-    }
-    match chain.get_execution_outcome(&deploy_tx) {
-        Ok(outcome) if succeeded(&outcome.outcome_with_id.outcome.status) => {}
-        Ok(outcome) => problems.push(format!(
-            "the contract deploy {deploy_tx} failed: {:?}",
-            outcome.outcome_with_id.outcome.status
-        )),
-        Err(err) => problems.push(format!("no outcome of the contract deploy {deploy_tx}: {err}")),
+    if node.tail() <= run.loads.deploy_submitted_height() {
+        let deploy_inclusions = run.loads.inclusion_heights(&deploy_tx);
+        if deploy_inclusions.len() != 1 {
+            problems.push(format!(
+                "the contract deploy {deploy_tx} was included at {deploy_inclusions:?}, not once"
+            ));
+        }
+        match chain.get_execution_outcome(&deploy_tx) {
+            Ok(outcome) if succeeded(&outcome.outcome_with_id.outcome.status) => {}
+            Ok(outcome) => problems.push(format!(
+                "the contract deploy {deploy_tx} failed: {:?}",
+                outcome.outcome_with_id.outcome.status
+            )),
+            Err(err) => {
+                problems.push(format!("no outcome of the contract deploy {deploy_tx}: {err}"))
+            }
+        }
     }
     for kind in LoadKind::TRANSFERS {
         let receiver = kind.receiver();
         let final_balance = node.view_account_query(&receiver).unwrap().amount;
-        let expected_increase =
-            TRANSFER_AMOUNT.checked_mul(run.loads.txs(kind).count() as u128).unwrap();
+        let expected_increase = TRANSFER_AMOUNT
+            .checked_mul(succeeded_transfers.get(&kind).copied().unwrap_or(0))
+            .unwrap();
         let initial_balance = run.loads.initial_receiver_balance(kind);
         if final_balance.checked_sub(initial_balance) != Some(expected_increase) {
             problems.push(format!(
@@ -689,6 +724,16 @@ fn exactly_once(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
     Err(message)
 }
 
+/// A transaction included after a later nonce of its account.
+fn is_stale_nonce(status: &ExecutionStatus) -> bool {
+    matches!(
+        status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
+    )
+}
+
 // -- view_queries --
 
 /// Balances as of heights on both sides of the boundary for the transfer receivers, an
@@ -701,7 +746,12 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
     let chain = &node.client().chain;
     let boundary_height = run.last_pre_spice().header().height();
     let first_spice_height = run.first_spice().header().height();
-    let last_queried_height = run.terminal_height - 1;
+    // The block below the terminal head, or the nearest canonical one under it when a
+    // dead producer's slot skipped that height.
+    let last_queried_height = (boundary_height..run.terminal_height)
+        .rev()
+        .find(|height| chain.chain_store.get_block_hash_by_height(*height).is_ok())
+        .ok_or_else(|| "no canonical block below the terminal head".to_string())?;
     let required = [boundary_height, first_spice_height, last_queried_height];
 
     let outcome_height = |hash: CryptoHash| -> Result<BlockHeight, String> {
@@ -735,7 +785,11 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
     let mut deposit_heights: HashMap<LoadKind, Vec<BlockHeight>> = HashMap::new();
     for kind in LoadKind::TRANSFERS {
         for tx in run.loads.txs(kind) {
-            let height = outcome_height(single_receipt(tx.hash)?)?;
+            // A failed transaction deposits nothing; `exactly_once` reports it.
+            let Ok(receipt_id) = single_receipt(tx.hash) else {
+                continue;
+            };
+            let height = outcome_height(receipt_id)?;
             deposit_heights.entry(kind).or_default().push(height);
         }
     }
@@ -788,7 +842,9 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
             if tx_height > boundary_height {
                 continue;
             }
-            let receipt_id = single_receipt(tx.hash)?;
+            let Ok(receipt_id) = single_receipt(tx.hash) else {
+                continue;
+            };
             let receipt_height = outcome_height(receipt_id)?;
             if receipt_height > boundary_height {
                 spanning = Some((tx.hash, tx_height, receipt_id, receipt_height));
@@ -899,6 +955,7 @@ fn code_requested(
         .node_datas
         .iter()
         .enumerate()
+        .filter(|(index, _)| !run.dead_nodes.contains(index))
         .filter(|(index, _)| {
             env.node(*index)
                 .client()
@@ -1110,7 +1167,7 @@ fn node_agreement(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result
         .spice_core_reader
         .get_execution_results_by_shard_id(last_pre_spice_header)
         .map_err(|err| format!("the certified results of the driver are unavailable: {err}"))?;
-    for index in 0..env.node_datas.len() {
+    for index in run.live_nodes(env) {
         let node = env.node(index);
         ensure!(
             node.head().height >= height,

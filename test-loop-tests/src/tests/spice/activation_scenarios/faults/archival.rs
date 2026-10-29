@@ -9,6 +9,7 @@ use crate::setup::env::TestLoopEnv;
 use near_chain::ChainStoreAccess;
 use near_primitives::block::Tip;
 use near_store::{COLD_HEAD_KEY, DBCol};
+use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 
 /// An archival node with split storage added to the profile. It tracks every shard and
@@ -32,6 +33,10 @@ impl Debug for Archival {
 impl Fault for Archival {
     fn tag(&self) -> &'static str {
         "archival"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {

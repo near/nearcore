@@ -18,7 +18,7 @@ use near_primitives::types::{BlockHeight, EpochId, SpiceChunkId};
 use near_primitives::version::ProtocolFeature;
 use parking_lot::Mutex;
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -36,6 +36,14 @@ const SPICE_EPOCHS_TO_RUN: u32 = 2;
 const BASE_EPOCH_BUDGET: u64 = 6;
 const EPOCH_BUDGET_PER_FAULT: u64 = 2;
 
+/// How long one tick may take, in test-loop time. A block normally takes about a second,
+/// but a run of heights assigned to a dead producer costs a Doomslug skip delay each, so
+/// a tick may legitimately span several of those.
+const TICK_TIMEOUT: Duration = Duration::seconds(120);
+/// How long certification may take to catch up with the head at `done`, in test-loop
+/// time; a slow catch-up the chain waits on can put it far behind.
+const CERTIFICATION_TIMEOUT: Duration = Duration::seconds(600);
+
 /// The per-actor, per-kind drop counts of one node's spice message gates.
 pub type GateCounts = Vec<(&'static str, SpiceMessageKind, u64)>;
 
@@ -52,6 +60,9 @@ pub struct RunRecord {
     pub agreement_height: BlockHeight,
     /// The chunks every contract code request observed on any node was for.
     pub code_requests: Vec<SpiceChunkId>,
+    /// Indices in `node_datas` of the nodes a fault killed; their entries stay but say
+    /// nothing about the chain any more.
+    pub dead_nodes: HashSet<usize>,
     /// Per node index, the gates' drop counts when that node's head first reached the last
     /// pre-spice block.
     pub gate_snapshots: HashMap<usize, GateCounts>,
@@ -64,6 +75,11 @@ impl RunRecord {
 
     pub fn first_spice(&self) -> &Arc<Block> {
         self.timeline.first_spice.as_ref().expect("the run found the first spice block")
+    }
+
+    /// The indices in `node_datas` of the nodes that are alive at `done`.
+    pub fn live_nodes(&self, env: &TestLoopEnv) -> Vec<usize> {
+        (0..env.node_datas.len()).filter(|index| !self.dead_nodes.contains(index)).collect()
     }
 }
 
@@ -97,13 +113,17 @@ fn drive(scenario: Scenario) {
     driver.timeline.head_height = env.rpc_node().head().height;
     driver.fire(&mut env, Progress::WarmedUp);
 
-    let budget = (BASE_EPOCH_BUDGET + EPOCH_BUDGET_PER_FAULT * driver.faults.len() as u64)
-        * profile.epoch_length();
+    let extra_epochs: u64 = driver.faults.iter().map(|fault| fault.extra_epochs()).sum();
+    let budget =
+        (BASE_EPOCH_BUDGET + EPOCH_BUDGET_PER_FAULT * driver.faults.len() as u64 + extra_epochs)
+            * profile.epoch_length();
     for _ in 0..budget {
         // The runner panics with a bare timeout when the chain stops producing blocks;
         // say where it stopped and what the run looked like instead.
         let head_before = env.rpc_node().head().height;
-        let tick = catch_unwind(AssertUnwindSafe(|| env.rpc_runner().run_for_number_of_blocks(1)));
+        let tick = catch_unwind(AssertUnwindSafe(|| {
+            env.rpc_runner().run_for_number_of_blocks_with_timeout(1, TICK_TIMEOUT)
+        }));
         if tick.is_err() {
             panic!("the chain stalled at height {head_before}\n{}", driver.describe_setup());
         }
@@ -114,7 +134,10 @@ fn drive(scenario: Scenario) {
         }
     }
     panic!(
-        "the terminal condition was not reached within {budget} blocks\n{}",
+        "the terminal condition was not reached within {budget} blocks: the head is at height \
+         {} with {} spice epochs still to leave\n{}",
+        env.rpc_node().head().height,
+        driver.timeline.spice_epochs_left,
         driver.describe_setup(),
     );
 }
@@ -128,6 +151,7 @@ struct Driver {
     code_requests: Arc<Mutex<Vec<SpiceChunkId>>>,
     /// The epoch the driver's last observed spice block is in.
     spice_epoch_id: Option<EpochId>,
+    dead_nodes: HashSet<usize>,
     gate_snapshots: HashMap<usize, GateCounts>,
 }
 
@@ -140,6 +164,7 @@ impl Driver {
             loads: Loads::new(load_rate),
             code_requests: Arc::default(),
             spice_epoch_id: None,
+            dead_nodes: HashSet::new(),
             gate_snapshots: HashMap::new(),
         }
     }
@@ -154,6 +179,10 @@ impl Driver {
         }
         for event in events {
             match event {
+                FaultEvent::NodeKilled(index) => {
+                    self.dead_nodes.insert(index);
+                    self.gate_snapshots.remove(&index);
+                }
                 FaultEvent::NodeRestarted(index) => self.on_node_restarted(env, index),
             }
         }
@@ -317,7 +346,7 @@ impl Driver {
             return;
         };
         for index in 0..env.node_datas.len() {
-            if self.gate_snapshots.contains_key(&index) {
+            if self.gate_snapshots.contains_key(&index) || self.dead_nodes.contains(&index) {
                 continue;
             }
             if env.node(index).head().height >= last_pre_spice_height {
@@ -344,7 +373,12 @@ impl Driver {
     /// failure.
     fn finish(mut self, env: &mut TestLoopEnv) {
         let terminal_height = env.rpc_node().head().height;
-        env.rpc_runner().run_until_certified(terminal_height);
+        // Certification can trail the head by a lot under a slow catch-up, so this waits
+        // longer than the runner's own helper would.
+        env.rpc_runner().run_until(
+            |node| node.last_certified_block_header().height() >= terminal_height,
+            CERTIFICATION_TIMEOUT,
+        );
         self.fire(env, Progress::Done);
 
         self.loads.scan_inclusions(env, terminal_height);
@@ -353,7 +387,9 @@ impl Driver {
         // every node at the same height.
         let agreement_height = env.rpc_node().head().height;
         for index in 0..env.node_datas.len() {
-            env.node_runner(index).run_until_head_height(agreement_height);
+            if !self.dead_nodes.contains(&index) {
+                env.node_runner(index).run_until_head_height(agreement_height);
+            }
         }
 
         let setup = self.describe_setup();
@@ -363,9 +399,17 @@ impl Driver {
             terminal_height,
             agreement_height,
             code_requests: self.code_requests.lock().clone(),
+            dead_nodes: self.dead_nodes,
             gate_snapshots: self.gate_snapshots,
         };
-        let failures = collect_failures(env, &self.faults, &record);
+        let mut failures = collect_failures(env, &self.faults, &record);
+        // A fault whose check needs the chain to run on past `done` runs it now; only its
+        // own check runs after that.
+        for fault in &mut self.faults {
+            if let Err(message) = fault.post_done(env, &record.timeline) {
+                failures.push((format!("{} post-done", fault.tag()), message));
+            }
+        }
         if !failures.is_empty() {
             let failures: Vec<String> =
                 failures.iter().map(|(name, message)| format!("  {name}: {message}")).collect();

@@ -3,6 +3,7 @@
 use super::super::scenario::{Fault, Narrowing, OracleId, Relaxation};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
+use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 
 /// Every validator applies every chunk itself, so nobody endorses from a witness: the
@@ -25,6 +26,10 @@ impl Debug for TrackAll {
 impl Fault for TrackAll {
     fn tag(&self) -> &'static str {
         "track_all"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {

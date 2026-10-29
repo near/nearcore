@@ -9,8 +9,9 @@
 
 use driver::run_scenario;
 use faults::{
-    Archival, DropContractAccesses, EndorsementDelay, Kind, MissingChunk, Only, PartialDataFault,
-    Producers, ShardSkip, Shards, TrackAll, WindowEnd, WindowStart,
+    Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, GcTight, Kind,
+    LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers, ShardSkip, Shards,
+    SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
 };
 use near_o11y::testonly::init_test_logger;
 use scenario::Scenario;
@@ -137,6 +138,41 @@ fn ultra_slow_test_spice_activation_matrix_core() {
     run_scenarios(core_presets());
 }
 
+/// The node lifecycle faults: crashes, late trackers, churn, a slowed node, a shard silent
+/// for the first spice epoch, and the pairs the design names.
+fn nodes_presets() -> Vec<Scenario> {
+    vec![
+        Scenario::new().fault(NodeCrash::new()),
+        Scenario::new().fault(NodeCrash::new().at(At::FirstSpice)),
+        Scenario::new().fault(NodeCrash::new().at(At::BoundaryPending)),
+        Scenario::new().fault(NodeCrash::new().restart(false)),
+        Scenario::new().fault(NodeCrash::new().node(4)),
+        Scenario::new().fault(NodeCrash::new().at(At::Height(2)).down(8)),
+        Scenario::new()
+            .fault(SlowNode::new().node(5).start(WindowStart::Offset(0)).end(WindowEnd::Offset(6))),
+        // One producer and one chunk-only validator down together.
+        Scenario::new().fault(NodeCrash::new()).fault(NodeCrash::new().node(4).at(At::FirstSpice)),
+        Scenario::new().fault(LateTracker::new()),
+        Scenario::new().fault(ValidatorChurn::new()),
+        Scenario::new().fault(ValidatorChurn::new().kind(ChurnKind::Join)),
+        Scenario::new().fault(ValidatorChurn::new().kind(ChurnKind::Leave)),
+        Scenario::new().fault(SlowNode::new()),
+        Scenario::new().fault(ShardSkip::new().epochs(Epochs::FirstSpice)),
+        Scenario::new().fault(NodeCrash::new()).fault(MissingChunk::new().shards(Shards::Index(1))),
+        Scenario::new().fault(NodeCrash::new()).fault(ShardSkip::new()),
+        Scenario::new().fault(LateTracker::new()).fault(EndorsementDelay::new()),
+        Scenario::new().fault(ValidatorChurn::new()).fault(MissingChunk::new()),
+        Scenario::new().fault(SlowNode::new()).fault(ShardSkip::new().epochs(Epochs::FirstSpice)),
+    ]
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_nodes() {
+    run_scenarios(nodes_presets());
+}
+
 /// Preset group, run on request.
 #[test]
 #[ignore]
@@ -144,6 +180,8 @@ fn ultra_slow_test_spice_activation_matrix_storage() {
     run_scenarios(vec![
         Scenario::new().fault(Archival::new()),
         Scenario::new().fault(Archival::new()).fault(ShardSkip::new()),
+        Scenario::new().fault(GcTight::new()),
+        Scenario::new().fault(GcTight::new()).fault(MissingChunk::new()),
     ]);
 }
 
@@ -156,7 +194,7 @@ fn ultra_slow_test_spice_activation_matrix_storage() {
 fn ultra_slow_test_spice_activation_matrix_under_investigation() {
     run_scenarios(vec![
         Scenario::new().fault(EndorsementDelay::new().blocks(24).end(WindowEnd::Done)),
-        // The same with no recovery: the chain stalls.
+        // The same one block later: heights 68 and 69 are both rejected before the chain resumes.
         Scenario::new().fault(EndorsementDelay::new().blocks(25).end(WindowEnd::Done)),
     ]);
 }

@@ -7,6 +7,7 @@ use super::render;
 use crate::setup::env::TestLoopEnv;
 use near_chain::spice::all_stake_fallback::SPICE_FALLBACK_CERTIFICATION_DELAY;
 use near_primitives::types::{BlockHeight, SpiceChunkId};
+use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 
 /// Where the window opens.
@@ -140,6 +141,10 @@ impl Debug for EndorsementDelay {
 impl Fault for EndorsementDelay {
     fn tag(&self) -> &'static str {
         "endorsement_delay"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn validate(&self) -> Result<(), String> {

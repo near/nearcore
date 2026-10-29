@@ -11,6 +11,7 @@ use crate::setup::spice_partial_data_faults::{
 use near_async::time::Duration;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
+use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
@@ -165,6 +166,10 @@ impl Debug for PartialDataFault {
 impl Fault for PartialDataFault {
     fn tag(&self) -> &'static str {
         "partial_data_fault"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn validate(&self) -> Result<(), String> {

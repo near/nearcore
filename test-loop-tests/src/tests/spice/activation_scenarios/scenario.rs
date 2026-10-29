@@ -6,6 +6,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use near_chain::Block;
 use near_primitives::types::{BlockHeight, ShardId};
+use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::{self, Debug};
 use std::sync::Arc;
@@ -104,6 +105,9 @@ pub enum Progress {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum FaultEvent {
+    /// The node was killed; the payload is its index in `node_datas`. The driver stops
+    /// reading progress and oracles from it; its entry stays, dead.
+    NodeKilled(usize),
     /// The node was restarted; the payload is its index in `node_datas`. The driver tells
     /// every fault through [`Fault::on_node_restarted`].
     NodeRestarted(usize),
@@ -156,6 +160,10 @@ pub trait Fault: Debug {
     /// The tag of the design's catalog.
     fn tag(&self) -> &'static str;
 
+    /// The fault as `Any`, so the resolver can look at the parameters of a pair of faults
+    /// the design lists as a conflict.
+    fn as_any(&self) -> &dyn Any;
+
     /// `Err` with why the fault's parameters are not runnable: a combination the design
     /// rejects, or a parameter whose milestone has not landed yet.
     fn validate(&self) -> Result<(), String> {
@@ -193,6 +201,18 @@ pub trait Fault: Debug {
     /// Panics unless the fault had an observable effect, so a mis-resolved height or a
     /// handler that failed to install cannot pass as a success.
     fn assert_fired(&self, env: &TestLoopEnv, timeline: &Timeline) {}
+
+    /// Epochs of ticks the fault adds to the run's time budget, for a fault that stretches
+    /// the epochs, such as a slow catch-up the chain waits on.
+    fn extra_epochs(&self) -> u64 {
+        0
+    }
+
+    /// Runs after the oracles, for a fault whose check needs the chain to run on past
+    /// `done`. `Err` with what was violated.
+    fn post_done(&mut self, env: &mut TestLoopEnv, timeline: &Timeline) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The oracles, by the id a fault names in [`Relaxation`].
@@ -214,6 +234,10 @@ pub enum OracleId {
     GateQuiet,
     NoPanics,
     ArchivalCrosses,
+    RestartedNodeCrosses,
+    EndorsedBeforeCatchup,
+    CertifiedThroughDesignated,
+    JoinerSkipsBoundaryStep,
 }
 
 impl OracleId {
@@ -236,6 +260,10 @@ impl OracleId {
             OracleId::GateQuiet => "gate_quiet",
             OracleId::NoPanics => "no_panics",
             OracleId::ArchivalCrosses => "archival_crosses",
+            OracleId::RestartedNodeCrosses => "restarted_node_crosses",
+            OracleId::EndorsedBeforeCatchup => "endorsed_before_catchup",
+            OracleId::CertifiedThroughDesignated => "certified_through_designated",
+            OracleId::JoinerSkipsBoundaryStep => "joiner_skips_boundary_step",
         }
     }
 
@@ -248,17 +276,21 @@ impl OracleId {
             | OracleId::StatelessEndorser
             | OracleId::WithinWindow
             | OracleId::LoadInFlight
+            | OracleId::ExactlyOnce
             | OracleId::CodeRequested => true,
             OracleId::Crossed
             | OracleId::SupplyIdentity
             | OracleId::BoundaryResults
-            | OracleId::ExactlyOnce
             | OracleId::ViewQueries
             | OracleId::UndeliveredReceipts
             | OracleId::NodeAgreement
             | OracleId::GateQuiet
             | OracleId::NoPanics
-            | OracleId::ArchivalCrosses => false,
+            | OracleId::ArchivalCrosses
+            | OracleId::RestartedNodeCrosses
+            | OracleId::EndorsedBeforeCatchup
+            | OracleId::CertifiedThroughDesignated
+            | OracleId::JoinerSkipsBoundaryStep => false,
         }
     }
 }

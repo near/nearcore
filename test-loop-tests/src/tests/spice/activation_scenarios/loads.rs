@@ -149,6 +149,8 @@ pub struct Loads {
     inclusion_heights: HashMap<CryptoHash, Vec<BlockHeight>>,
     /// The deploy of the test contract, from `warmed_up` on.
     deploy_tx: Option<CryptoHash>,
+    /// The driver's head height when the deploy was submitted.
+    deploy_submitted_height: Option<BlockHeight>,
 }
 
 impl Loads {
@@ -162,6 +164,7 @@ impl Loads {
             initial_receiver_balances: HashMap::new(),
             inclusion_heights: HashMap::new(),
             deploy_tx: None,
+            deploy_submitted_height: None,
         }
     }
 
@@ -170,7 +173,10 @@ impl Loads {
     pub fn on_progress(&mut self, env: &TestLoopEnv, progress: &Progress) {
         match progress {
             Progress::Built => assert_accounts_on_expected_shards(env),
-            Progress::WarmedUp => self.deploy_tx = Some(deploy_contract(env)),
+            Progress::WarmedUp => {
+                self.deploy_tx = Some(deploy_contract(env));
+                self.deploy_submitted_height = Some(env.rpc_node().head().height);
+            }
             Progress::Height { offset: LOAD_START_OFFSET, .. } => self.start(env),
             Progress::EpochAfter(epoch) if *epoch == LOAD_END_EPOCH => self.ending = true,
             _ => {}
@@ -232,6 +238,11 @@ impl Loads {
         self.deploy_tx.expect("the contract is deployed at warmed_up")
     }
 
+    /// The driver's head height when the deploy was submitted.
+    pub fn deploy_submitted_height(&self) -> BlockHeight {
+        self.deploy_submitted_height.expect("the contract is deployed at warmed_up")
+    }
+
     /// The transactions `kind` submitted, in submission order.
     pub fn txs(&self, kind: LoadKind) -> impl Iterator<Item = &SubmittedTx> {
         self.submitted.iter().filter(move |tx| tx.kind == kind)
@@ -264,7 +275,11 @@ pub fn scan_inclusions(
         else {
             continue;
         };
-        let block = node.client().chain.get_block(&block_hash).unwrap();
+        // A block garbage collection removed says nothing; a load's blocks are never that
+        // old, and the deploy's may be.
+        let Ok(block) = node.client().chain.get_block(&block_hash) else {
+            continue;
+        };
         for chunk_header in block.chunks().iter() {
             if !chunk_header.is_new_chunk() {
                 continue;

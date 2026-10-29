@@ -174,6 +174,8 @@ pub fn setup_client(
     // Default per-task virtual delay for the test-loop spawner. Tests can
     // override per `(account, task_name)` via `TestLoopBuilder::task_delay_fn`.
     const DEFAULT_TASK_DELAY: Duration = Duration::milliseconds(80);
+    let validation_task_delay_fn = task_delay_fn.clone();
+    let validation_acc = account_id.clone();
     let task_delay_fn = task_delay_fn.clone();
     let acc = account_id.clone();
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
@@ -510,9 +512,17 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_writer_adapter.as_sender(),
-        ApplyChunksSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
-        )),
+        // The same per-`(account, task_name)` override as the client's spawner, so a test
+        // can slow a chunk-only validator's witness validation.
+        ApplyChunksSpawner::Custom(Arc::new(test_loop.async_computation_spawner(
+            identifier,
+            move |task_name| {
+                validation_task_delay_fn
+                    .as_ref()
+                    .and_then(|f| f(&validation_acc, task_name))
+                    .unwrap_or(DEFAULT_TASK_DELAY)
+            },
+        ))),
     );
 
     let spice_chunk_validator_sender = test_loop.data.register_actor(

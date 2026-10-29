@@ -5,25 +5,35 @@
 mod archival;
 mod drop_contract_accesses;
 mod endorsement_delay;
+mod gc_tight;
+mod late_tracker;
 mod missing_chunk;
+mod node_crash;
 mod partial_data_fault;
 mod shard_rotation;
 mod shard_skip;
+mod slow_node;
 mod track_all;
+mod validator_churn;
 
 pub use archival::Archival;
 pub use drop_contract_accesses::DropContractAccesses;
 pub use endorsement_delay::{EndorsementDelay, WindowEnd, WindowStart};
+pub use gc_tight::GcTight;
+pub use late_tracker::LateTracker;
 pub use missing_chunk::{MissingChunk, Shards};
+pub use node_crash::{At, NodeCrash};
 pub use partial_data_fault::{Kind, Only, PartialDataFault, Producers};
-pub use shard_skip::ShardSkip;
+pub use shard_skip::{Epochs, ShardSkip};
+pub use slow_node::SlowNode;
 pub use track_all::TrackAll;
+pub use validator_churn::{Kind as ChurnKind, ValidatorChurn};
 // The variants these carry are rejected until their milestones land, so no preset names
 // them yet.
 #[allow(unused_imports)]
 pub use missing_chunk::How;
 #[allow(unused_imports)]
-pub use shard_skip::Epochs;
+pub use node_crash::Retrack;
 // Cannot fire on profile A, see the fault; no preset names it.
 #[allow(unused_imports)]
 pub use shard_rotation::ShardRotation;

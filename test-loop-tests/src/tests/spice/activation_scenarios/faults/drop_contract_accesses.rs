@@ -5,6 +5,7 @@ use super::render;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::spice_partial_data_faults::SpicePartialDataObserved;
 use parking_lot::Mutex;
+use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
@@ -31,6 +32,10 @@ impl Debug for DropContractAccesses {
 impl Fault for DropContractAccesses {
     fn tag(&self) -> &'static str {
         "drop_contract_accesses"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn on_progress(

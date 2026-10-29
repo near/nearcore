@@ -9,6 +9,7 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 use std::ops::Range;
@@ -213,6 +214,10 @@ impl Debug for MissingChunk {
 impl Fault for MissingChunk {
     fn tag(&self) -> &'static str {
         "missing_chunk"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn validate(&self) -> Result<(), String> {

@@ -1,5 +1,6 @@
 //! Profile choice and the conflict list: turns a scenario into the setup it runs on.
 
+use super::faults::{NodeCrash, SlowNode};
 use super::loads;
 use super::scenario::Scenario;
 use crate::setup::builder::TestLoopBuilder;
@@ -153,13 +154,57 @@ pub fn resolve(scenario: &Scenario) -> Resolved {
 /// The conflicts and unmet requirements of `scenario` on `profile`, one message each,
 /// naming the tags involved: what each fault rejects on its own, then the pairs the
 /// design lists.
-fn conflicts(scenario: &Scenario, _profile: Profile) -> Vec<String> {
-    // The cross-fault conflicts (`gc_tight` with `node_crash`, and so on) and the
-    // requirements keyed by tag (`late_tracker` is profile A only) land here with the
-    // faults they name.
-    scenario
-        .faults()
+fn conflicts(scenario: &Scenario, profile: Profile) -> Vec<String> {
+    let faults = scenario.faults();
+    let mut errors: Vec<String> = faults
         .iter()
         .filter_map(|fault| fault.validate().err().map(|error| format!("{}: {error}", fault.tag())))
-        .collect()
+        .collect();
+    let has = |tag: &str| faults.iter().any(|fault| fault.tag() == tag);
+    let num_validators = profile.num_producers() + profile.num_chunk_validators();
+
+    let crashes: Vec<&NodeCrash> =
+        faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<NodeCrash>()).collect();
+    for crash in &crashes {
+        if crash.target() >= num_validators {
+            errors.push(format!(
+                "node_crash: node {} is not a validator; the driver and the clients the faults \
+                 add are never crashed",
+                crash.target(),
+            ));
+        }
+        if has("late_tracker") && crash.target() >= profile.num_producers() {
+            errors.push(format!(
+                "node_crash with late_tracker: node {} is a late tracker",
+                crash.target()
+            ));
+        }
+    }
+    // Only producers approve blocks, and with four producer seats two down leaves half the
+    // stake. Every point a crash can be killed at before milestone 6 sits at the boundary,
+    // so two producer crashes always overlap.
+    if crashes.iter().filter(|crash| crash.target() < profile.num_producers()).count() >= 2 {
+        errors.push(
+            "node_crash with node_crash: two block producers down at once stall the chain"
+                .to_string(),
+        );
+    }
+    for slow in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<SlowNode>()) {
+        if slow.target() < profile.num_producers() || slow.target() >= num_validators {
+            errors.push(format!(
+                "slow_node: node {} must be a chunk-only validator until milestone 6; a slowed \
+                 producer skips its pre-spice heights and moves the boundary",
+                slow.target(),
+            ));
+        }
+    }
+    if has("gc_tight") && has("node_crash") {
+        errors.push(
+            "gc_tight with node_crash: catch-up needs the blocks GC would remove".to_string(),
+        );
+    }
+    if has("track_all") && has("late_tracker") {
+        errors.push("track_all with late_tracker: nothing is tracked late".to_string());
+    }
+    errors
 }

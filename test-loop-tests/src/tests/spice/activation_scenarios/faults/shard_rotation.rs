@@ -5,6 +5,7 @@ use super::render;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::{self, Debug, Formatter};
 
@@ -40,6 +41,10 @@ impl Debug for ShardRotation {
 impl Fault for ShardRotation {
     fn tag(&self) -> &'static str {
         "shard_rotation"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
