@@ -214,7 +214,7 @@ expression: "&view"
     "ml_dsa_verify_host_fn": true,
     "sha3_host_fns": true,
     "bls12381_not_in_group_fix": false,
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "universal_accounts": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
