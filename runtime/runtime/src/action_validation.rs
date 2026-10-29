@@ -12,9 +12,10 @@ use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::universal_state_init::UniversalStateInit;
+use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::account::id::AccountType;
 use near_vm_runner::logic::LimitConfig;
 
 /// Validates that the number of deploy actions in the given list of actions doesn't exceed the limit.
@@ -107,23 +108,6 @@ pub(crate) fn validate_actions_with_mode(
         });
     }
 
-    // Centralized post-quantum gate. Mirrors the tx-admission gate in
-    // `check_valid_for_config`, and is load-bearing for actions emitted by
-    // contracts via host functions: those actions create new receipts that
-    // never go through tx admission, so on a pre-feature protocol they must
-    // be rejected here. The exhaustive match in
-    // `Action::post_quantum_signatures_required` (including the recursive
-    // walk into `Delegate`) forces every future action variant to make an
-    // explicit decision at compile time.
-    if !ProtocolFeature::PostQuantumSignatures.enabled(current_protocol_version)
-        && actions.iter().any(Action::post_quantum_signatures_required)
-    {
-        return Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: "PostQuantumSignatures".to_owned(),
-            version: current_protocol_version,
-        });
-    }
-
     if mode == ValidateReceiptMode::NewReceipt {
         validate_number_of_deploy_actions(actions, limit_config.max_deploy_actions_per_receipt)?;
         // `DeterministicStateInit` predates the entry limit, so it is applied to newly
@@ -163,7 +147,8 @@ pub(crate) fn validate_actions_with_mode(
 }
 
 /// Validates a single given action.
-/// The `mode` only affects nested validation of `Action::Delegate` payloads
+/// The `mode` affects nested validation of `Action::Delegate` payloads, and whether a
+/// `UniversalStateInit` has to be canonical.
 fn validate_action_with_mode(
     limit_config: &LimitConfig,
     action: &Action,
@@ -179,24 +164,18 @@ fn validate_action_with_mode(
         Action::FunctionCall(a) => {
             validate_function_call_action(limit_config, a, current_protocol_version, mode)
         }
-        Action::Transfer(_) => Ok(()),
+        Action::Transfer(_) => validate_transfer_action(receiver, current_protocol_version, mode),
         Action::Stake(a) => validate_stake_action(a),
-        Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
+        Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(
             limit_config,
             (&a.delegate_action).into(),
-            receiver,
             current_protocol_version,
             mode,
         ),
         Action::DelegateV2(a) => {
-            require_protocol_feature(
-                ProtocolFeature::DelegateV2,
-                "DelegateV2",
-                current_protocol_version,
-            )?;
             // Receipts created before the removal are still in flight and must
             // keep executing, so only new transactions and receipts are refused.
             if mode == ValidateReceiptMode::NewReceipt {
@@ -209,7 +188,6 @@ fn validate_action_with_mode(
             validate_delegate_action(
                 limit_config,
                 (&a.delegate_action).into(),
-                receiver,
                 current_protocol_version,
                 mode,
             )
@@ -218,21 +196,37 @@ fn validate_action_with_mode(
             validate_deterministic_state_init(limit_config, a, receiver)
         }
         Action::UniversalStateInit(a) => {
-            validate_universal_state_init(limit_config, a, receiver, current_protocol_version)
+            validate_universal_state_init(limit_config, a, receiver, current_protocol_version, mode)
         }
-        Action::TransferToGasKey(_) => {
-            validate_transfer_to_gas_key_action(current_protocol_version)
-        }
-        Action::WithdrawFromGasKey(_) => {
-            validate_withdraw_from_gas_key_action(current_protocol_version)
-        }
+        Action::TransferToGasKey(_) => Ok(()),
+        Action::WithdrawFromGasKey(_) => Ok(()),
     }
+}
+
+/// Rejects a new transfer to a universal account from the ban until universal accounts are
+/// enabled. Receipts already in flight keep executing.
+fn validate_transfer_action(
+    receiver: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
+) -> Result<(), ActionsValidationError> {
+    let transfers_banned = ProtocolFeature::RejectUniversalAccountTransfers
+        .enabled(current_protocol_version)
+        && !ProtocolFeature::UniversalAccounts.enabled(current_protocol_version);
+    if mode == ValidateReceiptMode::NewReceipt
+        && transfers_banned
+        && receiver.get_account_type() == AccountType::UniversalAccount
+    {
+        return Err(ActionsValidationError::TransferToUniversalAccountNotAllowed {
+            account_id: receiver.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
     delegate_action: VersionedDelegateActionRef<'_>,
-    receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
@@ -256,18 +250,8 @@ fn validate_delegate_action(
     {
         return Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate);
     }
-    let inner_receiver =
-        if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
-            // This is the correct receiver id to use for the check.
-            delegate_action.receiver_id()
-        } else {
-            // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
-            // validated against the wrong id. This makes it impossible to
-            // initialize deterministic accounts from meta transactions.
-            // The bug cannot be abused, if someone crafts a state init that passes
-            // validation here, it will fail when it is checked as incoming receipt.
-            receiver
-        };
+    // This is the correct receiver id to use for the check.
+    let inner_receiver = delegate_action.receiver_id();
     validate_actions_with_mode(
         limit_config,
         &actions,
@@ -374,14 +358,11 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
 
     // If this is a gas key, apply additional gas key validation
     if let Some(gas_key_info) = action.access_key.gas_key_info() {
-        require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-
         // For gas keys with FunctionCallPermission, allowance must be None
         if let Some(fc) = action.access_key.permission.function_call_permission() {
             if fc.allowance.is_some() {
@@ -452,22 +433,6 @@ fn validate_access_key_permission(
 
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
     validate_action_account_id(&action.beneficiary_id)?;
-
-    Ok(())
-}
-
-fn validate_transfer_to_gas_key_action(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-
-    Ok(())
-}
-
-fn validate_withdraw_from_gas_key_action(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
 
     Ok(())
 }
@@ -543,6 +508,7 @@ fn validate_universal_state_init(
     action: &UniversalStateInitAction,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(
         ProtocolFeature::UniversalAccounts,
@@ -560,8 +526,16 @@ fn validate_universal_state_init(
         });
     }
 
-    // Everything below inspects the contents, so the bytes have to decode.
-    let state_init = UniversalStateInit::from_raw(&action.state_init)
+    // Everything below inspects the contents, so the bytes have to decode. From
+    // `CanonicalUniversalStateInit` on they also have to be canonical, but only for newly
+    // created receipts: a receipt built before that took effect was valid then, and has
+    // to keep passing here. Failing it would halt the chunk, while execution only fails
+    // the action.
+    let decode_mode = DecodeMode::strict_if(
+        mode == ValidateReceiptMode::NewReceipt
+            && ProtocolFeature::CanonicalUniversalStateInit.enabled(current_protocol_version),
+    );
+    let state_init = UniversalStateInit::from_raw(&action.state_init, decode_mode)
         .map_err(|_| ActionsValidationError::MalformedUniversalStateInit)?;
 
     if let Some(code) = state_init.code() {
@@ -667,32 +641,6 @@ mod tests {
         let limit_config = test_limit_config();
         let receiver = "alice.near".parse().unwrap();
         validate_actions(&limit_config, &[], &receiver, PROTOCOL_VERSION).expect("empty actions");
-    }
-
-    /// Receipt-level gate: contract-emitted receipts carrying an ML-DSA-65
-    /// `AddKey` must be rejected pre-PostQuantumSignatures. The tx-admission
-    /// gate in `check_valid_for_config` doesn't cover this path because the
-    /// receipt is created by the runtime host functions, not by a user
-    /// transaction.
-    #[test]
-    fn test_validate_actions_ml_dsa_add_key_gated() {
-        let limit_config = test_limit_config();
-        let receiver: AccountId = "alice.near".parse().unwrap();
-        let pq_pubkey = near_crypto::SecretKey::from_seed(KeyType::MLDSA65, "victim").public_key();
-        let actions = [Action::AddKey(Box::new(AddKeyAction {
-            public_key: pq_pubkey,
-            access_key: AccessKey::full_access(),
-        }))];
-
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
-
-        assert!(matches!(
-            validate_actions(&limit_config, &actions, &receiver, pre),
-            Err(ActionsValidationError::UnsupportedProtocolFeature { .. })
-        ));
-        validate_actions(&limit_config, &actions, &receiver, post)
-            .expect("ML-DSA-65 AddKey accepted post-feature");
     }
 
     #[test]
@@ -1073,28 +1021,6 @@ mod tests {
         .expect("valid action");
     }
 
-    #[test]
-    fn test_validate_action_invalid_add_key_gas_key_before_protocol_feature() {
-        let num_nonces = 10; // Arbitrary number of nonces for testing
-        let gas_key = AccessKey::gas_key_full_access(num_nonces);
-        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
-        assert_eq!(
-            validate_action(
-                &test_limit_config(),
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: gas_key,
-                })),
-                &"alice.near".parse().unwrap(),
-                protocol_version,
-            ),
-            Err(ActionsValidationError::UnsupportedProtocolFeature {
-                protocol_feature: "GasKeys".to_owned(),
-                version: protocol_version,
-            })
-        );
-    }
-
     fn delegate_v2_action() -> Action {
         let delegate_action = DelegateActionV2 {
             sender_id: alice_account(),
@@ -1108,23 +1034,6 @@ mod tests {
             delegate_action: delegate_action.into(),
             signature: Signature::empty(KeyType::ED25519),
         }))
-    }
-
-    #[test]
-    fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
-        let protocol_version = ProtocolFeature::DelegateV2.protocol_version() - 1;
-        assert_eq!(
-            validate_action(
-                &test_limit_config(),
-                &delegate_v2_action(),
-                &alice_account(),
-                protocol_version
-            ),
-            Err(ActionsValidationError::UnsupportedProtocolFeature {
-                protocol_feature: "DelegateV2".to_owned(),
-                version: protocol_version,
-            })
-        );
     }
 
     #[test]
@@ -1615,6 +1524,94 @@ mod tests {
         );
     }
 
+    /// A `UniversalStateInit` whose data keys are out of order: it decodes, but is not the
+    /// canonical encoding of what it decodes to. The receiver derived from its bytes is valid.
+    fn unsorted_state_init_action() -> (Action, AccountId) {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        let unsorted = RawStateInit(bytes);
+        let receiver = derive_universal_account_id(&unsorted);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: unsorted,
+            deposit: Balance::ZERO,
+        }));
+        (action, receiver)
+    }
+
+    /// Only from `CanonicalUniversalStateInit` on is a non-canonical encoding rejected, and
+    /// only in a newly created receipt: one built before it took effect was valid then, and
+    /// failing it here would halt the chunk rather than fail an action.
+    #[test]
+    fn test_validate_universal_state_init_canonical_by_version() {
+        use ValidateReceiptMode::{ExistingReceipt, NewReceipt};
+
+        let limit = test_limit_config();
+        let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let (action, receiver) = unsorted_state_init_action();
+        let validate =
+            |version, mode| validate_action_with_mode(&limit, &action, &receiver, version, mode);
+
+        // Below it universal accounts are not on yet.
+        let unsupported = Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "UniversalAccounts".to_owned(),
+            version: canonical_version - 1,
+        });
+        assert_eq!(validate(canonical_version - 1, NewReceipt), unsupported);
+        assert_eq!(validate(canonical_version - 1, ExistingReceipt), unsupported);
+        assert_eq!(
+            validate(canonical_version, NewReceipt),
+            Err(ActionsValidationError::MalformedUniversalStateInit)
+        );
+        assert_eq!(validate(canonical_version, ExistingReceipt), Ok(()));
+
+        // Still malformed whatever the mode: it does not decode at all.
+        let malformed = RawStateInit(vec![7, 7, 7]);
+        let receiver = derive_universal_account_id(&malformed);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: malformed,
+            deposit: Balance::ZERO,
+        }));
+        for (version, mode) in
+            [(canonical_version, NewReceipt), (canonical_version, ExistingReceipt)]
+        {
+            assert_eq!(
+                validate_action_with_mode(&limit, &action, &receiver, version, mode),
+                Err(ActionsValidationError::MalformedUniversalStateInit),
+                "version {version}, {mode:?}"
+            );
+        }
+    }
+
+    /// A non-canonical payload counts what it decodes to, at every version, so the receipt
+    /// limits see what the fees see. It is the limit that turns it away here, and not the
+    /// check that it is canonical, which comes after.
+    #[test]
+    fn test_validate_state_init_counts_non_canonical_counts_what_decodes() {
+        let mut limit = test_limit_config();
+        limit.max_state_init_entries = 1;
+        let canonical_version = ProtocolFeature::CanonicalUniversalStateInit.protocol_version();
+        let (action, receiver) = unsorted_state_init_action();
+        let actions = [action];
+
+        // Two entries against a limit of one.
+        for version in [canonical_version - 1, canonical_version] {
+            assert_eq!(
+                validate_actions(&limit, &actions, &receiver, version),
+                Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                    number_of_entries: 2,
+                    limit: 1,
+                }),
+                "version {version}"
+            );
+        }
+    }
+
     /// `copies` byte-identical state-init actions, all addressed to the receiver
     /// they derive to. The copies are the point: every action in a receipt shares
     /// its receiver and a state init has to derive to that receiver, so a receipt
@@ -1817,7 +1814,7 @@ mod tests {
                 access_key: AccessKey::gas_key_full_access(num_nonces),
             })),
             &"alice.near".parse().unwrap(),
-            ProtocolFeature::GasKeys.protocol_version(),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1826,7 +1823,7 @@ mod tests {
     fn test_validate_add_gas_key_invalid_num_nonces() {
         let limit_config = test_limit_config();
         let account_id: AccountId = "alice.near".parse().unwrap();
-        let version = ProtocolFeature::GasKeys.protocol_version();
+        let version = PROTOCOL_VERSION;
         // Valid number of nonces is between 1 and MAX_NONCES_FOR_GAS_KEY inclusive.
         // Test 0 nonces and num_nonces greater than the maximum allowed results in an error.
         for num_nonces in [0, AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1] {
@@ -1869,7 +1866,7 @@ mod tests {
                     access_key: gas_key,
                 })),
                 &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed
@@ -1894,7 +1891,7 @@ mod tests {
                     access_key: AccessKey::gas_key_function_call(num_nonces, permission),
                 })),
                 &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             ActionsValidationError::AddKeyMethodNameLengthExceeded {

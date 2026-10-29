@@ -121,6 +121,8 @@ pub(crate) struct Connection {
     pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
+    /// Last time we sent a message to this peer.
+    pub last_time_sent_message: AtomicCell<time::Instant>,
     /// Connection stats
     pub stats: Arc<Stats>,
     /// prometheus gauge point guard.

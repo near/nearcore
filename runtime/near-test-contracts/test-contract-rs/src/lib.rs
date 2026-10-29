@@ -132,7 +132,11 @@ extern "C" {
         amount_ptr: u64,
     ) -> u64;
     #[cfg(feature = "latest_protocol")]
-    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
+    fn universal_state_init_to_account_id(
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64,
+    ) -> u64;
     #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_universal_state_init(
         promise_idx: u64,
@@ -388,7 +392,8 @@ pub unsafe fn ext_used_gas() {
 /// input, funding it with the attached deposit.
 ///
 /// A contract cannot derive a universal account id on its own, so it asks the
-/// host for it and points the promise at what comes back.
+/// host for it and points the promise at what comes back. If the host refuses
+/// the bytes, returns its exit status as a single byte and creates nothing.
 #[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 pub unsafe fn universal_state_init() {
@@ -399,7 +404,12 @@ pub unsafe fn universal_state_init() {
     let state_init_ptr = state_init.as_ptr() as *const u64 as u64;
 
     // Register 1 receives the account id this state init derives to.
-    universal_state_init_to_account_id(state_init_len, state_init_ptr, 1);
+    let status = universal_state_init_to_account_id(state_init_len, state_init_ptr, 1);
+    if status != 0 {
+        let reply = [status as u8];
+        value_return(reply.len() as u64, reply.as_ptr() as *const u64 as u64);
+        return;
+    }
     // `u64::MAX` as the length reads the account id from register 1.
     let promise_idx = promise_batch_create(u64::MAX, 1);
 
@@ -2193,9 +2203,9 @@ fn promise_batch_action_add_gas_key_with_function_call(
 // Stubs for yield_with_id host functions, so `call_promise` compiles when the
 // contract is built without the `latest_protocol` feature (the
 // backwards-compatible build targeting the oldest supported protocol version).
-// The host functions are gated on `ProtocolFeature::YieldWithId` (enabled at
-// protocol version 85), so reaching these on an older protocol means a test is
-// exercising the wrong build. Panic loudly rather than returning a
+// The host functions were gated on a protocol feature that is now unconditionally
+// enabled on supported versions, so reaching these on an older protocol means a
+// test is exercising the wrong build. Panic loudly rather than returning a
 // plausible-looking value that would let the test silently succeed.
 #[cfg(not(feature = "latest_protocol"))]
 fn promise_yield_create_with_id(

@@ -94,6 +94,7 @@ impl Cache {
                     ColumnCache::new(32),
                 ),
                 | DBCol::EpochSyncProof => ColumnCache::with_none_values(ColumnCache::new(1)),
+                | DBCol::BlockInfo => ColumnCache::new(1000),
                 #[cfg(feature = "protocol_feature_spice")]
                 | DBCol::ContractAccesses => ColumnCache::new(256),
                 _ => ColumnCache::disabled(),

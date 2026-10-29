@@ -1,4 +1,3 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
@@ -651,8 +650,7 @@ impl DBCol {
             // TODO(#15465): the indexer reads this column too, so a split-storage
             // archival node loses it to gc and cannot serve it past the horizon.
             DBCol::ProcessedReceiptIds => false,
-            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
-            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
+            DBCol::BlockHeader => true,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::_BlockExtra

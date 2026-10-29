@@ -12,7 +12,6 @@ use near_primitives::sharding::{
 };
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 
 /// Partial chunk for `(height, shard_id)` with an *unknown* `prev_block_hash`,
@@ -39,7 +38,6 @@ fn make_unknown_prev_chunk(height: BlockHeight, shard_id: ShardId) -> PartialEnc
         BandwidthRequests::empty(),
         None,
         &signer,
-        PROTOCOL_VERSION,
     ));
     PartialEncodedChunk::V2(PartialEncodedChunkV2 {
         header,

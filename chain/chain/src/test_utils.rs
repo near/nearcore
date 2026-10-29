@@ -614,7 +614,6 @@ pub fn get_fake_next_block_chunk_headers(
                 BandwidthRequests::empty(),
                 None,
                 signer,
-                PROTOCOL_VERSION,
             ))
         }
     }

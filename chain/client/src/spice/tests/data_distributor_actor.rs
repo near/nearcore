@@ -3965,18 +3965,15 @@ fn test_handling_batched_data_request_gates_entries_separately() {
         vec![],
         Balance::ZERO,
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         0,
         ChunkEndorsementsBitmap::new(0),
         None,
     );
-    let epoch_manager_update = chain
-        .epoch_manager
-        .add_validator_proposals(pre_spice_block_info, CryptoHash::default())
-        .unwrap();
+    let epoch_manager_update =
+        chain.epoch_manager.record_block_info(pre_spice_block_info, CryptoHash::default()).unwrap();
     let mut store_update = chain.mut_chain_store().store_update();
     store_update.save_block_header(pre_spice_header).unwrap();
-    store_update.merge(epoch_manager_update.into());
+    store_update.merge(epoch_manager_update.store_update.into());
     store_update.commit().unwrap();
 
     let mut producers = witness_producer_accounts(&chain, &block, &state_witness);

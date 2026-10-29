@@ -16,9 +16,9 @@ use crate::types::{
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::{EpochEnd, EpochManagerAdapter, EpochManagerUpdate};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
@@ -28,7 +28,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId, SpiceChunkId};
+use near_primitives::types::{BlockHeight, ShardId, SpiceChunkId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use near_runtime::SignedValidPeriodTransactions;
@@ -65,28 +65,17 @@ impl<'a> ChainUpdate<'a> {
         ChainUpdate { epoch_manager, runtime_adapter, chain_store_update }
     }
 
-    pub fn check_protocol_version(
-        &self,
-        block_hash: &CryptoHash,
-        epoch_to_check: ProtocolVersionCheckConfig,
-    ) -> Result<(), Error> {
-        if !self.epoch_manager.is_next_block_epoch_start(block_hash)? {
-            return Ok(());
-        }
-        let epoch_id = match epoch_to_check {
-            ProtocolVersionCheckConfig::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
-            ProtocolVersionCheckConfig::NextNext => EpochId(*block_hash),
+    fn check_protocol_version(epoch_end: &EpochEnd, epoch_to_check: ProtocolVersionCheckConfig) {
+        let protocol_version = match epoch_to_check {
+            ProtocolVersionCheckConfig::Next => epoch_end.next_epoch_protocol_version,
+            ProtocolVersionCheckConfig::NextNext => epoch_end.next_next_epoch_protocol_version,
         };
-        // Note: this lookup comes from the epoch_manager's cache in case of the next next epoch,
-        // as it is not persisted to disk yet.
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if protocol_version > PROTOCOL_VERSION {
             panic!(
                 "The client protocol version is older than the protocol version of the network: {} > {}",
                 protocol_version, PROTOCOL_VERSION
             );
         }
-        Ok(())
     }
 
     /// Commit changes to the chain into the database.
@@ -226,6 +215,7 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
+        protocol_version_check: ProtocolVersionCheckConfig,
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
@@ -266,28 +256,25 @@ impl<'a> ChainUpdate<'a> {
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let block_info =
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version);
-        let epoch_manager_update = self
-            .epoch_manager
-            .add_validator_proposals(block_info, *block.header().random_value())?;
-        self.chain_store_update.merge(epoch_manager_update.into());
+        let EpochManagerUpdate { store_update: epoch_store_update, epoch_end } =
+            self.epoch_manager.record_block_info(block_info, *block.header().random_value())?;
+        self.chain_store_update.merge(epoch_store_update.into());
 
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            // If this is the first block of the epoch, update epoch sync proof.
-            // We use prev_hash (not last_final_block) because last_final_block can skip
-            // over epoch boundaries when heights are skipped (e.g. dead validator's turn),
-            // causing the proof update to be missed for that epoch.
-            // prev_hash of the first block in epoch T is always the last block of epoch T-1.
-            //
-            // The downside of using prev_hash is that due to forks we may end up hitting the
-            // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
-            // is idempotent.
-            if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
-                let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update =
-                    update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
-                self.chain_store_update.merge(epoch_manager_update.into());
-            }
+        // If this is the first block of the epoch, update epoch sync proof.
+        // We use prev_hash (not last_final_block) because last_final_block can skip
+        // over epoch boundaries when heights are skipped (e.g. dead validator's turn),
+        // causing the proof update to be missed for that epoch.
+        // prev_hash of the first block in epoch T is always the last block of epoch T-1.
+        //
+        // The downside of using prev_hash is that due to forks we may end up hitting the
+        // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
+        // is idempotent.
+        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
+            let epoch_store = self.chain_store_update.store().epoch_store();
+            let epoch_manager_update =
+                update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
+            self.chain_store_update.merge(epoch_manager_update.into());
         }
 
         // Add validated block to the db, even if it's not the canonical fork.
@@ -295,12 +282,18 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         let prev_header = self.chain_store_update.get_previous_header(block.header())?;
+        // The last pre-spice block ends a pre-spice epoch whose next epoch is spice.
+        let is_last_pre_spice_block = epoch_end.as_ref().is_some_and(|epoch_end| {
+            !ProtocolFeature::Spice.enabled(current_protocol_version)
+                && ProtocolFeature::Spice.enabled(epoch_end.next_epoch_protocol_version)
+        });
         let mut boundary_update = self.chain_store_update.store().store_update();
         seed_activation_boundary(
             &mut boundary_update,
             self.epoch_manager.as_ref(),
             &block,
             &prev_header,
+            is_last_pre_spice_block,
         )?;
         self.chain_store_update.merge(boundary_update);
 
@@ -350,6 +343,9 @@ impl<'a> ChainUpdate<'a> {
             SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
             if let Some(certification_lag) = spice_certification_lag {
                 metrics::SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
+            }
+            if let Some(epoch_end) = &epoch_end {
+                Self::check_protocol_version(epoch_end, protocol_version_check);
             }
         }
         Ok(res)

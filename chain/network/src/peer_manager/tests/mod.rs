@@ -2,6 +2,7 @@ mod accounts_data;
 mod connection_pool;
 mod fuzzers;
 mod nonce;
+mod public_addr;
 mod routing;
 mod snapshot_hosts;
 mod tier1;

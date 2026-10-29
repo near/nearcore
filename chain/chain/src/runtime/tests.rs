@@ -195,7 +195,7 @@ impl TestEnv {
         }
 
         epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     genesis_hash,
                     0,
@@ -205,7 +205,6 @@ impl TestEnv {
                     vec![],
                     vec![],
                     genesis_total_supply,
-                    genesis_protocol_version,
                     genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -221,6 +220,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         Self {
             epoch_manager,
@@ -375,7 +375,7 @@ impl TestEnv {
             self.last_shard_proposals.insert(shard_id, proposals);
         }
         self.epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     new_hash,
                     new_height,
@@ -386,7 +386,6 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
-                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
                     None,
@@ -394,6 +393,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
@@ -889,7 +889,7 @@ fn test_state_sync() {
         };
         new_env
             .epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     cur_hash,
                     i,
@@ -899,7 +899,6 @@ fn test_state_sync() {
                     new_env.last_proposals,
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -912,6 +911,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;

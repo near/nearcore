@@ -646,10 +646,8 @@ mod tests {
         }
 
         // Re-syncing the headers restores the deleted body-head row and keeps the header-only
-        // ones. The body head re-seeds in-process only because has_block_info asks the store:
-        // clear_head_block_data deletes its BlockInfo there but not from the epoch manager's
-        // blocks_info cache, so a cache-based guard would report it as still recorded and skip
-        // the seeder, leaving the row orphaned until a restart.
+        // ones. clear_head_block_data deletes the body head's BlockInfo, so has_block_info
+        // reports it as not recorded and the seeder runs again.
         chain
             .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
             .unwrap();
