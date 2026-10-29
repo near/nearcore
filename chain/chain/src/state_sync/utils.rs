@@ -151,14 +151,12 @@ fn first_block_of_epoch<T: ChainStoreAccess>(
     chain_store: &T,
     last_final: Arc<BlockHeader>,
     epoch_id: &EpochId,
-) -> Result<Option<Arc<BlockHeader>>, Error> {
+) -> Result<Arc<BlockHeader>, Error> {
     let mut first = last_final;
     loop {
-        let Some(prev) = maybe_get_block_header(chain_store, first.prev_hash())? else {
-            return Ok(None);
-        };
+        let prev = chain_store.get_block_header(first.prev_hash())?;
         if prev.epoch_id() != epoch_id || prev.height() == chain_store.get_genesis_height() {
-            return Ok(Some(first));
+            return Ok(first);
         }
         first = prev;
     }
