@@ -3,10 +3,10 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
-    Edge, EdgeState, MAX_TRACKED_SHARDS_PER_PEER, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2,
-    PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RoutingTableUpdate,
-    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
-    TieredMessageBody, from_unix_nanos, to_unix_nanos,
+    Edge, EdgeState, Encoding, MAX_TRACKED_SHARDS_PER_PEER, OwnedAccount, PartialEdgeInfo,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeerMessageFrames, PeerMessageHeader, PeersRequest,
+    PeersResponse, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
+    SyncSnapshotHosts, T2MessageBody, TieredMessageBody, from_unix_nanos, to_unix_nanos,
 };
 use crate::peer::stream;
 use crate::peer::stream::IncomingFrame;
@@ -166,6 +166,9 @@ pub(crate) struct PeerActor {
 
     /// Framed wrapper to send messages through the TCP connection.
     framed: stream::FramedStream,
+    /// Encoding of the messages exchanged with the peer.
+    /// `None` until the first message from the peer is successfully decoded.
+    encoding: Option<Encoding>,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
@@ -348,6 +351,7 @@ impl PeerActor {
             stream,
             stats.clone(),
             network_state.incoming_message_semaphore.clone(),
+            network_state.config.transition.connection_encodings(),
             network_state.config.max_write_buffer_capacity_bytes,
         );
         let actor = Self {
@@ -363,6 +367,7 @@ impl PeerActor {
             },
             peer_status: PeerStatus::Connecting(send, connecting_status),
             framed,
+            encoding: None,
             tracker: Default::default(),
             stats,
             routed_message_cache: LruCache::new(
@@ -428,8 +433,29 @@ impl PeerActor {
             _ => (),
         };
 
-        let bytes = msg.serialize();
-        let bytes_len = bytes.len();
+        // Messages are sent in the negotiated encoding, which is the encoding of the first
+        // message received from the peer. The peer accepts only that encoding, see
+        // `FramedStream::run_recv_loop`. Before it is known, the only message which is sent is
+        // the first handshake, see `send_handshake`.
+        let Some(encoding) = self.encoding else {
+            tracing::debug!(
+                target: "network",
+                msg_type = msg.msg_variant(),
+                peer = %self.peer_info,
+                "dropping message sent before the encoding of the connection is negotiated",
+            );
+            return;
+        };
+        self.send_frames(msg, msg.serialize_with_encoding(encoding), reserved_permit);
+    }
+
+    fn send_frames(
+        &self,
+        msg: &PeerMessage,
+        frames: PeerMessageFrames,
+        reserved_permit: Option<OutgoingPermit>,
+    ) {
+        let bytes_len = frames.len();
         // Reserve capacity in the global outgoing-queue limiter. Pre-acquired reservations are
         // shrunk to the actual serialized size; everything else acquires now and drops the message
         // if there is no headroom.
@@ -456,8 +482,7 @@ impl PeerActor {
         };
         self.tracker.lock().increment_sent(&self.clock, bytes_len as u64);
         tracing::trace!(target: "network", msg_len = bytes_len);
-        let frame = stream::Frame::with_permit(bytes, permit);
-        self.framed.send(frame);
+        self.framed.send(stream::Frame::with_permit(frames, permit));
         if let PeerStatus::Ready(conn) = &self.peer_status {
             conn.last_time_sent_message.store(self.clock.now());
         }
@@ -504,7 +529,19 @@ impl PeerActor {
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
             tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
-        self.send_message(&msg);
+        match self.encoding {
+            Some(_) => self.send_message(&msg),
+            // The first handshake is sent in all the encodings which this node accepts, in the
+            // order of preference. The peer handles the first one that it accepts (see
+            // `FramedStream::run_recv_loop`), and both sides use its encoding from then on.
+            // This is the only message sent in more than one encoding, and the only message sent
+            // before the encoding is negotiated.
+            None => {
+                for &encoding in self.network_state.config.transition.connection_encodings() {
+                    self.send_frames(&msg, msg.serialize_with_encoding(encoding), None);
+                }
+            }
+        }
     }
 
     fn stop(&mut self, reason: ClosingReason) {
@@ -1574,12 +1611,18 @@ impl messaging::Handler<stream::Error> for PeerActor {
     fn handle(&mut self, err: stream::Error) {
         self.delay_if_registering(move |this| {
             let expected = match &err {
-                stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
+                // A frame larger than the maximum message size is abusive.
+                stream::Error::Recv(stream::RecvError::NetworkProtocolViolation(
+                    stream::NetworkProtocolViolation::MessageTooLarge { .. },
+                )) => {
                     this.stop(ClosingReason::Ban(ReasonForBan::Abusive));
                     true
                 }
                 // It is expected in a sense that the peer might be just slow.
                 stream::Error::Send(stream::SendError::QueueOverflow { .. }) => true,
+                // A peer might be malicious and send bad data, so a protocol violation is
+                // expected.
+                stream::Error::Recv(stream::RecvError::NetworkProtocolViolation(_)) => true,
                 // The incoming semaphore can be closed when neard is shutting down.
                 stream::Error::Recv(stream::RecvError::IncomingSemaphoreClosed) => true,
                 stream::Error::Recv(stream::RecvError::IO(err))
@@ -1607,8 +1650,27 @@ impl messaging::Handler<stream::Error> for PeerActor {
     }
 }
 
+/// Checks that the parsed header of a received borsh-encoded message matches its decoded body.
+fn check_borsh_frames(
+    encoding: Encoding,
+    header: Option<&PeerMessageHeader>,
+    msg: &PeerMessage,
+) -> Result<(), stream::NetworkProtocolViolation> {
+    if encoding != Encoding::Borsh {
+        return Ok(());
+    }
+    let header = header.ok_or(stream::NetworkProtocolViolation::MissingHeader(msg.kind()))?;
+    if header.kind() != msg.kind() {
+        return Err(stream::NetworkProtocolViolation::KindMismatch {
+            header: header.kind(),
+            body: msg.kind(),
+        });
+    }
+    Ok(())
+}
+
 impl messaging::Handler<IncomingFrame> for PeerActor {
-    fn handle(&mut self, IncomingFrame { data: msg, recv_permit }: IncomingFrame) {
+    fn handle(&mut self, IncomingFrame { message: msg, recv_permit }: IncomingFrame) {
         self.delay_if_registering(move |this| {
             let _span = tracing::debug_span!(
                 target: "network",
@@ -1631,24 +1693,36 @@ impl messaging::Handler<IncomingFrame> for PeerActor {
                 this.tracker.lock().increment_received(&this.clock, msg.len() as u64);
             }
 
-            let mut peer_msg = match PeerMessage::deserialize(&msg) {
-                Ok(msg) => msg,
+            let (header, mut peer_msg) = match PeerMessage::deserialize_frames(&msg) {
+                Ok(parsed) => parsed,
                 Err(err) => {
-                    tracing::debug!(target: "network", data = %near_fmt::AbbrBytes(&msg), peer_info = %this.peer_info, %err, "received invalid data");
+                    tracing::debug!(target: "network", data = %near_fmt::AbbrBytes(&msg.body), peer_info = %this.peer_info, %err, "received invalid data");
                     return;
                 }
             };
+            if let Err(err) = check_borsh_frames(msg.encoding, header.as_ref(), &peer_msg) {
+                tracing::debug!(target: "network", peer_info = %this.peer_info, %err, "received invalid data");
+                this.stop(ClosingReason::StreamError);
+                return;
+            }
+            if this.encoding.is_none() {
+                // The stream accepts messages only in the encoding of the first one, see
+                // `FramedStream::run_recv_loop`.
+                this.encoding = Some(msg.encoding);
+                tracing::debug!(target: "network", encoding = ?msg.encoding, peer_info = %this.peer_info, "negotiated encoding");
+            }
 
             // Enforce a per-message-type size limit.
+            // The body of a borsh-encoded message is checked before it is read, see `stream`.
             let max_size = peer_msg.max_size();
-            if msg.len() > max_size {
+            if msg.body.len() > max_size {
                 let msg_variant = peer_msg.msg_variant();
                 metrics::MessageDropped::TooLargeForType.inc_msg_type(msg_variant);
                 tracing::debug!(
                     target: "network",
                     peer_info = %this.peer_info,
                     %msg_variant,
-                    msg_len = msg.len(),
+                    msg_len = msg.body.len(),
                     max_size,
                     "received a message exceeding the size limit for its type, dropping it",
                 );

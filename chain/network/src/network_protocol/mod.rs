@@ -590,15 +590,6 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    /// Serializes a message and attaches current Span's context to the message.
-    pub(crate) fn serialize(&self) -> Vec<u8> {
-        self.serialize_with_encoding(Encoding::Proto).body
-    }
-
-    pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        Ok(Self::deserialize_frames(&PeerMessageFrames::proto(data.to_vec()))?.1)
-    }
-
     /// Serializes a message using `encoding`.
     /// Protobuf-encoded messages carry the current Span's context.
     pub(crate) fn serialize_with_encoding(&self, encoding: Encoding) -> PeerMessageFrames {
