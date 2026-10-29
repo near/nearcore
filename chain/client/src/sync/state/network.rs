@@ -56,8 +56,8 @@ struct PendingPeerRequestKey {
 struct PendingPeerRequestValue {
     /// The peer the request was sent to, once the network has named it.
     peer_id: Option<PeerId>,
-    /// Messages about the request which arrived before the network named the peer, with their
-    /// senders. They are handled once it has.
+    /// `NotSent` reports which arrived before the network named the peer, each with the host it is
+    /// about. They are handled once the network has.
     early_messages: Vec<(PeerId, StateRequestUpdate)>,
     sender: oneshot::Sender<ShardStateSyncResponse>,
 }
@@ -105,8 +105,8 @@ impl StateSyncDownloadSourcePeerSharedState {
         self.handle_peer_message(&key, peer_id, msg)
     }
 
-    /// Records the peer the network sent the request for `key` to, and handles the messages about
-    /// the request which arrived before it did.
+    /// Records the peer the network sent the request for `key` to, and handles the `NotSent`
+    /// reports which arrived before it did.
     fn set_peer(&mut self, key: &PendingPeerRequestKey, peer_id: PeerId) {
         let Some(request) = self.pending_requests.get_mut(key) else {
             return;
@@ -131,9 +131,15 @@ impl StateSyncDownloadSourcePeerSharedState {
         };
 
         let Some(expected_peer_id) = &request.peer_id else {
-            // The network can report on the request, e.g. that it could not send it, before
-            // `try_download` learns which peer it was sent to. Keep the message until then.
-            request.early_messages.push((peer_id, msg));
+            // The network can report that it could not send the request before `try_download`
+            // learns which peer it was sent to, so keep the report until then. Don't keep messages
+            // from peers, which anyone could send to fill the buffer. The host's replies don't
+            // arrive this early in practice, as they take a round trip to the host.
+            if let StateRequestUpdate::NotSent { .. } = msg {
+                request.early_messages.push((peer_id, msg));
+            } else {
+                tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request not sent yet");
+            }
             return Ok(());
         };
 
@@ -245,8 +251,8 @@ impl StateSyncDownloadSourcePeer {
             .with_label_values(&[key.shard_id.to_string().as_str(), &typ])
             .start_timer();
 
-        // Register the request before sending it: the network may report on it, e.g. that it could
-        // not send it, before we process its reply naming the peer.
+        // Register the request before sending it: the network may report that it could not send
+        // it before we process its reply naming the peer.
         let state_value = PendingPeerRequestValue { peer_id: None, early_messages: vec![], sender };
 
         // Ensures that the key is removed from the map of pending requests when this scope exits,
@@ -422,7 +428,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::PeerId;
     use near_primitives::state_part::StatePart;
-    use near_primitives::state_sync::PartOrHeader;
+    use near_primitives::state_sync::{PartOrHeader, StateRequestAck, StateRequestAckBody};
     use near_primitives::types::ShardId;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
     use near_store::{DBCol, Store};
@@ -546,6 +552,16 @@ mod tests {
         }
     }
 
+    /// A host's ack saying it is too busy to send part 0 of shard 0.
+    fn part_busy(sync_hash: CryptoHash) -> StateRequestUpdate {
+        StateRequestUpdate::Ack(StateRequestAck {
+            shard_id: ShardId::new(0),
+            sync_hash,
+            part_or_header: PartOrHeader::Part { part_idx: 0 },
+            body: StateRequestAckBody::Busy,
+        })
+    }
+
     /// A download stops waiting as soon as the network reports its request as not sent, even if
     /// the report arrives before the network's reply naming the peer.
     #[test]
@@ -558,6 +574,20 @@ mod tests {
         });
         let result = download_part(&source, sync_hash).now_or_never();
         assert!(result.expect("download should stop waiting").is_err());
+    }
+
+    /// Unlike the network's reports, messages from peers which arrive before the network names the
+    /// peer are dropped, so that peers can't fill the buffer with them. Had the busy ack been kept,
+    /// the download would stop waiting once the network named the host.
+    #[test]
+    fn test_early_peer_message_is_dropped() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 2);
+        let sync_hash = *headers[2].hash();
+        let source = peer_source(store, move |state| {
+            state.receive_peer_message(peer("host"), part_busy(sync_hash)).unwrap();
+            peer("host")
+        });
+        assert!(download_part(&source, sync_hash).now_or_never().is_none());
     }
 
     /// A report that a request to another host was not sent, e.g. from an earlier attempt which
