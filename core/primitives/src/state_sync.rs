@@ -142,7 +142,7 @@ pub struct ShardStateSyncResponseHeaderV3 {
     /// The state root node of that trie.
     pub state_root_node: StateRootNode,
     /// The block whose core statements commit the chunk's execution result. The node checks
-    /// it descends from the sync block and holds its header already.
+    /// that it is final and descends from the sync block, and must hold its header already.
     pub certifying_block_hash: CryptoHash,
     /// That block's body, checked against the header's `block_body_hash`. The execution
     /// result the node records as the sync block's `ChunkExtra` is read out of it, so every

@@ -265,13 +265,13 @@ impl ChainStateSyncAdapter {
     ///
     /// `sync_hash` is the epoch's first block and the state being synced is the one its chunk
     /// leaves behind, so the header carries no chunk to apply afterwards - only the state root
-    /// node and the proof that binds its root to the chain.
+    /// node and the certifying block that binds its root to the chain.
     ///
     /// A spice chunk header commits no state root of its own, since the chunk executes after
     /// the block that carries it. The root comes from the chunk's `ChunkExecutionResult`
-    /// instead, which a later block commits through the `chunk_execution_root` field of its
-    /// header. Header sync precedes state sync, so the syncing node already holds that header
-    /// and only the leaf and the path to it have to travel.
+    /// instead, which a later block certifies by carrying it in its body. Header sync precedes
+    /// state sync, so the syncing node already holds that block's header, and the body travels
+    /// here for it to check against the header's `block_body_hash`.
     fn compute_spice_state_response_header(
         &self,
         shard_id: ShardId,
@@ -662,9 +662,9 @@ impl ChainStateSyncAdapter {
             ));
         };
 
-        // 1. The certifying block must descend from the sync block. Execution results are
-        // committed by a later block, and only a descendant's commitment says anything about
-        // the chain the node is syncing to.
+        // 1. The certifying block must be final and descend from the sync block. Execution
+        // results are committed by a later block, and only a final descendant's commitment says
+        // anything about the chain the node is syncing to.
         let certifying_header = self.chain_store.get_block_header(certifying_block_hash)?;
         if !self.is_final_descendant_of_sync_block(&certifying_header, &sync_hash)? {
             byzantine_assert!(false);
