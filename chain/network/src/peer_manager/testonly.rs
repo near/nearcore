@@ -3,6 +3,7 @@ use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::ClientSenderForNetwork;
+use crate::client::StateRequestUpdateMessage;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
@@ -23,9 +24,10 @@ use crate::types::StateRequestSenderForNetwork;
 use crate::types::{AccountKeys, ChainInfo, KnownPeerStatus, ReasonForBan};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
-    CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,
+    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::network::PeerId;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -87,6 +89,7 @@ impl Handler<WithStateAndTransport> for PeerManagerActor {
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
+    pub state_request_updates: broadcast::Receiver<StateRequestUpdateMessage>,
     pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
     pub tcp: Arc<TcpTransport>,
@@ -576,7 +579,12 @@ pub(crate) async fn start_with_state_request_sender(
     let genesis_id = chain.genesis_id.clone();
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
-    let client_sender: ClientSenderForNetwork = noop().into_multi_sender();
+    let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
+    let (update_send, state_request_updates) = broadcast::unbounded_channel();
+    client_sender.state_request_update =
+        AsyncSender::from_fn(move |msg: SpanWrapped<StateRequestUpdateMessage>| {
+            update_send.send(msg.span_unwrap())
+        });
 
     let actor_system = ActorSystem::new();
     // Requests which PeerManagerActor sends to itself, such as Tier3Request.
@@ -598,7 +606,8 @@ pub(crate) async fn start_with_state_request_sender(
     .unwrap();
     peer_manager_sender.bind(actor.clone());
     let actor = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
+    let h =
+        ActorHandler { cfg, actor, events: recv.clone(), state_request_updates, actor_system, tcp };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::ServerStarted => Some(()),

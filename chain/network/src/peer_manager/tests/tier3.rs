@@ -1,10 +1,13 @@
 use crate::broadcast;
-use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
-use crate::config::SocketOptions;
+use crate::client::{
+    StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestUpdate,
+    StateRequestUpdateMessage,
+};
+use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, StateRequestAck, StateResponseInfo,
-    StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
+    Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, SnapshotHostInfoV1, StateRequestAck,
+    StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::PeerHandle;
@@ -35,6 +38,8 @@ use near_primitives::types::ShardId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::TestDB;
 use rand::Rng;
+use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Limit on inbound Tier3 connections, kept low so that the tests don't need many file
@@ -149,6 +154,50 @@ async fn connect_requester(
     let msg = stream.read().await.unwrap();
     assert!(matches!(msg, PeerMessage::Tier3Handshake(_)), "unexpected message: {msg}");
     (stream_id, stream)
+}
+
+/// Makes `pm` aware of a snapshot of `shard_id` advertised under `snapshot_hash` by the node
+/// with config `host`, with `addr` as the host's address. Without an address, the advertisement
+/// is a V1 info, as published by a host on an older release.
+async fn advertise_snapshot(
+    pm: &ActorHandler,
+    host: &NetworkConfig,
+    snapshot_hash: CryptoHash,
+    shard_id: ShardId,
+    addr: Option<SocketAddr>,
+) {
+    let (epoch_height, shards) = (1, vec![shard_id]);
+    let info = match addr {
+        Some(addr) => SnapshotHostInfo::new(
+            host.node_id(),
+            snapshot_hash,
+            epoch_height,
+            shards,
+            addr,
+            &host.node_key,
+        ),
+        None => {
+            let hash = CryptoHash::hash_borsh((&snapshot_hash, &epoch_height, &shards));
+            SnapshotHostInfo::V1(SnapshotHostInfoV1 {
+                peer_id: host.node_id(),
+                sync_hash: snapshot_hash,
+                epoch_height,
+                shards,
+                signature: host.node_key.sign(hash.as_ref()),
+            })
+        }
+    };
+    let info = Arc::new(info);
+    let (inserted, err) =
+        pm.with_state(move |s| async move { s.snapshot_hosts.insert(vec![info]).await }).await;
+    assert_eq!((inserted.len(), err), (1, None));
+}
+
+/// Sends a network request to `pm` and returns its response.
+async fn send_request(pm: &ActorHandler, request: NetworkRequests) -> NetworkResponses {
+    let response: PeerManagerMessageResponse =
+        pm.actor.send_async(PeerManagerMessageRequest::NetworkRequests(request)).await.unwrap();
+    response.as_network_response()
 }
 
 // Verify that a node accepts Tier3 connections from peers which request state from it.
@@ -374,8 +423,9 @@ async fn ack_accepted_over_tier3() {
     assert_eq!(processed, ack);
 }
 
-// Verify that a host acks routed state requests over Tier2, and sends the responses over a Tier3
-// connection which it opens to the requester.
+// Verify that a node routes state requests over Tier2 to a snapshot host which doesn't advertise its
+// address, and that the host acks them over Tier2 and sends the responses over a Tier3 connection
+// which it opens to the requester.
 #[tokio::test]
 async fn routed_requests_answered_over_tier3() {
     init_test_logger();
@@ -397,20 +447,11 @@ async fn routed_requests_answered_over_tier3() {
     requester.wait_for_routing_table(&[(host_id.clone(), vec![host_id.clone()])]).await;
     host.wait_for_routing_table(&[(requester_id.clone(), vec![requester_id])]).await;
 
-    // Let the requester know that the host has a snapshot of the shard.
+    // Let the requester know that the host has a snapshot of the shard. The host doesn't advertise
+    // its address, so the requests are routed to it.
     let shard_id = ShardId::new(0);
     let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
-    let info = SnapshotHostInfo::new(
-        host_id.clone(),
-        snapshot_hash,
-        0,
-        vec![shard_id],
-        **host.cfg.node_addr.as_ref().unwrap(),
-        &host.cfg.node_key,
-    );
-    requester
-        .with_state(move |s| async move { s.snapshot_hosts.insert_skip_verify(Arc::new(info)) })
-        .await;
+    advertise_snapshot(&requester, &host.cfg, snapshot_hash, shard_id, None).await;
 
     // The host connects to the requester to answer the first request, and reuses the connection
     // for the second.
@@ -429,13 +470,8 @@ async fn routed_requests_answered_over_tier3() {
         ),
     ] {
         let events = requester.events.from_now();
-        let response: PeerManagerMessageResponse = requester
-            .actor
-            .send_async(PeerManagerMessageRequest::NetworkRequests(request))
-            .await
-            .unwrap();
         assert_eq!(
-            response.as_network_response(),
+            send_request(&requester, request).await,
             NetworkResponses::SelectedDestination(host_id.clone())
         );
 
@@ -623,4 +659,154 @@ async fn idle_timeout_counts_sent_messages() {
     clock.advance(time::Duration::seconds(2));
     wait_closed(&mut events, idle_stream_id, &[stream_id]).await;
     send_and_wait(&mut events, &peer, msg, &[stream_id]).await;
+}
+
+// Verify that a node sends state requests to a snapshot host which advertises its address over a
+// Tier3 connection to that address, and receives the responses over it. The node needs neither a
+// public address of its own nor a route to the host, and concurrent requests share a connection.
+#[tokio::test]
+async fn requests_sent_to_advertised_addr() {
+    init_test_logger();
+    let mut rng = make_rng(921853247);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let host = start_pm(&clock, &chain, rng).await;
+    let requester = start_pm(&clock, &chain, rng).await;
+    assert!(requester.with_state(|s| async move { s.my_public_addr.read().is_none() }).await);
+
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    advertise_snapshot(&requester, &host.cfg, snapshot_hash, shard_id, host.peer_info().addr).await;
+
+    let mut events = requester.events.from_now();
+    let part_ids: HashSet<_> = (0..10).collect();
+    let requests = part_ids.iter().map(|&part_idx| {
+        let request =
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx };
+        send_request(&requester, request)
+    });
+    for response in join_all(requests).await {
+        assert_eq!(response, NetworkResponses::SelectedDestination(host.cfg.node_id()));
+    }
+
+    let mut parts = HashSet::new();
+    while parts.len() < part_ids.len() {
+        if let Event::MessageProcessed(tcp::Tier::T3, PeerMessage::VersionedStateResponse(part)) =
+            events.recv().await
+        {
+            parts.insert(part.part_idx().unwrap());
+        }
+    }
+    assert_eq!(parts, part_ids);
+    let host_tier3: Vec<PeerId> = host.tcp.tier3.load().ready.keys().cloned().collect();
+    assert_eq!(host_tier3, vec![requester.cfg.node_id()]);
+}
+
+// Verify that state requests to a snapshot host which doesn't advertise its address are routed
+// over Tier2, which needs the node's own public address.
+#[tokio::test]
+async fn requests_routed_to_host_without_addr() {
+    init_test_logger();
+    let mut rng = make_rng(921853248);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let requester = start_pm(&clock, &chain, rng).await;
+    let host = chain.make_config(rng);
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    advertise_snapshot(&requester, &host, snapshot_hash, shard_id, None).await;
+    let request =
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx: 0 };
+    assert_eq!(send_request(&requester, request).await, NetworkResponses::MyPublicAddrNotKnown);
+}
+
+// Verify that a node with direct state requests disabled routes state requests over Tier2 even to a
+// snapshot host which advertises its address.
+#[tokio::test]
+async fn requests_routed_if_direct_requests_disabled() {
+    init_test_logger();
+    let mut rng = make_rng(921853250);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let mut cfg = chain.make_config(rng);
+    cfg.direct_state_requests_disabled = true;
+    let requester =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await;
+    let host = chain.make_config(rng);
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let host_addr = host.node_addr.as_ref().map(|addr| **addr);
+    advertise_snapshot(&requester, &host, snapshot_hash, shard_id, host_addr).await;
+    let request =
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx: 0 };
+    assert_eq!(send_request(&requester, request).await, NetworkResponses::MyPublicAddrNotKnown);
+}
+
+/// Makes `pm` aware of a snapshot that `host` advertises with `addr` as its address, requests a
+/// part of it, and checks that `pm` tells the client that the request wasn't sent.
+async fn request_not_sent(
+    pm: &ActorHandler,
+    host: &NetworkConfig,
+    addr: SocketAddr,
+    rng: &mut impl Rng,
+) {
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    advertise_snapshot(pm, host, snapshot_hash, shard_id, Some(addr)).await;
+
+    let mut state_request_updates = pm.state_request_updates.from_now();
+    let request =
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx: 0 };
+    assert_eq!(
+        send_request(pm, request).await,
+        NetworkResponses::SelectedDestination(host.node_id())
+    );
+    let part_or_header = PartOrHeader::Part { part_idx: 0 };
+    let update = StateRequestUpdate::NotSent { shard_id, sync_hash, part_or_header };
+    assert_eq!(
+        state_request_updates.recv().await,
+        StateRequestUpdateMessage { peer_id: host.node_id(), update }
+    );
+}
+
+// Verify that a node tells the client when it can't send a state request because connecting to the
+// snapshot host fails fast: nothing listens on the host's address, or a different node listens
+// there and rejects the handshake.
+#[tokio::test]
+async fn unreachable_hosts_reported() {
+    init_test_logger();
+    let mut rng = make_rng(921853249);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let mut cfg = chain.make_config(rng);
+    cfg.handshake_timeout = time::Duration::hours(1);
+    let requester =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await;
+
+    // Nothing listens on this host's address.
+    let host = chain.make_config(rng);
+    request_not_sent(&requester, &host, **host.node_addr.as_ref().unwrap(), rng).await;
+
+    // A different node listens on this host's address, and rejects the handshake meant for the host.
+    let other_cfg = chain.make_config(rng);
+    let other =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), other_cfg, chain.clone()).await;
+    let host = chain.make_config(rng);
+    request_not_sent(&requester, &host, other.peer_info().addr.unwrap(), rng).await;
 }

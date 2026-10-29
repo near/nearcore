@@ -220,6 +220,9 @@ pub struct NetworkConfig {
     /// Whether the node can take a private IP reported by its peers as its public address.
     /// For local test networks only.
     pub allow_private_ip_in_public_addrs: bool,
+    /// If true, state requests are routed to snapshot hosts over Tier2, even if the hosts
+    /// advertise their address.
+    pub direct_state_requests_disabled: bool,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -449,6 +452,7 @@ impl NetworkConfig {
             validator,
             tier3_public_addr: cfg.experimental.tier3_public_addr,
             allow_private_ip_in_public_addrs: cfg.allow_private_ip_in_public_addrs,
+            direct_state_requests_disabled: cfg.experimental.direct_state_requests_disabled,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -562,6 +566,7 @@ impl NetworkConfig {
             tier3_public_addr: None,
             // Test nodes connect to each other over the loopback interface.
             allow_private_ip_in_public_addrs: true,
+            direct_state_requests_disabled: false,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),

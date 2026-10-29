@@ -185,6 +185,14 @@ impl SnapshotHostInfo {
         }
     }
 
+    /// Listening address the host advertises for itself. V1 infos carry none.
+    pub fn addr(&self) -> Option<SocketAddr> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(info) => Some(info.addr),
+        }
+    }
+
     /// Signature on (sync_hash, epoch_height, shards), the only one older nodes verify.
     pub(crate) fn legacy_signature(&self) -> Option<&Signature> {
         match self {
