@@ -8,8 +8,8 @@ use near_primitives::types::SpiceChunkId;
 use near_store::adapter::StoreAdapter as _;
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
-/// chunks in every shard: every spice block carries a chunk for every shard, so the epoch's
-/// first block is already a well-defined anchor for all of them.
+/// chunks in every shard: spice executes every shard at every block, applying a missing chunk
+/// as an empty one, so the epoch's first block is already a well-defined anchor for all of them.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_sync_hash_is_the_epochs_first_block() {
@@ -133,7 +133,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
             Err(Error::Other(msg)) if msg.contains("body does not match")
         );
 
-        // `certifying_block_body` which is not final yet is rejected
+        // A certifying block that is not final yet is rejected
         assert_matches!(
             syncing_node.client().chain.state_sync_adapter.set_state_header(
                 shard_id,
