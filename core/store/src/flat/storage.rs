@@ -482,6 +482,10 @@ impl FlatStorage {
         guard.flat_head.hash
     }
 
+    pub(crate) fn get_head_height(&self) -> BlockHeight {
+        self.0.read().flat_head.height
+    }
+
     pub(crate) fn shard_uid(&self) -> ShardUId {
         let guard = self.0.read();
         guard.shard_uid

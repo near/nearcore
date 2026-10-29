@@ -443,9 +443,13 @@ impl ChunkExecutorActor {
             return Ok(());
         }
 
-        if self.chain_store.spice_final_execution_head()?.height >= sync_header.height() {
-            // The final execution head is already at or past the sync block, so the flat head
-            // may be past it too, and the snapshot can no longer be built.
+        if self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .max_flat_head_height()
+            .is_some_and(|height| height > sync_header.height())
+        {
+            // The snapshot can no longer move the flat head back to the sync block.
             return Ok(());
         }
 
