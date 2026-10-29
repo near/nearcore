@@ -472,8 +472,6 @@ pub struct EpochManager {
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
 
-    /// Cache of epoch id to epoch start height
-    epoch_id_to_start: SyncLruCache<EpochId, BlockHeight>,
     /// Epoch validators ordered by `block_producer_settlement`.
     epoch_validators_ordered: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
     /// Unique validators ordered by `block_producer_settlement`.
@@ -598,7 +596,6 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
-            epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -1380,14 +1377,8 @@ impl EpochManager {
                     None
                 };
 
-                // Deliberately after every fallible step, so a failed record leaves no stale
-                // `epoch_id_to_start` entry. Safe here because nothing above reads it back.
                 if is_epoch_start {
-                    self.save_epoch_start(
-                        &mut store_update,
-                        block_info.epoch_id(),
-                        block_info.height(),
-                    )?;
+                    store_update.set_epoch_start(block_info.epoch_id(), block_info.height());
                 }
             }
         }
@@ -1727,7 +1718,7 @@ impl EpochManager {
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
         let epoch_height = cur_epoch_info.epoch_height();
-        let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
+        let epoch_start_height = self.store.get_epoch_start(&epoch_id)?;
 
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
@@ -2131,25 +2122,6 @@ impl EpochManager {
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.store.get_block_info(hash)
-    }
-
-    fn save_epoch_start(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        epoch_id: &EpochId,
-        epoch_start: BlockHeight,
-    ) -> Result<(), EpochError> {
-        store_update.set_epoch_start(epoch_id, epoch_start);
-        self.epoch_id_to_start.put(*epoch_id, epoch_start);
-        Ok(())
-    }
-
-    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
-    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
-    /// walk) instead.
-    fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`

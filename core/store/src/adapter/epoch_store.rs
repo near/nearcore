@@ -37,9 +37,13 @@ impl EpochStoreAdapter {
         }
     }
 
+    /// Depends on fork processing order: two first blocks of competing forks with the same
+    /// parent share an `EpochId`, and the last one written wins. Do not use on consensus
+    /// paths; use `EpochManager::get_epoch_start_height` (the `BlockInfo` walk) instead.
     pub fn get_epoch_start(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.store
-            .get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .caching_get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .map(|epoch_start| *epoch_start)
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 

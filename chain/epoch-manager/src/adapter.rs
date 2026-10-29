@@ -55,7 +55,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
-    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// Fork-order-dependent across same-parent boundary siblings (last `set_epoch_start`
     /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
     /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
@@ -1100,7 +1100,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.read().get_epoch_start_from_epoch_id(epoch_id)
+        self.read().store.get_epoch_start(epoch_id)
     }
 
     fn get_static_shard_layout_for_protocol_version(

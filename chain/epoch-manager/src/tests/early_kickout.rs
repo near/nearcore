@@ -1820,44 +1820,6 @@ fn record_block_info_failure_leaves_no_block_info() {
     assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
 }
 
-// Same for the epoch-start branch, where `save_epoch_start` now runs after the last fallible
-// step. Fault injection: the fixture's current-epoch id is an arbitrary label, so the id the
-// boundary derives has no `EpochInfo` and the record fails where the epoch-start write used
-// to precede it. Not a state epoch sync can produce.
-#[test]
-fn record_block_info_failure_leaves_no_epoch_start() {
-    let mut fx = epoch_sync_fixture();
-
-    // What the boundary derives: the hash of the block before the prev epoch's first.
-    let boundary_id = EpochId(*fx.em.get_block_info(&fx.first).unwrap().prev_hash());
-
-    // Child of the prev epoch's last block, so the record takes the epoch-start branch.
-    let child = hash(b"first block of the new epoch");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the derived boundary epoch has no EpochInfo installed");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .get_epoch_start_from_epoch_id(&boundary_id)
-        .expect_err("a discarded record must not leave an epoch start behind");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-    fx.em
-        .get_block_info(&child)
-        .map(|_| ())
-        .expect_err("a discarded record must not leave a block info row");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-}
-
 // `has_block_info` reads the store, so a record whose update the caller drops is recorded
 // again on retry. The chain drops it whenever a later step of the same block processing
 // fails, not only when the record itself does.
