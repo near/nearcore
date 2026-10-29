@@ -439,11 +439,7 @@ fn failed_decode_does_not_latch_the_key() {
         .map(|part_ord| {
             VersionedPartialEncodedStateWitness::new(
                 *witness.epoch_id(),
-                test_chunk_header(
-                    *witness.chunk_header().prev_block_hash(),
-                    &signer,
-                    anchored_version(),
-                ),
+                test_chunk_header(*witness.chunk_header().prev_block_hash(), &signer),
                 anchor,
                 part_ord,
                 vec![0xff; 8],

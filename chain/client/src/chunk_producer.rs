@@ -412,7 +412,6 @@ impl ChunkProducer {
                 chunk_extra.proposed_split().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
-                protocol_version,
             )
         };
 

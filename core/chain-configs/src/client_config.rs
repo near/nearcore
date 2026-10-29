@@ -588,7 +588,7 @@ pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+// Kept in sync with `near_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
 pub fn default_view_access_keys_limit() -> u32 {
     100
 }

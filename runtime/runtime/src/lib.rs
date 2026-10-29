@@ -5,8 +5,8 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
-    total_prepaid_exec_fees, total_prepaid_gas,
+    EccCost, ecc_cost, exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance,
+    total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::function_call::action_function_call;
@@ -19,12 +19,14 @@ pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
     verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
+use dashmap::DashMap;
 use global_contracts::{
     action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
@@ -55,8 +57,9 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
+    Action, ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope,
+    TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -686,6 +689,18 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
+                // The ECC method only runs in an external call (which must not be executed
+                // through `apply_action`) or in a view call.
+                if ProtocolFeature::ExternalContractCalls
+                    .enabled(apply_state.current_protocol_version)
+                    && function_call.method_name == ECC_METHOD_NAME
+                {
+                    result.result = Err(ActionErrorKind::ReservedMethodName {
+                        method_name: function_call.method_name.clone(),
+                    }
+                    .into());
+                    return Ok(result);
+                }
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
@@ -773,7 +788,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     &apply_state.config,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
@@ -1033,14 +1047,9 @@ impl Runtime {
 
         // The price at which gas was burnt while applying this receipt. Can be different from the price at
         // which the gas was purchased.
-        let gas_burn_price =
-            if ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
-                // should always be <= gas_purchase_price, otherwise receiver_reward might underflow
-                // or mint new tokens.
-                std::cmp::min(gas_purchase_price, apply_state.gas_price)
-            } else {
-                apply_state.gas_price
-            };
+        // Should always be <= gas_purchase_price, otherwise receiver_reward might underflow
+        // or mint new tokens.
+        let gas_burn_price = std::cmp::min(gas_purchase_price, apply_state.gas_price);
 
         let gas_refund_result = if receipt.predecessor_id().is_system() {
             // If the refund fails tokens are burned.
@@ -1064,7 +1073,6 @@ impl Runtime {
                 &mut result,
                 &apply_state.config,
                 created_new_account,
-                apply_state.current_protocol_version,
             )?
         };
         stats.balance.gas_deficit_amount =
@@ -1091,9 +1099,6 @@ impl Runtime {
         let mut tx_burnt_amount = safe_gas_to_balance(gas_burn_price, gas_burnt)?
             .checked_sub(gas_refund_result.price_deficit)
             .unwrap();
-        if !ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
-            tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
-        }
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
         tx_burnt_amount =
             safe_add_balance(tx_burnt_amount, gas_refund_result.create_account_charge)?;
@@ -1111,15 +1116,7 @@ impl Runtime {
             .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
-        let receiver_reward =
-            if ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
-                safe_gas_to_balance(gas_burn_price, receiver_gas_reward)?
-            } else {
-                // Post NEP-536/pre AccountCostIncrease: We are not refunding gas price differences, we just use the receipt
-                // gas price and call it the correct price.
-                // No deficits to try and recover. Use receipt gas price for reward calculation
-                safe_gas_to_balance(gas_purchase_price, receiver_gas_reward)?
-            };
+        let receiver_reward = safe_gas_to_balance(gas_burn_price, receiver_gas_reward)?;
 
         if receiver_reward > Balance::ZERO {
             let mut account = get_account(state_update, account_id)?;
@@ -1247,14 +1244,9 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         let profile = conversions::Convert::convert(*result.profile);
-        let metadata =
-            if ProtocolFeature::ExecutionMetadataV4.enabled(apply_state.current_protocol_version) {
-                let mut contracts = result.current_contracts;
-                contracts.resize(action_receipt.actions().len(), AccountContract::None);
-                ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }))
-            } else {
-                ExecutionMetadata::V3(Box::new(profile))
-            };
+        let mut contracts = result.current_contracts;
+        contracts.resize(action_receipt.actions().len(), AccountContract::None);
+        let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }));
 
         Ok(ExecutionOutcomeWithId {
             id: *receipt.receipt_id(),
@@ -1288,7 +1280,6 @@ impl Runtime {
         result: &mut ActionReceiptResult,
         config: &RuntimeConfig,
         created_account: bool,
-        protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
@@ -1315,12 +1306,7 @@ impl Runtime {
 
         // NEP-536 also adds a penalty to gas refund.
         let refund_penalty: Gas = config.fees.gas_penalty_for_gas_refund(gross_gas_refund);
-        let penalty_gas_price = if ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
-            gas_burn_price
-        } else {
-            gas_purchase_price
-        };
-        let refund_penalty_amount = safe_gas_to_balance(penalty_gas_price, refund_penalty)?;
+        let refund_penalty_amount = safe_gas_to_balance(gas_burn_price, refund_penalty)?;
 
         // Refund for the leftover gas that was not used by this receipt.
         let unused_gas_balance_refund = safe_gas_to_balance(gas_purchase_price, gross_gas_refund)?
@@ -1348,15 +1334,10 @@ impl Runtime {
         };
 
         // Refund for the price difference between gas_purchase_price and gas_burn_price of the gas burned in this receipt.
-        let mut burned_gas_refund =
-            if ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
-                gas_refund_result.price_surplus
-            } else {
-                Balance::ZERO
-            };
+        let mut burned_gas_refund = gas_refund_result.price_surplus;
 
         // If an account was created, charge more to cover its cost.
-        if created_account && ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+        if created_account {
             // This is how much creating an account should cost
             let desired_cost = config.account_creation_charge;
 
@@ -1369,9 +1350,6 @@ impl Runtime {
             let amount_to_charge = desired_cost.saturating_sub(burned_cost);
 
             // We can't charge more than `burned_gas_refund`.
-            // `burned_gas_refund < amount_to_charge` could happen for receipts where the gas was
-            // purchased in protocol versions before `ProtocolFeature::AccountCostIncrease`, at a lower
-            // gas price that isn't enough to cover the cost of creating an account.
             let amount_actually_charged = std::cmp::min(amount_to_charge, burned_gas_refund);
 
             // sanity check: purchasing gas at `min_gas_purchase_price` should be enough to cover
@@ -1573,19 +1551,15 @@ impl Runtime {
                     remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
 
                     // Clean up yield_id <-> data_id mappings if this was created by yield_create_with_id
-                    if ProtocolFeature::YieldWithId.enabled(apply_state.current_protocol_version) {
-                        if let Some(yield_id) = get_yield_id_for_data_id(
+                    if let Some(yield_id) =
+                        get_yield_id_for_data_id(state_update, account_id, data_receipt.data_id)?
+                    {
+                        remove_yield_id_mappings(
                             state_update,
                             account_id,
+                            yield_id,
                             data_receipt.data_id,
-                        )? {
-                            remove_yield_id_mappings(
-                                state_update,
-                                account_id,
-                                yield_id,
-                                data_receipt.data_id,
-                            );
-                        }
+                        );
                     }
 
                     // Save the data into the state keyed by the data_id
@@ -2072,9 +2046,17 @@ impl Runtime {
                         if !non_expired {
                             return;
                         }
-                        // TODO(ecc): prefetch the contract account of ECCs
-                        let Some(tx) = tx.as_signed() else {
-                            return;
+                        let tx = match tx {
+                            TransactionEnvelope::Signed(tx) => tx,
+                            TransactionEnvelope::Unsigned(ecc) => {
+                                // The contract of an ECC pays for it, like the signer of a
+                                // signed transaction.
+                                let contract_id = ecc.contract_id();
+                                accounts.entry(contract_id).or_insert_with(|| {
+                                    get_account(&processing_state.state_update, contract_id)
+                                });
+                                return;
+                            }
                         };
                         let signer_id = tx.transaction.signer_id();
                         let pubkey = tx.transaction.public_key();
@@ -2105,14 +2087,13 @@ impl Runtime {
 
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
-        let skip_duplicate_txs = ProtocolFeature::UniqueChunkTransactions.enabled(protocol_version);
         let mut seen_tx_hashes = HashSet::with_capacity(num_transactions);
         let mut num_skipped_duplicate_txs = 0;
         for (envelope, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             // A transaction hash is its outcome id, and outcomes are committed
             // keyed by that id. Processing the same hash twice would commit two
             // conflicting outcomes under one id, so skip any repeat occurrence.
-            if skip_duplicate_txs && !seen_tx_hashes.insert(*envelope.hash()) {
+            if !seen_tx_hashes.insert(*envelope.hash()) {
                 tracing::debug!(
                     tx_hash = ?envelope.hash(),
                     "skipping duplicate transaction in chunk"
@@ -2124,10 +2105,29 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    // TODO(ecc): execute external contract calls
+                    let verified = verify_ecc(
+                        &processing_state.apply_state,
+                        &accounts,
+                        ecc,
+                        maybe_validation_error,
+                    );
+                    let err = match verified {
+                        // TODO(ecc): execute external contract calls:
+                        // - run the method with `ExecutionMode::External { fee_gas:
+                        //   cost.gas_burnt }` and the contract's balance;
+                        // - if the contract accepts the call, charge `cost.burnt_amount` plus
+                        //   the cost of the gas the call used, at the same gas price, from the
+                        //   balance the call leaves, and reject the call with
+                        //   `NotEnoughBalance` if it falls short. The VM doesn't deal with the
+                        //   cost of the gas at all, so this check is what makes the contract
+                        //   pay;
+                        // - record the fees and the gas of the call in the outcome.
+                        // Until then, every call is rejected and pays nothing.
+                        Ok(_cost) => InvalidTxError::InvalidTransactionVersion,
+                        Err(RuntimeError::InvalidTxError(err)) => err,
+                        Err(err) => return Err(err),
+                    };
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    let err =
-                        maybe_validation_error.unwrap_or(InvalidTxError::InvalidTransactionVersion);
                     let outcome = ExecutionOutcomeWithId::failed_ecc(ecc, err);
                     processing_state.outcomes.push(outcome);
                     continue;
@@ -2982,6 +2982,28 @@ impl ApplyState {
         let computed = result?;
         Ok(computed)
     }
+}
+
+/// Checks an external contract call before it runs: it passed validation, and its contract
+/// exists and can pay for the fees of the call. Returns the fees.
+///
+/// `RuntimeError::InvalidTxError` rejects the call. Any other error, such as a storage error
+/// while reading the contract account, stops applying the chunk.
+fn verify_ecc(
+    apply_state: &ApplyState,
+    accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
+    ecc: &EccTransaction,
+    validation_error: Option<InvalidTxError>,
+) -> Result<EccCost, RuntimeError> {
+    if let Some(err) = validation_error {
+        return Err(err.into());
+    }
+    let cost =
+        ecc_cost(&apply_state.config, ecc, apply_state.gas_price).map_err(InvalidTxError::from)?;
+    let contract = accounts.get(ecc.contract_id()).expect("accounts should've been prefetched");
+    let contract = contract.value().as_ref().map_err(Clone::clone)?;
+    verify_ecc_ephemeral(contract.as_ref(), ecc, &cost)?;
+    Ok(cost)
 }
 
 fn action_transfer_or_implicit_account_creation(

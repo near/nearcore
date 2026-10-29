@@ -100,12 +100,12 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -938,6 +938,18 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
+        // Honest nodes never produce V7. Before this feature, nodes accept V7 in non-spice epochs
+        // as if it were V6, so the rejection is gated to keep agreement with those nodes.
+        if ProtocolFeature::RejectBlockHeaderV7BeforeSpice.enabled(epoch_protocol_version)
+            && matches!(header, BlockHeader::BlockHeaderV7(_))
+        {
+            tracing::warn!(
+                target: "chain",
+                %epoch_protocol_version,
+                "block header v7 is not valid in this epoch"
+            );
+            return Err(Error::InvalidProtocolVersion);
+        }
 
         if header.epoch_id() == prev_header.epoch_id() {
             if header.next_bp_hash() != prev_header.next_bp_hash() {
@@ -1026,19 +1038,15 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            if ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
-                .enabled(epoch_protocol_version)
-            {
-                // block_ordinal is the number of blocks up to and including this one.
-                if block_merkle_tree.size() + 1 != header.block_ordinal() {
-                    return Err(Error::InvalidBlockOrdinal);
-                }
+            // block_ordinal is the number of blocks up to and including this one.
+            if block_merkle_tree.size() + 1 != header.block_ordinal() {
+                return Err(Error::InvalidBlockOrdinal);
+            }
 
-                let expected_epoch_sync_data_hash =
-                    self.epoch_manager.compute_epoch_sync_data_hash(header.prev_hash())?;
-                if expected_epoch_sync_data_hash != header.epoch_sync_data_hash() {
-                    return Err(Error::InvalidEpochSyncDataHash);
-                }
+            let expected_epoch_sync_data_hash =
+                self.epoch_manager.compute_epoch_sync_data_hash(header.prev_hash())?;
+            if expected_epoch_sync_data_hash != header.epoch_sync_data_hash() {
+                return Err(Error::InvalidEpochSyncDataHash);
             }
 
             if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
@@ -1564,11 +1572,11 @@ impl Chain {
                 chain_store_update.get_block_height(header.last_final_block())?;
             let current_protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-            let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            let epoch_manager_update = self.epoch_manager.record_block_info(
                 BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
-            chain_store_update.merge(epoch_manager_update.into());
+            chain_store_update.merge(epoch_manager_update.store_update.into());
             chain_store_update.commit()?;
         }
 
@@ -1890,19 +1898,16 @@ impl Chain {
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
-        let epoch_to_check = self.protocol_version_check;
+        let protocol_version_check = self.protocol_version_check;
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
-        let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
             block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
+            protocol_version_check,
         )?;
-        if new_head.is_some() {
-            chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
-        }
         chain_update.commit()?;
         self.sandbox_patches.mark_committed(sandbox_patch_gen);
         Ok(new_head)

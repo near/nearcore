@@ -15,7 +15,6 @@ use near_crypto::Signature;
 use near_fmt::AbbrBytes;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
@@ -284,7 +283,6 @@ impl ShardChunkHeaderV3 {
                 BandwidthRequests::empty(),
                 None,
                 &EmptyValidatorSigner::default().into(),
-                protocol_version,
             )
         }
     }
@@ -318,46 +316,25 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-                proposed_split,
-            })
-        } else {
-            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-            })
-        };
+        let inner = ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+            proposed_split,
+        });
         Self::from_inner(inner, signer)
     }
 
@@ -624,8 +601,8 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V1(_) => false,
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
-                ShardChunkHeaderInner::V4(_) => true,
-                ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
+                ShardChunkHeaderInner::V4(_) => false,
+                ShardChunkHeaderInner::V5(_) => true,
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
             },
         };
@@ -1542,7 +1519,6 @@ impl ShardChunkWithEncoding {
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
-        protocol_version: ProtocolVersion,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
         // TODO(ecc): include ECCs once the pool can hold them (#16473)
         let signed_txs = validated_txs
@@ -1574,7 +1550,6 @@ impl ShardChunkWithEncoding {
             bandwidth_requests,
             proposed_split,
             signer,
-            protocol_version,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let shard_chunk = ShardChunk::new(

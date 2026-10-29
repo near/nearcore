@@ -42,6 +42,8 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::adapter::ViewRuntimeAdapter;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -51,8 +53,6 @@ use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
-use node_runtime::SignedValidPeriodTransactions;
-use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
@@ -1130,11 +1130,9 @@ pub(crate) fn print_epoch_analysis(
         // — same intent as the historical `has_same_shard_layout = true`
         // override in this mode.
         let strategy = match mode {
-            EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
-                next_next_protocol_version,
-                &next_shard_layout,
-                &next_next_shard_layout,
-            ),
+            EpochAnalysisMode::CheckConsistency => {
+                AssignmentStrategy::select(&next_shard_layout, &next_next_shard_layout)
+            }
             EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
         };
         let next_next_epoch_info = proposals_to_epoch_info(

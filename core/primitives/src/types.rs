@@ -1170,7 +1170,7 @@ impl ValidatorStats {
 
 /// Per-validator chunk endorsement stats accumulated over a spice epoch,
 /// indexed by the current epoch's validator id. Carried on the last block of
-/// the epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.
+/// the epoch (see `BlockHeaderInnerRestV8`) and consumed by reward and kickout.
 #[derive(
     Default,
     BorshSerialize,

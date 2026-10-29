@@ -14,12 +14,12 @@ use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
+use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
-use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use parking_lot::{Condvar, Mutex};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -417,13 +417,8 @@ impl RuntimeGroup {
         unimplemented!()
     }
 
-    /// On stable: the list of refunds should be empty
-    /// With ProtocolFeature::AccountCostIncrease: assert that the list of receipts contains only gas refunds
+    /// Assert that the list of receipts contains only gas refunds.
     pub fn assert_gas_refunds(&self, receipt_ids: &[CryptoHash]) {
-        if !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-            assert_eq!(receipt_ids, &[], "Expected zero refund receipts");
-        }
-
         for id in receipt_ids {
             let (_, receipt) = self.get_receipt_debug(id);
             assert!(

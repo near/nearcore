@@ -285,8 +285,6 @@ impl Client {
 pub struct AsyncComputationMultiSpawner {
     /// Spawner to run 'apply chunks' tasks (see `ApplyChunksSpawner` for default)
     apply_chunks: ApplyChunksSpawner,
-    /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
-    epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
@@ -297,7 +295,6 @@ impl Default for AsyncComputationMultiSpawner {
     fn default() -> Self {
         Self {
             apply_chunks: Default::default(),
-            epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
             memtrie_loading: Default::default(),
         }
@@ -309,7 +306,6 @@ impl AsyncComputationMultiSpawner {
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
             prepare_transactions: spawner.clone(),
             memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
@@ -382,7 +378,6 @@ impl Client {
             clock.clone(),
             network_adapter.clone(),
             chain.genesis().clone(),
-            multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
         );
         let header_sync = HeaderSync::new(

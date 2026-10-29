@@ -232,11 +232,12 @@ See [Storage Staking](https://docs.near.org/protocol/storage/storage-staking) in
 
 An access key grants an access to a account. Each access key on the account is identified by a unique public key.
 This public key is used to validate signature of transactions.
-Each access key contains a unique nonce to differentiate or order transactions signed with this access key.
+Each access key contains a unique nonce to differentiate or order transactions signed with this access key. A gas key has several nonces instead of one.
 
-An access key has a permission associated with it. The permission can be one of two types:
+An access key has a permission associated with it. The permission can be one of four types:
 
 - `FullAccess` permission. It grants full access to the account.
 - `FunctionCall` permission. It grants access to only issued function call transactions.
+- `GasKeyFullAccess` and `GasKeyFunctionCall` permissions. They grant the same access as `FullAccess` and `FunctionCall`, and they pay for gas from a prepaid balance. See [Gas Keys](AccessKey.md#gas-keys).
 
 See [Access Keys](AccessKey.md) for more details.

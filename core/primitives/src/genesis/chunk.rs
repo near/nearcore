@@ -42,7 +42,6 @@ pub fn genesis_chunks(
 
         let mut chunk = genesis_chunk(
             &rs,
-            genesis_protocol_version,
             genesis_height,
             initial_gas_limit,
             shard_id,
@@ -60,7 +59,6 @@ pub fn genesis_chunks(
 // fields set to defaults. The remaining fields are set to the provided values.
 fn genesis_chunk(
     rs: &ShardChunkReedSolomon,
-    genesis_protocol_version: ProtocolVersion,
     genesis_height: u64,
     initial_gas_limit: Gas,
     shard_id: ShardId,
@@ -87,7 +85,6 @@ fn genesis_chunk(
         None,
         &EmptyValidatorSigner::default().into(),
         rs,
-        genesis_protocol_version,
     );
     let encoded_chunk = chunk.into_parts().1;
     encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk")

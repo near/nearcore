@@ -8,10 +8,11 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
 use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInitCounts, state_init_counts,
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitCounts,
+    state_init_send_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
@@ -466,8 +467,16 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
-    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
-        state_init_counts(state_init)
+    fn check_state_init(&self, state_init: &RawStateInit) -> Result<(), StateInitError> {
+        UniversalStateInit::from_raw_strict(state_init).map(|_| ())
+    }
+
+    fn state_init_send_counts(
+        &self,
+        state_init: &RawStateInit,
+        mode: DecodeMode,
+    ) -> UniversalStateInitCounts {
+        state_init_send_counts(state_init, mode)
     }
 
     fn append_action_universal_state_init(
@@ -624,7 +633,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn post_quantum_keys_enabled(&self) -> bool {
-        ProtocolFeature::PostQuantumSignatures.enabled(self.protocol_version())
+        true
     }
 }
 

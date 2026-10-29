@@ -108,6 +108,20 @@ Then each `ActionReceipt` is passed to `Runtime::apply_action_receipt` where gas
 Inside `VMLogic`, the fees are tracked in the `GasCounter` struct.
 The VM itself is called in the `action_function_call` inside `Runtime`. When all actions are processed, the result is returned as a `VMOutcome`, which is later merged with `ActionResult`.
  
+## Gas key transactions
+
+From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a [gas key](/DataStructures/AccessKey.md#gas-keys).
+Its fees are the same as for a transaction signed with a regular access key, but its cost is paid from two balances:
+
+- The gas cost is paid from the gas key balance. It is `gas_burnt` converted at the current gas price, plus `gas_remaining` converted at the receipt gas price.
+  The receipt gas price is the larger of the current gas price and `min_gas_purchase_price`.
+- The deposit cost, `total_deposit(transaction.actions)`, is paid from the account balance. It is the sum of the deposits of all actions, such as `Transfer`, `FunctionCall` and `TransferToGasKey`.
+
+If the gas key balance does not cover the gas cost, the transaction fails with `NotEnoughGasKeyBalance` and nothing is charged.
+If the account balance does not cover the deposits, or does not cover the storage of the account after them, the transaction fails with `NotEnoughBalanceForDeposit`.
+In that case the gas key is charged only for `gas_burnt`, at the current gas price. See [Gas key transactions](/RuntimeSpec/Transactions.md#gas-key-transactions).
+Gas refunds of a gas key transaction go back to the gas key balance, see [Refunds](../Refunds.md#gas-key-balance-refunds).
+
 # Example
 
 <!-- cspell:ignore VGYT Fwya Wckywk Ejuz -->

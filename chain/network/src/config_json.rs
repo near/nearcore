@@ -1,3 +1,4 @@
+use crate::config::{ConnectionEncoding, SignedStructFormat};
 use crate::network_protocol::PeerAddr;
 use crate::rate_limits::messages_limits;
 use crate::stun;
@@ -193,6 +194,8 @@ pub struct Config {
     pub public_addrs: Vec<PeerAddr>,
     /// For local tests only (localnet). Allows specifying IPs from private range
     /// (which are not visible from the public internet) in public_addrs field.
+    /// Also lets the node take a private IP reported by its peers as its own address
+    /// for Tier3 state sync.
     #[serde(default)]
     pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
@@ -343,6 +346,12 @@ pub struct NetworkConfigOverrides {
     pub routing_graph_max_peers: Option<usize>,
     /// Maximum total number of edges stored in the routing graph.
     pub routing_graph_max_edges: Option<usize>,
+    /// See `NetworkTransitionConfig::connection_encoding`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_encoding: Option<ConnectionEncoding>,
+    /// See `NetworkTransitionConfig::signed_struct_format`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_struct_format: Option<SignedStructFormat>,
 }
 
 impl Default for Config {

@@ -217,7 +217,7 @@ pub enum TrieKey {
         receiver_id: AccountId,
         receipt_id: CryptoHash,
     } = col::POSTPONED_RECEIPT,
-    /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
+    /// Used to store indices of the delayed receipts queue (`near-runtime::DelayedReceiptIndices`).
     /// NOTE: It is a singleton per shard.
     DelayedReceiptIndices = col::DELAYED_RECEIPT_OR_INDICES,
     /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`

@@ -26,6 +26,7 @@ use near_primitives::types::{
     AccountId, Balance, EpochId, Gas, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::to_timestamp;
+pub use near_runtime::bootstrap_congestion_info;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
@@ -35,7 +36,6 @@ use near_store::{
 use near_time::Utc;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-pub use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -281,7 +281,7 @@ impl GenesisBuilder {
 
         store_update.merge(
             self.epoch_manager
-                .add_validator_proposals(
+                .record_block_info(
                     BlockInfo::from_header(
                         genesis.header(),
                         0,
@@ -290,6 +290,7 @@ impl GenesisBuilder {
                     *genesis.header().random_value(),
                 )
                 .unwrap()
+                .store_update
                 .into(),
         );
         store_update

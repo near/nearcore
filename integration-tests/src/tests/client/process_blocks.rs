@@ -2103,12 +2103,9 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
-    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
-    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
-    // zero with the test's gas_price.
-    let expected_refund_receipts_in_chunk =
-        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    // The two action receipts processed in block 2 each emit a price_surplus gas-refund
+    // receipt, which then becomes `prev_outgoing_receipts` of block 3.
+    let expected_refund_receipts_in_chunk = 2;
     // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
     // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
     // (that field is always empty) and the produced receipts are stored keyed by the block whose
@@ -3415,10 +3412,10 @@ mod contract_precompilation_tests {
     use super::*;
     use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_runtime::state_viewer::TrieViewer;
+    use near_runtime::state_viewer::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-    use node_runtime::state_viewer::TrieViewer;
-    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 
