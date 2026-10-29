@@ -70,8 +70,6 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::io::Read;
-use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -85,7 +83,7 @@ const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
 const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
 const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
 
-#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct PeerAddr {
     pub addr: std::net::SocketAddr,
     pub peer_id: PeerId,
@@ -136,7 +134,7 @@ impl std::str::FromStr for PeerAddr {
 /// identity is known (and the maximal size of allowed AccountData is bounded)
 /// the global state that is distributed in the form of AccountData is bounded
 /// as well.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct AccountData {
     /// ID of the node that handles the account key (aka validator key).
     pub peer_id: PeerId,
@@ -150,7 +148,7 @@ pub struct AccountData {
 /// Wrapper of the AccountData which adds metadata to it.
 /// It allows to decide which AccountData is newer (authoritative)
 /// and discard the older versions.
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct VersionedAccountData {
     /// The wrapped account data.
     pub data: AccountData,
@@ -166,8 +164,20 @@ pub struct VersionedAccountData {
     /// * timestamp is a version tie breaker, introduced only to minimize
     ///   the risk of version collision (see accounts_data/mod.rs).
     pub version: u64,
-    /// UTC timestamp of when the AccountData has been signed.
-    pub timestamp: time::Utc,
+    /// UTC timestamp of when the AccountData has been signed, in nanoseconds since the unix
+    /// epoch, see `to_unix_nanos`.
+    pub timestamp: u64,
+}
+
+/// Converts `t` to nanoseconds since the unix epoch, which is how the timestamps of
+/// `VersionedAccountData` and `OwnedAccount` are represented. Saturates before 1970 and after 2554.
+pub(crate) fn to_unix_nanos(t: time::Utc) -> u64 {
+    t.unix_timestamp_nanos().clamp(0, u64::MAX.into()) as u64
+}
+
+/// Converts nanoseconds since the unix epoch to UTC time, see `to_unix_nanos`.
+pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
+    time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
 }
 
 /// Limit on the size of the serialized AccountData message.
@@ -229,6 +239,11 @@ impl VersionedAccountData {
             payload: AccountKeySignedPayload { payload, signature },
         })
     }
+
+    /// `timestamp` as UTC time.
+    pub fn timestamp_utc(&self) -> time::Utc {
+        from_unix_nanos(self.timestamp)
+    }
 }
 
 impl std::ops::Deref for VersionedAccountData {
@@ -238,7 +253,7 @@ impl std::ops::Deref for VersionedAccountData {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -251,7 +266,7 @@ impl AccountKeySignedPayload {
     pub fn signature(&self) -> &near_crypto::Signature {
         &self.signature
     }
-    pub fn verify(&self, key: &PublicKey) -> Result<(), ()> {
+    fn verify(&self, key: &PublicKey) -> Result<(), ()> {
         match self.signature.verify(&self.payload, key) {
             true => Ok(()),
             false => Err(()),
@@ -262,10 +277,11 @@ impl AccountKeySignedPayload {
 // TODO(gprusak): this is effectively immutable, and we always pass it around
 // in an Arc, so the Arc can be moved inside (except that constructing malformed
 // SignedAccountData for tests may get a little tricky).
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
-    // Serialized and signed AccountData.
+    // Serialized and signed AccountData. It is kept together with the account data, so
+    // verifying the signature checks that it encodes the account data.
     payload: AccountKeySignedPayload,
 }
 
@@ -280,15 +296,26 @@ impl SignedAccountData {
     pub fn payload(&self) -> &AccountKeySignedPayload {
         &self.payload
     }
+
+    /// Verifies the signature with the account key, and that it covers the account data.
+    pub fn verify(&self) -> Result<(), ()> {
+        if VersionedAccountData::from_proto_bytes(&self.payload.payload).ok().as_ref()
+            != Some(&self.account_data)
+        {
+            return Err(());
+        }
+        self.payload.verify(&self.account_key)
+    }
 }
 
 /// Proof that a given peer owns the account key.
 /// Included in every handshake sent by a validator node.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct OwnedAccount {
     pub(crate) account_key: PublicKey,
     pub(crate) peer_id: PeerId,
-    pub(crate) timestamp: time::Utc,
+    /// UTC timestamp in nanoseconds since the unix epoch, see `to_unix_nanos`.
+    pub(crate) timestamp: u64,
 }
 
 impl OwnedAccount {
@@ -310,10 +337,11 @@ impl OwnedAccount {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct SignedOwnedAccount {
     owned_account: OwnedAccount,
-    // Serialized and signed OwnedAccount.
+    // Serialized and signed OwnedAccount. It is kept together with the owned account, so
+    // verifying the signature checks that it encodes the owned account.
     payload: AccountKeySignedPayload,
 }
 
@@ -328,9 +356,19 @@ impl SignedOwnedAccount {
     pub fn payload(&self) -> &AccountKeySignedPayload {
         &self.payload
     }
+
+    /// Verifies the signature with the account key, and that it covers the owned account.
+    pub fn verify(&self) -> Result<(), ()> {
+        if OwnedAccount::from_proto_bytes(&self.payload.payload).ok().as_ref()
+            != Some(&self.owned_account)
+        {
+            return Err(());
+        }
+        self.payload.verify(&self.account_key)
+    }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
 }
@@ -342,7 +380,7 @@ impl RoutingTableUpdate {
 }
 
 /// Structure representing handshake between peers.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct Handshake {
     /// Current protocol version.
     pub(crate) protocol_version: u32,
@@ -362,15 +400,17 @@ pub struct Handshake {
     pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
-    GenesisMismatch(GenesisId),
-    InvalidTarget,
+    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 } = 0,
+    GenesisMismatch(GenesisId) = 1,
+    InvalidTarget = 2,
 }
 
 /// See SyncAccountsData in network_protocol/network.proto.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct SyncAccountsData {
     pub accounts_data: Vec<Arc<SignedAccountData>>,
     pub requesting_full_sync: bool,
@@ -378,7 +418,7 @@ pub struct SyncAccountsData {
 }
 
 /// Message sent to request a PeersResponse
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct PeersRequest {
     /// Limits the number of peers to send back
     pub max_peers: Option<u32>,
@@ -387,7 +427,7 @@ pub struct PeersRequest {
 }
 
 /// Message sent as a response to PeersRequest
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct PeersResponse {
     /// Peers drawn from the PeerStore of the responding node,
     /// which includes peers learned transitively from other peers
@@ -397,55 +437,67 @@ pub struct PeersResponse {
 }
 
 /// Message sent when gracefully disconnecting from the other peer.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct Disconnect {
     /// Advises the other peer to remove the connection from storage
     /// Used when it is not expected that a reconnect attempt would succeed
     pub remove_from_connection_store: bool,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
+/// Discriminants are part of the borsh encoding, don't reuse them.
+#[derive(
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    strum::IntoStaticStr,
+    strum::EnumVariantNames,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Tier1Handshake(Handshake),
-    Tier2Handshake(Handshake),
-    Tier3Handshake(Handshake),
-    HandshakeFailure(PeerInfo, HandshakeFailureReason),
+    Tier1Handshake(Handshake) = 0,
+    Tier2Handshake(Handshake) = 1,
+    Tier3Handshake(Handshake) = 2,
+    HandshakeFailure(PeerInfo, HandshakeFailureReason) = 3,
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
-    LastEdge(Edge),
+    LastEdge(Edge) = 4,
     /// Contains accounts and edge information.
-    SyncRoutingTable(RoutingTableUpdate),
-    RequestUpdateNonce(PartialEdgeInfo),
+    SyncRoutingTable(RoutingTableUpdate) = 5,
+    RequestUpdateNonce(PartialEdgeInfo) = 6,
 
-    SyncAccountsData(SyncAccountsData),
+    SyncAccountsData(SyncAccountsData) = 7,
 
-    PeersRequest(PeersRequest),
-    PeersResponse(PeersResponse),
+    PeersRequest(PeersRequest) = 8,
+    PeersResponse(PeersResponse) = 9,
 
-    BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<Arc<BlockHeader>>),
+    BlockHeadersRequest(Vec<CryptoHash>) = 10,
+    BlockHeaders(Vec<Arc<BlockHeader>>) = 11,
 
-    BlockRequest(CryptoHash),
-    Block(Arc<Block>),
-    OptimisticBlock(OptimisticBlock),
+    BlockRequest(CryptoHash) = 12,
+    Block(Arc<Block>) = 13,
+    OptimisticBlock(OptimisticBlock) = 14,
 
-    Transaction(SignedTransaction),
-    Routed(Box<RoutedMessage>),
+    Transaction(SignedTransaction) = 15,
+    Routed(Box<RoutedMessage>) = 16,
 
     /// Gracefully disconnect from other peer.
-    Disconnect(Disconnect),
-    Challenge(Box<Challenge>),
+    Disconnect(Disconnect) = 17,
+    Challenge(Box<Challenge>) = 18,
 
-    SyncSnapshotHosts(SyncSnapshotHosts),
+    SyncSnapshotHosts(SyncSnapshotHosts) = 19,
     // State requests sent over a TIER3 connection opened by the requester.
     // The host sends the ack and the response over the same connection.
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, StatePartIndex),
-    StateRequestAck(StateRequestAck),
-    VersionedStateResponse(StateResponseInfo),
+    StateRequestHeader(ShardId, CryptoHash) = 20,
+    StateRequestPart(ShardId, CryptoHash, StatePartIndex) = 21,
+    StateRequestAck(StateRequestAck) = 22,
+    VersionedStateResponse(StateResponseInfo) = 23,
 
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
+    EpochSyncRequest = 24,
+    EpochSyncResponse(CompressedEpochSyncProof) = 25,
 }
 
 impl fmt::Display for PeerMessage {
@@ -1156,7 +1208,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// TODO(13709): Remove V1 support after forward compatible release.
+/// Legacy routed message carried in the protobuf `routed` field by nodes released before
+/// `routed_v3` was sent. It is only used to deserialize those messages and convert them to V3;
+/// it is deliberately not a variant of `RoutedMessage`, so it cannot be received over borsh.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1174,35 +1228,6 @@ pub struct RoutedMessageV1 {
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
-pub struct RoutedMessageV2 {
-    /// Message
-    pub msg: RoutedMessageV1,
-    /// The time the Routed message was created by `author`.
-    pub created_at: Option<time::Utc>,
-    /// Number of peers this routed message traveled through.
-    /// Doesn't include the peers that are the source and the destination of the message.
-    pub num_hops: u32,
-}
-
-impl BorshSerialize for RoutedMessageV2 {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.msg.serialize(writer)?;
-        self.created_at.map(|t| t.unix_timestamp()).serialize(writer)?;
-        self.num_hops.serialize(writer)
-    }
-}
-
-impl BorshDeserialize for RoutedMessageV2 {
-    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let msg = RoutedMessageV1::deserialize_reader(reader)?;
-        let created_at = Option::<i64>::deserialize_reader(reader)?
-            .map(|t| time::Utc::from_unix_timestamp(t).unwrap());
-        let num_hops = u32::deserialize_reader(reader)?;
-        Ok(Self { msg, created_at, num_hops })
-    }
 }
 
 /// V3 message will remove the signature field for T1.
@@ -1273,21 +1298,7 @@ impl From<RoutedMessageV3> for RoutedMessage {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum RoutedMessage {
-    V1(RoutedMessageV1) = 0,
-    V2(RoutedMessageV2) = 1,
     V3(RoutedMessageV3) = 2,
-}
-
-impl From<RoutedMessageV1> for RoutedMessage {
-    fn from(msg: RoutedMessageV1) -> Self {
-        RoutedMessage::V1(msg)
-    }
-}
-
-impl From<RoutedMessageV2> for RoutedMessage {
-    fn from(msg: RoutedMessageV2) -> Self {
-        RoutedMessage::V2(msg)
-    }
 }
 
 impl RoutedMessage {
@@ -1299,108 +1310,68 @@ impl RoutedMessage {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
-    /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
-    /// TODO(13709): Remove V1 support after forward compatible release.
-    pub fn msg_v1(self) -> RoutedMessageV1 {
-        match self {
-            RoutedMessage::V1(msg) => msg,
-            RoutedMessage::V2(msg) => msg.msg,
-            RoutedMessage::V3(msg) => RoutedMessageV1 {
-                target: msg.target,
-                author: msg.author,
-                ttl: msg.ttl,
-                body: msg.body.into(),
-                signature: msg.signature.unwrap_or_else(|| {
-                    tracing::error!(
-                        target: "network",
-                        "signature is missing, this should not yet happen"
-                    );
-                    Signature::default()
-                }),
-            },
-        }
-    }
-
     pub fn target(&self) -> &PeerIdOrHash {
         match self {
-            RoutedMessage::V1(msg) => &msg.target,
-            RoutedMessage::V2(msg) => &msg.msg.target,
             RoutedMessage::V3(msg) => &msg.target,
         }
     }
 
     pub fn signature(&self) -> Option<&Signature> {
         match self {
-            RoutedMessage::V1(msg) => Some(&msg.signature),
-            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
             RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
 
     pub fn author(&self) -> &PeerId {
         match self {
-            RoutedMessage::V1(msg) => &msg.author,
-            RoutedMessage::V2(msg) => &msg.msg.author,
             RoutedMessage::V3(msg) => &msg.author,
         }
     }
 
     pub fn body(&self) -> &TieredMessageBody {
-        // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
             RoutedMessage::V3(msg) => &msg.body,
         }
     }
 
-    pub fn body_owned(mut self) -> TieredMessageBody {
-        self.upgrade_to_v3();
-        let RoutedMessage::V3(msg) = self else { unreachable!() };
-        msg.body
+    pub fn body_owned(self) -> TieredMessageBody {
+        match self {
+            RoutedMessage::V3(msg) => msg.body,
+        }
     }
 
     pub fn created_at(&self) -> Option<i64> {
         match self {
-            RoutedMessage::V1(_) => None,
-            RoutedMessage::V2(msg) => msg.created_at.map(|t| t.unix_timestamp()),
             RoutedMessage::V3(msg) => msg.created_at,
         }
     }
 
     pub fn num_hops(&self) -> u32 {
         match self {
-            RoutedMessage::V1(_) => 0,
-            RoutedMessage::V2(msg) => msg.num_hops,
             RoutedMessage::V3(msg) => msg.num_hops,
         }
     }
 
     pub fn num_hops_mut(&mut self) -> &mut u32 {
-        self.upgrade_to_v3();
-        let RoutedMessage::V3(msg) = self else { unreachable!() };
-        &mut msg.num_hops
+        match self {
+            RoutedMessage::V3(msg) => &mut msg.num_hops,
+        }
     }
 
     pub fn hash(&self) -> CryptoHash {
         match self {
-            RoutedMessage::V1(msg) => msg.hash(),
-            RoutedMessage::V2(msg) => msg.msg.hash(),
             RoutedMessage::V3(msg) => msg.hash_tiered(),
         }
     }
 
     pub fn verify(&self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.verify(),
-            RoutedMessage::V2(msg) => msg.msg.verify(),
             RoutedMessage::V3(msg) => msg.verify(),
         }
     }
 
     pub fn expect_response(&self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.expect_response(),
-            RoutedMessage::V2(msg) => msg.msg.expect_response(),
             RoutedMessage::V3(msg) => msg.expect_response(),
         }
     }
@@ -1408,53 +1379,19 @@ impl RoutedMessage {
     /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
     pub fn decrease_ttl(&mut self) -> bool {
         match self {
-            RoutedMessage::V1(msg) => msg.decrease_ttl(),
-            RoutedMessage::V2(msg) => msg.msg.decrease_ttl(),
             RoutedMessage::V3(msg) => msg.decrease_ttl(),
         }
     }
 
     pub fn body_variant(&self) -> &'static str {
         match self {
-            RoutedMessage::V1(msg) => (&msg.body).into(),
-            RoutedMessage::V2(msg) => (&msg.msg.body).into(),
             RoutedMessage::V3(msg) => msg.body.variant(),
         }
     }
 
     pub fn ttl(&self) -> u8 {
         match self {
-            RoutedMessage::V1(msg) => msg.ttl,
-            RoutedMessage::V2(msg) => msg.msg.ttl,
             RoutedMessage::V3(msg) => msg.ttl,
-        }
-    }
-
-    fn upgrade_to_v3(&mut self) {
-        match self {
-            Self::V1(msg) => {
-                *self = RoutedMessage::V3(RoutedMessageV3 {
-                    target: msg.target.clone(),
-                    author: msg.author.clone(),
-                    ttl: msg.ttl,
-                    body: TieredMessageBody::from_routed(msg.body.clone()),
-                    signature: Some(msg.signature.clone()),
-                    created_at: None,
-                    num_hops: 0,
-                });
-            }
-            Self::V2(msg) => {
-                *self = RoutedMessage::V3(RoutedMessageV3 {
-                    target: msg.msg.target.clone(),
-                    author: msg.msg.author.clone(),
-                    ttl: msg.msg.ttl,
-                    body: TieredMessageBody::from_routed(msg.msg.body.clone()),
-                    signature: Some(msg.msg.signature.clone()),
-                    created_at: msg.created_at.map(|t| t.unix_timestamp()),
-                    num_hops: msg.num_hops,
-                });
-            }
-            Self::V3(_) => {}
         }
     }
 }
@@ -1464,31 +1401,6 @@ struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
     body: &'a RoutedMessageBody,
-}
-
-impl RoutedMessageV1 {
-    pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
-    }
-
-    pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.author.public_key())
-    }
-
-    pub fn expect_response(&self) -> bool {
-        matches!(
-            self.body,
-            RoutedMessageBody::Ping(_)
-                | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::PartialEncodedChunkRequest(_)
-        )
-    }
-
-    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
-    pub fn decrease_ttl(&mut self) -> bool {
-        self.ttl = self.ttl.saturating_sub(1);
-        self.ttl > 0
-    }
 }
 
 #[derive(

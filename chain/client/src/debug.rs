@@ -961,7 +961,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: d.timestamp,
+                timestamp: d.timestamp_utc(),
             })
             .collect(),
         tier1_connections: network_info

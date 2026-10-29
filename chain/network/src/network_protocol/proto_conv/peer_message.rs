@@ -1,5 +1,6 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
+use crate::network_protocol::PeerIdOrHash;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{
@@ -7,13 +8,14 @@ use crate::network_protocol::state_sync::{
 };
 use crate::network_protocol::{
     Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessageV3, RoutingTableUpdate, StateRequestAck, SyncAccountsData, TieredMessageBody,
+    RoutedMessageV1, RoutedMessageV3, RoutingTableUpdate, StateRequestAck, SyncAccountsData,
+    TieredMessageBody,
 };
-use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
 use borsh::{BorshDeserialize as _, to_vec};
 use bytesize::MIB;
 use near_async::time::error::ComponentRange;
+use near_crypto::Signature;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
@@ -316,19 +318,33 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
-                    created_at: MF::from_option(
-                        r.created_at()
-                            .as_ref()
-                            .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
-                            .flatten()
-                            .as_ref()
-                            .map(utc_to_proto),
-                    ),
-                    num_hops: r.num_hops(),
-                    ..Default::default()
-                }),
+                PeerMessage::Routed(r) => {
+                    let signature = r.signature().cloned().unwrap_or_else(|| {
+                        tracing::error!(
+                            target: "network",
+                            "signature is missing, this should not yet happen"
+                        );
+                        Signature::default()
+                    });
+                    ProtoMT::Routed(proto::RoutedMessage {
+                        borsh: borsh::to_vec(&RoutedMessageV1 {
+                            target: r.target().clone(),
+                            author: r.author().clone(),
+                            ttl: r.ttl(),
+                            body: r.body().clone().into(),
+                            signature,
+                        })
+                        .unwrap(),
+                        created_at: MF::from_option(
+                            r.created_at()
+                                .and_then(|t| ::time::OffsetDateTime::from_unix_timestamp(t).ok())
+                                .as_ref()
+                                .map(utc_to_proto),
+                        ),
+                        num_hops: r.num_hops(),
+                        ..Default::default()
+                    })
+                }
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
                     remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
@@ -674,6 +690,37 @@ mod tests {
     /// rejected before it is Borsh-decoded, so a `ForwardTx` (or any routed
     /// payload) carrying an inflated delegate action is never materialized at
     /// decode time.
+    #[test]
+    fn legacy_routed_message_decodes_as_v3() {
+        use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
+        use near_crypto::{KeyType, Signature};
+        use near_primitives::hash::CryptoHash;
+
+        let mut rng = make_rng(89028037453);
+        let v1 = RoutedMessageV1 {
+            target: PeerIdOrHash::Hash(CryptoHash::default()),
+            author: data::make_peer_id(&mut rng),
+            signature: Signature::empty(KeyType::ED25519),
+            ttl: 5,
+            body: RoutedMessageBody::ForwardTx(data::make_signed_transaction(&mut rng)),
+        };
+        let proto = proto::PeerMessage {
+            message_type: Some(ProtoMT::Routed(proto::RoutedMessage {
+                borsh: borsh::to_vec(&v1).unwrap(),
+                num_hops: 3,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let msg = PeerMessage::try_from(&proto).unwrap();
+        let PeerMessage::Routed(msg) = msg else { panic!("expected routed message") };
+        let RoutedMessage::V3(msg) = *msg;
+        assert_eq!(msg.ttl, 5);
+        assert_eq!(msg.num_hops, 3);
+        assert!(msg.signature.is_some());
+        assert!(matches!(msg.body, TieredMessageBody::T2(_)));
+    }
+
     #[test]
     fn routed_message_size_gate() {
         use crate::network_protocol::T2MessageBody;

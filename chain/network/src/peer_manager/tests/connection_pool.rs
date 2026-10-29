@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Disconnect, PeerMessage};
-use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo};
+use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
@@ -387,7 +387,7 @@ async fn owned_account_mismatch() {
                     account_key: signer.public_key(),
                     // random peer_id, different than the expected cfg.node_id().
                     peer_id: data::make_peer_id(rng),
-                    timestamp: clock.now_utc(),
+                    timestamp: to_unix_nanos(clock.now_utc()),
                 }
                 .sign(&signer),
             ),
@@ -507,7 +507,7 @@ async fn invalid_edge() {
                     OwnedAccount {
                         account_key: signer.public_key(),
                         peer_id: cfg.node_id(),
-                        timestamp: clock.now_utc(),
+                        timestamp: to_unix_nanos(clock.now_utc()),
                     }
                     .sign(&signer),
                 ),
@@ -568,7 +568,7 @@ async fn invalid_edge() {
                 OwnedAccount {
                     account_key: signer.public_key(),
                     peer_id: cfg.node_id(),
-                    timestamp: clock.now_utc(),
+                    timestamp: to_unix_nanos(clock.now_utc()),
                 }
                 .sign(&signer),
             ),
