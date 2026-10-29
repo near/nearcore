@@ -769,16 +769,16 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError>;
+        next_epoch_info: &EpochInfo,
+    );
 
     /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
     /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
@@ -1257,16 +1257,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError> {
+        next_epoch_info: &EpochInfo,
+    ) {
         let mut epoch_manager = self.write();
         epoch_manager.init_after_epoch_sync(
             store_update,
@@ -1279,7 +1279,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_info,
             next_epoch_id,
             next_epoch_info,
-        )
+        );
     }
 
     fn seed_chunk_producers_after_epoch_sync(

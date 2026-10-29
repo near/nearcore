@@ -620,16 +620,16 @@ impl EpochManager {
     pub fn init_after_epoch_sync(
         &mut self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError> {
+        next_epoch_info: &EpochInfo,
+    ) {
         // TODO(#11931): We need to initialize the aggregator to the previous epoch, because
         // we move the aggregator forward in the previous epoch we do not have previous epoch's
         // blocks to compute the aggregator data. See issue for details. Consider a cleaner way.
@@ -639,13 +639,12 @@ impl EpochManager {
         // Epoch sync replaces the chain data used by these blacklists.
         self.chunk_producer_blacklists.lock().clear();
 
-        store_update.set_block_info(&prev_epoch_first_block_info);
-        store_update.set_block_info(&prev_epoch_prev_last_block_info);
-        store_update.set_block_info(&prev_epoch_last_block_info);
-        store_update.set_epoch_info(prev_epoch_id, &prev_epoch_info);
-        store_update.set_epoch_info(epoch_id, &epoch_info);
-        store_update.set_epoch_info(next_epoch_id, &next_epoch_info);
-        Ok(())
+        store_update.set_block_info(prev_epoch_first_block_info);
+        store_update.set_block_info(prev_epoch_prev_last_block_info);
+        store_update.set_block_info(prev_epoch_last_block_info);
+        store_update.set_epoch_info(prev_epoch_id, prev_epoch_info);
+        store_update.set_epoch_info(epoch_id, epoch_info);
+        store_update.set_epoch_info(next_epoch_id, next_epoch_info);
     }
 
     /// When computing validators to kickout, we exempt some validators first so that

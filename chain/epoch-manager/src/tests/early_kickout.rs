@@ -1664,17 +1664,16 @@ fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
     let mut store_update = em.store.store_update();
     em.init_after_epoch_sync(
         &mut store_update,
-        prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
-        prev_epoch_block(second_last, second_last_height, third_last),
-        prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
+        &prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
+        &prev_epoch_block(second_last, second_last_height, third_last),
+        &prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
         &prev_epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &next_epoch_id,
-        epoch_info.clone(),
-    )
-    .unwrap();
+        &epoch_info,
+    );
     store_update.commit();
 
     EpochSyncFixture {

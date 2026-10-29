@@ -215,22 +215,22 @@ impl EpochSync {
         chain_store_update.commit()?;
 
         // `init_after_epoch_sync` writes the epoch infos into `store_update`, and the
-        // store returns them only after the commit below. Keep the current epoch's
-        // info for the reads before that commit.
-        let current_epoch_info = proof.last_epoch.next_epoch_info.clone();
+        // store returns them only after the commit below. Read the current epoch's
+        // info from the proof before that commit.
+        let current_epoch_info = &proof.last_epoch.next_epoch_info;
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
             &mut store_update.epoch_store_update(),
-            proof.last_epoch.first_block_in_epoch,
-            proof.last_epoch.second_last_block_in_epoch,
-            proof.last_epoch.last_block_in_epoch.clone(),
+            &proof.last_epoch.first_block_in_epoch,
+            &proof.last_epoch.second_last_block_in_epoch,
+            &proof.last_epoch.last_block_in_epoch,
             proof.last_epoch.last_block_in_epoch.epoch_id(),
-            proof.last_epoch.epoch_info,
+            &proof.last_epoch.epoch_info,
             last_header.epoch_id(),
-            proof.last_epoch.next_epoch_info,
+            current_epoch_info,
             last_header.next_epoch_id(),
-            proof.last_epoch.next_next_epoch_info,
-        )?;
+            &proof.last_epoch.next_next_epoch_info,
+        );
 
         // At this point store contains headers of 3 last blocks of last past epoch
         // and header of the first block of current epoch.
@@ -256,7 +256,7 @@ impl EpochSync {
         epoch_manager.seed_chunk_producers_after_epoch_sync(
             &mut store_update.epoch_store_update(),
             &first_block_info_in_epoch,
-            &current_epoch_info,
+            current_epoch_info,
         )?;
         // `record_block_info`, which epoch sync bypasses, is otherwise the only
         // block-processing writer of `EpochStart`. The early-kickout grace check no longer
