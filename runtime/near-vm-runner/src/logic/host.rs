@@ -942,15 +942,12 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 /// The current balance of the given account. This includes the attached_deposit that was
 /// attached to the transaction.
 ///
-/// In an external contract call this excludes the cost of the gas used so far,
-/// which the contract pays for.
-///
 /// # Cost
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
-    let balance = ctx.result_state.available_balance();
+    let balance = ctx.result_state.current_account_balance;
     set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, balance.as_yoctonear())
 }
 
@@ -2107,6 +2104,10 @@ pub fn ed25519_verify(
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
 ///
+/// A message shorter than 16 bytes always returns 0, pinned by
+/// `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`;
+/// changing it would be a protocol change.
+///
 /// [NEP-635]: https://github.com/near/NEPs/pull/635
 ///
 /// # Errors
@@ -2211,6 +2212,13 @@ pub fn p256_verify(
             Err(_) => return Ok(false as u64),
         }
     };
+
+    // Reject a prehash shorter than half the field size, as `p256` 0.13 does
+    // in `bits2field`; 0.14 zero-pads it instead. Pinned by
+    // `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`.
+    if message.len() < 16 {
+        return Ok(false as u64);
+    }
 
     match public_key.verify_prehash(&message, &signature) {
         Err(_) => Ok(false as u64),
@@ -3608,9 +3616,8 @@ pub fn promise_batch_action_function_call_weight(
     // when the contract has zero balance. This lets deterministic accounts
     // call functions like ft_transfer_call that require an attached deposit
     // without needing to be seeded with balance first.
-    let skip_deduct = amount == Balance::from_yoctonear(1)
-        && ctx.config.one_yocto_on_promise
-        && ctx.result_state.current_account_balance.is_zero();
+    let skip_deduct =
+        amount == Balance::from_yoctonear(1) && ctx.result_state.current_account_balance.is_zero();
     if skip_deduct {
         ctx.result_state.subsidized_amount = ctx
             .result_state
@@ -4441,11 +4448,10 @@ pub fn promise_yield_create_with_id(
         num_bytes,
         true,
     )?;
-    // Allow attaching exactly 1 yoctoNEAR with the `one_yocto_on_promise`
-    // exemption (mirrors `promise_batch_action_function_call_weight`).
-    let skip_deduct = amount == Balance::from_yoctonear(1)
-        && ctx.config.one_yocto_on_promise
-        && ctx.result_state.current_account_balance.is_zero();
+    // Allow attaching exactly 1 yoctoNEAR when the account balance is zero
+    // (mirrors `promise_batch_action_function_call_weight`).
+    let skip_deduct =
+        amount == Balance::from_yoctonear(1) && ctx.result_state.current_account_balance.is_zero();
     if skip_deduct {
         ctx.result_state.subsidized_amount = ctx
             .result_state

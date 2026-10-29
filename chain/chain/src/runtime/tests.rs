@@ -206,7 +206,6 @@ impl TestEnv {
                     vec![],
                     genesis_total_supply,
                     genesis_protocol_version,
-                    genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![
@@ -221,6 +220,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         Self {
             epoch_manager,
@@ -386,7 +386,6 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
-                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
                     None,
@@ -394,6 +393,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
@@ -900,7 +900,6 @@ fn test_state_sync() {
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![true; num_nodes as usize];
@@ -912,6 +911,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;

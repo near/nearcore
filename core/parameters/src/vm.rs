@@ -44,22 +44,6 @@ impl VMKind {
     }
 }
 
-// Only kept for `VMConfigView` compatibility: contract storage reads always go
-// through flat storage since the `FlatStorageReads` protocol feature. The doc
-// comment below is the OpenAPI description of this type, so it is left as is.
-/// This enum represents if a storage_get call will be performed through flat storage or trie
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum StorageGetMode {
-    FlatStorage,
-    Trie,
-}
-
-/// The only value `LimitConfig::account_id_validity_rules_version` takes.
-fn default_account_id_validity_rules_version() -> u64 {
-    2
-}
-
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -198,10 +182,6 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
-    /// Deprecated: full account id validation is always enforced, so this is
-    /// always `2`.
-    #[serde(default = "default_account_id_validity_rules_version")]
-    pub account_id_validity_rules_version: u64,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
@@ -259,9 +239,6 @@ pub struct Config {
     // past protocol version 88, where the feature is enabled.
     pub canonical_universal_state_init: bool,
 
-    /// Whether to enable gas key host functions.
-    pub gas_key_host_fns: bool,
-
     /// Enable the `FixMlDsaCostCharging` protocol feature, which fixes two
     /// related ML-DSA-65 cost-charging issues:
     /// - gas keys: price the exec (storage) fee on the on-trie identifier length
@@ -272,14 +249,6 @@ pub struct Config {
     ///   signer shard.
     pub fix_ml_dsa_cost_charging: bool,
 
-    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
-    /// call without requiring the calling contract to have sufficient balance.
-    pub one_yocto_on_promise: bool,
-
-    /// Whether to enable the P-256 ECDSA signature verification host function.
-    /// NEP-635: <https://github.com/near/NEPs/pull/635>
-    pub p256_verify_host_fn: bool,
-
     /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
     /// function.
     pub ml_dsa_verify_host_fn: bool,
@@ -287,13 +256,6 @@ pub struct Config {
     /// Whether to enable the `sha3_256`, `sha3_384` and `sha3_512` (FIPS-202)
     /// host functions.
     pub sha3_host_fns: bool,
-
-    /// Whether to enable the promise_yield_create_with_id and
-    /// promise_yield_resume_with_yield_id host functions.
-    pub yield_with_id_host_fns: bool,
-
-    /// Whether to enable the chain_id host function (NEP-638).
-    pub chain_id_host_fn: bool,
 
     /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
     /// functions. These points lie on the curve but outside the G1/G2
@@ -339,13 +301,9 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.universal_accounts = true;
         self.canonical_universal_state_init = true;
-        self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;
-        self.p256_verify_host_fn = true;
         self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
-        self.yield_with_id_host_fns = true;
-        self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;
     }
 }

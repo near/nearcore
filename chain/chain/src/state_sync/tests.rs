@@ -41,6 +41,13 @@ impl HeaderChain {
         chain
     }
 
+    #[cfg(feature = "protocol_feature_spice")]
+    fn spice() -> Self {
+        let chain = Self::new(ProtocolFeature::Spice.protocol_version());
+        assert!(chain.headers[0].is_spice());
+        chain
+    }
+
     fn push(&mut self, epoch_id: EpochId, chunk_mask: [bool; NUM_SHARDS]) -> CryptoHash {
         let prev = self.headers.last().unwrap().clone();
         let mut header = BlockHeader::clone(&prev);
@@ -152,4 +159,61 @@ fn test_update_sync_hashes_records_once_final() {
         derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(),
         chain.recorded_sync_hash(&EPOCH_ID_2)
     );
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_derive_epoch_sync_hash_spice_is_epoch_first_block() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let first = chain.push(EPOCH_ID_2, [true, false]);
+    chain.push(EPOCH_ID_2, [false, true]);
+    chain.push(EPOCH_ID_2, [true, false]);
+    chain.set_final_head(&first);
+
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(first));
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_derive_epoch_sync_hash_spice_none_before_first_block_is_final() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    chain.push_full(EPOCH_ID_2, 3);
+    chain.set_final_head(&old_epoch_end);
+
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), None);
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_update_sync_hashes_spice_records_first_block_once_final() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let old_epoch_end = *chain.push_full(EPOCH_ID_1, EPOCH_LENGTH).last().unwrap();
+    let first = chain.push(EPOCH_ID_2, [true, false]);
+    chain.push(EPOCH_ID_2, [false, true]);
+
+    // The last final block is still in the first epoch.
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), None);
+    chain.push(EPOCH_ID_2, [true, false]);
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_2), Some(first));
+    chain.set_final_head(&first);
+    assert_eq!(derive_epoch_sync_hash(&chain.chain_store, &old_epoch_end).unwrap(), Some(first));
+}
+
+#[cfg(feature = "protocol_feature_spice")]
+#[test]
+fn test_update_sync_hashes_spice_epoch_after_genesis() {
+    const EPOCH_LENGTH: usize = 10;
+
+    let mut chain = HeaderChain::spice();
+    let epoch = chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
+
+    assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_1), Some(epoch[0]));
 }

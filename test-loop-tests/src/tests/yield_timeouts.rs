@@ -18,24 +18,12 @@ use near_store::{ShardUId, Trie, TrieDBStorage};
 use std::str::FromStr;
 use std::sync::Arc;
 
-// The height of the block in which the promise yield is created.
-// Under AccountCostIncrease each "real" receipt also produces a price_surplus refund
-// receipt that consumes an extra block; setup heights shift accordingly.
-fn extra_refund_block() -> u64 {
-    if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
-        1
-    } else {
-        0
-    }
-}
-
-// The exec height of the yield_create function-call receipt itself. Under the feature it
-// is delayed by one block because we wait for the deploy_contract refund receipt before
+// The exec height of the yield_create function-call receipt itself. Each "real" receipt
+// also produces a price_surplus refund receipt that consumes an extra block, so this is
+// delayed by one block because we wait for the deploy_contract refund receipt before
 // submitting the yield tx.
 fn yield_create_height() -> u64 {
-    4 + extra_refund_block()
+    5
 }
 
 // The height of the next block after environment setup is complete.
@@ -218,9 +206,9 @@ fn prepare_env_with_yield(
     let deploy_contract_tx = env.validator().tx_deploy_test_contract(&test_account);
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow enough blocks for the contract to be deployed (and, under
-    // AccountCostIncrease, for the price_surplus refund receipt to be processed).
-    env.validator_runner().run_until_executed_height(2 + extra_refund_block());
+    // Allow enough blocks for the contract to be deployed (and for the price_surplus refund
+    // receipt to be processed).
+    env.validator_runner().run_until_executed_height(3);
     assert!(matches!(
         env.validator()
             .client()

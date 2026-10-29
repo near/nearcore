@@ -458,14 +458,9 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
                 canonical_universal_state_init: params
                     .get(Parameter::CanonicalUniversalStateInit)?,
-                gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
-                one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
-                p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
                 ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
-                yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
-                chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
             }),
             account_creation_config: AccountCreationConfig {

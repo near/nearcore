@@ -344,4 +344,8 @@ impl FlatStorageManager {
         let want_snapshot = self.0.pending_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.block_hash)
     }
+
+    pub fn max_flat_head_height(&self) -> Option<BlockHeight> {
+        self.0.flat_storages.lock().values().map(FlatStorage::get_head_height).max()
+    }
 }

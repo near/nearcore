@@ -55,7 +55,7 @@ use near_primitives::types::{
     EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -423,18 +423,9 @@ impl ViewClientActor {
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
-                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
-                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-                        && self.is_block_gc(header.height())
-                    {
-                        QueryError::GarbageCollectedBlock {
-                            block_height: header.height(),
-                            block_hash: *header.hash(),
-                        }
-                    } else {
-                        QueryError::UnavailableShard { requested_shard_id: shard_id }
-                    }
+                    // Block headers may be GC'd, so there is no way to tell whether a block
+                    // hash is GC'd or just unknown.
+                    QueryError::UnavailableShard { requested_shard_id: shard_id }
                 }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }

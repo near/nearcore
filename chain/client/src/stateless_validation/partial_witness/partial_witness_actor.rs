@@ -1263,12 +1263,10 @@ impl PartialWitnessActor {
                 Err(err) => return Err(err.into()),
             }
         }
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
         let signer = self.my_validator_signer()?;
         // The set may not fit one response; the requester reassembles the groups.
         for group in split_contracts_for_response(contracts.into_codes()) {
-            let response =
-                ContractCodeResponse::encode(key.clone(), &group, &signer, protocol_version)?;
+            let response = ContractCodeResponse::encode(key.clone(), &group, &signer)?;
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
             ));

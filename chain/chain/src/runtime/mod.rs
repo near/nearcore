@@ -41,9 +41,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
-};
+use near_primitives::version::{ProtocolVersion, clamp_to_supported_protocol_version};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
     QueryResponse, QueryResponseKind, ViewStateResult,
@@ -294,14 +292,11 @@ impl NightshadeRuntime {
             &trie,
             shard_id,
             &epoch_id,
-            current_protocol_version,
             &epoch_config,
             block_height,
             prev_block_hash,
         )?;
-        if apply_reason == ApplyChunkReason::UpdateTrackedShard
-            && ProtocolFeature::DynamicResharding.enabled(current_protocol_version)
-        {
+        if apply_reason == ApplyChunkReason::UpdateTrackedShard {
             set_proposed_split_metrics(shard_uid, proposed_split.as_ref());
         }
 
@@ -599,15 +594,10 @@ impl NightshadeRuntime {
         shard_trie: &Trie,
         shard_id: ShardId,
         epoch_id: &EpochId,
-        protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
         height: BlockHeight,
         prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
-        if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            return Ok(None);
-        }
-
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             return Ok(None);
         };
@@ -984,9 +974,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
-                    > size_limit as u64
-                {
+                if total_size.saturating_add(tx_peek.size_for_limits()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
@@ -1102,7 +1090,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.size_for_limits(protocol_version);
+                        total_size += validated_tx.size_for_limits();
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;

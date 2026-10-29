@@ -22,7 +22,6 @@ use near_primitives::utils::{
     get_spice_invalid_chunk_key_prefix, get_spice_invalid_chunk_key_rev,
     get_uncertified_execution_results_key, index_to_bytes,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::maybe_get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, GcPolicy, KeyForStateChanges, ShardTries, ShardUId};
@@ -754,10 +753,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            // We need to GC BlockHeader only when ContinuousEpochSync feature is enabled in binary
-            self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
-        }
+        self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
         if cfg!(feature = "protocol_feature_spice") {
             self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
         }

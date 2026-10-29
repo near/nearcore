@@ -263,6 +263,7 @@ fn spawn_spice_actors(
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
     chunk_persistence_config: ChunkPersistenceConfig,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -321,6 +322,7 @@ fn spawn_spice_actors(
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
         chunk_persistence_config,
+        snapshot_callbacks,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -516,7 +518,6 @@ pub async fn start_with_config_and_synchronization_impl(
         actor_system.new_future_spawner("cloud archival").into(),
         config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
-        runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
         shard_tracker.clone(),
@@ -594,6 +595,7 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
+    let snapshot_callbacks_for_spice = snapshot_callbacks.clone();
 
     let partial_witness_actor = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
         Clock::real(),
@@ -716,6 +718,7 @@ pub async fn start_with_config_and_synchronization_impl(
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
             },
+            Some(snapshot_callbacks_for_spice),
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,

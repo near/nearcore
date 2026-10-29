@@ -6,9 +6,9 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, FetchPolicies, PartsOutcome, PendingPartialData, PullConfig,
-    PullRequest, Push, SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData,
-    SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
+    DATA_PARTS_RATIO, EncodedData, PartsOutcome, PendingPartialData, PullConfig, PullRequest, Push,
+    SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData, SpiceDataManager,
+    SpiceDataServer, VerifiedCodedPart, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -475,7 +475,8 @@ impl SpiceDataDistributorActor {
                 ..PullConfig::default()
             },
             chain_store.clone(),
-            FetchPolicies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
         );
         let data_server = SpiceDataServer::new(
             chain_store.clone(),

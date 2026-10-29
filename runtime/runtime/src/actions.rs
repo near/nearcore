@@ -32,7 +32,6 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
@@ -337,31 +336,10 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
-    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
-        .enabled(current_protocol_version)
-    {
-        let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
-        account_ref.storage_usage().saturating_sub(contract_storage)
-    } else {
-        // Legacy behavior: only subtracts local contract code, misses the
-        // global contract identifier overhead.
-        let account_storage_usage = account_ref.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account_ref.local_contract_hash().unwrap_or_default(),
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage.saturating_sub(code_len)
-    };
+    let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
+    let account_storage_usage = account_ref.storage_usage().saturating_sub(contract_storage);
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -684,14 +662,7 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
-                // Before this fix, the missing early return allowed execution
-                // to fall through to the receiver_id and method_name checks,
-                // which could overwrite this error with a different one.
-                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
             if delegate_action.receiver_id() != &function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -965,6 +936,7 @@ mod tests {
     use near_primitives::universal_account_id::encode_universal_account_id;
     use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -1085,7 +1057,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1099,10 +1070,7 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(
-        storage_usage: u64,
-        protocol_version: ProtocolVersion,
-    ) -> ActionResult {
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1131,7 +1099,6 @@ mod tests {
                 account.local_contract_hash().unwrap_or_default(),
             ),
             storage_usage,
-            protocol_version,
             &mut state_update,
         )
     }
@@ -1152,72 +1119,32 @@ mod tests {
         account_id: &AccountId,
         contract: AccountContract,
         storage_usage: u64,
-        protocol_version: ProtocolVersion,
     ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        test_delete_account(
-            account_id,
-            contract,
-            storage_usage,
-            protocol_version,
-            &mut state_update,
-        )
+        test_delete_account(account_id, contract, storage_usage, &mut state_update)
     }
 
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_delete_account_with_contract_and_large_state() {
-        let action_result = test_delete_account_with_contract(
-            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
         expect_delete_account_too_large(&action_result);
     }
 
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_global_contract_protocol_transition() {
-        let account_id: AccountId = "alice".parse().unwrap();
-        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
-        let enabled =
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
-
-        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
-        let before = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled - 1,
-        );
-        expect_delete_account_too_large(&before);
-
-        // From the fix onwards: the 32-byte identifier is subtracted, so
-        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
-        let after = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled,
-        );
-        assert!(after.result.is_ok());
     }
 
     /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
@@ -1227,7 +1154,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1242,7 +1168,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1254,7 +1179,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1266,7 +1190,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
     }
@@ -1278,7 +1201,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
     }
@@ -1310,7 +1232,6 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);
@@ -1902,30 +1823,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
-
-        // Legacy: missing early return lets ReceiverMismatch overwrite
-        // DepositWithFunctionCall.
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: "token.test.near".parse().unwrap(),
-                    ak_receiver: "other.test.near".parse().unwrap(),
-                },
-            )
-            .into()),
-        );
-    }
-
-    #[test]
     fn test_delegate_deposit_with_function_call_reports_deposit_error() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
+        let result = deposit_with_function_call_and_receiver_mismatch(PROTOCOL_VERSION);
 
         assert_eq!(
             result.result,

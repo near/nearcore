@@ -16,14 +16,18 @@ is refunded back to `predecessor_account_id`.
 
 An external call (see [Context API](ContextAPI.md)) has no prepaid gas. Instead, the contract pays for all the gas
 the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so `used_gas` can be
-at most what the balance pays for, and using more panics with `GasExceeded`. Two limits also apply: the gas burnt is
-limited by `max_gas_burnt_external`, and the gas burnt plus the gas attached to promises is limited by
-`max_total_prepaid_gas`.
+calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
+gas burnt is limited by `max_gas_burnt_external`, and the gas burnt plus the gas attached to promises is limited by
+`max_total_prepaid_gas`. The contract is charged after the call, and the call is rejected if the balance can't pay.
 
-The cost is taken as soon as the gas is used, and `account_balance` returns the balance left after it. A deposit or
-transfer cannot spend the balance needed to pay for the gas used so far, and panics with `BalanceExceeded`
-instead.
+While the call runs, `account_balance` returns the real balance of the contract, which includes the money the call
+will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
+and its gas, or it is rejected.
+
+The call also pays fees for its input before the method runs (see
+[Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)). They are charged
+with the gas after the call. `used_gas` does not include them, and the fees lower the `max_gas_burnt_external` limit
+on the gas burnt.
 
 An external call has no deposit. If one is called with a nonzero `attached_deposit`, it fails with
 `DepositInExternalCall` before any contract code runs.
