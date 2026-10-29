@@ -301,6 +301,31 @@ cannot have gaps.</p>
 epoch, state parts become unavailable from peers. When the node detects this
 (the network tip is more than one epoch ahead of the sync hash), it triggers
 the same data-reset-and-restart flow used for stale nodes.</p>
+<h5 id="state-sync-under-spice"><a class="header" href="#state-sync-under-spice">State sync under spice</a></h5>
+<p>Spice picks a different sync point and a different state to sync to.</p>
+<p>The sync hash is the epoch's <strong>first</strong> block, recorded once that block is
+final. Without spice the node waits for two new chunks in every shard, because
+a chunk that is missing leaves that shard's state trailing the previous epoch.
+Spice puts a chunk in every block, so every shard advances at every height and
+the epoch's first block is already a well-defined anchor for all of them.</p>
+<p>The state synced is the state that block's chunk <em>left behind</em>, not the state
+before it. A spice chunk executes after the block that carries it, so its
+post-execution state root reaches the chain through a <code>ChunkExecutionResult</code>
+that a later block certifies, committing it in the <code>chunk_execution_root</code>
+field of its own header. State sync therefore serves a <code>V3</code> header carrying
+the state root node, that execution result, and a merkle proof of the result's
+<code>ChunkExecutionRoots</code> leaf against the committing block's
+<code>chunk_execution_root</code>. Header sync runs first, so the syncing node already
+holds the header the proof is checked against.</p>
+<p>Because the state is the post-state, nothing is applied after the download:
+finalization records the certified <code>ChunkExtra</code> for the sync block — which is
+what the chunk executor reads to carry on from the next block — moves the flat
+head to the sync block, and sets the spice execution heads to it.</p>
+<p>The snapshot that serves all this is taken by the chunk executor, right after
+the epoch's first block has executed for every tracked shard, and is keyed by
+that block rather than by an earlier one. It is announced to the network only
+once the block's chunks are certified, since before that no peer could prove
+the roots it serves.</p>
 <h4 id="step-4-block-sync"><a class="header" href="#step-4-block-sync">Step 4: block sync</a></h4>
 <p>The final step downloads and applies blocks from the sync point to the network
 tip. Header sync runs alongside block sync on every tick. Block sync requests
