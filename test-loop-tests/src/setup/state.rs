@@ -1,4 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
+use super::network_rules::NetworkRules;
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork, HandlerResult,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
@@ -42,7 +43,7 @@ use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -81,20 +82,10 @@ pub struct SharedState {
     /// test-loop default. Used by tests that need to slow specific tasks on
     /// specific nodes.
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
-    /// Per-node installation state for the spice endorsement-delay handler.
-    pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// The rules on what each node sends, see [`NetworkRules`].
+    pub network_rules: NetworkRules,
     /// Fault injection for spice data distribution, armed by tests.
     pub spice_partial_data_faults: SpicePartialDataFaultState,
-}
-
-/// Shared state for the spice endorsement-delay network handler installed by
-/// `TestLoopEnv::delay_endorsements_propagation`.
-#[derive(Default)]
-pub struct SpiceEndorsementDelayState {
-    pub installed_for: HashSet<String>,
-    pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
-    /// Endorsements the handlers held back so far, so a test can check the delay fired.
-    pub delayed: u64,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.

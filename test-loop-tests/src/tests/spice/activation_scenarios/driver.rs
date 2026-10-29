@@ -8,7 +8,7 @@ use super::resolve::{Profile, resolve};
 use super::scenario::{Fault, FaultEvent, Progress, Scenario, Timeline};
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;
@@ -108,7 +108,7 @@ fn drive(scenario: Scenario) {
     let mut driver = Driver::new(profile, faults, load_rate);
 
     driver.fire(&mut env, Progress::Built);
-    driver.observe_code_requests_on_every_node(&mut env);
+    driver.observe_code_requests_on_every_node(&env);
     let mut env = env.warmup();
     driver.timeline.head_height = env.rpc_node().head().height;
     driver.fire(&mut env, Progress::WarmedUp);
@@ -189,30 +189,29 @@ impl Driver {
     }
 
     fn on_node_restarted(&mut self, env: &mut TestLoopEnv, index: usize) {
-        // The restarted node has a fresh peer manager and fresh gates.
-        self.observe_code_requests_on(env, index);
+        // The restarted node has fresh gates; the network rules are keyed by account and
+        // stay.
         self.gate_snapshots.remove(&index);
         for fault in &mut self.faults {
             fault.on_node_restarted(env, index);
         }
     }
 
-    /// Registers a handler on every node that records the chunk of each contract code
-    /// request and lets the request go through.
-    fn observe_code_requests_on_every_node(&self, env: &mut TestLoopEnv) {
+    /// Records the chunk of every contract code request any node sends, through a rule on
+    /// each node that lets the request go through.
+    fn observe_code_requests_on_every_node(&self, env: &TestLoopEnv) {
         for index in 0..env.node_datas.len() {
-            self.observe_code_requests_on(env, index);
+            let code_requests = self.code_requests.clone();
+            env.network_rule(
+                index,
+                |request| matches!(request, NetworkRequests::SpiceContractCodeRequest(..)),
+                Action::Observe(Box::new(move |request| {
+                    if let NetworkRequests::SpiceContractCodeRequest(_, code_request) = request {
+                        code_requests.lock().push(code_request.chunk_id().clone());
+                    }
+                })),
+            );
         }
-    }
-
-    fn observe_code_requests_on(&self, env: &mut TestLoopEnv, index: usize) {
-        let code_requests = self.code_requests.clone();
-        env.node_datas[index].register_override_handler(&mut env.test_loop.data, move |request| {
-            if let NetworkRequests::SpiceContractCodeRequest(_, code_request) = &request {
-                code_requests.lock().push(code_request.chunk_id().clone());
-            }
-            HandlerResult::Unhandled(request)
-        });
     }
 
     /// Processes what the chain did since the last call

@@ -1,6 +1,6 @@
 use super::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height};
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -9,7 +9,7 @@ use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::{BlockResponse, SyncStatus};
 use near_network::client::BlockRequest;
-use near_network::types::{NetworkRequests, NetworkResponses};
+use near_network::types::NetworkRequests;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
@@ -121,10 +121,18 @@ fn test_forged_sync_block_body_is_rejected() {
     let victim_account_id = victim_data.account_id.clone();
     let future_spawner: Arc<dyn FutureSpawner> =
         Arc::new(env.test_loop.future_spawner(&victim_data.identifier));
-    victim_data.register_override_handler(&mut env.test_loop.data, move |request| match request {
-        NetworkRequests::BlockRequest { hash, peer_id }
-            if Some(hash) == *sync_hash.lock() && !forged_once.swap(true, Ordering::SeqCst) =>
-        {
+    env.network_rule(
+        victim_idx,
+        move |request| {
+            matches!(request, NetworkRequests::BlockRequest { hash, .. } if Some(*hash) == *sync_hash.lock())
+        },
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::BlockRequest { hash, peer_id } = request else {
+                unreachable!("the rule matches block requests only");
+            };
+            if forged_once.swap(true, Ordering::SeqCst) {
+                return vec![NetworkRequests::BlockRequest { hash, peer_id }];
+            }
             let my_peer_id = network_shared_state.account_to_peer_id(&victim_account_id);
             let responder =
                 network_shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
@@ -148,10 +156,10 @@ fn test_forged_sync_block_body_is_rejected() {
                 );
                 drop(future);
             });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        other => HandlerResult::Unhandled(other),
-    });
+            // The forged response goes back from here, so nothing is left to route.
+            Vec::new()
+        })),
+    );
 
     // Let the victim reject the forgery, wait out `block_request_timeout` (100 ms), re-request
     // from another peer and finish syncing.

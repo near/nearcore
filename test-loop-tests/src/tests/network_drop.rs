@@ -1,7 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::time::Duration;
-use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
 use rand::{Rng, SeedableRng};
@@ -25,14 +23,10 @@ fn network_drop_random_messages() {
     // unrealistic on the network level because we use a reliable transport
     // layer protocol (TCP) and peer messages don't get lost. But we can consider
     // it a test of resilience against misbehaving nodes who withhold messages.
-    for node_data in &env.node_datas {
+    for index in 0..env.node_datas.len() {
         let rng = rng.clone();
-        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
-            let mut rng = rng.write();
-            if rng.gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR) {
-                return HandlerResult::Handled(NetworkResponses::NoResponse);
-            }
-            HandlerResult::Unhandled(request)
+        env.drop_messages_from(index, move |_| {
+            rng.write().gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR)
         });
     }
 

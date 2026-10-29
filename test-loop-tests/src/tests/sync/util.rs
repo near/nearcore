@@ -1,4 +1,5 @@
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::network_rules::{Action, RuleHandle};
 use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -8,7 +9,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::QueryError;
 use near_network::client::{BlockHeadersRequest, BlockHeadersResponse};
-use near_network::types::{NetworkRequests, NetworkResponses};
+use near_network::types::NetworkRequests;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
@@ -170,28 +171,33 @@ pub fn restrict_to_single_peer(
 /// Throttle header sync on a node by limiting the number of headers returned
 /// per request.
 ///
-/// Registers an override handler on the node's peer manager that intercepts
-/// outgoing `BlockHeadersRequest` messages, routes them to the peer's
-/// ViewClient (same as the default handler), but truncates the response to
-/// `max_headers` before sending it back.
+/// A rule on node `node_index` takes over its outgoing `BlockHeadersRequest` messages: it routes
+/// them to the peer's ViewClient (same as the default handler), but truncates the response to
+/// `max_headers` before sending it back. The rule stays on the node's account across a restart;
+/// lift the returned handle to sync at full speed again.
 ///
 /// This is needed because `MAX_BLOCK_HEADERS = 512` far exceeds typical test
 /// chain lengths (~27 headers), causing header sync to complete in a single
 /// event. With truncation, header sync takes multiple events, creating
 /// observable intermediate states for `run_until` conditions.
 pub fn throttle_header_sync(
-    test_loop: &mut TestLoopV2,
-    shared_state: &SharedState,
-    node_data: &NodeExecutionData,
+    env: &TestLoopEnv,
+    node_index: usize,
     max_headers: usize,
-) {
-    let network_shared_state = shared_state.network_shared_state.clone();
+) -> RuleHandle {
+    let network_shared_state = env.shared_state.network_shared_state.clone();
+    let node_data = &env.node_datas[node_index];
     let account_id = node_data.account_id.clone();
     let future_spawner: Arc<dyn FutureSpawner> =
-        Arc::new(test_loop.future_spawner(&node_data.identifier));
+        Arc::new(env.test_loop.future_spawner(&node_data.identifier));
 
-    node_data.register_override_handler(&mut test_loop.data, move |request| match request {
-        NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+    env.network_rule(
+        node_index,
+        |request| matches!(request, NetworkRequests::BlockHeadersRequest { .. }),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::BlockHeadersRequest { hashes, peer_id } = request else {
+                unreachable!("the rule matches header requests only");
+            };
             let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
             let responder =
                 network_shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
@@ -206,8 +212,8 @@ pub fn throttle_header_sync(
                     responder.send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
                 drop(future);
             });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        other => HandlerResult::Unhandled(other),
-    });
+            // The response goes back from here, so nothing is left to route.
+            Vec::new()
+        })),
+    )
 }

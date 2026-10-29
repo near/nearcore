@@ -1,5 +1,6 @@
 use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
+use super::network_rules::{Action, RuleHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{archival_account_id, rpc_account_id};
@@ -7,6 +8,7 @@ use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_network::types::NetworkRequests;
 use near_primitives::types::AccountId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -46,6 +48,38 @@ impl TestLoopEnv {
             );
         }
         self.shared_state.drop_conditions.push(drop_condition);
+    }
+
+    /// From now on `action` applies to every request node `index` sends that `matches`, until
+    /// the handle is lifted. The rule is keyed by the node's account, so it stays on a node
+    /// that is killed and restarted. A request's target is part of it, so a rule on what
+    /// reaches one node is a predicate on the target. See [`super::network_rules`].
+    pub fn network_rule(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        self.network_rule_for_account(&self.node_datas[index].account_id, matches, action)
+    }
+
+    /// [`Self::network_rule`] for the node of `account_id`, which need not exist yet.
+    pub fn network_rule_for_account(
+        &self,
+        account_id: &AccountId,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        self.shared_state.network_rules.add(account_id.clone(), matches, action)
+    }
+
+    /// From now on node `index` drops every request it sends that `matches`.
+    pub fn drop_messages_from(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+    ) -> RuleHandle {
+        self.network_rule(index, matches, Action::Drop)
     }
 
     /// Reach block with height `genesis_height + 3`. Check that it can be done

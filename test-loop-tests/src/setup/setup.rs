@@ -70,6 +70,7 @@ pub fn setup_client(
         epoch_config_store,
         runtime_config_store,
         network_shared_state,
+        network_rules,
         upgrade_schedule,
         chunks_storage,
         drop_conditions,
@@ -389,6 +390,7 @@ pub fn setup_client(
             hash: *client_actor.client.chain.genesis().hash(),
         },
         Arc::new(test_loop.future_spawner(identifier)),
+        network_rules.clone(),
     );
 
     let gc_actor = GCActor::new(
@@ -596,6 +598,7 @@ pub fn setup_client(
 
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
+    network_rules.register_peer_manager(&account_id, peer_manager_sender.clone());
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
         shared_state.rpc_config.clone(),

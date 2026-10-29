@@ -83,18 +83,16 @@ impl EndorsementDelay {
         self.opened.is_some() && self.closed.is_none()
     }
 
-    fn open(&mut self, env: &mut TestLoopEnv) {
+    fn open(&mut self, env: &TestLoopEnv) {
         assert!(self.opened.is_none(), "the window opens once");
         env.delay_endorsements_propagation(self.blocks);
-        let delayed = env.shared_state.spice_endorsement_delay.lock().delayed;
-        self.opened = Some((env.rpc_node().head().height, delayed));
+        self.opened = Some((env.rpc_node().head().height, env.delayed_endorsements()));
     }
 
-    fn close(&mut self, env: &mut TestLoopEnv) {
+    fn close(&mut self, env: &TestLoopEnv) {
         assert!(self.is_open(), "the window closes once, after it opened");
         env.delay_endorsements_propagation(0);
-        let delayed = env.shared_state.spice_endorsement_delay.lock().delayed;
-        self.closed = Some((env.rpc_node().head().height, delayed));
+        self.closed = Some((env.rpc_node().head().height, env.delayed_endorsements()));
     }
 
     /// Whether the window is open when the endorsements of the boundary chunks are sent,
@@ -197,14 +195,9 @@ impl Fault for EndorsementDelay {
         Vec::new()
     }
 
-    fn on_node_restarted(&mut self, env: &mut TestLoopEnv, _index: usize) {
-        // Re-running instruments the new node with the current delay.
-        env.delay_endorsements_propagation(if self.is_open() { self.blocks } else { 0 });
-    }
-
     fn relaxes(&self) -> Vec<Relaxation> {
-        // The handler releases an endorsement of a block at height `h` when a block above
-        // `h + blocks` is broadcast, and the released endorsement lands on chain in the block
+        // The rule releases an endorsement of a block at height `h` once the node has seen a
+        // block above `h + blocks`, and the released endorsement lands on chain in the block
         // after that, so certification trails the block by `blocks + 2` heights.
         const RELEASE_AND_INCLUSION: u64 = 2;
         if self.blocks + RELEASE_AND_INCLUSION >= SPICE_FALLBACK_CERTIFICATION_DELAY
@@ -222,7 +215,7 @@ impl Fault for EndorsementDelay {
         let (open_height, delayed_at_open) = self.opened.expect("the window never opened");
         let delayed_at_close = match self.closed {
             Some((_, delayed)) => delayed,
-            None => env.shared_state.spice_endorsement_delay.lock().delayed,
+            None => env.delayed_endorsements(),
         };
         assert!(
             delayed_at_close > delayed_at_open,

@@ -362,7 +362,7 @@ fn test_far_horizon_restart_during_header_sync() {
     // observable intermediate states for run_until. Use 10 headers per request
     // so header sync completes quickly enough that validators don't advance
     // past the epoch sync horizon.
-    throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 10);
+    let throttle = throttle_header_sync(&env, new_node_idx, 10);
 
     // Run until new node is in the MIDDLE of HeaderSync (current_height > start_height).
     env.node_runner(new_node_idx).run_until(
@@ -375,6 +375,9 @@ fn test_far_horizon_restart_during_header_sync() {
     );
 
     let killed_state = env.kill_node("new_node");
+    // The throttle made the sync before the kill observable; the restarted node syncs its
+    // remaining headers at full speed.
+    throttle.lift();
 
     let restarted_idx = env.restart_node("restart_header_sync", killed_state);
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
@@ -790,9 +793,8 @@ fn test_far_horizon_tx_during_sync() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_far_horizon_stale_sync_hash_detection() {
-    use crate::setup::peer_manager_actor::HandlerResult;
     use near_client::sync::state::sync_hash_stale_above_height;
-    use near_network::types::{NetworkRequests, NetworkResponses};
+    use near_network::types::NetworkRequests;
 
     init_test_logger();
 
@@ -820,13 +822,8 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let new_node_idx = env.add_node("new_node", node_state);
 
     // Drop state part requests so state sync never completes.
-    env.node_datas[new_node_idx].register_override_handler(&mut env.test_loop.data, |request| {
-        match &request {
-            NetworkRequests::StateRequestPart { .. } => {
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
+    env.drop_messages_from(new_node_idx, |request| {
+        matches!(request, NetworkRequests::StateRequestPart { .. })
     });
 
     // Run until new node enters StateSync and record its sync hash.

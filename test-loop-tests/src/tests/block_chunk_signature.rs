@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use near_async::time::Duration;
 use near_crypto::Signature;
 use near_network::types::NetworkRequests;
@@ -20,29 +20,28 @@ fn block_chunk_signature_rejection() {
 
     let mutated_blocks = Arc::new(AtomicUsize::new(0));
 
-    for node_data in &env.node_datas {
+    for index in 0..env.node_datas.len() {
         let mutated_blocks = mutated_blocks.clone();
-        node_data.register_override_handler(
-            &mut env.test_loop.data,
-            move |request| match request {
-                NetworkRequests::Block { block } => {
-                    let mut block_clone = (*block).clone();
-                    if let Some(chunk) = first_chunk_mut(&mut block_clone) {
-                        if zero_chunk_signature(chunk) {
-                            let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
-                            assert!(
-                                previous < 2,
-                                "Expected at most two mutated blocks before a ban kicks in"
-                            );
-                            return HandlerResult::Unhandled(NetworkRequests::Block {
-                                block: Arc::new(block_clone),
-                            });
-                        }
+        env.network_rule(
+            index,
+            |request| matches!(request, NetworkRequests::Block { .. }),
+            Action::Replace(Box::new(move |request| {
+                let NetworkRequests::Block { block } = request else {
+                    unreachable!("the rule matches blocks only");
+                };
+                let mut block_clone = (*block).clone();
+                if let Some(chunk) = first_chunk_mut(&mut block_clone) {
+                    if zero_chunk_signature(chunk) {
+                        let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
+                        assert!(
+                            previous < 2,
+                            "Expected at most two mutated blocks before a ban kicks in"
+                        );
+                        return vec![NetworkRequests::Block { block: Arc::new(block_clone) }];
                     }
-                    HandlerResult::Unhandled(NetworkRequests::Block { block })
                 }
-                other => HandlerResult::Unhandled(other),
-            },
+                vec![NetworkRequests::Block { block }]
+            })),
         );
     }
 
