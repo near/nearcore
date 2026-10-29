@@ -346,11 +346,6 @@ impl FlatStorageManager {
     }
 
     pub fn max_flat_head_height(&self) -> Option<BlockHeight> {
-        self.0
-            .flat_storages
-            .lock()
-            .values()
-            .map(|flat_storage| flat_storage.get_head_height())
-            .max()
+        self.0.flat_storages.lock().values().map(FlatStorage::get_head_height).max()
     }
 }
