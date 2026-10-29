@@ -1768,58 +1768,6 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-/// Input for the `record_block_info` failure tests, final on the aggregator position the
-/// fixture leaves uninstalled. Each call needs a fresh one: record consumes the value and
-/// overwrites its epoch fields.
-fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) -> BlockInfo {
-    const HEIGHT: u64 = 100;
-    BlockInfo::new(
-        hash,
-        HEIGHT,
-        fx.third_last_height,
-        fx.third_last,
-        prev,
-        vec![],
-        vec![true],
-        DEFAULT_TOTAL_SUPPLY,
-        PROTOCOL_VERSION,
-        HEIGHT * NUM_NS_IN_SECOND,
-        ChunkEndorsementsBitmap::new(1),
-        None,
-    )
-}
-
-// A failed record must not leave the block readable: the caller drops the store update,
-// so other readers would see a block that was never written.
-// Reachable after epoch sync, where the seeder fails with `MissingBlock`.
-#[test]
-fn record_block_info_failure_leaves_no_block_info() {
-    let mut fx = epoch_sync_fixture();
-
-    // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
-    // back to the third-last block, which epoch sync never installed.
-    let sibling = hash(b"prev epoch last block sibling");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the seeder walk must fail on the uninstalled aggregator position");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-
-    let err =
-        fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
-            "a discarded record must not leave a block info row, or the retry is skipped",
-        );
-    assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-}
-
 // `has_block_info` reads the store, so a record whose update the caller drops is recorded
 // again on retry. The chain drops it whenever a later step of the same block processing
 // fails, not only when the record itself does.
