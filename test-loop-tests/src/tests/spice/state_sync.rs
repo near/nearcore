@@ -2,10 +2,13 @@ use crate::setup::builder::TestLoopBuilder;
 use assert_matches::assert_matches;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::{Block, BlockV4};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::SpiceChunkId;
 use near_store::adapter::StoreAdapter as _;
+use std::sync::Arc;
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
 /// chunks in every shard: spice executes every shard at every block, applying a missing chunk
@@ -85,11 +88,10 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
         // The certifying block sits above the sync block, and is the one the chain recorded
         // as certifying this chunk.
-        let certifying = chain.get_block_header(&header.certifying_block_hash).unwrap();
-        assert!(certifying.height() > sync_header.height());
+        assert!(header.certifying_block.header().height() > sync_header.height());
         assert_eq!(
             node.store().chain_store().get_chunk_certifying_block(&chunk_id),
-            Some(header.certifying_block_hash),
+            Some(*header.certifying_block.hash()),
         );
 
         // Another node accepts the served header.
@@ -116,21 +118,46 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
         );
 
         let sync_block = chain.get_block(&sync_hash).unwrap();
-        let other_body = sync_block.body().expect("a spice block has a versioned body").clone();
+        let Block::BlockV4(sync_block) = sync_block.as_ref() else {
+            panic!("a spice block is a BlockV4");
+        };
+        let other_body_block = Block::BlockV4(BlockV4 {
+            header: header.certifying_block.header().clone(),
+            body: sync_block.body.clone(),
+        });
 
-        // Wrong `certifying_block_body` is rejected
+        // A certifying block whose body is not the one its header commits to is rejected
         assert_matches!(
             syncing_node.client().chain.state_sync_adapter.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
                     ShardStateSyncResponseHeaderV3 {
-                        certifying_block_body: other_body,
+                        certifying_block: Arc::new(other_body_block),
                         ..header.clone()
                     }
                 ),
             ),
             Err(Error::Other(msg)) if msg.contains("body does not match")
+        );
+
+        // A certifying block whose header is not the one header sync stored is rejected, even
+        // when only the signature differs and the hash, which does not cover it, still matches
+        let mut resigned_block = Block::clone(&header.certifying_block);
+        resigned_block.mut_header().resign(&create_test_signer("not_the_block_producer"));
+        assert_eq!(resigned_block.hash(), header.certifying_block.hash());
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        certifying_block: Arc::new(resigned_block),
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("header differs from the stored one")
         );
 
         // A certifying block that is not final yet is rejected
@@ -140,9 +167,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
                     ShardStateSyncResponseHeaderV3 {
-                        certifying_block_hash: head.last_block_hash,
-                        certifying_block_body:
-                            chain.get_block(&head.last_block_hash).unwrap().body().unwrap().clone(),
+                        certifying_block: chain.get_block(&head.last_block_hash).unwrap(),
                         ..header.clone()
                     }
                 ),
