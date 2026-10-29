@@ -53,9 +53,9 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::MissingBlock(*hash))
     }
 
-    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<EpochInfo, EpochError> {
+    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
+            .caching_get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 

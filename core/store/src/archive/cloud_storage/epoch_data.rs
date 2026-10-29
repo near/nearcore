@@ -55,7 +55,7 @@ pub fn build_epoch_data(
     let epoch_first_block_info =
         Arc::unwrap_or_clone(epoch_store.get_block_info(&first_block_hash)?);
     let epoch_id = *epoch_first_block_info.epoch_id();
-    let epoch_info = epoch_store.get_epoch_info(&epoch_id)?;
+    let epoch_info = Arc::unwrap_or_clone(epoch_store.get_epoch_info(&epoch_id)?);
 
     // This blob is built at epoch start, so the aggregate data it carries is the epoch
     // below's. The genesis epoch has neither: it has no summary, and its last block has
@@ -74,7 +74,7 @@ pub fn build_epoch_data(
         };
 
     let next_epoch_id = EpochId(*epoch_first_block_info.prev_hash());
-    let next_epoch_info = epoch_store.get_epoch_info(&next_epoch_id)?;
+    let next_epoch_info = Arc::unwrap_or_clone(epoch_store.get_epoch_info(&next_epoch_id)?);
 
     let epoch_data = EpochDataV1 {
         epoch_id,

@@ -472,8 +472,6 @@ pub struct EpochManager {
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
 
-    /// Cache of epoch information.
-    epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
     /// Cache of epoch id to epoch start height
     epoch_id_to_start: SyncLruCache<EpochId, BlockHeight>,
     /// Epoch validators ordered by `block_producer_settlement`.
@@ -600,7 +598,6 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
-            epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -648,9 +645,9 @@ impl EpochManager {
         store_update.set_block_info(&prev_epoch_first_block_info);
         store_update.set_block_info(&prev_epoch_prev_last_block_info);
         store_update.set_block_info(&prev_epoch_last_block_info);
-        self.save_epoch_info(store_update, prev_epoch_id, Arc::new(prev_epoch_info))?;
-        self.save_epoch_info(store_update, epoch_id, Arc::new(epoch_info))?;
-        self.save_epoch_info(store_update, next_epoch_id, Arc::new(next_epoch_info))?;
+        store_update.set_epoch_info(prev_epoch_id, &prev_epoch_info);
+        store_update.set_epoch_info(epoch_id, &epoch_info);
+        store_update.set_epoch_info(next_epoch_id, &next_epoch_info);
         Ok(())
     }
 
@@ -1262,13 +1259,13 @@ impl EpochManager {
             next_epoch_protocol_version: next_epoch_info.protocol_version(),
             next_next_epoch_protocol_version: next_next_epoch_info.protocol_version(),
         };
-        self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
+        store_update.set_epoch_info(&next_next_epoch_id, &next_next_epoch_info);
         Ok(epoch_end)
     }
 
     pub fn record_block_info(
         &mut self,
-        block_info: BlockInfo,
+        mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochManagerUpdate, EpochError> {
         // Check that genesis block doesn't have any proposals.
@@ -1278,24 +1275,6 @@ impl EpochManager {
             height = block_info.height(),
             proposals = ?prev_validator_proposals,
             "record_block_info");
-        let current_hash = *block_info.hash();
-        let result = self.record_block_info_impl(block_info, rng_seed);
-        if result.is_err() {
-            // Callers drop the store update on error, so the entry cached alongside it must
-            // go too, or other readers see a value that was never written. Popping a key that
-            // does hold a committed value is harmless: the cache is read-through, so the next
-            // read loads it from the store again.
-            self.epochs_info.pop(&EpochId(current_hash));
-        }
-        result
-    }
-
-    /// Call through `record_block_info`: it undoes the cache writes when this fails.
-    fn record_block_info_impl(
-        &mut self,
-        mut block_info: BlockInfo,
-        rng_seed: RngSeed,
-    ) -> Result<EpochManagerUpdate, EpochError> {
         let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
         let epoch_end;
@@ -1310,11 +1289,7 @@ impl EpochManager {
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?;
                 let genesis_height = block_info.height();
                 store_update.set_block_info(&block_info);
-                self.save_epoch_info(
-                    &mut store_update,
-                    &EpochId(current_hash),
-                    Arc::clone(&genesis_epoch_info),
-                )?;
+                store_update.set_epoch_info(&EpochId(current_hash), &genesis_epoch_info);
                 // Chunks anchored at genesis (height genesis + 2) belong to the
                 // first real epoch (`EpochId::default()`), whose validator set is
                 // the genesis epoch info; chunks at genesis + 1 and below have no
@@ -2096,6 +2071,14 @@ impl EpochManager {
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
+        self.shard_layout_of_epoch_info(epoch_id, &epoch_info)
+    }
+
+    fn shard_layout_of_epoch_info(
+        &self,
+        epoch_id: &EpochId,
+        epoch_info: &EpochInfo,
+    ) -> Result<ShardLayout, EpochError> {
         if let Some(shard_layout) = epoch_info.shard_layout() {
             Ok(shard_layout.clone())
         } else {
@@ -2122,8 +2105,7 @@ impl EpochManager {
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_info(epoch_id).map(Arc::new))
+        self.store.get_epoch_info(epoch_id)
     }
 
     fn has_epoch_info(&self, epoch_id: &EpochId) -> Result<bool, EpochError> {
@@ -2132,17 +2114,6 @@ impl EpochManager {
             Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(err) => Err(err),
         }
-    }
-
-    fn save_epoch_info(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        epoch_id: &EpochId,
-        epoch_info: Arc<EpochInfo>,
-    ) -> Result<(), EpochError> {
-        store_update.set_epoch_info(epoch_id, &epoch_info);
-        self.epochs_info.put(*epoch_id, epoch_info);
-        Ok(())
     }
 
     /// Whether the block's `BlockInfo` is committed. Callers can drop the returned update
@@ -2640,16 +2611,15 @@ impl EpochManager {
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
-        let epoch_id = block_info.epoch_id();
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_layout = self.shard_layout_of_epoch_info(block_info.epoch_id(), epoch_info)?;
         if ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
             self.seed_chunk_producer_rows(
                 store_update,
                 block_info.hash(),
                 block_info.height(),
-                &epoch_info,
+                epoch_info,
                 &shard_layout,
                 &HashMap::new(),
             );

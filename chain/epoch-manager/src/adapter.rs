@@ -783,10 +783,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
     /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
     /// Writes into `store_update` so it commits atomically with the block.
+    /// Takes `epoch_info` of the block's epoch because `init_after_epoch_sync` writes
+    /// it into the same uncommitted update, so the store can't return it yet.
     fn seed_chunk_producers_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
     /// Verify validator signature for the given epoch.
@@ -1283,8 +1286,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
-        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info, epoch_info)
     }
 
     fn get_shard_layout_history(
