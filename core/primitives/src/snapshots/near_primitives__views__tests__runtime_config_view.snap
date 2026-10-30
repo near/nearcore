@@ -260,7 +260,7 @@ expression: "&view"
       "max_globals_per_contract": 65536,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 4000000
+      "per_receipt_storage_proof_size_limit": 4500000
     }
   },
   "account_creation_config": {
