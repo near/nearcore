@@ -634,11 +634,8 @@ impl PerShardChunkExecutor {
         let pre_state = apply_result.proof.clone().unwrap().nodes;
         let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = {
             let prev_block_hash = block.header().prev_hash();
-            let (_, prev_block_shard_id, _) =
+            let (prev_block_shard_layout, prev_block_shard_id, _) =
                 self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
-            let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
-            let prev_block_shard_layout =
-                self.epoch_manager.get_shard_layout(&prev_block_epoch_id)?;
             let receipt_proofs = self.get_receipt_proofs_for_shard(
                 prev_block_hash,
                 &prev_block_shard_layout,

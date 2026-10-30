@@ -165,17 +165,27 @@ fn test_spice_chain() {
     }
 }
 
-/// Checks that chunk application and witness validation apply incoming receipts in the same
-/// shard order, which does not depend on storage key order or numeric shard id order.
+/// Layout order differs from numeric shard id order.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_shard_ids_256_and_1() {
+    test_spice_chain_with_shard_ids_impl(vec![ShardId::new(256), ShardId::new(1)]);
+}
+
+/// Layout order differs from storage key order: little-endian keys sort 256 before 1.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chain_with_shard_ids_1_and_256() {
+    test_spice_chain_with_shard_ids_impl(vec![ShardId::new(1), ShardId::new(256)]);
+}
+
+/// Checks that chunk application and witness validation apply incoming receipts in the same
+/// shard order, which does not depend on storage key order or numeric shard id order.
+fn test_spice_chain_with_shard_ids_impl(shard_ids_in_layout_order: Vec<ShardId>) {
     init_test_logger();
 
     let accounts = create_account_ids(["account0", "account1", "account2", "account3"]).to_vec();
-    // Little-endian storage keys sort shard 256 before shard 1, unlike numeric order.
-    let shard_layout =
-        ShardLayout::v2(vec![accounts[2].clone()], vec![ShardId::new(256), ShardId::new(1)], None);
+    let shard_layout = ShardLayout::v2(vec![accounts[2].clone()], shard_ids_in_layout_order, None);
     let mut env = TestLoopBuilder::new()
         .shard_layout(shard_layout)
         .validators(2, 0)
