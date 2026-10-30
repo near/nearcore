@@ -3,11 +3,14 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, validate_wants,
+    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MalformedDataRequest,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    validate_wants,
 };
-use crate::spice::data_manager::{AssembledDataError, DATA_PARTS_RATIO, DataId, SenderFault};
+use crate::spice::data_manager::{
+    AssembledDataError, DATA_PARTS_RATIO, DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS,
+    SenderFault,
+};
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
     save_and_record_block,
@@ -427,6 +430,21 @@ fn producers_of_receipt_proof(
         .unwrap()
 }
 
+/// A chunk producer of the block's epoch that does not produce `from_shard_id`.
+fn non_producer_of_shard(chain: &Chain, block: &Block, from_shard_id: ShardId) -> AccountId {
+    let epoch_id = block.header().epoch_id();
+    let shard_producers =
+        chain.epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, from_shard_id).unwrap();
+    chain
+        .epoch_manager
+        .get_epoch_chunk_producers(epoch_id)
+        .unwrap()
+        .into_iter()
+        .map(|stake| stake.take_account_id())
+        .find(|account| !shard_producers.contains(account))
+        .unwrap()
+}
+
 fn recipients_of_receipt_proof(
     chain: &Chain,
     block: &Block,
@@ -705,6 +723,7 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     let receiver_chain = new_chain(&chain, &genesis);
     let mut receiver =
         new_actor_for_account(receiver_messages_sc, &receiver_chain, receiver_account);
+    receiver.handle(ProcessedBlock { block_hash: *block.hash() });
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
@@ -820,6 +839,21 @@ fn drain_outgoing_partial_data(
         requests.push((partial_data, recipients));
     }
     requests
+}
+
+fn drain_outgoing_delivered_receipts(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) -> Vec<DataId> {
+    let mut delivered = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        if let OutgoingMessage::ExecutorIncomingUnverifiedReceipts(
+            ExecutorIncomingUnverifiedReceipts { data_id, .. },
+        ) = message
+        {
+            delivered.push(data_id);
+        }
+    }
+    delivered
 }
 
 /// Flattens each request into its `(data_id, requester)` pairs, since requests the actor
@@ -983,6 +1017,7 @@ macro_rules! test_invalid_incoming_partial_data {
 
                     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
                     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+                    actor.handle(ProcessedBlock { block_hash: *block.hash() });
                     {
                         let $default = data_into_verified(incoming_data.data.clone());
                         let partial_data = $build_block;
@@ -1000,7 +1035,7 @@ macro_rules! test_invalid_incoming_partial_data {
 }
 
 test_invalid_incoming_partial_data! {
-    invalid_receipt_proof_from_shard_id(Error::InvalidReceiptFromShardId, receipt_proof_incoming_data, default, {
+    invalid_receipt_proof_from_shard_id(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
             default.id
         else {
@@ -1011,7 +1046,7 @@ test_invalid_incoming_partial_data! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    invalid_receipt_proof_to_shard_id(Error::InvalidReceiptToShardId, receipt_proof_incoming_data, default, {
+    invalid_receipt_proof_to_shard_id(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id: _ } =
             default.id
         else {
@@ -1031,20 +1066,9 @@ test_invalid_incoming_partial_data! {
             .id(SpiceDataIdentifier::Witness { block_hash, shard_id })
             .build()
     })
-    sender_is_not_validator(Error::SenderIsNotValidator, receipt_proof_incoming_data, default, {
+    sender_is_not_validator(Error::SenderFault(SenderFault::NotAProducer), receipt_proof_incoming_data, default, {
         SpicePartialDataBuilder::from_verified(default)
             .sender(AccountId::from_str("invalid-sender").unwrap())
-            .build()
-    })
-    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, default, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id }
-            = default.id
-        else {
-            panic!();
-        };
-        let from_shard_id = to_shard_id;
-        SpicePartialDataBuilder::from_verified(default)
-            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
     node_is_not_recipient(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
@@ -1071,10 +1095,33 @@ test_invalid_incoming_partial_data! {
         parts[0].part_ord = 42;
         SpicePartialDataBuilder::from_verified(default).parts(parts).build()
     })
-    invalid_signature(Error::InvalidPartialDataSignature, receipt_proof_incoming_data, default, {
+    invalid_signature(Error::SenderFault(SenderFault::InvalidSignature), receipt_proof_incoming_data, default, {
         SpicePartialDataBuilder::from_verified(default)
             .build_with_signature(Signature::default())
     })
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_from_a_non_producer_of_its_source_shard_is_refused() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    let default = data_into_verified(incoming_data.data.clone());
+    let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } = default.id else { panic!() };
+    let non_producer = non_producer_of_shard(&chain, &block, from_shard_id);
+    let from_non_producer =
+        SpicePartialDataBuilder::from_verified(default).sender(non_producer).build();
+
+    let result = actor.receive_data(from_non_producer);
+
+    assert_matches!(result, Err(Error::SenderFault(SenderFault::NotAProducer)));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    actor.handle(incoming_data);
+    assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
 #[test]
@@ -1086,6 +1133,7 @@ fn test_a_garbage_decode_delivers_nothing_and_the_item_keeps_collecting() {
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let default = data_into_verified(incoming_data.data);
     let honest_proof = new_test_receipt_proof(&block);
     let producers = producers_of_receipt_proof(&chain, &block, &honest_proof);
@@ -1153,6 +1201,7 @@ fn test_two_candidates_for_one_id_both_reach_the_executor() {
     );
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let data_id = test_receipt_proof_data_id(&block);
 
     actor.handle(first_data);
@@ -1185,6 +1234,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -1243,6 +1293,7 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     {
         let (witness_partial_data, _) = witness_incoming_data(&chain, &block);
         let witness_partial_data = data_into_verified(witness_partial_data.data);
@@ -1422,7 +1473,7 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
 }
 
 test_invalid_incoming_partial_data_without_block! {
-    invalid_sender_of_receipts(Error::SenderIsNotValidator, receipt_proof_incoming_data, default, {
+    invalid_sender_of_receipts(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         SpicePartialDataBuilder::from_verified(default)
             .sender(AccountId::from_str("invalid-sender").unwrap())
             .build()
@@ -1432,7 +1483,7 @@ test_invalid_incoming_partial_data_without_block! {
             .sender(AccountId::from_str("invalid-sender").unwrap())
             .build()
     })
-    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, default, {
+    sender_is_not_producer(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
             default.id
         else {
@@ -1443,7 +1494,7 @@ test_invalid_incoming_partial_data_without_block! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    invalid_receipts_from_shard(Error::NearChainError(_), receipt_proof_incoming_data, default, {
+    unknown_receipts_from_shard(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
             default.id
         else {
@@ -1454,18 +1505,7 @@ test_invalid_incoming_partial_data_without_block! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    invalid_receipts_to_shard(Error::NodeIsNotRecipient, receipt_proof_incoming_data, default, {
-        let SpiceDataIdentifier::ReceiptProof { to_shard_id: _, block_hash, from_shard_id } =
-            default.id
-        else {
-                panic!();
-        };
-        let to_shard_id = ShardId::new(42);
-        SpicePartialDataBuilder::from_verified(default)
-            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
-            .build()
-    })
-    invalid_witness_shard_id(Error::NearChainError(_), witness_incoming_data, default, {
+    unknown_witness_shard_id(Error::SenderIsNotProducer, witness_incoming_data, default, {
         let SpiceDataIdentifier::Witness { shard_id: _, block_hash } = default.id
         else {
             panic!();
@@ -1475,7 +1515,7 @@ test_invalid_incoming_partial_data_without_block! {
             .id(SpiceDataIdentifier::Witness { block_hash, shard_id })
             .build()
     })
-    invalid_signature(Error::InvalidPartialDataSignature, receipt_proof_incoming_data, default, {
+    invalid_signature(Error::SenderFault(SenderFault::InvalidSignature), receipt_proof_incoming_data, default, {
         SpicePartialDataBuilder::from_verified(default)
             .build_with_signature(Signature::default())
     })
@@ -1535,6 +1575,110 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     process_block(&mut receiver_chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_for_a_stored_unprocessed_block_from_a_non_producer_is_not_parked() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let default = data_into_verified(incoming_data.data.clone());
+    let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } = default.id else { panic!() };
+    let non_producer = non_producer_of_shard(&chain, &block, from_shard_id);
+    let from_non_producer =
+        SpicePartialDataBuilder::from_verified(default).sender(non_producer).build();
+
+    let result = actor.receive_data(from_non_producer);
+
+    assert_matches!(result, Err(Error::SenderFault(SenderFault::NotAProducer)));
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    actor.handle(incoming_data);
+    assert_matches!(
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
+    );
+}
+
+/// The startup walk counts the blocks it visits as processed, so data for them is not held for
+/// a trigger that already happened before the restart.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_for_a_block_walked_on_startup_is_delivered_without_a_trigger() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+
+    actor.handle(incoming_data);
+
+    assert_eq!(
+        drain_outgoing_delivered_receipts(&mut outgoing_rc),
+        vec![test_receipt_proof_data_id(&block)]
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_not_needed_for_a_block_walked_on_startup_is_irrelevant() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (_, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, _outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    // The proof in the other direction targets a shard the recipient does not track.
+    let ShardProof { from_shard_id, to_shard_id, .. } = new_test_receipt_proof(&block).1;
+    let receipt_proof = ReceiptProof(
+        vec![],
+        ShardProof { from_shard_id: to_shard_id, to_shard_id: from_shard_id, proof: vec![] },
+    );
+    let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+    let (not_needed, _) = get_incoming_data(
+        &producer,
+        &chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![receipt_proof],
+        },
+    );
+
+    let result = actor.receive_data(not_needed.data);
+
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_node_without_signer_parks_a_receipt_proof_for_a_block_not_yet_processed() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, _) = receipt_proof_incoming_data(&chain, &block);
+    let to_shard_id = new_test_receipt_proof(&block).1.to_shard_id;
+    let to_shard_uid = {
+        let shard_layout = chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+        ShardUId::from_shard_id_and_layout(to_shard_id, &shard_layout)
+    };
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = ActorBuilder::new(None)
+        .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
+        .build(outgoing_sc, &chain);
+
+    let result = actor.receive_data(incoming_data.data);
+
+    assert_matches!(result, Ok(()));
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_matches!(
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
+    );
 }
 
 #[test]
@@ -1900,11 +2044,10 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 }
 
-/// The source chunk was certified before startup; after the restart, a block that certifies
-/// nothing pulls the proof from its producers.
+/// The source chunk was certified before a restart, and no later block certifies it again.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_proof_certified_before_startup_is_pulled_after_it() {
+fn test_a_proof_certified_before_a_restart_is_pulled_after_it() {
     let (genesis, mut chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
         genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
@@ -1918,8 +2061,6 @@ fn test_a_proof_certified_before_startup_is_pulled_after_it() {
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
-    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
-
     actor.handle(ProcessedBlock { block_hash: *later_block.hash() });
 
     let data_id = SpiceDataIdentifier::from(&DataId::receipt_proof(
@@ -2477,6 +2618,7 @@ fn test_handling_data_request_with_receipts_in_store() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     actor.handle(SpiceIncomingPartialData {
         data: partial_data,
         recv_permit: RecvMessagePermit::none(),
@@ -3049,6 +3191,7 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = ActorBuilder::new(Some(requester))
         .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
         .build(outgoing_sc, &requester_chain);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
     actor.handle(SpiceIncomingPartialData {
         data: partial_data,
         recv_permit: RecvMessagePermit::none(),

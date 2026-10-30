@@ -27,6 +27,16 @@ impl DataId {
         }
     }
 
+    /// The id of the data `id` names; `None` for data the engine does not track.
+    pub(crate) fn from_identifier(id: &SpiceDataIdentifier) -> Option<Self> {
+        match id {
+            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                Some(Self::receipt_proof(*block_hash, *from_shard_id, *to_shard_id))
+            }
+            SpiceDataIdentifier::Witness { .. } => None,
+        }
+    }
+
     /// Hash of the block the data belongs to.
     pub(crate) fn block_hash(&self) -> &CryptoHash {
         let DataId::ReceiptProof { source, .. } = self;

@@ -42,7 +42,7 @@ fn a_pullable_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbou
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_settled_commitments_producers_are_never_asked() {
+fn settled_commitment_producers_are_not_pulled_from() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
     let id = manager.track_needed_proof(&blocks[0]);
@@ -62,14 +62,21 @@ fn a_settled_commitments_producers_are_never_asked() {
         &fake,
         parts_with_ordinals(&fake_parts, &[1]),
     );
-    let result = manager.manager.on_parts_received(
+    let result = manager.manager.receive_from(
         &producers[2],
         &id,
         &fake,
         parts_with_ordinals(&fake_parts, &[2]),
-        TOTAL_PARTS,
     );
     assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
+    // A fourth liar answers only after the fake settled.
+    let result = manager.manager.receive_from(
+        &producers[4],
+        &id,
+        &fake,
+        parts_with_ordinals(&fake_parts, &[4]),
+    );
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
     manager.push_and_assert_collecting(
         &producers[3],
         &id,
@@ -82,10 +89,7 @@ fn a_settled_commitments_producers_are_never_asked() {
 
     assert_eq!(
         wants_for(requests, &id),
-        BTreeMap::from([
-            (producers[3].clone(), ordinals(&[0, 1, 2, 4])),
-            (producers[4].clone(), ordinals(&[4])),
-        ])
+        BTreeMap::from([(producers[3].clone(), ordinals(&[0, 1, 2, 4]))])
     );
 }
 
@@ -252,13 +256,7 @@ fn an_unverifiable_answer_leaves_the_request_outstanding() {
     broken[0].part[0] ^= 1;
     let missing_before = manager.tracker(&id, &commitment).missing_ordinals();
     for producer in &producers[..2] {
-        let result = manager.manager.on_parts_received(
-            producer,
-            &id,
-            &commitment,
-            broken.clone(),
-            TOTAL_PARTS,
-        );
+        let result = manager.manager.receive_from(producer, &id, &commitment, broken.clone());
         assert_matches!(result, Err(SenderFault::InvalidMerkleProof));
     }
 
@@ -375,13 +373,7 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
     }
     let result = manager
         .manager
-        .on_parts_received(
-            &honest,
-            &id,
-            &commitment,
-            parts_with_ordinals(&parts, &[1, 2, 3, 4]),
-            TOTAL_PARTS,
-        )
+        .receive_from(&honest, &id, &commitment, parts_with_ordinals(&parts, &[1, 2, 3, 4]))
         .unwrap();
     assert_matches!(result, PartsOutcome::Decoded(_));
 }

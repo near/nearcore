@@ -165,12 +165,14 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Block, h.as_ref())
     }
 
+    /// Get block header, if stored.
+    pub fn get_block_header_if_exists(&self, h: &CryptoHash) -> Option<Arc<BlockHeader>> {
+        self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref())
+    }
+
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
-            format_args!("BLOCK HEADER: {}", h),
-        )
+        option_to_not_found(self.get_block_header_if_exists(h), format_args!("BLOCK HEADER: {}", h))
     }
 
     /// Get block height.
