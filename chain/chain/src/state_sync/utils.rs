@@ -165,10 +165,13 @@ fn first_block_of_epoch<T: ChainStoreAccess>(
 ///
 /// The non-spice rule below waits for two new chunks in every shard, because a chunk that is
 /// missing leaves that shard's state trailing the previous epoch, so an earlier block would
-/// not be a well-defined anchor for every shard. Spice puts a chunk in every block - an empty
-/// one where a shard has nothing to include - so every shard advances at every height and
-/// there is nothing left for that rule to protect against. The epoch's first block is then the
-/// earliest well-defined anchor, and state sync no longer waits several blocks into the epoch.
+/// not be a well-defined anchor for every shard. Spice blocks can miss chunks too, but the
+/// chunk executor applies every shard at every block and treats a missing chunk as an empty
+/// one - no transactions, incoming receipts still processed. So every shard advances at every
+/// height, and every (block, shard) gets an execution result that a later block certifies.
+/// That leaves nothing for the non-spice rule to protect against: the epoch's first block is
+/// the earliest well-defined anchor, and state sync no longer waits several blocks into the
+/// epoch. If spice ever stops executing missing chunks, this rule has to change with it.
 ///
 /// Finality still matters: the sync hash must not move under a reorg, so the block is recorded
 /// only once `last_final_block` has reached this epoch.

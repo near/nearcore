@@ -1,13 +1,10 @@
-use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::state_part::{StatePart, StatePartIndex, StatePartV0};
-use crate::types::{
-    BlockHeight, ChunkExecutionResult, EpochId, ShardId, SpiceChunkId, StateRoot, StateRootNode,
-};
+use crate::types::{BlockHeight, ChunkExecutionResult, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
 use near_schema_checker_lib::ProtocolSchema;
@@ -128,23 +125,26 @@ pub struct ShardStateSyncResponseHeaderV2 {
 /// synced is the one left behind by that block's chunk, so unlike V1/V2 there is no chunk to
 /// apply afterwards and hence no chunk, receipts or receipt proofs to carry.
 ///
-/// A spice chunk header commits no state root of its own - the chunk executes after the
-/// block that carries it - so everything the syncing node needs about that chunk comes from
-/// the block that certifies it. That block's header, which header sync has already given the
-/// node, commits its body through `block_body_hash`, and the body carries the chunk's
-/// `ChunkExecutionResult` whole among its core statements.
+/// A spice chunk header commits no state root of its own - the chunk executes after the block
+/// that carries it - so the root comes from the chunk's certified execution result. The header
+/// of the block that certifies it commits that result through `chunk_execution_root`, a merkle
+/// root over one `ChunkExecutionRoots` leaf per certified chunk, and the leaf carries the chunk
+/// id and the hash of the whole result. Header sync precedes state sync, so the syncing node
+/// already holds that header and needs only the result and the merkle path from the result's
+/// leaf.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV3 {
-    /// The state after the chunk in the sync block ran: the root the parts reconstruct.
-    /// Checked on receipt against the result the certifying body commits, so it is a
-    /// convenience rather than a second source of truth.
-    pub state_root: StateRoot,
-    /// The state root node of that trie.
+    /// The root node of the trie the parts rebuild: the state after the sync block's chunk ran.
     pub state_root_node: StateRootNode,
-    /// The block whose core statements commit the chunk's execution result. The node checks
-    /// it is final and descends from the sync block, and that its body matches the
-    /// `block_body_hash` of the header it already holds.
-    pub certifying_block: Arc<Block>,
+    /// The chunk's certified execution result. Its `chunk_extra` becomes the sync block's
+    /// `ChunkExtra`, so every field matters, and the leaf commits to the hash of all of them.
+    pub execution_result: ChunkExecutionResult,
+    /// The block that certifies `execution_result`. The syncing node must already hold its
+    /// header, and checks that the block is final and descends from the sync block.
+    pub certifying_block_hash: CryptoHash,
+    /// Merkle path from the result's `ChunkExecutionRoots` leaf to that header's
+    /// `chunk_execution_root`.
+    pub execution_result_proof: MerklePath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -227,7 +227,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),
-            Self::V3(header) => header.state_root,
+            Self::V3(header) => *header.execution_result.chunk_extra.state_root(),
         }
     }
 
@@ -277,27 +277,15 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
-    /// The block certifying the sync block's chunk, present exactly on V3.
+    /// The execution result a spice (V3) header carries, `None` for V1 and V2. It is only
+    /// trustworthy once `set_state_header` has checked it against the certifying block's
+    /// `chunk_execution_root`.
     #[inline]
-    pub fn spice_certifying_block(&self) -> Option<&Block> {
+    pub fn spice_execution_result(&self) -> Option<&ChunkExecutionResult> {
         match self {
             Self::V1(_) | Self::V2(_) => None,
-            Self::V3(header) => Some(&header.certifying_block),
+            Self::V3(header) => Some(&header.execution_result),
         }
-    }
-
-    /// The certified execution result for `chunk_id`, read out of the certifying block's body.
-    ///
-    /// `None` unless this is a V3 header whose body commits a result for that chunk. The body
-    /// is only trustworthy once `set_state_header` has checked it against the certifying
-    /// block header's `block_body_hash`.
-    pub fn spice_execution_result(&self, chunk_id: &SpiceChunkId) -> Option<&ChunkExecutionResult> {
-        let block = self.spice_certifying_block()?;
-        block
-            .spice_core_statements()
-            .iter_execution_results()
-            .find(|(id, _)| *id == chunk_id)
-            .map(|(_, result)| result)
     }
 
     pub fn num_state_parts(&self) -> u64 {

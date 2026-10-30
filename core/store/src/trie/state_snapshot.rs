@@ -226,7 +226,8 @@ impl ShardTries {
             .map_err(SnapshotError::Storage)
     }
 
-    /// The block the current snapshot sits at and the shards it covers, if one exists.
+    /// The block the current snapshot sits at and the shards it covers, if one exists. Also
+    /// `None` while the snapshot lock is held, as it is while a snapshot is being created.
     ///
     /// Read back rather than remembered, so a node that restarts between taking a snapshot and
     /// announcing it can still work out what it holds.
