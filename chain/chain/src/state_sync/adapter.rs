@@ -669,7 +669,7 @@ impl ChainStateSyncAdapter {
         if !self.is_final_descendant_of_sync_block(&certifying_header, &sync_hash)? {
             byzantine_assert!(false);
             return Err(Error::Other(
-                "set_shard_state failed: certifying block does not follow the sync block".into(),
+                "set_shard_state failed: certifying block is not a final descendant of the sync block".into(),
             ));
         }
 
