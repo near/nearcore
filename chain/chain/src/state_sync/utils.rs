@@ -406,6 +406,24 @@ impl Chain {
         Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 
+    /// Whether this node's header chain shows the chunks of the sync block `sync_hash` certified
+    /// by a final block.
+    ///
+    /// Always `true` without spice.
+    pub fn is_sync_block_certified(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let sync_header = self.get_block_header(sync_hash)?;
+        if !sync_header.is_spice() {
+            return Ok(true);
+        }
+        let header_head = self.get_block_header(&self.header_head()?.last_block_hash)?;
+
+        Ok(maybe_get_block_header(&self.chain_store, header_head.last_final_block())?.is_some_and(
+            |last_final| {
+                last_final.prev_last_certified_block_epoch_id() == Some(sync_header.epoch_id())
+            },
+        ))
+    }
+
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
     /// content of such block.
     pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, Error> {
