@@ -91,7 +91,7 @@ use near_primitives::transaction::{
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex, SpiceChunkId,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -2810,8 +2810,7 @@ impl Chain {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
-        let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
-        let Some(execution_result) = shard_state_header.spice_execution_result(&chunk_id) else {
+        let Some(execution_result) = shard_state_header.spice_execution_result() else {
             return Err(Error::Other(
                 "set_state_finalize failed: a spice header must carry an execution result".into(),
             ));
