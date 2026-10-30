@@ -18,7 +18,7 @@ use near_primitives::types::{BlockHeight, EpochId, SpiceChunkId};
 use near_primitives::version::ProtocolFeature;
 use parking_lot::Mutex;
 use std::any::Any;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -60,9 +60,6 @@ pub struct RunRecord {
     pub agreement_height: BlockHeight,
     /// The chunks every contract code request observed on any node was for.
     pub code_requests: Vec<SpiceChunkId>,
-    /// Indices in `node_datas` of the nodes a fault killed; their entries stay but say
-    /// nothing about the chain any more.
-    pub dead_nodes: HashSet<usize>,
     /// Per node index, the gates' drop counts when that node's head first reached the last
     /// pre-spice block.
     pub gate_snapshots: HashMap<usize, GateCounts>,
@@ -75,11 +72,6 @@ impl RunRecord {
 
     pub fn first_spice(&self) -> &Arc<Block> {
         self.timeline.first_spice.as_ref().expect("the run found the first spice block")
-    }
-
-    /// The indices in `node_datas` of the nodes that are alive at `done`.
-    pub fn live_nodes(&self, env: &TestLoopEnv) -> Vec<usize> {
-        (0..env.node_datas.len()).filter(|index| !self.dead_nodes.contains(index)).collect()
     }
 }
 
@@ -118,13 +110,10 @@ fn drive(scenario: Scenario) {
         (BASE_EPOCH_BUDGET + EPOCH_BUDGET_PER_FAULT * driver.faults.len() as u64 + extra_epochs)
             * profile.epoch_length();
     for _ in 0..budget {
-        // The runner panics with a bare timeout when the chain stops producing blocks;
-        // say where it stopped and what the run looked like instead.
         let head_before = env.rpc_node().head().height;
-        let tick = catch_unwind(AssertUnwindSafe(|| {
-            env.rpc_runner().run_for_number_of_blocks_with_timeout(1, TICK_TIMEOUT)
-        }));
-        if tick.is_err() {
+        let advanced =
+            env.rpc_runner().try_run_until(|node| node.head().height > head_before, TICK_TIMEOUT);
+        if advanced.is_err() {
             panic!("the chain stalled at height {head_before}\n{}", driver.describe_setup());
         }
         driver.observe(&mut env);
@@ -151,7 +140,6 @@ struct Driver {
     code_requests: Arc<Mutex<Vec<SpiceChunkId>>>,
     /// The epoch the driver's last observed spice block is in.
     spice_epoch_id: Option<EpochId>,
-    dead_nodes: HashSet<usize>,
     gate_snapshots: HashMap<usize, GateCounts>,
 }
 
@@ -164,34 +152,27 @@ impl Driver {
             loads: Loads::new(load_rate),
             code_requests: Arc::default(),
             spice_epoch_id: None,
-            dead_nodes: HashSet::new(),
             gate_snapshots: HashMap::new(),
         }
     }
 
-    /// Fires `progress` at the loads and at every fault, then hands the faults' events to the
-    /// driver and to every fault.
+    /// Fires `progress` at the loads and at every fault, then hands the faults' events to
+    /// every fault.
     fn fire(&mut self, env: &mut TestLoopEnv, progress: Progress) {
         self.loads.on_progress(env, &progress);
         let mut events = Vec::new();
         for fault in &mut self.faults {
             events.extend(fault.on_progress(env, &self.timeline, &progress));
         }
-        for event in events {
-            match event {
-                FaultEvent::NodeKilled(index) => {
-                    self.dead_nodes.insert(index);
-                    self.gate_snapshots.remove(&index);
-                }
-                FaultEvent::NodeRestarted(index) => self.on_node_restarted(env, index),
-            }
+        for FaultEvent::NodeRestarted(index) in events {
+            self.on_node_restarted(env, index);
         }
     }
 
+    /// The restarted node is a new entry with fresh actors; the network rules and task delays
+    /// are keyed by account and follow it, and a fault with handlers of its own re-registers
+    /// them here.
     fn on_node_restarted(&mut self, env: &mut TestLoopEnv, index: usize) {
-        // The restarted node has fresh gates; the network rules are keyed by account and
-        // stay.
-        self.gate_snapshots.remove(&index);
         for fault in &mut self.faults {
             fault.on_node_restarted(env, index);
         }
@@ -345,7 +326,7 @@ impl Driver {
             return;
         };
         for index in 0..env.node_datas.len() {
-            if self.gate_snapshots.contains_key(&index) || self.dead_nodes.contains(&index) {
+            if self.gate_snapshots.contains_key(&index) || !env.is_alive(index) {
                 continue;
             }
             if env.node(index).head().height >= last_pre_spice_height {
@@ -374,10 +355,17 @@ impl Driver {
         let terminal_height = env.rpc_node().head().height;
         // Certification can trail the head by a lot under a slow catch-up, so this waits
         // longer than the runner's own helper would.
-        env.rpc_runner().run_until(
+        let certified = env.rpc_runner().try_run_until(
             |node| node.last_certified_block_header().height() >= terminal_height,
             CERTIFICATION_TIMEOUT,
         );
+        if certified.is_err() {
+            panic!(
+                "certification did not catch up with the head at height {terminal_height} \
+                 within {CERTIFICATION_TIMEOUT} of test-loop time\n{}",
+                self.describe_setup(),
+            );
+        }
         self.fire(env, Progress::Done);
 
         self.loads.scan_inclusions(env, terminal_height);
@@ -385,9 +373,14 @@ impl Driver {
         // not have processed that block yet, so the node agreement oracle starts from
         // every node at the same height.
         let agreement_height = env.rpc_node().head().height;
-        for index in 0..env.node_datas.len() {
-            if !self.dead_nodes.contains(&index) {
-                env.node_runner(index).run_until_head_height(agreement_height);
+        for index in env.live_node_indices() {
+            let caught_up = env.node_runner(index).try_run_until_head_height(agreement_height);
+            if let Err(timed_out) = caught_up {
+                panic!(
+                    "{} did not reach the agreement height {agreement_height}: {timed_out}\n{}",
+                    env.node_datas[index].account_id,
+                    self.describe_setup(),
+                );
             }
         }
 
@@ -398,7 +391,6 @@ impl Driver {
             terminal_height,
             agreement_height,
             code_requests: self.code_requests.lock().clone(),
-            dead_nodes: self.dead_nodes,
             gate_snapshots: self.gate_snapshots,
         };
         let mut failures = collect_failures(env, &self.faults, &record);

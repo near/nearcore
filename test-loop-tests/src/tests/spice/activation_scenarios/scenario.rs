@@ -103,11 +103,7 @@ pub enum Progress {
 
 /// What a fault tells the driver happened while it handled a progress point.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum FaultEvent {
-    /// The node was killed; the payload is its index in `node_datas`. The driver stops
-    /// reading progress and oracles from it; its entry stays, dead.
-    NodeKilled(usize),
     /// The node was restarted; the payload is its index in `node_datas`. The driver tells
     /// every fault through [`Fault::on_node_restarted`].
     NodeRestarted(usize),

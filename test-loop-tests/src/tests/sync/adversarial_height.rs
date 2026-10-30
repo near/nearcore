@@ -89,7 +89,7 @@ fn test_synced_node_ignores_unverified_far_ahead_height() {
         "victim must not enter any sync phase after the adversarial far-ahead claim, saw {:?}",
         sync_history.borrow(),
     );
-    assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
+    assert!(env.is_alive(victim_idx), "victim must not be wiped");
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn test_stale_node_syncs() {
     let expected = ["AwaitingPeers", "NoSync", "EpochSync"].map(String::from);
     assert_eq!(sync_history.borrow().as_slice(), expected.as_slice());
     assert!(
-        env.test_loop.is_denylisted(restart_id),
+        !env.is_alive(restarted_idx),
         "stale node should reach epoch sync and trigger the data reset"
     );
 }
@@ -236,7 +236,7 @@ fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
 
     let restarted_head = env.node(restarted_idx).head().height;
     assert!(
-        !env.test_loop.is_denylisted(&restart_id),
+        env.is_alive(restarted_idx),
         "a claim alone must not delete the store of a node inside the horizon"
     );
     assert!(
@@ -405,7 +405,7 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
         panic!("the claim pushed the victim out of state sync")
     };
     assert_eq!(state_sync_status.sync_hash, victim_sync_hash);
-    assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
+    assert!(env.is_alive(victim_idx), "victim must not be wiped");
 }
 
 // Scenario: a node bootstrapping from genesis is fed a fabricated far-ahead peer
@@ -461,5 +461,5 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
     relay_block_from_peer(&env.node_datas[syncer_idx], &attacker, fake_block);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
-    assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
+    assert!(env.is_alive(syncer_idx), "syncer must not be wiped");
 }

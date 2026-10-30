@@ -125,15 +125,17 @@ fn slow_test_validator_restart_under_cross_shard_load() {
         }
 
         // Send cross-shard transfers after each restart to generate traffic
-        // across all shards.
-        let live_nodes = &env.node_datas[env.node_datas.len() - NUM_CLIENTS..];
-        let clients: Vec<_> = (env.node_datas.len() - NUM_CLIENTS..env.node_datas.len())
-            .map(|idx| env.node(idx).client())
-            .collect();
+        // across all shards, through the restarted validators: the killed ones keep
+        // their entries.
+        let live_indices = env.live_node_indices();
+        assert_eq!(live_indices.len(), NUM_CLIENTS, "every validator should be back");
+        let live_nodes: Vec<_> =
+            live_indices.iter().map(|idx| env.node_datas[*idx].clone()).collect();
+        let clients: Vec<_> = live_indices.iter().map(|idx| env.node(*idx).client()).collect();
         let anchor_hash = get_anchor_hash(&clients);
         for (j, sender) in accounts.iter().enumerate() {
             let receiver = &accounts[(j + 1) % accounts.len()];
-            let nonce = get_next_nonce(&env.test_loop.data, live_nodes, sender);
+            let nonce = get_next_nonce(&env.test_loop.data, &live_nodes, sender);
             let tx = SignedTransaction::send_money(
                 nonce,
                 sender.clone(),

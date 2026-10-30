@@ -193,14 +193,14 @@ fn test_far_horizon_stale_node_shutdown() {
 
     // Restart node 0 — it detects staleness and gets denylisted.
     let restart_id = format!("{}-restart", node0_identifier);
-    env.restart_node(&restart_id, killed_state);
+    let restarted_idx = env.restart_node(&restart_id, killed_state);
     env.node_runner(1).run_for_number_of_blocks(5);
 
-    // is_denylisted checks that the node sent an EpochSyncDataReset shutdown
-    // signal, which the test loop captures by denylisting the node's identifier.
+    // The EpochSyncDataReset shutdown signal stops the node in the test loop, which is
+    // what `is_alive` reads.
     assert!(
-        env.test_loop.is_denylisted(&restart_id),
-        "stale node should have been denylisted via EpochSyncDataReset shutdown signal"
+        !env.is_alive(restarted_idx),
+        "stale node should have shut down via the EpochSyncDataReset shutdown signal"
     );
 }
 
@@ -230,11 +230,11 @@ fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
     env.node_runner(1).run_until_head_height(target_height);
 
     let restart_id = format!("{}-restart", node0_identifier);
-    env.restart_node(&restart_id, killed_state);
+    let restarted_idx = env.restart_node(&restart_id, killed_state);
     env.node_runner(1).run_for_number_of_blocks(5);
 
     assert!(
-        env.test_loop.is_denylisted(&restart_id),
+        !env.is_alive(restarted_idx),
         "a node one epoch past the horizon should still reset its store"
     );
 }
@@ -589,11 +589,11 @@ fn test_far_horizon_restart_after_long_downtime() {
 
     env.node_runner(0).run_for_number_of_blocks(5);
 
-    // is_denylisted checks that the node sent an EpochSyncDataReset shutdown
-    // signal, which the test loop captures by denylisting the node's identifier.
+    // The EpochSyncDataReset shutdown signal stops the node in the test loop, which is
+    // what `is_alive` reads.
     assert!(
-        env.test_loop.is_denylisted(restart_id),
-        "node should have been denylisted via EpochSyncDataReset after long downtime"
+        !env.is_alive(restarted_idx),
+        "node should have shut down via EpochSyncDataReset after long downtime"
     );
 }
 
@@ -855,7 +855,7 @@ fn test_far_horizon_stale_sync_hash_detection() {
     // triggers EpochSyncDataReset.
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
 
-    assert!(env.test_loop.is_denylisted("new_node"));
+    assert!(!env.is_alive(new_node_idx), "the node should have shut down via EpochSyncDataReset");
 
     // Verify the chain advanced past the detection threshold. The syncing node
     // verifies those heights from the blocks the validators relay to it.

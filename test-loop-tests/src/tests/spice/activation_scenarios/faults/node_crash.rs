@@ -14,7 +14,6 @@ use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::{self, Debug, Formatter};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// When the node is killed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,9 +43,11 @@ pub enum Retrack {
 const DEFAULT_DOWN: u64 = 5;
 
 /// A node killed at a point of the timeline and restarted `down` driver blocks later,
-/// catching up from where it stopped. The restarted node is a fresh set of actors, so
-/// every runtime fault re-registers its handlers on it. The target is first run to the
-/// driver's head, so its own head satisfies the point it is killed at.
+/// catching up from where it stopped. The killed node's entry stays, and the env reports it
+/// dead; the restarted node is a new entry with fresh actors, which the network rules and
+/// task delays follow by account, and which a fault with handlers of its own instruments
+/// again through `on_node_restarted`. The target is first run to the driver's head, so its
+/// own head satisfies the point it is killed at.
 pub struct NodeCrash {
     node: usize,
     at: At,
@@ -131,7 +132,7 @@ impl NodeCrash {
         self.account_id.as_ref().expect("the target is looked up at built")
     }
 
-    fn kill(&mut self, env: &mut TestLoopEnv, timeline: &Timeline) -> Vec<FaultEvent> {
+    fn kill(&mut self, env: &mut TestLoopEnv, timeline: &Timeline) {
         let driver_height = env.rpc_node().head().height;
         if self.at != At::BoundaryPending {
             env.node_runner(self.node).run_until_head_height(driver_height);
@@ -149,7 +150,6 @@ impl NodeCrash {
         let identifier = self.identifier.clone().expect("the target is looked up at built");
         self.state = Some(env.kill_node(&identifier));
         self.killed_at = Some(driver_height);
-        vec![FaultEvent::NodeKilled(self.node)]
     }
 
     fn restart_node(&mut self, env: &mut TestLoopEnv) -> Vec<FaultEvent> {
@@ -343,41 +343,33 @@ impl Fault for NodeCrash {
                     self.node,
                 );
             }
-            Progress::LastPreSpice if self.at == At::LastPreSpice => {
-                return self.kill(env, timeline);
-            }
-            Progress::FirstSpice if self.at == At::FirstSpice => return self.kill(env, timeline),
-            Progress::Height { offset, height } => {
-                let mut events = Vec::new();
-                match self.killed_at {
-                    None => match self.at {
-                        At::Height(at) if at == *offset => events.extend(self.kill(env, timeline)),
-                        At::BoundaryPending if *offset >= 0 && boundary_pending(env, self.node) => {
-                            events.extend(self.kill(env, timeline))
-                        }
-                        _ => {}
-                    },
-                    Some(killed_at) => {
-                        if self.restart
-                            && self.restarted.is_none()
-                            && *height >= killed_at + self.down
-                        {
-                            events.extend(self.restart_node(env));
-                        }
+            Progress::LastPreSpice if self.at == At::LastPreSpice => self.kill(env, timeline),
+            Progress::FirstSpice if self.at == At::FirstSpice => self.kill(env, timeline),
+            Progress::Height { offset, height } => match self.killed_at {
+                None => match self.at {
+                    At::Height(at) if at == *offset => self.kill(env, timeline),
+                    At::BoundaryPending if *offset >= 0 && boundary_pending(env, self.node) => {
+                        self.kill(env, timeline)
+                    }
+                    _ => {}
+                },
+                Some(killed_at) => {
+                    if self.restart && self.restarted.is_none() && *height >= killed_at + self.down
+                    {
+                        return self.restart_node(env);
                     }
                 }
-                return events;
-            }
+            },
             Progress::Done => {
                 self.resolve_relaxations(env);
                 if let Some(index) = self.restarted {
                     // The re-bootstrapped executor must execute across the boundary, not
                     // just follow headers; give it the time the existing restart test does.
                     let boundary_height = timeline.last_pre_spice_height().unwrap();
-                    let executed = catch_unwind(AssertUnwindSafe(|| {
-                        env.node_runner(index).run_until_executed_height(boundary_height + 1)
-                    }));
-                    self.crossed = executed.is_ok();
+                    self.crossed = env
+                        .node_runner(index)
+                        .try_run_until_executed_height(boundary_height + 1)
+                        .is_ok();
                 }
             }
             _ => {}

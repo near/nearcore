@@ -39,8 +39,25 @@ use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
 use std::collections::HashSet;
+use std::error::Error;
+use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 use std::task::Poll;
+
+/// A [`NodeRunner`] deadline passed before the condition it was waiting for held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimedOut {
+    /// How long the runner waited, in test-loop time.
+    pub waited: Duration,
+}
+
+impl Display for TimedOut {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "the condition did not hold within {} of test-loop time", self.waited)
+    }
+}
+
+impl Error for TimedOut {}
 
 /// Represents a single node in the test loop setup.
 ///
@@ -526,11 +543,34 @@ impl<'a> NodeRunner<'a> {
         );
     }
 
+    /// Like [`Self::run_until`], reporting a deadline that passed before the condition held
+    /// instead of panicking, so the test can say what it was waiting for, or go on: the
+    /// clock is then at the deadline and the loop stays usable.
+    pub fn try_run_until(
+        &mut self,
+        mut condition: impl FnMut(&TestLoopNode<'_>) -> bool,
+        maximum_duration: Duration,
+    ) -> Result<(), TimedOut> {
+        let node_data = self.node_data;
+        let satisfied = self.test_loop.run_until_or_timeout(
+            |test_loop_data| {
+                let node = TestLoopNode { data: test_loop_data, node_data };
+                condition(&node)
+            },
+            maximum_duration,
+        );
+        if satisfied { Ok(()) } else { Err(TimedOut { waited: maximum_duration }) }
+    }
+
     pub fn run_until_head_height(&mut self, height: BlockHeight) {
-        let initial_height = self.head().height;
-        let height_diff = height.saturating_sub(initial_height) as usize;
-        let timeout = self.calculate_block_distance_timeout(height_diff);
+        let timeout = self.head_height_timeout(height);
         self.run_until(|node| node.head().height >= height, timeout);
+    }
+
+    /// [`Self::run_until_head_height`] with [`Self::try_run_until`]'s outcome.
+    pub fn try_run_until_head_height(&mut self, height: BlockHeight) -> Result<(), TimedOut> {
+        let timeout = self.head_height_timeout(height);
+        self.try_run_until(|node| node.head().height >= height, timeout)
     }
 
     pub fn run_until_final_head_height(&mut self, height: BlockHeight) {
@@ -541,11 +581,28 @@ impl<'a> NodeRunner<'a> {
     }
 
     pub fn run_until_executed_height(&mut self, height: BlockHeight) {
-        let initial_height = self.last_executed().height;
-        let height_diff = height.saturating_sub(initial_height) as usize;
-        let extra = self.node_data.expected_execution_delay() as usize;
-        let timeout = self.calculate_block_distance_timeout(height_diff + extra);
+        let timeout = self.executed_height_timeout(height);
         self.run_until(|node| node.last_executed().height >= height, timeout);
+    }
+
+    /// [`Self::run_until_executed_height`] with [`Self::try_run_until`]'s outcome.
+    pub fn try_run_until_executed_height(&mut self, height: BlockHeight) -> Result<(), TimedOut> {
+        let timeout = self.executed_height_timeout(height);
+        self.try_run_until(|node| node.last_executed().height >= height, timeout)
+    }
+
+    /// The time the head may take to reach `height` from where it is.
+    fn head_height_timeout(&self, height: BlockHeight) -> Duration {
+        let height_diff = height.saturating_sub(self.head().height) as usize;
+        self.calculate_block_distance_timeout(height_diff)
+    }
+
+    /// The time execution may take to reach `height` from where it is, with the expected
+    /// execution delay on top.
+    fn executed_height_timeout(&self, height: BlockHeight) -> Duration {
+        let height_diff = height.saturating_sub(self.last_executed().height) as usize;
+        let extra = self.node_data.expected_execution_delay() as usize;
+        self.calculate_block_distance_timeout(height_diff + extra)
     }
 
     pub fn run_until_head_height_with_timeout(

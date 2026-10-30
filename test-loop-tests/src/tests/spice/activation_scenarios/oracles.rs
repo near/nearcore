@@ -403,7 +403,7 @@ fn stateless_endorser(
     if relaxations.is_whole(OracleId::StatelessEndorser) {
         return Ok(());
     }
-    check_stateless_endorsers(env, run.last_pre_spice(), &run.dead_nodes)
+    check_stateless_endorsers(env, run.last_pre_spice())
 }
 
 /// The certified execution results of the last pre-spice block must be exactly what its
@@ -414,7 +414,7 @@ fn stateless_endorser(
 pub fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Block) {
     panic_on_error(
         check_boundary_results(env, last_pre_spice)
-            .and_then(|()| check_stateless_endorsers(env, last_pre_spice, &HashSet::new())),
+            .and_then(|()| check_stateless_endorsers(env, last_pre_spice)),
     );
 }
 
@@ -459,12 +459,8 @@ fn check_boundary_results(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(
 }
 
 /// For every shard some endorser of the boundary chunk never ran the pre-spice apply, and
-/// endorsed the certified result.
-fn check_stateless_endorsers(
-    env: &TestLoopEnv,
-    last_pre_spice: &Block,
-    dead_nodes: &HashSet<usize>,
-) -> Result<(), String> {
+/// endorsed the certified result. Only the live nodes are asked.
+fn check_stateless_endorsers(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
     let rpc_node = env.rpc_node();
     let client = rpc_node.client();
     let core_reader = &client.chain.spice_core_reader;
@@ -483,7 +479,7 @@ fn check_stateless_endorsers(
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let mut stateless_endorsers = Vec::new();
         for (index, data) in env.node_datas.iter().enumerate() {
-            if dead_nodes.contains(&index) {
+            if !env.is_alive(index) {
                 continue;
             }
             let applied_locally = env
@@ -955,7 +951,7 @@ fn code_requested(
         .node_datas
         .iter()
         .enumerate()
-        .filter(|(index, _)| !run.dead_nodes.contains(index))
+        .filter(|(index, _)| env.is_alive(*index))
         .filter(|(index, _)| {
             env.node(*index)
                 .client()
@@ -1167,7 +1163,7 @@ fn node_agreement(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result
         .spice_core_reader
         .get_execution_results_by_shard_id(last_pre_spice_header)
         .map_err(|err| format!("the certified results of the driver are unavailable: {err}"))?;
-    for index in run.live_nodes(env) {
+    for index in env.live_node_indices() {
         let node = env.node(index);
         ensure!(
             node.head().height >= height,
@@ -1205,10 +1201,14 @@ fn node_agreement(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result
 
 /// No node's `SpiceMessageGate` drops anything from the moment that node's head first
 /// reaches the last pre-spice block. The driver snapshots each node's per-kind drop counts
-/// when its head gets there; drops before that point are legitimate.
+/// when its head gets there; drops before that point are legitimate. A node killed after
+/// its snapshot answers for nothing since.
 fn gate_quiet(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(), String> {
     let mut errors = Vec::new();
     for (index, snapshot) in &run.gate_snapshots {
+        if !env.is_alive(*index) {
+            continue;
+        }
         let now = gate_counts(env, *index);
         for ((actor, kind, before), (_, _, after)) in snapshot.iter().zip(&now) {
             if before != after {

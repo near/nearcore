@@ -435,12 +435,27 @@ impl TestLoopV2 {
     /// advance. If it returns true, execution stops before advancing the clock.
     pub fn run_until(
         &mut self,
-        mut condition: impl FnMut(&mut TestLoopData) -> bool,
+        condition: impl FnMut(&mut TestLoopData) -> bool,
         maximum_duration: Duration,
     ) {
+        if !self.run_until_or_timeout(condition, maximum_duration) {
+            panic!("run_until did not fulfill the condition within the given deadline");
+        }
+    }
+
+    /// Like [`Self::run_until`], but returns whether the condition held instead of panicking
+    /// when the maximum duration passes first. In that case the clock is at the deadline, as
+    /// after [`Self::run_for`], and the loop can go on.
+    pub fn run_until_or_timeout(
+        &mut self,
+        mut condition: impl FnMut(&mut TestLoopData) -> bool,
+        maximum_duration: Duration,
+    ) -> bool {
         let deadline = self.current_time + maximum_duration;
-        let mut decider = move |next_time, data: &mut TestLoopData| {
+        let mut satisfied = false;
+        let mut decider = |next_time, data: &mut TestLoopData| {
             if condition(data) {
+                satisfied = true;
                 return AdvanceDecision::Stop;
             }
             if let Some(next_time) = next_time {
@@ -448,11 +463,12 @@ impl TestLoopV2 {
                     return AdvanceDecision::AdvanceToNextEvent;
                 }
             }
-            panic!("run_until did not fulfill the condition within the given deadline");
+            AdvanceDecision::AdvanceToAndStop(deadline)
         };
         while let Some(event) = self.advance_till_next_event(&mut decider) {
             self.process_event(event);
         }
+        satisfied
     }
 
     pub fn run_instant(&mut self) {
@@ -536,5 +552,30 @@ mod tests {
         // assert that the fake clock does indeed have the expected times.
         test_loop.run_for(Duration::seconds(30));
         assert_eq!(finished.load(Ordering::Relaxed), 2);
+    }
+
+    // A deadline that passes is reported, with the clock at it and the loop still usable; a
+    // condition that holds stops the loop at once.
+    #[test]
+    fn test_run_until_or_timeout() {
+        let mut test_loop = TestLoopV2::new();
+        let clock = test_loop.clock();
+        let start_time = clock.now();
+
+        assert!(!test_loop.run_until_or_timeout(|_| false, Duration::seconds(3)));
+        assert_eq!(clock.now(), start_time + Duration::seconds(3));
+
+        let woke = Arc::new(AtomicUsize::new(0));
+        let woke1 = woke.clone();
+        let clock1 = clock.clone();
+        test_loop.future_spawner("adhoc future spawner").spawn("wake", async move {
+            clock1.sleep(Duration::seconds(2)).await;
+            woke1.fetch_add(1, Ordering::Relaxed);
+        });
+        assert!(
+            test_loop
+                .run_until_or_timeout(|_| woke.load(Ordering::Relaxed) == 1, Duration::seconds(10))
+        );
+        assert_eq!(clock.now(), start_time + Duration::seconds(5));
     }
 }

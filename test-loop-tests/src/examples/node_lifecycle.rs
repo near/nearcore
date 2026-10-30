@@ -1,5 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use crate::utils::node::TimedOut;
+use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 
 #[test]
@@ -37,6 +39,34 @@ fn test_restart_node() {
     env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
 
     assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
+}
+
+/// A killed node keeps its entry but no longer counts as alive, waiting on it times out
+/// without taking the test down, and the restarted node is a new, live entry.
+#[test]
+fn test_killed_node_is_not_alive() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().validators(4, 0).build();
+    env.node_runner(0).run_for_number_of_blocks(3);
+
+    let identifier = env.node_datas[0].identifier.clone();
+    let killed_state = env.kill_node(&identifier);
+    assert!(!env.is_alive(0));
+    assert_eq!(env.live_node_indices(), vec![1, 2, 3]);
+
+    // The dead node processes nothing, so its head stays put while the others go on; a
+    // deadline that passes is reported instead of panicking, and the loop stays usable.
+    let height = env.node(0).head().height;
+    let timeout = Duration::seconds(5);
+    let waited = env.node_runner(0).try_run_until(|node| node.head().height > height, timeout);
+    assert_eq!(waited, Err(TimedOut { waited: timeout }));
+    assert!(env.node(1).head().height > height, "the live nodes did not go on");
+
+    let restarted = env.restart_node(&format!("{identifier}-restart"), killed_state);
+    assert!(env.is_alive(restarted));
+    assert_eq!(env.live_node_indices(), vec![1, 2, 3, restarted]);
+    let head = env.node(1).head().height;
+    env.node_runner(restarted).run_until_head_height(head);
 }
 
 #[test]

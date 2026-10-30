@@ -151,6 +151,9 @@ impl TestLoopEnv {
     ///
     /// Note that other nodes may still continue to queue network events into the peer
     /// manager actor of the stopped node but this would not be processed.
+    ///
+    /// The node's entry in `node_datas` stays, so its chain can still be read, and
+    /// [`Self::is_alive`] says no for it from now on; a restart is a new entry.
     pub fn kill_node(&self, identifier: &str) -> NodeSetupState {
         // Make test_loop ignore all events from this node.
         self.test_loop.event_denylist().lock().push(identifier.to_string());
@@ -175,6 +178,18 @@ impl TestLoopEnv {
         let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
         NodeSetupState { account_id, client_config, storage, validator_signer: None }
+    }
+
+    /// Whether node `index` is still running: `false` from its [`Self::kill_node`] on, or
+    /// once it shut itself down. Its entry in `node_datas` stays either way, so code that
+    /// goes over every node asks this, or uses [`Self::live_node_indices`].
+    pub fn is_alive(&self, index: usize) -> bool {
+        !self.test_loop.is_denylisted(&self.node_datas[index].identifier)
+    }
+
+    /// The indices in `node_datas` of the nodes still running, in order.
+    pub fn live_node_indices(&self) -> Vec<usize> {
+        (0..self.node_datas.len()).filter(|index| self.is_alive(*index)).collect()
     }
 
     fn get_split_store_and_cold_db(
