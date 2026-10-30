@@ -211,8 +211,9 @@ that a later block certifies, committing it in the `chunk_execution_root`
 field of its own header. State sync therefore serves a `V3` header carrying
 the state root node, that execution result, and a merkle proof of the result's
 `ChunkExecutionRoots` leaf against the committing block's
-`chunk_execution_root`. Header sync runs first, so the syncing node already
-holds the header the proof is checked against.
+`chunk_execution_root`. The leaf carries the hash of the whole result, so every
+field of it is proven, not just its roots. Header sync runs first, so the
+syncing node already holds the header the proof is checked against.
 
 Because the state is the post-state, nothing is applied after the download:
 finalization records the certified `ChunkExtra` for the sync block — which is
