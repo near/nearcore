@@ -56,14 +56,14 @@ impl LateTracker {
         }
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn shard(mut self, shard_index: usize) -> Self {
         self.shard = shard_index;
         self
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn catchup_period_s(mut self, seconds: i64) -> Self {
         self.catchup_period = Duration::seconds(seconds);

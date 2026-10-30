@@ -45,6 +45,13 @@ impl Scenario {
         self
     }
 
+    /// Same as [`Self::fault`] for a fault already boxed, as the sampler and the pairwise
+    /// group build them.
+    pub fn fault_boxed(mut self, fault: Box<dyn Fault>) -> Self {
+        self.faults.push(fault);
+        self
+    }
+
     /// Sets how many transactions each load submits per block. The `load:rate=N` of the
     /// string form.
     pub fn with_load_rate(mut self, load_rate: usize) -> Self {

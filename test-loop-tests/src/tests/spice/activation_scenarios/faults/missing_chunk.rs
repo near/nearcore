@@ -19,7 +19,7 @@ use std::ops::Range;
 pub enum Shards {
     All,
     Index(usize),
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     Indices(Vec<usize>),
 }

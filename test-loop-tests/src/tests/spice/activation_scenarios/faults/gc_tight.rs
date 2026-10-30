@@ -33,7 +33,7 @@ impl GcTight {
         Self { keep: DEFAULT_KEEP }
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn keep(mut self, keep: u64) -> Self {
         self.keep = keep;

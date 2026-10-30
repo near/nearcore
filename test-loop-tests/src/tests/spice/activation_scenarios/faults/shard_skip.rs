@@ -69,7 +69,7 @@ impl ShardSkip {
         }
     }
 
-    /// Surface for the string form of milestone 4: on profile A, index 0 is the default
+    /// On profile A, index 0 is the default
     /// and index 1, the contract's shard, is rejected.
     #[allow(dead_code)]
     pub fn shard(mut self, shard_index: usize) -> Self {

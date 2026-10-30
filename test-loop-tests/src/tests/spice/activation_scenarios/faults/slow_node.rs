@@ -58,14 +58,14 @@ impl SlowNode {
         self
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn task(mut self, task: &str) -> Self {
         self.task = task.to_string();
         self
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn delay_ms(mut self, delay_ms: u64) -> Self {
         self.delay_ms = delay_ms;

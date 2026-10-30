@@ -117,7 +117,7 @@ impl NodeCrash {
         self
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it, see [`Retrack`].
+    /// No preset needs it yet, see [`Retrack`].
     #[allow(dead_code)]
     pub fn retrack(mut self, retrack: Retrack) -> Self {
         self.retrack = retrack;

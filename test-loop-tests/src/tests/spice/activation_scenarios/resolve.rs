@@ -151,6 +151,12 @@ pub fn resolve(scenario: &Scenario) -> Resolved {
     Resolved { profile }
 }
 
+/// What [`resolve`] would reject `scenario` for, without panicking, for the sampler and
+/// the pairwise group to leave out what cannot run.
+pub fn conflicts_of(scenario: &Scenario) -> Vec<String> {
+    conflicts(scenario, Profile::A)
+}
+
 /// The conflicts and unmet requirements of `scenario` on `profile`, one message each,
 /// naming the tags involved: what each fault rejects on its own, then the pairs the
 /// design lists.

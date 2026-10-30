@@ -92,7 +92,7 @@ impl PartialDataFault {
         self
     }
 
-    /// Surface for the string form of milestone 4; no preset needs it.
+    /// No preset needs it yet.
     #[allow(dead_code)]
     pub fn delay_ms(mut self, delay_ms: u64) -> Self {
         self.delay = Duration::milliseconds(delay_ms as i64);
