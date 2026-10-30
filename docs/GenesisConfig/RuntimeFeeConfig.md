@@ -25,7 +25,7 @@ Describes the cost of creating a certain action, `Action`. Includes all variants
 
 `type:` [StorageUsageConfig](RuntimeFeeConfig/StorageUsageConfig.md)
 
-Describes fees for storage rent
+Describes how the storage that an account uses is counted for storage staking.
 
 ## burnt_gas_reward
 
