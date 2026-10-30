@@ -4,7 +4,7 @@ use crate::spice::all_stake_fallback::{
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
+use crate::{Chain, ChainStoreAccess, ChainStoreUpdate, byzantine_assert};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -1025,18 +1025,23 @@ pub fn record_uncertified_chunks_for_block(
             .retain(|account_id| !chunk_endorsements.is_some_and(|e| e.contains_key(account_id)));
         // A fallback-only chunk never certifies by its designated assignment, so it may hold every
         // designated endorsement and stay uncertified.
-        assert!(
-            !chunk_info.missing_endorsements.is_empty()
-                || is_fallback_only_chunk(
-                    epoch_manager,
-                    chain_store_update
-                        .chain_store()
-                        .get_block_header(&chunk_info.chunk_id.block_hash)?
-                        .as_ref(),
-                    chunk_info.chunk_id.shard_id
-                )?,
-            "chunk holding every designated endorsement should have been certified"
-        );
+        if chunk_info.missing_endorsements.is_empty()
+            && !is_fallback_only_chunk(
+                epoch_manager,
+                chain_store_update
+                    .chain_store()
+                    .get_block_header(&chunk_info.chunk_id.block_hash)?
+                    .as_ref(),
+                chunk_info.chunk_id.shard_id,
+            )?
+        {
+            tracing::warn!(
+                target: "spice_core",
+                chunk_id = ?chunk_info.chunk_id,
+                "designated endorsements are split between execution results, none reached the certification threshold"
+            );
+            byzantine_assert!(false);
+        }
 
         // Record non-designated endorsements (not in the designated assignment, so not tracked
         // above) for the all-stake fallback.

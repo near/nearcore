@@ -1562,6 +1562,40 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_process_block_with_designated_endorsements_split_between_results() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let validators = test_validators();
+    let (correct_validators, wrong_validators) = validators.split_at(validators.len() / 2);
+    let mut core_statements = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        for validator in correct_validators {
+            let endorsement = test_chunk_endorsement(validator, &block, chunk);
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+        for validator in wrong_validators {
+            let endorsement = SpiceChunkEndorsement::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+                invalid_execution_result_for_chunk(chunk),
+                &create_test_signer(validator),
+            );
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+    }
+    let next_block = build_block(&mut chain, &block, core_statements);
+    process_block(&mut chain, next_block.clone());
+
+    let uncertified_chunks = core_reader.get_uncertified_chunks(next_block.hash()).unwrap();
+    let block_uncertified_chunks =
+        uncertified_chunks.iter().filter(|info| info.chunk_id.block_hash == *block.hash());
+    assert_eq!(block_uncertified_chunks.count(), block.chunks().len());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_newly_certified_block_execution_results_for_next_block_with_no_certifications() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
