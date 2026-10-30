@@ -6,9 +6,10 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, MAX_REQUESTED_PARTS, PartsOutcome,
-    ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError, ServeOutcome,
-    ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
+    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS,
+    PartsOutcome, ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError,
+    ServeOutcome, ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart,
+    encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -144,10 +145,6 @@ pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
 
 /// How often the distributor re-requests the data it is still waiting on.
 pub const DATA_REQUEST_INTERVAL: Duration = Duration::milliseconds(1000);
-
-/// Max number of entries `(data_id, ordinals)` a single batched request may carry.
-/// This caps the encodes (CPU).
-pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
 
 /// Bundles channels for all SPICE-related messages that the network layer dispatches to.
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
@@ -448,11 +445,7 @@ impl SpiceDataDistributorActor {
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
-            PullConfig {
-                max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
-                max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
-                ..PullConfig::default()
-            },
+            PullConfig::default(),
             chain_store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),

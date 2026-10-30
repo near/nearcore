@@ -54,13 +54,17 @@ pub const DATA_PARTS_RATIO: f64 = 0.6;
 // TODO(spice): Bound the outbound bytes per (data_id, requester) too.
 pub(crate) const MAX_REQUESTED_PARTS: usize = 128;
 
+/// Max number of entries `(data_id, ordinals)` a single batched request may carry.
+/// This caps the encodes (CPU).
+pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
+
 /// Blocks parts are parked for.
 pub(crate) const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[cfg(test)]
 mod tests;
 
-/// What the signed message got wrong. Every variant is attributable to its sender.
+/// What the message got wrong.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SenderFault {
     #[error("message carries no parts")]

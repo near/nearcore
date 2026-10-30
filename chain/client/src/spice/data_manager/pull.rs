@@ -1,5 +1,5 @@
 use super::item::FetchItem;
-use super::{DataId, remove_indexed};
+use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, remove_indexed};
 use near_async::time::{Duration, Instant};
 use near_primitives::types::{AccountId, BlockHeight};
 use rand::seq::SliceRandom;
@@ -34,8 +34,8 @@ impl Default for Config {
         Self {
             request_timeout: Duration::milliseconds(600),
             pulled_heights: const { NonZeroUsize::new(4).unwrap() },
-            max_ids_per_request: const { NonZeroUsize::new(32).unwrap() },
-            max_parts_per_request: const { NonZeroUsize::new(256).unwrap() },
+            max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
+            max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
         }
     }
 }

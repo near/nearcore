@@ -242,14 +242,15 @@ fn parts_for_a_stored_block_not_processed_yet_are_parked_after_a_higher_block_is
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn parts_for_an_untracked_item_of_a_processed_block_at_or_below_the_final_head_are_not_wanted() {
+fn parts_for_an_untracked_item_of_a_processed_block_at_or_below_the_final_execution_head_are_not_wanted()
+ {
     let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     let unneeded = receipt_id(&blocks[1], 1, 0);
     manager.on_block_processed(&blocks[0]);
     manager.on_block_processed(&blocks[1]);
-    manager.set_final_head(&blocks[1]);
+    manager.set_final_execution_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     let result =

@@ -3,12 +3,13 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MalformedDataRequest, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
-    SpiceDistributorStateWitness, validate_wants,
+    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MalformedDataRequest,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    validate_wants,
 };
 use crate::spice::data_manager::{
-    AssembledDataError, DATA_PARTS_RATIO, DataId, MAX_REQUESTED_PARTS, SenderFault,
+    AssembledDataError, DATA_PARTS_RATIO, DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS,
+    SenderFault,
 };
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
