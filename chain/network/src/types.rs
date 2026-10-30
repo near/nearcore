@@ -1,4 +1,4 @@
-use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use crate::client::{StateRequestHeader, StateRequestPart, StateRequestResponse};
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
@@ -431,8 +431,8 @@ pub struct PeerManagerSenderForNetwork {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateRequestSenderForNetwork {
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
+    pub state_request_header: AsyncSender<StateRequestHeader, StateRequestResponse>,
+    pub state_request_part: AsyncSender<StateRequestPart, StateRequestResponse>,
 }
 
 #[cfg(test)]

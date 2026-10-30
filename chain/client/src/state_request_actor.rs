@@ -5,7 +5,9 @@ use near_chain::Error;
 use near_chain::state_sync::ChainStateSyncAdapter;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use near_network::client::{
+    StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestResponse,
+};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{StatePart, StatePartIndex};
@@ -185,13 +187,6 @@ fn new_header_response(
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(None);
-    let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
-    let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StatePartOrHeader(Box::new(info))
-}
-
 fn new_part_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
@@ -205,15 +200,8 @@ fn new_part_response(
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_part_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_part(None);
-    let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
-    let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StatePartOrHeader(Box::new(info))
-}
-
-impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActor {
-    fn handle(&mut self, msg: StateRequestHeader) -> Option<StatePartOrHeader> {
+impl Handler<StateRequestHeader, StateRequestResponse> for StateRequestActor {
+    fn handle(&mut self, msg: StateRequestHeader) -> StateRequestResponse {
         let StateRequestHeader { shard_id, sync_hash } = msg;
         let _timer = metrics::STATE_SYNC_REQUEST_TIME
             .with_label_values(&["StateRequestHeader"])
@@ -225,14 +213,14 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         if self.throttle_state_sync_request() {
             tracing::debug!(target: "sync", "throttling state sync request for shard");
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
-            return None;
+            return StateRequestResponse::Busy;
         }
 
         if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
-            return None;
+            return StateRequestResponse::Error;
         }
 
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
@@ -241,24 +229,24 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
-            return Some(new_header_response_empty(shard_id, sync_hash));
+            return StateRequestResponse::Error;
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
             tracing::warn!(target: "sync", "invalid state sync header format");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
-            return None;
+            return StateRequestResponse::Error;
         };
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
         let response = new_header_response(shard_id, sync_hash, header);
-        Some(response)
+        StateRequestResponse::Respond(response)
     }
 }
 
-impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor {
-    fn handle(&mut self, msg: StateRequestPart) -> Option<StatePartOrHeader> {
+impl Handler<StateRequestPart, StateRequestResponse> for StateRequestActor {
+    fn handle(&mut self, msg: StateRequestPart) -> StateRequestResponse {
         let StateRequestPart { shard_id, sync_hash, part_idx } = msg;
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
@@ -270,12 +258,12 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
 
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
-            return None;
+            return StateRequestResponse::Busy;
         }
 
         if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
-            return None;
+            return StateRequestResponse::Error;
         }
 
         tracing::debug!(target: "sync", "computing state request part");
@@ -283,12 +271,12 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         let Ok(part) = part else {
             tracing::warn!(target: "sync", ?part, "cannot build state part");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
-            return Some(new_part_response_empty(shard_id, sync_hash));
+            return StateRequestResponse::Error;
         };
         tracing::trace!(target: "sync", "finished computation for state request part");
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
         let response = new_part_response(shard_id, sync_hash, part_idx, Some(part));
-        Some(response)
+        StateRequestResponse::Respond(response)
     }
 }

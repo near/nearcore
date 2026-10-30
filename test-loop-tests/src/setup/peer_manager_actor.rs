@@ -14,7 +14,7 @@ use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
-    StateRequestUpdate, StateRequestUpdateMessage,
+    StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage,
 };
 use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::recv_permit::RecvMessagePermit;
@@ -40,8 +40,12 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAck, StateRequestAckBody};
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use parking_lot::{Mutex, MutexGuard};
+use rand::SeedableRng;
+use rand::seq::SliceRandom;
+use rand_chacha::ChaCha20Rng;
 use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map};
 use std::ops::Range;
 use std::sync::Arc;
@@ -297,8 +301,8 @@ struct TestLoopNetworkSharedStateInner {
     /// Per-shard set of accounts advertising a state snapshot; ordered for
     /// deterministic peer selection.
     snapshot_hosts: BTreeMap<ShardId, BTreeSet<AccountId>>,
-    /// Counter for deterministic round-robin peer selection in state sync.
-    snapshot_host_selection_counter: u64,
+    /// Seeded so that peer selection in state sync is deterministic across runs.
+    snapshot_host_rng: ChaCha20Rng,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -360,7 +364,7 @@ impl TestLoopNetworkSharedState {
             unresponsive_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
             snapshot_hosts: BTreeMap::new(),
-            snapshot_host_selection_counter: 0,
+            snapshot_host_rng: ChaCha20Rng::seed_from_u64(0),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -597,23 +601,19 @@ impl TestLoopNetworkSharedState {
         }
     }
 
-    /// Select a snapshot host for the given shard. Deterministic round-robin.
+    /// Select a random snapshot host for the given shard.
     fn select_snapshot_host(
         &self,
         requesting_account: &AccountId,
         shard_id: ShardId,
     ) -> Option<PeerId> {
         let mut guard = self.0.lock();
-        let counter = guard.snapshot_host_selection_counter;
-        guard.snapshot_host_selection_counter += 1;
+        let guard = &mut *guard;
         let hosts = guard.snapshot_hosts.get(&shard_id)?;
         // BTreeSet iteration is sorted, giving deterministic ordering across runs.
         let eligible: Vec<_> = hosts.iter().filter(|a| *a != requesting_account).collect();
-        if eligible.is_empty() {
-            return None;
-        }
-        let idx = (counter as usize) % eligible.len();
-        Some(guard.account_to_peer_id[eligible[idx]].clone())
+        let host = eligible.choose(&mut guard.snapshot_host_rng)?;
+        Some(guard.account_to_peer_id[*host].clone())
     }
 }
 
@@ -983,10 +983,11 @@ fn network_message_to_state_sync_handler(
                 .send_async(StateRequestHeader { shard_id, sync_hash });
 
             future_spawner.spawn("handle StateRequestHeader", async move {
-                let Ok(Some(state_part_or_header)) = request_future.await else {
+                let Ok(response) = request_future.await else {
                     return;
                 };
-                let update = StateRequestUpdate::State(state_part_or_header.0);
+                let update =
+                    state_request_update(response, shard_id, sync_hash, PartOrHeader::Header);
                 let future = responder.client_sender.send_async(
                     StateRequestUpdateMessage { peer_id: response_peer_id, update }.span_wrap(),
                 );
@@ -1011,10 +1012,11 @@ fn network_message_to_state_sync_handler(
                 .send_async(StateRequestPart { shard_id, sync_hash, part_idx });
 
             future_spawner.spawn("handle StateRequestPart", async move {
-                let Ok(Some(state_part_or_header)) = request_future.await else {
+                let Ok(response) = request_future.await else {
                     return;
                 };
-                let update = StateRequestUpdate::State(state_part_or_header.0);
+                let part_or_header = PartOrHeader::Part { part_idx };
+                let update = state_request_update(response, shard_id, sync_hash, part_or_header);
                 let future = responder.client_sender.send_async(
                     StateRequestUpdateMessage { peer_id: response_peer_id, update }.span_wrap(),
                 );
@@ -1025,6 +1027,23 @@ fn network_message_to_state_sync_handler(
         }
         _ => HandlerResult::Unhandled(request),
     })
+}
+
+/// The update the network delivers to the requester for the host's answer to a state request.
+fn state_request_update(
+    response: StateRequestResponse,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    part_or_header: PartOrHeader,
+) -> StateRequestUpdate {
+    let body = match response {
+        StateRequestResponse::Respond(state_part_or_header) => {
+            return StateRequestUpdate::State(state_part_or_header.0);
+        }
+        StateRequestResponse::Busy => StateRequestAckBody::Busy,
+        StateRequestResponse::Error => StateRequestAckBody::Error,
+    };
+    StateRequestUpdate::Ack(StateRequestAck { shard_id, sync_hash, part_or_header, body })
 }
 
 fn network_message_to_shards_manager_handler(
