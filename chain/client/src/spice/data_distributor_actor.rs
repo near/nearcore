@@ -6,10 +6,9 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, MAX_REQUESTED_PARTS, OrphanPool,
-    PartsOutcome, ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError,
-    ServeOutcome, ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart,
-    encode,
+    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, MAX_REQUESTED_PARTS, PartsOutcome,
+    ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError, ServeOutcome,
+    ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -178,7 +177,7 @@ pub struct SpiceDataDistributorActor {
     // only on store to make sure we don't wait on data we already have.
     recently_decoded_data: LruCache<SpiceDataIdentifier, ()>,
     /// Witness data whose block is not known yet; drained at each block's trigger.
-    witness_orphans: OrphanPool<SpicePartialData>,
+    witness_orphans: LruCache<CryptoHash, Vec<SpicePartialData>>,
 
     /// Deduplication cache for contract code requests. Keyed by (chunk, requester)
     /// to avoid redundant storage lookups and network responses for repeated requests.
@@ -424,18 +423,7 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
-        // TODO(spice): Allow requesting data without signer using route back. Until then the
-        // manager records the requests below as outstanding on a node that cannot send them.
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let ProcessedBlockOutput { pull_requests, decoded } =
-            self.data_manager.on_block_processed(&block_hash, self.clock.now());
-        if let Some(requester) = me {
-            self.send_pull_requests(requester, pull_requests);
-        }
-        for (data_id, data) in decoded {
-            self.deliver_receipt_proof(data_id, data);
-        }
+        self.process_block_in_data_manager(&block_hash);
         if let Err(err) = self.process_witness_orphans(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing orphan partial data");
         }
@@ -493,7 +481,7 @@ impl SpiceDataDistributorActor {
             contract_code_response_validator_sender,
             waiting_on_data: HashMap::new(),
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
-            witness_orphans: OrphanPool::new(MAX_ORPHAN_BLOCKS),
+            witness_orphans: LruCache::new(MAX_ORPHAN_BLOCKS),
             processed_contract_code_requests: LruCache::new(
                 PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE,
             ),
@@ -703,8 +691,7 @@ impl SpiceDataDistributorActor {
         if !self.is_validator_in(signer.validator_id(), &possible_epoch_ids)? {
             return Err(Error::NodeIsNotRecipient);
         }
-        // The witness pool is never released from, so it parks everything.
-        let _ = self.witness_orphans.insert(*data.block_hash(), data);
+        self.witness_orphans.get_or_insert_mut(*data.block_hash(), Vec::new).push(data);
         Ok(())
     }
 
@@ -864,7 +851,7 @@ impl SpiceDataDistributorActor {
         let mut possible_producers = HashSet::new();
         for epoch_id in possible_epoch_ids {
             // Across a resharding the shard exists in only one of the epochs.
-            if self.epoch_manager.get_shard_layout(epoch_id)?.get_shard_index(shard_id).is_err() {
+            if !self.epoch_manager.get_shard_layout(epoch_id)?.shard_ids().contains(&shard_id) {
                 continue;
             }
             possible_producers.extend(
@@ -885,8 +872,7 @@ impl SpiceDataDistributorActor {
     }
 
     fn process_witness_orphans(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        // TODO(spice-data-distribution): release instead once witnesses go through the data manager.
-        let orphans = self.witness_orphans.take(block_hash);
+        let orphans = self.witness_orphans.pop(block_hash).unwrap_or_default();
         if orphans.is_empty() {
             return Ok(());
         }
@@ -1779,15 +1765,25 @@ impl SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
-        let block = self.chain_store.get_block(block_hash)?;
-        let decoded = self
-            .data_manager
-            .track_block(&block)
-            .expect("chain and epoch data of a processed block should be readable");
+        self.process_block_in_data_manager(block_hash);
+        self.process_witness_orphans(block_hash)
+    }
+
+    /// Hands a processed block to the data manager, sends the pulls it asks for and delivers the
+    /// data it decoded.
+    fn process_block_in_data_manager(&mut self, block_hash: &CryptoHash) {
+        // TODO(spice): Allow requesting data without signer using route back. Until then the
+        // manager records the requests below as outstanding on a node that cannot send them.
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
+        let ProcessedBlockOutput { pull_requests, decoded } =
+            self.data_manager.on_block_processed(block_hash, self.clock.now());
+        if let Some(requester) = me {
+            self.send_pull_requests(requester, pull_requests);
+        }
         for (data_id, data) in decoded {
             self.deliver_receipt_proof(data_id, data);
         }
-        self.process_witness_orphans(block_hash)
     }
 }
 

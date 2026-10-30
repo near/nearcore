@@ -97,7 +97,7 @@ impl FetchItem {
     }
 
     /// Whether `commitment` was decoded, to data or to garbage.
-    pub(super) fn is_settled(&self, commitment: &SpiceDataCommitment) -> bool {
+    fn is_settled(&self, commitment: &SpiceDataCommitment) -> bool {
         matches!(self.commitments.get(commitment), Some(CommitmentState::Settled))
     }
 

@@ -23,6 +23,47 @@ fn parts_for_an_unprocessed_block_are_parked_and_decoded_at_its_trigger_once() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_parked_by_several_producers_are_decoded_together_at_the_trigger() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain).manager;
+    let id = receipt_id(&blocks[1], 0, 1);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    let now = Clock::real().now();
+    for (producer, part) in producers().iter().zip(parts).take(DATA_PARTS) {
+        let result = manager.receive_from(producer, &id, &commitment, vec![part]);
+        assert_matches!(result, Ok(PartsOutcome::Collecting));
+    }
+
+    let decoded = manager.on_block_processed(blocks[1].hash(), now).decoded;
+
+    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_parked_message_with_a_bad_merkle_proof_is_dropped_at_the_trigger_and_the_rest_decode() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain).manager;
+    let id = receipt_id(&blocks[1], 0, 1);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    let now = Clock::real().now();
+    let producers = producers();
+    let mut broken = parts_with_ordinals(&parts, &[0]);
+    broken[0].part[0] ^= 1;
+    let result = manager.receive_from(&producers[0], &id, &commitment, broken);
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    for (producer, part) in producers.iter().zip(parts).skip(1).take(DATA_PARTS) {
+        let result = manager.receive_from(producer, &id, &commitment, vec![part]);
+        assert_matches!(result, Ok(PartsOutcome::Collecting));
+    }
+
+    let decoded = manager.on_block_processed(blocks[1].hash(), now).decoded;
+
+    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn parts_for_an_unknown_block_are_decoded_once_it_is_processed() {
     let (mut chain, blocks) = chain_with_blocks(1);
     let mut manager = TestManager::new(&chain).manager;
@@ -93,6 +134,25 @@ fn parts_for_a_block_with_a_known_header_are_checked_against_its_epoch() {
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let output = manager.on_block_processed(blocks[0].hash(), Clock::real().now());
     assert_eq!(output.decoded, vec![(id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_a_block_whose_epoch_data_is_not_stored_are_not_wanted() {
+    let (chain, _) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain).manager;
+    let mut header_head = Tip::clone(&chain.header_head().unwrap());
+    header_head.epoch_id = EpochId(hash(b"not stored"));
+    header_head.next_epoch_id = header_head.epoch_id;
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update.chain_store_update().set_header_head(&header_head);
+    store_update.commit();
+    let id = DataId::receipt_proof(hash(b"unknown block"), ShardId::new(0), ShardId::new(1));
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+
+    let result = manager.receive_from(&producers()[0], &id, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
 #[test]
@@ -182,16 +242,60 @@ fn parts_for_a_stored_block_not_processed_yet_are_parked_after_a_higher_block_is
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn parts_for_a_block_at_or_below_the_final_head_are_not_wanted() {
+fn parts_for_an_untracked_item_of_a_processed_block_at_or_below_the_final_head_are_not_wanted() {
     let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     let unneeded = receipt_id(&blocks[1], 1, 0);
+    manager.on_block_processed(&blocks[0]);
+    manager.on_block_processed(&blocks[1]);
     manager.set_final_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     let result =
-        manager.manager.receive_from(&shard_producers(1)[0], &unneeded, &commitment, parts);
+        manager.manager.receive_from(&shard_producers(1)[0], &unneeded, &commitment, parts.clone());
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+
+    // Refused before the sender is looked up.
+    let result =
+        manager.manager.receive_from(&shard_producers(0)[0], &unneeded, &commitment, parts);
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+}
+
+/// The final head can pass a block whose trigger is still queued.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_a_canonical_block_at_or_below_the_final_head_not_processed_yet_are_decoded_at_its_trigger()
+ {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    let id = receipt_id(&blocks[1], 0, 1);
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[0]);
+
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    let output = manager.manager.on_block_processed(blocks[1].hash(), manager.clock.now());
+    assert_eq!(output.decoded, vec![(id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_a_fork_block_at_or_below_the_final_head_are_not_wanted() {
+    let (mut chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+    let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+    let fork_id = receipt_id(&fork_at_3, 0, 1);
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    manager.set_final_head(&canonical_at_4);
+    manager.on_block_processed(&blocks[0]);
+
+    let result = manager.manager.receive_from(&producers()[0], &fork_id, &commitment, parts);
 
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
@@ -234,45 +338,13 @@ fn move_header_head_to_epoch_with_key(chain: &Chain, signer: &ValidatorSigner) {
 /// Writes `epoch_id` to the store as a copy of the genesis epoch in which the validator of
 /// `signer` holds its key.
 fn store_epoch_with_key(chain: &Chain, epoch_id: &EpochId, signer: &ValidatorSigner) {
-    let epoch_manager = chain.epoch_manager.as_ref();
     let genesis_epoch_id = *chain.genesis_block().header().epoch_id();
-    let genesis_epoch = epoch_manager.get_epoch_info(&genesis_epoch_id).unwrap();
-    let validators: Vec<ValidatorStake> = genesis_epoch
-        .validators_iter()
-        .map(|validator| {
-            if validator.account_id() == signer.validator_id() {
-                ValidatorStake::new(
-                    validator.account_id().clone(),
-                    signer.public_key(),
-                    validator.stake(),
-                )
-            } else {
-                validator
-            }
-        })
-        .collect();
-    let validator_to_index = validators
-        .iter()
-        .enumerate()
-        .map(|(index, validator)| (validator.account_id().clone(), index as u64))
-        .collect();
-    let epoch_info = EpochInfo::new(
-        genesis_epoch.epoch_height(),
-        validators,
-        validator_to_index,
-        genesis_epoch.block_producers_settlement().to_vec(),
-        genesis_epoch.chunk_producers_settlement().to_vec(),
-        genesis_epoch.stake_change().clone(),
-        genesis_epoch.validator_reward().clone(),
-        genesis_epoch.validator_kickout().clone(),
-        genesis_epoch.minted_amount(),
-        genesis_epoch.seat_price(),
-        genesis_epoch.protocol_version(),
-        genesis_epoch.rng_seed(),
-        genesis_epoch.validator_mandates(),
-        epoch_manager.get_shard_layout(&genesis_epoch_id).unwrap(),
-        genesis_epoch.last_resharding(),
-    );
+    let mut epoch_info = (*chain.epoch_manager.get_epoch_info(&genesis_epoch_id).unwrap()).clone();
+    let EpochInfo::V5(info) = &mut epoch_info else { panic!("test chains use EpochInfoV5") };
+    let index = info.validator_to_index[signer.validator_id()] as usize;
+    let validator = &info.validators[index];
+    info.validators[index] =
+        ValidatorStake::new(validator.account_id().clone(), signer.public_key(), validator.stake());
     let mut store_update = chain.chain_store.store().store_update();
     store_update.epoch_store_update().set_epoch_info(epoch_id, &epoch_info);
     store_update.commit();

@@ -42,7 +42,7 @@ fn a_pullable_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbou
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_settled_commitments_producers_are_never_asked() {
+fn settled_commitment_producers_are_not_pulled_from() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
     let id = manager.track_needed_proof(&blocks[0]);
@@ -69,6 +69,14 @@ fn a_settled_commitments_producers_are_never_asked() {
         parts_with_ordinals(&fake_parts, &[2]),
     );
     assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
+    // A fourth liar answers only after the fake settled.
+    let result = manager.manager.receive_from(
+        &producers[4],
+        &id,
+        &fake,
+        parts_with_ordinals(&fake_parts, &[4]),
+    );
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
     manager.push_and_assert_collecting(
         &producers[3],
         &id,
@@ -81,10 +89,7 @@ fn a_settled_commitments_producers_are_never_asked() {
 
     assert_eq!(
         wants_for(requests, &id),
-        BTreeMap::from([
-            (producers[3].clone(), ordinals(&[0, 1, 2, 4])),
-            (producers[4].clone(), ordinals(&[4])),
-        ])
+        BTreeMap::from([(producers[3].clone(), ordinals(&[0, 1, 2, 4]))])
     );
 }
 

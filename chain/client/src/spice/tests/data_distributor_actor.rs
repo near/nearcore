@@ -429,6 +429,21 @@ fn producers_of_receipt_proof(
         .unwrap()
 }
 
+/// A chunk producer of the block's epoch that does not produce `from_shard_id`.
+fn non_producer_of_shard(chain: &Chain, block: &Block, from_shard_id: ShardId) -> AccountId {
+    let epoch_id = block.header().epoch_id();
+    let shard_producers =
+        chain.epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, from_shard_id).unwrap();
+    chain
+        .epoch_manager
+        .get_epoch_chunk_producers(epoch_id)
+        .unwrap()
+        .into_iter()
+        .map(|stake| stake.take_account_id())
+        .find(|account| !shard_producers.contains(account))
+        .unwrap()
+}
+
 fn recipients_of_receipt_proof(
     chain: &Chain,
     block: &Block,
@@ -825,6 +840,21 @@ fn drain_outgoing_partial_data(
     requests
 }
 
+fn drain_outgoing_delivered_receipts(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) -> Vec<DataId> {
+    let mut delivered = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        if let OutgoingMessage::ExecutorIncomingUnverifiedReceipts(
+            ExecutorIncomingUnverifiedReceipts { data_id, .. },
+        ) = message
+        {
+            delivered.push(data_id);
+        }
+    }
+    delivered
+}
+
 /// Flattens each request into its `(data_id, requester)` pairs, since requests the actor
 /// sends carry a single id.
 fn drain_outgoing_data_requests(
@@ -1004,7 +1034,7 @@ macro_rules! test_invalid_incoming_partial_data {
 }
 
 test_invalid_incoming_partial_data! {
-    invalid_receipt_proof_from_shard_id(Error::SenderFault(SenderFault::NotAProducer), receipt_proof_incoming_data, default, {
+    invalid_receipt_proof_from_shard_id(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
             default.id
         else {
@@ -1040,15 +1070,6 @@ test_invalid_incoming_partial_data! {
             .sender(AccountId::from_str("invalid-sender").unwrap())
             .build()
     })
-    sender_is_not_producer(Error::SenderFault(SenderFault::NotAProducer), receipt_proof_incoming_data, default, {
-        // With one producer per shard, the other producer is not one of the source shard.
-        let other_producer = ["test-producer-0", "test-producer-1"]
-            .into_iter()
-            .map(|account| AccountId::from_str(account).unwrap())
-            .find(|account| account != &default.sender)
-            .unwrap();
-        SpicePartialDataBuilder::from_verified(default).sender(other_producer).build()
-    })
     node_is_not_recipient(Error::DataIsIrrelevant(_), receipt_proof_incoming_data, default, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id: _, block_hash } =
             default.id
@@ -1077,6 +1098,29 @@ test_invalid_incoming_partial_data! {
         SpicePartialDataBuilder::from_verified(default)
             .build_with_signature(Signature::default())
     })
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_from_a_non_producer_of_its_source_shard_is_refused() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    let default = data_into_verified(incoming_data.data.clone());
+    let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } = default.id else { panic!() };
+    let non_producer = non_producer_of_shard(&chain, &block, from_shard_id);
+    let from_non_producer =
+        SpicePartialDataBuilder::from_verified(default).sender(non_producer).build();
+
+    let result = actor.receive_data(from_non_producer);
+
+    assert_matches!(result, Err(Error::SenderFault(SenderFault::NotAProducer)));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    actor.handle(incoming_data);
+    assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
 #[test]
@@ -1541,14 +1585,10 @@ fn test_a_receipt_proof_for_a_stored_unprocessed_block_from_a_non_producer_is_no
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     let default = data_into_verified(incoming_data.data.clone());
-    // With one producer per shard, the other producer is not one of the source shard.
-    let other_producer = ["test-producer-0", "test-producer-1"]
-        .into_iter()
-        .map(|account| AccountId::from_str(account).unwrap())
-        .find(|account| account != &default.sender)
-        .unwrap();
+    let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } = default.id else { panic!() };
+    let non_producer = non_producer_of_shard(&chain, &block, from_shard_id);
     let from_non_producer =
-        SpicePartialDataBuilder::from_verified(default).sender(other_producer).build();
+        SpicePartialDataBuilder::from_verified(default).sender(non_producer).build();
 
     let result = actor.receive_data(from_non_producer);
 
@@ -1574,15 +1614,44 @@ fn test_a_receipt_proof_for_a_block_walked_on_startup_is_delivered_without_a_tri
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    assert!(actor.is_tracking(&test_receipt_proof_data_id(&block)));
 
     actor.handle(incoming_data);
 
-    let mut delivered = false;
-    while let Ok(message) = outgoing_rc.try_recv() {
-        delivered |= matches!(message, OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_));
-    }
-    assert!(delivered, "the proof was not delivered");
+    assert_eq!(
+        drain_outgoing_delivered_receipts(&mut outgoing_rc),
+        vec![test_receipt_proof_data_id(&block)]
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_proof_not_needed_for_a_block_walked_on_startup_is_irrelevant() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+    let (_, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let (outgoing_sc, _outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    // The proof in the other direction targets a shard the recipient does not track.
+    let ShardProof { from_shard_id, to_shard_id, .. } = new_test_receipt_proof(&block).1;
+    let receipt_proof = ReceiptProof(
+        vec![],
+        ShardProof { from_shard_id: to_shard_id, to_shard_id: from_shard_id, proof: vec![] },
+    );
+    let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+    let (not_needed, _) = get_incoming_data(
+        &producer,
+        &chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![receipt_proof],
+        },
+    );
+
+    let result = actor.receive_data(not_needed.data);
+
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
 }
 
 #[test]
@@ -1974,11 +2043,10 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
 }
 
-/// The source chunk was certified before startup; after the restart, a block that certifies
-/// nothing pulls the proof from its producers.
+/// The source chunk was certified before a restart, and no later block certifies it again.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_proof_certified_before_startup_is_pulled_after_it() {
+fn test_a_proof_certified_before_a_restart_is_pulled_after_it() {
     let (genesis, mut chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
         genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
@@ -1992,8 +2060,6 @@ fn test_a_proof_certified_before_startup_is_pulled_after_it() {
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
-    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
-
     actor.handle(ProcessedBlock { block_hash: *later_block.hash() });
 
     let data_id = SpiceDataIdentifier::from(&DataId::receipt_proof(

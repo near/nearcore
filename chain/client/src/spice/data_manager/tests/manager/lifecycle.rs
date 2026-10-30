@@ -254,6 +254,21 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_certified_chunk_of_a_block_without_a_stored_header_is_skipped() {
+    let (mut chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    let unknown = SpiceChunkId { block_hash: hash(b"before sync"), shard_id: ShardId::new(0) };
+    let certified = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
+    let certifier = certifying_block(&blocks[0], &[unknown, certified]);
+    save_and_record_block(&mut chain, &certifier);
+
+    let requests = wants_for(manager.on_block_processed(&certifier), &id);
+    assert_eq!(requests, own_ordinal_pulls());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
     let (chain, blocks) = chain_with_blocks(1);
     let manager = TestManager::new(&chain);

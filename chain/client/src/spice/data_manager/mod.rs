@@ -15,6 +15,7 @@ pub(crate) use encode::{EncodedData, encode};
 use heights::ChainHeights;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
+use lru::LruCache;
 use near_async::time::Instant;
 use near_chain::{Block, Error};
 use near_crypto::PublicKey;
@@ -22,17 +23,16 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataPart, SpicePartialData, SpiceVerifiedPartialData,
 };
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-pub(crate) use orphans::OrphanPool;
+use orphans::ParkedParts;
 use policy::receipt_proof;
 pub(crate) use policy::{ServePolicies, ServePolicy};
 use pull::Pulls;
@@ -49,12 +49,12 @@ use std::sync::Arc;
 /// Share of the parts an item is encoded into that suffice to decode it.
 pub const DATA_PARTS_RATIO: f64 = 0.6;
 
-/// Max total number of parts a single batched request may carry, and so a single message
-/// answering it. Must stay above the largest per-shard chunk-producer set.
+/// Max total number of parts a single batched request (and response) may carry.
+/// For performance better stay above the largest per-shard chunk-producer set.
 // TODO(spice): Bound the outbound bytes per (data_id, requester) too.
-pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
+pub(crate) const MAX_REQUESTED_PARTS: usize = 128;
 
-/// Blocks an orphan pool holds data for.
+/// Blocks parts are parked for.
 pub(crate) const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[cfg(test)]
@@ -65,7 +65,7 @@ mod tests;
 pub(crate) enum SenderFault {
     #[error("message carries no parts")]
     EmptyMessage,
-    #[error("message carries more parts than a message may, or than the item has producers")]
+    #[error("message carries more parts than allowed")]
     TooManyParts,
     #[error("message carries the same part ordinal twice")]
     DuplicateOrdinal,
@@ -120,14 +120,6 @@ pub(crate) struct ProcessedBlockOutput {
     pub(crate) decoded: Vec<(DataId, SpiceData)>,
 }
 
-/// Parts received for an item whose block was not processed yet.
-struct ParkedParts {
-    sender: AuthenticatedSender,
-    id: DataId,
-    commitment: SpiceDataCommitment,
-    parts: Vec<SpiceDataPart>,
-}
-
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
@@ -150,8 +142,11 @@ pub(crate) struct SpiceDataManager {
     pulls: Pulls,
     /// Tracks the heights observed.
     heights: ChainHeights,
-    /// Parts for blocks not processed yet.
-    orphans: OrphanPool<ParkedParts>,
+    /// Parts for blocks not processed yet, by block hash; the most recently parked blocks.
+    // TODO(spice-data-distribution): bound the data parked per sender.
+    orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
+    /// Processed blocks above the final execution head, with their heights.
+    processed_blocks: HashMap<CryptoHash, BlockHeight>,
 }
 
 impl SpiceDataManager {
@@ -172,7 +167,8 @@ impl SpiceDataManager {
             delivered_items: HashSet::new(),
             done_items: HashSet::new(),
             heights: ChainHeights::default(),
-            orphans: OrphanPool::new(MAX_ORPHAN_BLOCKS),
+            orphans: LruCache::new(MAX_ORPHAN_BLOCKS),
+            processed_blocks: HashMap::new(),
         }
     }
 
@@ -228,39 +224,13 @@ impl SpiceDataManager {
         self.items.contains_key(id)
     }
 
-    /// Handles a processed block. Returns the data decoded from parts that waited for it.
-    /// Idempotent. Fails only on a read of the block's stored chain or epoch data.
-    pub(crate) fn track_block(&mut self, block: &Block) -> Result<Vec<(DataId, SpiceData)>, Error> {
+    /// Tracks the items a processed block needs or makes pullable. Returns the data decoded from
+    /// parts that waited for it. Idempotent. Fails only on a read of the block's stored chain or
+    /// epoch data.
+    fn track_block(&mut self, block: &Block) -> Result<Vec<(DataId, SpiceData)>, Error> {
         self.track_needed_items(block)?;
         self.mark_pullable_by(block)?;
         Ok(self.release_parked(block.header()))
-    }
-
-    /// Feeds the parts parked for the block to its items. Returns the data decoded.
-    fn release_parked(&mut self, block: &BlockHeader) -> Vec<(DataId, SpiceData)> {
-        let mut decoded = Vec::new();
-        for ParkedParts { sender, id, commitment, parts } in
-            self.orphans.release(block.height(), block.hash())
-        {
-            let Some(item) = self.items.get(&id) else {
-                continue;
-            };
-            let producer_index = self.producer_signed_by(item, &sender);
-            let result =
-                producer_index.and_then(|index| self.add_parts(&id, index, &commitment, parts));
-            match result {
-                Ok(PartsOutcome::Decoded(data)) => decoded.push((id, data)),
-                Ok(
-                    PartsOutcome::Collecting
-                    | PartsOutcome::AlreadySettled
-                    | PartsOutcome::NotWanted,
-                ) => {}
-                Err(fault) => {
-                    tracing::debug!(target: "spice_data_distribution", ?fault, ?id, ?sender, "rejected parked parts");
-                }
-            }
-        }
-        decoded
     }
 
     /// Starts tracking every item this node needs from `block` and doesn't already have or track.
@@ -367,7 +337,7 @@ impl SpiceDataManager {
         let id = DataId::from_identifier(data.id())
             .expect("only data the engine tracks should reach the data manager");
         let Some(item) = self.items.get(&id) else {
-            return self.park(id, data);
+            return self.handle_untracked_item(id, data);
         };
         let producer_index = item.producer_index(data.sender()).ok_or(SenderFault::NotAProducer)?;
         let keys = self.signing_keys(item, data.sender());
@@ -389,7 +359,7 @@ impl SpiceDataManager {
         if parts.len() > total_parts {
             return Err(SenderFault::TooManyParts);
         }
-        if self.done_items.contains(id) || item.is_settled(commitment) {
+        if self.done_items.contains(id) {
             return Ok(PartsOutcome::AlreadySettled);
         }
         let mut ordinals = HashSet::with_capacity(parts.len());
@@ -424,83 +394,6 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Parks parts for an untracked item until its block's trigger.
-    fn park(&mut self, id: DataId, data: SpicePartialData) -> Result<PartsOutcome, SenderFault> {
-        let header = self.chain_store.get_block_header_if_exists(id.block_hash());
-        let block_epochs = match &header {
-            Some(header) => vec![(*header.epoch_id(), *header.next_epoch_id())],
-            None => {
-                let header_head =
-                    self.chain_store.header_head().expect("header head should be stored");
-                // The epoch after the next is not known yet, so a block in the next epoch takes
-                // the next epoch's keys only.
-                vec![
-                    (header_head.epoch_id, header_head.next_epoch_id),
-                    (header_head.next_epoch_id, header_head.next_epoch_id),
-                ]
-            }
-        };
-        let keys = self
-            .sender_keys(&id, data.sender(), &block_epochs)
-            .expect("producers and keys of known epochs should be readable");
-        if keys.is_empty() {
-            // Without the header the block's epoch is a guess, so a miss is no proof of a fault.
-            return match header {
-                Some(_) => Err(SenderFault::NotAProducer),
-                None => Ok(PartsOutcome::NotWanted),
-            };
-        }
-        let (sender, SpiceVerifiedPartialData { commitment, parts, .. }) =
-            AuthenticatedSender::verify(data, &keys).ok_or(SenderFault::InvalidSignature)?;
-        if header.is_some_and(|header| self.heights.at_or_below_final_head(header.height())) {
-            return Ok(PartsOutcome::NotWanted);
-        }
-        let block_hash = *id.block_hash();
-        if !self.orphans.insert(block_hash, ParkedParts { sender, id, commitment, parts }) {
-            return Ok(PartsOutcome::NotWanted);
-        }
-        Ok(PartsOutcome::Collecting)
-    }
-
-    /// The keys `sender` may sign `id`'s parts with if it produces `id` for a block in one of
-    /// `block_epochs`, each a block's epoch and the next. An epoch whose layout lacks the item's
-    /// shard adds none.
-    fn sender_keys(
-        &self,
-        id: &DataId,
-        sender: &AccountId,
-        block_epochs: &[(EpochId, EpochId)],
-    ) -> Result<Vec<PublicKey>, Error> {
-        let [source_shard, _] = id.shard_endpoints();
-        let mut keys = Vec::new();
-        for (epoch_id, next_epoch_id) in block_epochs {
-            // The validator lookup comes first, so a non-validator costs no producer list.
-            let sender_keys = match self.epoch_manager.get_validator_signing_keys(
-                epoch_id,
-                next_epoch_id,
-                sender,
-            ) {
-                Ok(sender_keys) => sender_keys,
-                Err(EpochError::NotAValidator(..)) => continue,
-                Err(err) => return Err(err.into()),
-            };
-            let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-            if shard_layout.get_shard_index(source_shard).is_err() {
-                continue;
-            }
-            let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-            if !producers_in_epoch(&epoch_info, &shard_layout, id)?.contains(sender) {
-                continue;
-            }
-            for key in sender_keys {
-                if !keys.contains(&key) {
-                    keys.push(key);
-                }
-            }
-        }
-        Ok(keys)
-    }
-
     /// Stops tracking items at or below the final execution head at `height`.
     fn on_final_execution_head(&mut self, height: BlockHeight) {
         self.heights.update_final_execution_head(height);
@@ -510,6 +403,7 @@ impl SpiceDataManager {
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
         self.pulls.forget_below(next_height);
+        self.processed_blocks.retain(|_, block_height| *block_height > height);
         for id in expired.into_values().flatten() {
             self.items.remove(&id).expect("index entry names a tracked item");
             self.delivered_items.remove(&id);
@@ -517,13 +411,12 @@ impl SpiceDataManager {
         }
     }
 
-    /// Forgets the released blocks at or below the final head at `final_height`, and removes the
-    /// items off the canonical chain at heights newly at or below it.
+    /// Removes the items off the canonical chain at heights newly at or below the final head at
+    /// `final_height`.
     fn on_final_head(&mut self, final_height: BlockHeight) {
         let Some(from) = self.heights.update_final_head(final_height) else {
             return;
         };
-        self.orphans.prune_at_or_below(final_height);
         let mut forks = Vec::new();
         for (&height, ids) in self.items_by_height.range((from, Bound::Included(final_height))) {
             let canonical = match self.canonical_block_hash(height) {

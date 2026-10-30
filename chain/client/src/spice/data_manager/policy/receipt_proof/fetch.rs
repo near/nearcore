@@ -82,7 +82,12 @@ pub(crate) fn made_pullable_by(
         let needed = match needed_by_source_block.entry(source.block_hash) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let header = chain_store.get_block_header(&source.block_hash)?;
+                // A block whose header is not stored precedes this node's sync point, so none of
+                // its data is tracked.
+                let Some(header) = chain_store.get_block_header_if_exists(&source.block_hash)
+                else {
+                    continue;
+                };
                 entry.insert(needed_shards(epoch_manager, shard_tracker, &header)?)
             }
         };
