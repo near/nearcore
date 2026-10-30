@@ -42,10 +42,9 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
     assert_eq!(num_epochs_with_sync_hash, 2);
 }
 
-/// The served spice state sync header hands out the state the sync block's chunk left behind,
-/// and proves it with a merkle path from the chunk's execution result to the
-/// `chunk_execution_root` of the block that certified it, a header the syncing node already
-/// holds from header sync. The leaf carries the hash of the whole result, so all of it is proven.
+/// Another node accepts the served spice state sync header, and rejects it when the execution
+/// result is tampered with, when it carries another shard's result with that result's own valid
+/// proof, or when the certifying block is not final yet.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_header_proves_the_post_state_root() {

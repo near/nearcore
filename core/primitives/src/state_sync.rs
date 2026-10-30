@@ -125,25 +125,25 @@ pub struct ShardStateSyncResponseHeaderV2 {
 /// synced is the one left behind by that block's chunk, so unlike V1/V2 there is no chunk to
 /// apply afterwards and hence no chunk, receipts or receipt proofs to carry.
 ///
-/// A spice chunk header commits no state root of its own - the chunk executes after the
-/// block that carries it - so the root comes from the chunk's execution result instead. That
-/// result is committed by a later block, through the `chunk_execution_root` field of its
-/// header, whose leaf for the chunk carries the hash of the whole result. Header sync precedes
-/// state sync, so the syncing node already holds that header and needs only the result and the
-/// path from its leaf.
+/// A spice chunk header commits no state root of its own - the chunk executes after the block
+/// that carries it - so the root comes from the chunk's certified execution result. The header
+/// of the block that certifies it commits that result through `chunk_execution_root`, a merkle
+/// root over one `ChunkExecutionRoots` leaf per certified chunk, and the leaf carries the chunk
+/// id and the hash of the whole result. Header sync precedes state sync, so the syncing node
+/// already holds that header and needs only the result and the merkle path from the result's
+/// leaf.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV3 {
-    /// The state root node of the trie the parts reconstruct: the state after the chunk in
-    /// the sync block ran.
+    /// The root node of the trie the parts rebuild: the state after the sync block's chunk ran.
     pub state_root_node: StateRootNode,
-    /// The chunk's certified execution result, which the node records as the sync block's
-    /// `ChunkExtra` so the executor can carry on from there. Every field of it is proven,
-    /// because the leaf it is checked against carries its hash.
+    /// The chunk's certified execution result. Its `chunk_extra` becomes the sync block's
+    /// `ChunkExtra`, so every field matters, and the leaf commits to the hash of all of them.
     pub execution_result: ChunkExecutionResult,
-    /// The block whose `chunk_execution_root` commits `execution_result`. The node checks that
-    /// it is final and descends from the sync block, and must hold its header already.
+    /// The block that certifies `execution_result`. The syncing node must already hold its
+    /// header, and checks that the block is final and descends from the sync block.
     pub certifying_block_hash: CryptoHash,
-    /// Path from the result's `ChunkExecutionRoots` leaf to that block's `chunk_execution_root`.
+    /// Merkle path from the result's `ChunkExecutionRoots` leaf to that header's
+    /// `chunk_execution_root`.
     pub execution_result_proof: MerklePath,
 }
 
@@ -277,6 +277,9 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    /// The execution result a spice (V3) header carries, `None` for V1 and V2. It is only
+    /// trustworthy once `set_state_header` has checked it against the certifying block's
+    /// `chunk_execution_root`.
     #[inline]
     pub fn spice_execution_result(&self) -> Option<&ChunkExecutionResult> {
         match self {

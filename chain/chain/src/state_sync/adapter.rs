@@ -285,16 +285,6 @@ impl ChainStateSyncAdapter {
     }
 
     /// The spice state sync header for `shard_id` at `sync_hash`.
-    ///
-    /// `sync_hash` is the epoch's first block and the state being synced is the one its chunk
-    /// leaves behind, so the header carries no chunk to apply afterwards - only the state root
-    /// node, the chunk's execution result and the proof that binds that result to the chain.
-    ///
-    /// A spice chunk header commits no state root of its own, since the chunk executes after
-    /// the block that carries it. The root comes from the chunk's `ChunkExecutionResult`
-    /// instead, which a later block commits through the `chunk_execution_root` field of its
-    /// header. Header sync precedes state sync, so the syncing node already holds that header
-    /// and only the result and the path from its leaf have to travel.
     fn compute_spice_state_response_header(
         &self,
         shard_id: ShardId,
@@ -314,10 +304,7 @@ impl ChainStateSyncAdapter {
         }))
     }
 
-    /// The block that commits the chunk's execution result, with that result.
-    ///
-    /// The committing block comes from the `chunk_certifying_block` index, which is written when
-    /// a block becomes final, so serving a header at all means the chunk is certified.
+    /// The block that certifies the chunk's execution result, with that result.
     fn certified_execution_result(
         &self,
         chunk_id: &SpiceChunkId,
@@ -722,7 +709,9 @@ impl ChainStateSyncAdapter {
         Ok(())
     }
 
-    /// Whether `header` is final and is descendant of `sync_hash`.
+    /// Whether `header` is a final descendant of the sync block `sync_hash`: higher than the sync
+    /// block, at or below the header head's last final block, and, like the sync block, on the
+    /// current chain.
     pub(super) fn is_final_descendant_of_sync_block(
         &self,
         header: &BlockHeader,

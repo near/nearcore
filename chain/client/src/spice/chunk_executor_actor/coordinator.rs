@@ -51,9 +51,11 @@ pub struct ChunkExecutorActor {
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
     /// Used to snapshot the state left behind by an epoch's first block, which is what state
-    /// sync hands out for that epoch. `None` when the node makes no snapshots.
+    /// sync hands out for that epoch. `None` where the executor runs without a snapshot actor,
+    /// as in some tests; whether the node takes snapshots at all is up to `StateSnapshotConfig`.
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    /// The last snapshot this node has announced.
+    /// The last snapshot announced since this actor started. It is not persisted, so after a
+    /// restart the current snapshot is announced again once its chunks are certified.
     advertised_snapshot: Option<CryptoHash>,
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
@@ -353,8 +355,9 @@ impl ChunkExecutorActor {
     fn finalize_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         // Before `apply_block_postprocessing`, which is what advances the flat head: the
-        // snapshot request pins the flat head at this block, and pinning it after the advance
-        // has begun would leave the snapshot unable to reach the state it is meant to hold.
+        // snapshot request freezes the flat heads where they are, at or below the sync block,
+        // and once they have moved past it the snapshot could no longer reach the state it is
+        // meant to hold.
         if let Err(err) = self.process_snapshot(&block) {
             tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to request a state snapshot");
         }
@@ -421,10 +424,11 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Requests a state snapshot of the epoch's sync block, if `block` is about to move the
-    /// final execution head past it.
+    /// Requests a state snapshot of the sync block of the epoch containing `block`'s last final
+    /// block, unless that snapshot is already wanted or taken, or a flat head has already moved
+    /// past the sync block.
     ///
-    /// State sync for an epoch hands out the state as of that epoch's first block.
+    /// State sync for an epoch hands out the state that epoch's first block left behind.
     /// The snapshot is created here and announced to the network later, once
     /// the chunks are certified.
     fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
