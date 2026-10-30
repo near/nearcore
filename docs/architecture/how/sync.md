@@ -137,7 +137,11 @@ forward. This is needed to find a valid state sync hash for the current epoch.
 Headers are requested in batches of up to 512 at a time.
 
 Header sync continues until the header chain is close to the network tip
-(within ~50 blocks).
+(within ~50 blocks). Under spice it also continues until a final header records
+that the sync block's chunks are certified (its
+`prev_last_certified_block_epoch_id` reaches the sync block's epoch): the state
+sync header is proven against the block that certifies them, which has to be
+final in this node's header chain, and header sync stops once state sync starts.
 
 #### Step 3: state sync
 
