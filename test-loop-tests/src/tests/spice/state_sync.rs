@@ -3,7 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
-use near_primitives::types::SpiceChunkId;
+use near_primitives::types::{SpiceChunkId, StateRootNode};
 use near_store::adapter::StoreAdapter as _;
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
@@ -44,7 +44,8 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
 
 /// Another node accepts the served spice state sync header, and rejects it when the execution
 /// result is tampered with, when it carries another shard's result with that result's own valid
-/// proof, or when the certifying block is not final yet.
+/// proof, when the certifying block is not final yet or commits no result for this chunk, or
+/// when the state root node is not the root of the synced state.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_header_proves_the_post_state_root() {
@@ -148,7 +149,46 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
                     }
                 ),
             ),
-            Err(Error::Other(msg)) if msg.contains("certifying block does not follow the sync block")
+            Err(Error::Other(msg)) if msg.contains("not a final descendant of the sync block")
+        );
+
+        let final_height = syncing_node.client().chain.final_head().unwrap().height;
+        let block_without_result = (sync_header.height() + 1..=final_height)
+            .map(|height| chain.get_block_by_height(height).unwrap())
+            .find(|block| {
+                block
+                    .spice_core_statements()
+                    .iter_execution_results()
+                    .all(|(id, _)| *id != chunk_id)
+            })
+            .unwrap();
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        certifying_block_hash: *block_without_result.hash(),
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("proof does not verify")
+        );
+
+        // A state root node that is not the root of the synced state is rejected
+        assert_matches!(
+            syncing_node.client().chain.state_sync_adapter.set_state_header(
+                shard_id,
+                sync_hash,
+                ShardStateSyncResponseHeader::V3(
+                    ShardStateSyncResponseHeaderV3 {
+                        state_root_node: StateRootNode { data: vec![0].into(), memory_usage: 0 },
+                        ..header.clone()
+                    }
+                ),
+            ),
+            Err(Error::Other(msg)) if msg.contains("state_root_node is invalid")
         );
     }
 }
