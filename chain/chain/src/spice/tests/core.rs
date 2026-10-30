@@ -1561,7 +1561,7 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
 }
 
 #[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+#[cfg_attr(any(not(feature = "protocol_feature_spice"), feature = "byzantine_asserts"), ignore)]
 fn test_process_block_with_designated_endorsements_split_between_results() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
