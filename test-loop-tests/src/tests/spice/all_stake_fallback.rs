@@ -1,156 +1,49 @@
+use super::activation_scenarios::oracles::{
+    check_certified_via_fallback, check_fallback_has_enough_stake,
+};
+use super::activation_scenarios::resolve::fallback_validators_spec;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
-use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
 };
-use near_chain_configs::Genesis;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::BlockHeader;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion,
-    ShardId, SpiceChunkId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumShards, ShardId, SpiceChunkId,
 };
-use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::ProtocolFeature;
 use std::collections::HashSet;
 
-/// Shards in [`FallbackSetup`].
+/// Shards of the fallback tests.
 const NUM_SHARDS: NumShards = 6;
 
-/// Genesis, epoch config, and client accounts for the fallback tests: 14 equal-stake validators
-/// over `NUM_SHARDS` shards with 2 mandates each, keeping each chunk's designated subset under 1/3
-/// of stake.
-#[derive(Default)]
-struct FallbackSetup {
-    epoch_length: Option<BlockHeightDelta>,
-    protocol_version: Option<ProtocolVersion>,
-    user_accounts: Vec<(AccountId, Balance)>,
-}
-
-impl FallbackSetup {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
-        self.epoch_length = Some(epoch_length);
-        self
-    }
-
-    fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
-        self.protocol_version = Some(protocol_version);
-        self
-    }
-
-    fn user_account(mut self, account_id: AccountId, balance: Balance) -> Self {
-        self.user_accounts.push((account_id, balance));
-        self
-    }
-
-    fn build(self) -> (Vec<AccountId>, Genesis, EpochConfigStore) {
-        let num_producers = 4;
-        let num_validators = 14;
-        let accounts: Vec<AccountId> =
-            (0..num_validators).map(|i| format!("validator{i}").parse().unwrap()).collect_vec();
-        let all_validators: Vec<AccountInfo> = accounts
-            .iter()
-            .map(|account_id| AccountInfo {
-                public_key: create_test_signer(account_id.as_str()).public_key(),
-                account_id: account_id.clone(),
-                amount: Balance::from_near(100),
-            })
-            .collect();
-        let validators_spec =
-            ValidatorsSpec::raw(all_validators, num_producers, num_producers, num_validators);
-
-        let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
-            .shard_layout(ShardLayout::multi_shard(NUM_SHARDS, 0))
-            .validators_spec(validators_spec);
-        if let Some(epoch_length) = self.epoch_length {
-            genesis_builder = genesis_builder.epoch_length(epoch_length);
-        }
-        if let Some(protocol_version) = self.protocol_version {
-            genesis_builder = genesis_builder.protocol_version(protocol_version);
-        }
-        for (account_id, balance) in self.user_accounts {
-            genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
-        }
-        let genesis = genesis_builder.build();
-        let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-            .target_validator_mandates_per_shard(2)
-            .build_store_for_genesis_protocol_version();
-        (accounts, genesis, epoch_config_store)
-    }
+/// The builder of the fallback tests: the fourteen equal-stake validators of the scenario
+/// framework's profile B over `NUM_SHARDS` shards with two mandates each, keeping each
+/// chunk's designated subset under a third of the stake.
+fn fallback_builder() -> TestLoopBuilder {
+    TestLoopBuilder::new()
+        .validators_spec(fallback_validators_spec())
+        .shard_layout(ShardLayout::multi_shard(NUM_SHARDS, 0))
+        .target_validator_mandates_per_shard(2)
 }
 
 /// Asserts every (height, shard) of the genesis epoch has designated validators holding at most 1/3
-/// of total stake, so the non-designated remainder alone can certify via the fallback. Genesis
-/// epoch is representative.
+/// of total stake, so the non-designated remainder alone can certify via the fallback.
 fn assert_fallback_has_enough_stake(node: &TestLoopNode) {
-    let epoch_manager = node.client().epoch_manager.clone();
-    let epoch_id = node.head().epoch_id;
-    let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
-    let shard_ids: Vec<_> =
-        epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect();
-    let all_stake = all_stake_fallback_assignment(epoch_manager.as_ref(), &epoch_id).unwrap();
-    for height in 1..=epoch_length {
-        for &shard_id in &shard_ids {
-            let designated_accounts: HashSet<AccountId> = epoch_manager
-                .get_chunk_validator_assignments(&epoch_id, shard_id, height)
-                .unwrap()
-                .ordered_chunk_validators()
-                .into_iter()
-                .collect();
-            assert!(
-                !all_stake.is_endorsed_by_more_than_one_third(&designated_accounts),
-                "designated stake exceeds 1/3 at height {height} shard {shard_id}",
-            );
-        }
-    }
+    check_fallback_has_enough_stake(node).unwrap_or_else(|error| panic!("{error}"));
 }
 
 /// Asserts `header`'s block is certified and at least one of its chunks certified via the all-stake
 /// fallback: the present designated endorsements alone don't meet the designated 2/3 threshold, so
 /// the non-designated remainder must have carried it.
 fn assert_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) {
-    let client = node.client();
-    let core_reader = &client.chain.spice_core_reader;
-    let epoch_manager = client.epoch_manager.as_ref();
-    assert!(core_reader.all_execution_results_exist(header).unwrap(), "block is not certified");
-
-    let epoch_id = header.epoch_id();
-    let mut fallback_certified_chunks = 0;
-    for shard_id in epoch_manager.get_shard_layout(epoch_id).unwrap().shard_ids() {
-        let designated = epoch_manager
-            .get_chunk_validator_assignments(epoch_id, shard_id, header.height())
-            .unwrap();
-        let designated_present: HashSet<AccountId> = designated
-            .assignments()
-            .iter()
-            .map(|(account_id, _)| account_id)
-            .filter(|account_id| {
-                core_reader.get_endorsement(header.hash(), shard_id, account_id).is_some()
-            })
-            .cloned()
-            .collect();
-        if !designated.is_endorsed(&designated_present) {
-            fallback_certified_chunks += 1;
-        }
-    }
-    assert!(
-        fallback_certified_chunks > 0,
-        "every chunk met the designated threshold; none certified via the fallback",
-    );
+    check_certified_via_fallback(node, header).unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[test]
@@ -158,13 +51,7 @@ fn assert_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) {
 fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements() {
     init_test_logger();
 
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+    let mut env = fallback_builder().build().drop(DropCondition::DesignatedSpiceEndorsements);
     assert_fallback_has_enough_stake(&env.node(0));
 
     // The certified frontier must keep advancing via the all-stake fallback though every designated
@@ -183,13 +70,9 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
 fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
     init_test_logger();
 
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
     // Every request for partial data is dropped, so a non-designated validator can endorse only if
     // the producers pushed the witness to it when the fallback opened.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
+    let mut env = fallback_builder()
         .build()
         .drop(DropCondition::DesignatedSpiceEndorsements)
         .drop(DropCondition::SpiceDataRequests);
@@ -209,17 +92,14 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
 fn slow_test_spice_all_stake_fallback_certifies_without_accesses_messages() {
     init_test_logger();
 
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
     // The non-designated validators get the witness through the fallback push but never the
     // producers' contract accesses, so they can only endorse from what the witness itself lists.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts.clone())
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+    let mut env = fallback_builder().build().drop(DropCondition::DesignatedSpiceEndorsements);
     let (faults, observed) = env.install_spice_partial_data_faults();
-    faults.lock().drop_contract_accesses_from.extend(accounts);
+    faults
+        .lock()
+        .drop_contract_accesses_from
+        .extend(env.node_datas.iter().map(|data| data.account_id.clone()));
     assert_fallback_has_enough_stake(&env.node(0));
 
     let target = env.node(0).last_certified_block_header().height() + 4;
@@ -238,13 +118,7 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     init_test_logger();
 
     let epoch_length = 25;
-    let (accounts, genesis, epoch_config_store) =
-        FallbackSetup::new().epoch_length(epoch_length).build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .build();
+    let mut env = fallback_builder().epoch_length(epoch_length).build();
     assert_fallback_has_enough_stake(&env.node(0));
 
     // Run normally up to just before the epoch boundary, then drop designated endorsements: the
@@ -272,14 +146,9 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
 fn slow_test_spice_all_stake_fallback_certifies_when_validators_track_all_shards() {
     init_test_logger();
 
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
-
     // Every validator tracks every shard, so non-designated validators self-execute instead of
     // pulling witnesses; their stake must still certify the chunks via the fallback.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
+    let mut env = fallback_builder()
         .track_all_shards()
         .build()
         .drop(DropCondition::DesignatedSpiceEndorsements);
@@ -300,18 +169,13 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     init_test_logger();
 
     let contract_user = create_account_id("contract-user");
-    // epoch_length 100 keeps the call chunk (~height 9) within the genesis epoch the precondition checks.
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new()
-        .epoch_length(100)
-        .user_account(contract_user.clone(), Balance::from_near(100))
-        .build();
-
     // The no-op compiled contract cache forces validators to fetch contract code via a
     // SpiceContractCodeRequest; otherwise the fallback code-request gate is never exercised.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
+    // epoch_length 100 keeps the call chunk (~height 9) within the genesis epoch the precondition
+    // checks.
+    let mut env = fallback_builder()
+        .epoch_length(100)
+        .add_user_account(&contract_user, Balance::from_near(100))
         .enable_rpc()
         .disable_compiled_contract_cache()
         .build()
@@ -347,48 +211,8 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
 }
 
-/// The protocol upgrade with every designated endorsement dropped: the last
-/// pre-spice block can only certify via the all-stake fallback.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn slow_test_spice_activation_boundary_all_stake_fallback() {
-    init_test_logger();
-
-    // Longer than the fallback window, so certification can lag by a full window
-    // without the boundary chunks ever leaving the current epoch's uncertified set.
-    let epoch_length = 25;
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new()
-        .epoch_length(epoch_length)
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
-            ProtocolFeature::Spice.protocol_version(),
-        ))
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
-    assert_fallback_has_enough_stake(&env.node(0));
-
-    // Cross the boundary (pre-spice epochs are unaffected by the drop), then locate
-    // the last pre-spice block under the head.
-    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
-    let last_pre_spice = env.node(0).last_pre_spice_block_header();
-
-    // An epoch cannot end before its first block certifies, so leaving the first spice
-    // epoch proves the fallback alone certified the last pre-spice block and carried
-    // certification on into spice while the chain kept producing blocks.
-    env.node_runner(0).run_until_new_epoch();
-    assert_certified_via_fallback(&env.node(0), last_pre_spice.as_ref());
-    let frontier = env.node(0).last_certified_block_header();
-    assert!(
-        frontier.height() > last_pre_spice.height(),
-        "certification must advance into the spice epoch",
-    );
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
-}
+// The protocol upgrade with every designated endorsement dropped is the `fallback` scenario
+// of `activation_scenarios`, in its `fallback` group.
 
 fn fallback_only_certification_schedule(
     node: &TestLoopNode,
@@ -482,15 +306,9 @@ fn slow_test_spice_fallback_only_chunk_certifies_on_a_healthy_network() {
     init_test_logger();
 
     let epoch_length = 25;
-    let (accounts, genesis, epoch_config_store) =
-        FallbackSetup::new().epoch_length(epoch_length).build();
     // Unlike the outage tests above, no endorsements are dropped: the all-stake path runs because
     // the chunk is fallback-only, not because the designated set went missing.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .build();
+    let mut env = fallback_builder().epoch_length(epoch_length).build();
 
     assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }
@@ -501,14 +319,7 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_execution_lags() {
     init_test_logger();
 
     let epoch_length = 25;
-    let (accounts, genesis, epoch_config_store) =
-        FallbackSetup::new().epoch_length(epoch_length).build();
-    let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .delay_warmup()
-        .build();
+    let env = fallback_builder().epoch_length(epoch_length).delay_warmup().build();
     // Holding endorsements back puts certification behind consensus, so a chunk's endorsements can
     // reach the chain in the same block that first makes the chunk certifiable.
     let execution_delay = 4;
@@ -524,16 +335,9 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_validators_track_all_shard
     init_test_logger();
 
     let epoch_length = 25;
-    let (accounts, genesis, epoch_config_store) =
-        FallbackSetup::new().epoch_length(epoch_length).build();
     // Every validator tracks every shard, so they apply the chunk themselves and never need the
     // witness that gets pushed to them.
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .track_all_shards()
-        .build();
+    let mut env = fallback_builder().epoch_length(epoch_length).track_all_shards().build();
 
     assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }

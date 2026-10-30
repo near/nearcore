@@ -8,6 +8,7 @@
 //! layout's shard ids are a shuffle of the indices, so the loads only assume the grouping
 //! and read the ids off the layout.
 
+use super::resolve::Profile;
 use super::scenario::Progress;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -34,10 +35,6 @@ const LOAD_START_OFFSET: i64 = -7;
 /// at `done`.
 const LOAD_END_EPOCH: u32 = 1;
 const CONTRACT_METHOD: &str = "log_something";
-/// The shard index the contract account lives on: the upper shard. A fault that silences
-/// it keeps the deploy and the call backlog in the pool, and the shard's first spice
-/// chunks congest until the pool's transactions expire, so such faults reject it.
-pub const CONTRACT_SHARD_INDEX: usize = 1;
 
 fn low_sender() -> AccountId {
     create_account_id("low_sender")
@@ -136,6 +133,7 @@ pub struct SubmittedTx {
 /// its transactions is in the last new chunk of its sender's shard before the boundary
 /// (`load_in_flight`), and every one is included exactly once (`exactly_once`).
 pub struct Loads {
+    profile: Profile,
     rate: usize,
     started: bool,
     /// Set by the progress point that ends the loads: the current tick is the last.
@@ -154,8 +152,9 @@ pub struct Loads {
 }
 
 impl Loads {
-    pub fn new(rate: usize) -> Self {
+    pub fn new(profile: Profile, rate: usize) -> Self {
         Self {
+            profile,
             rate,
             started: false,
             ending: false,
@@ -172,7 +171,7 @@ impl Loads {
     /// `WarmedUp`, and starts and ends the ticking.
     pub fn on_progress(&mut self, env: &TestLoopEnv, progress: &Progress) {
         match progress {
-            Progress::Built => assert_accounts_on_expected_shards(env),
+            Progress::Built => assert_accounts_on_expected_shards(env, self.profile),
             Progress::WarmedUp => {
                 self.deploy_tx = Some(deploy_contract(env));
                 self.deploy_submitted_height = Some(env.rpc_node().head().height);
@@ -304,8 +303,22 @@ pub fn scan_inclusions(
 /// The check sizes the load, so it only applies when the two blocks at the boundary have
 /// every chunk. A missing chunk leaves nothing to replay with a price, and the chunk after
 /// it reports no gas used, so with a gap at either block the price can sit at its floor on
-/// both sides whatever the load; the plain scenario then carries the check.
-pub fn check_gas_price_moves(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
+/// both sides whatever the load; the plain scenario then carries the check. It applies on
+/// profile A only: profile B's six shards sum to a limit the loads cannot use half of, so
+/// its price stays at the floor, see [`super::resolve::GAS_LIMIT`].
+pub fn check_gas_price_moves(
+    env: &TestLoopEnv,
+    profile: Profile,
+    last_pre_spice: &Block,
+) -> Result<(), String> {
+    if profile != Profile::A {
+        tracing::info!(
+            target: "test",
+            ?profile,
+            "the loads cannot move the gas price on this profile, so the check does not apply",
+        );
+        return Ok(());
+    }
     let before_last_pre_spice = env.rpc_node().block(*last_pre_spice.header().prev_hash());
     let gap_at_boundary = [last_pre_spice, before_last_pre_spice.as_ref()]
         .iter()
@@ -332,8 +345,9 @@ pub fn check_gas_price_moves(env: &TestLoopEnv, last_pre_spice: &Block) -> Resul
 }
 
 /// The accounts of each load must sit where the loads assume: the transfers cross shards,
-/// and the contract shares the upper shard.
-fn assert_accounts_on_expected_shards(env: &TestLoopEnv) {
+/// and the contract shares the upper shard, whose index the profile knows so a fault can
+/// refuse to silence it.
+fn assert_accounts_on_expected_shards(env: &TestLoopEnv, profile: Profile) {
     let node = env.rpc_node();
     let shard_layout = node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
     let shard_of = |account_id: AccountId| shard_layout.account_id_to_shard_id(&account_id);
@@ -353,8 +367,9 @@ fn assert_accounts_on_expected_shards(env: &TestLoopEnv) {
     );
     assert_eq!(
         shard_layout.get_shard_index(upper_shard_id).unwrap(),
-        CONTRACT_SHARD_INDEX,
-        "the contract's shard must have index {CONTRACT_SHARD_INDEX}",
+        profile.contract_shard_index(),
+        "the contract's shard must have index {}",
+        profile.contract_shard_index(),
     );
 }
 

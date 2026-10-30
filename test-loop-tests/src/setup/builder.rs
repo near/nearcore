@@ -23,7 +23,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
+use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumSeats, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
 use near_primitives_core::num_rational::Rational32;
@@ -44,6 +44,10 @@ pub(crate) struct TestLoopBuilder {
     setup_config: SetupConfig,
     epoch_config_store: Option<EpochConfigStore>,
     shuffle_shard_assignment_for_chunk_producers: bool,
+    /// The epoch config's `target_validator_mandates_per_shard`, for a test that needs
+    /// small designated sets, such as the all-stake fallback ones. Only on the auto path:
+    /// a manual epoch config store already fixes it.
+    target_validator_mandates_per_shard: Option<NumSeats>,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -90,6 +94,7 @@ impl TestLoopBuilder {
             setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
             shuffle_shard_assignment_for_chunk_producers: false,
+            target_validator_mandates_per_shard: None,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -340,6 +345,13 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Sets the epoch config's `target_validator_mandates_per_shard`, which sizes each
+    /// chunk's designated validator set. Cannot be combined with `epoch_config_store`.
+    pub(crate) fn target_validator_mandates_per_shard(mut self, mandates: NumSeats) -> Self {
+        self.target_validator_mandates_per_shard = Some(mandates);
+        self
+    }
+
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
         self.runtime_config_store = Some(runtime_config_store);
         self
@@ -454,15 +466,22 @@ impl TestLoopBuilder {
                 !self.shuffle_shard_assignment_for_chunk_producers,
                 "shuffle_shard_assignment_for_chunk_producers cannot be used with epoch_config_store"
             );
+            assert!(
+                self.target_validator_mandates_per_shard.is_none(),
+                "target_validator_mandates_per_shard cannot be used with epoch_config_store"
+            );
             return;
         }
-        self.epoch_config_store = Some(
-            TestEpochConfigBuilder::from_genesis(genesis)
-                .shuffle_shard_assignment_for_chunk_producers(
-                    self.shuffle_shard_assignment_for_chunk_producers,
-                )
-                .build_store_for_genesis_protocol_version(),
-        );
+        let mut epoch_config_builder = TestEpochConfigBuilder::from_genesis(genesis)
+            .shuffle_shard_assignment_for_chunk_producers(
+                self.shuffle_shard_assignment_for_chunk_producers,
+            );
+        if let Some(mandates) = self.target_validator_mandates_per_shard {
+            epoch_config_builder =
+                epoch_config_builder.target_validator_mandates_per_shard(mandates);
+        }
+        self.epoch_config_store =
+            Some(epoch_config_builder.build_store_for_genesis_protocol_version());
     }
 
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {

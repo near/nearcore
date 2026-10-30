@@ -9,13 +9,13 @@
 
 use driver::run_scenario;
 use faults::{
-    Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, GcTight, Kind,
-    LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers, ShardSkip, Shards,
-    SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
+    Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, Fallback, GcTight,
+    Kind, LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers, ShardSkip,
+    Shards, SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
 };
 use near_o11y::testonly::init_test_logger;
 use random::RandomSpec;
-use resolve::conflicts_of;
+use resolve::{Profile, conflicts_of};
 use scenario::{Fault, Scenario};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -24,7 +24,7 @@ mod faults;
 pub(crate) mod loads;
 pub(crate) mod oracles;
 mod random;
-mod resolve;
+pub(crate) mod resolve;
 mod scenario;
 
 pub(crate) use driver::{drop_chunks_marked_missing, run_until_estimated_first_spice_height};
@@ -193,6 +193,35 @@ fn ultra_slow_test_spice_activation_matrix_storage() {
     run_scenarios(storage_presets());
 }
 
+/// Profile B, which `fallback` selects: the all-stake fallback carries every chunk's
+/// certification, the boundary's included, under the faults that leave it something to
+/// certify from; and the plain crossing and the cheapest fault forced onto B without the
+/// fallback, so B's size and shard count are crossed on their own.
+fn fallback_presets() -> Vec<Scenario> {
+    vec![
+        Scenario::new().fault(Fallback::new()),
+        Scenario::new().fault(Fallback::new()).fault(MissingChunk::new()),
+        Scenario::new().fault(Fallback::new()).fault(TrackAll::new()),
+        Scenario::new().fault(Fallback::new()).fault(DropContractAccesses::new()),
+        // A chunk-only validator: every shard has one chunk producer on B, so a crashed
+        // producer would lose the loads' transactions with its pool, see the conflicts.
+        Scenario::new().fault(Fallback::new()).fault(NodeCrash::new().node(4)),
+        // A named producer, for the same reason: all but one of one is nobody.
+        Scenario::new()
+            .fault(Fallback::new())
+            .fault(PartialDataFault::new().from(Producers::Producer(1))),
+        Scenario::empty().on_profile(Profile::B),
+        Scenario::new().fault(MissingChunk::new()).on_profile(Profile::B),
+    ]
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_fallback() {
+    run_scenarios(fallback_presets());
+}
+
 /// Every fault of the catalog at its defaults, in the catalog's order, for the group built
 /// from pairs. `shard_rotation` is left out: it cannot fire on profile A, see the fault.
 const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
@@ -286,6 +315,7 @@ fn test_presets_are_accepted_by_the_resolver() {
     let mut presets = core_presets();
     presets.extend(nodes_presets());
     presets.extend(storage_presets());
+    presets.extend(fallback_presets());
     presets.extend(pairwise_presets());
     presets.extend(under_investigation_presets());
     for scenario in presets {

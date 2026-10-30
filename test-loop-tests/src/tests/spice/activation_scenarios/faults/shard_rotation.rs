@@ -1,5 +1,6 @@
 //! `shard_rotation`: chunk producer assignments shuffled every epoch.
 
+use super::super::resolve::Profile;
 use super::super::scenario::{Fault, Timeline};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
@@ -47,7 +48,7 @@ impl Fault for ShardRotation {
         self
     }
 
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, _profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder.shuffle_shard_assignment_for_chunk_producers(true)
     }
 

@@ -15,18 +15,21 @@ use super::loads::{LoadKind, TRANSFER_AMOUNT};
 use super::scenario::{Fault, Narrowing, OracleId};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-use near_chain::spice::all_stake_fallback::SPICE_FALLBACK_CERTIFICATION_DELAY;
+use near_chain::spice::all_stake_fallback::{
+    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment,
+};
 use near_chain::spice::boundary_synthesis::{
     execution_result_and_receipt_proofs_from_pre_spice_apply, get_undelivered_receipt_proofs,
     get_undelivered_receipts,
 };
 use near_chain::{Block, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_primitives::block::BlockHeader;
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::ExecutionStatus;
-use near_primitives::types::{Balance, BlockHeight, ShardId, SpiceChunkId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, SpiceChunkId};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
@@ -1247,4 +1250,70 @@ pub fn observed_chunk_pattern(
             if block.chunks()[shard_index].is_new_chunk(height) { '.' } else { 'x' }
         })
         .collect()
+}
+
+// -- the all-stake fallback, shared with `all_stake_fallback.rs` --
+
+/// Every `(height, shard)` of the genesis epoch has designated validators holding at most
+/// a third of the total stake, so the non-designated remainder alone can certify through
+/// the fallback. The genesis epoch is representative.
+pub(crate) fn check_fallback_has_enough_stake(node: &TestLoopNode) -> Result<(), String> {
+    let epoch_manager = node.client().epoch_manager.as_ref();
+    let epoch_id = node.head().epoch_id;
+    let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
+    let shard_ids: Vec<ShardId> =
+        epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect();
+    let all_stake = all_stake_fallback_assignment(epoch_manager, &epoch_id).unwrap();
+    for height in 1..=epoch_length {
+        for &shard_id in &shard_ids {
+            let designated: HashSet<AccountId> = epoch_manager
+                .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                .unwrap()
+                .ordered_chunk_validators()
+                .into_iter()
+                .collect();
+            ensure!(
+                !all_stake.is_endorsed_by_more_than_one_third(&designated),
+                "the designated stake exceeds a third at height {height} shard {shard_id}",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `header`'s block is certified and at least one of its chunks certified via the all-stake
+/// fallback: the designated endorsements present alone do not meet the designated
+/// threshold, so the non-designated remainder carried it.
+pub(crate) fn check_certified_via_fallback(
+    node: &TestLoopNode,
+    header: &BlockHeader,
+) -> Result<(), String> {
+    let client = node.client();
+    let core_reader = &client.chain.spice_core_reader;
+    let epoch_manager = client.epoch_manager.as_ref();
+    ensure!(core_reader.all_execution_results_exist(header).unwrap(), "the block is not certified");
+    let epoch_id = header.epoch_id();
+    let mut fallback_certified_chunks = 0;
+    for shard_id in epoch_manager.get_shard_layout(epoch_id).unwrap().shard_ids() {
+        let designated = epoch_manager
+            .get_chunk_validator_assignments(epoch_id, shard_id, header.height())
+            .unwrap();
+        let designated_present: HashSet<AccountId> = designated
+            .assignments()
+            .iter()
+            .map(|(account_id, _)| account_id)
+            .filter(|account_id| {
+                core_reader.get_endorsement(header.hash(), shard_id, account_id).is_some()
+            })
+            .cloned()
+            .collect();
+        if !designated.is_endorsed(&designated_present) {
+            fallback_certified_chunks += 1;
+        }
+    }
+    ensure!(
+        fallback_certified_chunks > 0,
+        "every chunk met the designated threshold; none certified via the fallback",
+    );
+    Ok(())
 }

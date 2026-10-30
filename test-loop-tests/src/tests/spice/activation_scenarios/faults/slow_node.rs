@@ -1,5 +1,6 @@
 //! `slow_node`: one node's processing is slowed for a window of heights.
 
+use super::super::resolve::Profile;
 use super::super::scenario::{Fault, FaultEvent, Progress, Timeline};
 use super::endorsement_delay::{WindowEnd, WindowStart};
 use super::render;
@@ -139,7 +140,7 @@ impl Fault for SlowNode {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, _profile: Profile) -> Result<(), String> {
         if self.delay_ms == 0 {
             return Err("delay_ms must be positive".to_string());
         }

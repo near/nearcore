@@ -51,7 +51,9 @@ impl ValidatorChurn {
         Self {
             kind: Kind::Both,
             joiner: create_account_id("joiner"),
-            leaver: create_validator_id(Profile::A.num_producers() - 1),
+            // A block producer on profile A and a chunk-only validator on B; any validator
+            // can leave.
+            leaver: create_validator_id(3),
             joiner_check: None,
         }
     }
@@ -67,11 +69,6 @@ impl ValidatorChurn {
 
     fn leaves(&self) -> bool {
         self.kind != Kind::Join
-    }
-
-    /// The joiner's index in `node_datas`: right after the validators.
-    fn joiner_index() -> usize {
-        Profile::A.num_producers() + Profile::A.num_chunk_validators()
     }
 
     /// The joiner must hold the last pre-spice block's state for the shards it produces for
@@ -144,9 +141,10 @@ impl Fault for ValidatorChurn {
         self
     }
 
-    fn setup(&self, mut builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, profile: Profile, mut builder: TestLoopBuilder) -> TestLoopBuilder {
         if self.joins() {
-            let joiner_index = Self::joiner_index();
+            // The joiner is the client right after the validators.
+            let joiner_index = profile.num_validators();
             builder = builder
                 .add_non_validator_client(&self.joiner)
                 .add_user_account(&self.joiner, Balance::from_near(20_000))
@@ -171,10 +169,9 @@ impl Fault for ValidatorChurn {
     ) -> Vec<FaultEvent> {
         match progress {
             Progress::Built if self.joins() => {
-                assert_eq!(
-                    env.node_datas[Self::joiner_index()].account_id,
-                    self.joiner,
-                    "the joiner must be the client right after the validators",
+                assert!(
+                    env.node_datas.iter().any(|data| data.account_id == self.joiner),
+                    "the joiner must be a client of the environment",
                 );
             }
             Progress::WarmedUp => {

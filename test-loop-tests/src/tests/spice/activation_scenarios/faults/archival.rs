@@ -2,6 +2,7 @@
 
 use super::super::driver::RunRecord;
 use super::super::oracles::{Oracle, Relaxations};
+use super::super::resolve::Profile;
 use super::super::scenario::{Fault, OracleId};
 use super::render;
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
@@ -39,7 +40,7 @@ impl Fault for Archival {
         self
     }
 
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, _profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder.enable_archival_node(ArchivalKind::Cold)
     }
 

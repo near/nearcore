@@ -60,7 +60,7 @@ impl Fault for GcTight {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, _profile: Profile) -> Result<(), String> {
         if self.keep < DEFAULT_KEEP {
             return Err(format!(
                 "keep={} would let the tail pass the last pre-spice block before done, where \
@@ -71,17 +71,25 @@ impl Fault for GcTight {
         Ok(())
     }
 
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, _profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder.gc_num_epochs_to_keep(self.keep)
     }
 
     /// The tail passes the boundary and the node still answers.
     fn post_done(&mut self, env: &mut TestLoopEnv, timeline: &Timeline) -> Result<(), String> {
         let boundary_height = timeline.last_pre_spice_height().unwrap();
-        let epoch_length = Profile::A.epoch_length();
         // The stop height moves one epoch at a time, so one more epoch takes it past the
         // boundary; the tail follows it a few blocks later.
-        let target = env.rpc_node().head().height + epoch_length + 5;
+        let target = {
+            let node = env.rpc_node();
+            let epoch_length = node
+                .client()
+                .epoch_manager
+                .get_epoch_config(&node.head().epoch_id)
+                .unwrap()
+                .epoch_length;
+            node.head().height + epoch_length + 5
+        };
         env.rpc_runner().run_until_head_height(target);
         let stop_height = {
             let node = env.rpc_node();

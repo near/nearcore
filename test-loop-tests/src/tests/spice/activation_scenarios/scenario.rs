@@ -2,6 +2,7 @@
 //! progress points faults attach to and the relaxations they declare against the oracles.
 
 use super::oracles::Oracle;
+use super::resolve::Profile;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use near_chain::Block;
@@ -15,10 +16,14 @@ use std::sync::Arc;
 /// upgrade with every oracle on.
 ///
 /// Its `Debug` form is the string form of the design: the faults' `Debug` forms joined by
-/// `,`, in quotes, so a failure prints what to re-run.
+/// `,`, then the knobs that differ from their defaults, in quotes, so a failure prints what
+/// to re-run.
 pub struct Scenario {
     faults: Vec<Box<dyn Fault>>,
     load_rate: usize,
+    /// The profile the scenario insists on; without it the resolver picks one from the
+    /// faults.
+    profile: Option<Profile>,
 }
 
 impl Default for Scenario {
@@ -30,9 +35,9 @@ impl Default for Scenario {
 // The builder methods below are the surface the faults of milestone 2 on use.
 #[allow(dead_code)]
 impl Scenario {
-    /// The plain crossing: no fault, the default load rate.
+    /// The plain crossing: no fault, the default load rate, the profile the faults pick.
     pub fn empty() -> Self {
-        Self { faults: Vec::new(), load_rate: 1 }
+        Self { faults: Vec::new(), load_rate: 1, profile: None }
     }
 
     /// Same as [`Self::empty`], the starting point of a chain of [`Self::fault`] calls.
@@ -60,8 +65,20 @@ impl Scenario {
         self
     }
 
+    /// Forces the profile, the `setup:profile=` of the string form. Without it `fallback`
+    /// selects profile B and every other scenario runs on A; a scenario with `fallback`
+    /// cannot be forced onto A.
+    pub fn on_profile(mut self, profile: Profile) -> Self {
+        self.profile = Some(profile);
+        self
+    }
+
     pub fn faults(&self) -> &[Box<dyn Fault>] {
         &self.faults
+    }
+
+    pub fn forced_profile(&self) -> Option<Profile> {
+        self.profile
     }
 
     /// The faults and the load rate, for the driver, which mutates the faults as it runs.
@@ -75,6 +92,9 @@ impl Debug for Scenario {
         let mut parts: Vec<String> = self.faults.iter().map(|fault| format!("{fault:?}")).collect();
         if self.load_rate != 1 {
             parts.push(format!("load:rate={}", self.load_rate));
+        }
+        if let Some(profile) = self.profile {
+            parts.push(format!("setup:profile={}", profile.letter()));
         }
         write!(f, "\"{}\"", parts.join(","))
     }
@@ -167,14 +187,15 @@ pub trait Fault: Debug {
     /// the design lists as a conflict.
     fn as_any(&self) -> &dyn Any;
 
-    /// `Err` with why the fault's parameters are not runnable: a combination the design
-    /// rejects, or a parameter whose milestone has not landed yet.
-    fn validate(&self) -> Result<(), String> {
+    /// `Err` with why the fault's parameters are not runnable on `profile`: a combination
+    /// the design rejects, or a parameter whose milestone has not landed yet.
+    fn validate(&self, profile: Profile) -> Result<(), String> {
         Ok(())
     }
 
-    /// Build-time work: accounts, clients and client config, through the builder.
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
+    /// Build-time work: accounts, clients and client config, through the builder of
+    /// `profile`.
+    fn setup(&self, profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder
     }
 
@@ -241,6 +262,7 @@ pub enum OracleId {
     EndorsedBeforeCatchup,
     CertifiedThroughDesignated,
     JoinerSkipsBoundaryStep,
+    CertifiedViaFallback,
 }
 
 impl OracleId {
@@ -267,6 +289,7 @@ impl OracleId {
             OracleId::EndorsedBeforeCatchup => "endorsed_before_catchup",
             OracleId::CertifiedThroughDesignated => "certified_through_designated",
             OracleId::JoinerSkipsBoundaryStep => "joiner_skips_boundary_step",
+            OracleId::CertifiedViaFallback => "certified_via_fallback",
         }
     }
 
@@ -293,7 +316,8 @@ impl OracleId {
             | OracleId::RestartedNodeCrosses
             | OracleId::EndorsedBeforeCatchup
             | OracleId::CertifiedThroughDesignated
-            | OracleId::JoinerSkipsBoundaryStep => false,
+            | OracleId::JoinerSkipsBoundaryStep
+            | OracleId::CertifiedViaFallback => false,
         }
     }
 }

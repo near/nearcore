@@ -1,5 +1,6 @@
 //! `partial_data_fault`: faults on the partial data a set of producers send.
 
+use super::super::resolve::Profile;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -172,13 +173,28 @@ impl Fault for PartialDataFault {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, profile: Profile) -> Result<(), String> {
         if self.from == Producers::All && matches!(self.kind, Kind::Drop | Kind::Corrupt) {
             return Err(format!(
                 "{:?} from every producer leaves no copy of the data anywhere, so nothing \
                  certifies",
                 self.kind,
             ));
+        }
+        if profile.one_producer_per_shard() {
+            if self.from == Producers::AllButOne {
+                return Err(format!(
+                    "from=all_but_one on profile {profile:?}: every shard has one chunk \
+                     producer, so all but one of them is nobody; name a producer or all"
+                ));
+            }
+            if matches!(self.kind, Kind::Drop | Kind::Corrupt) {
+                return Err(format!(
+                    "{:?} on profile {profile:?}: every shard has one chunk producer, so no \
+                     second copy of its data exists anywhere and nothing certifies",
+                    self.kind,
+                ));
+            }
         }
         Ok(())
     }

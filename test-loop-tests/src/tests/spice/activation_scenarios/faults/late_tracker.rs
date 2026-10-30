@@ -116,9 +116,20 @@ impl Fault for LateTracker {
         self
     }
 
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
-        // Profile A only, see the conflicts: its layout and its chunk-only validators.
-        let profile = Profile::A;
+    /// On profile B the designated sets are sampled, so the late trackers are usually not
+    /// designated for the boundary chunk and the precondition cannot hold.
+    fn validate(&self, profile: Profile) -> Result<(), String> {
+        if profile != Profile::A {
+            return Err(format!(
+                "runs on profile A only: on profile {profile:?} the late trackers are usually \
+                 not designated for the boundary chunk, so the precondition cannot hold"
+            ));
+        }
+        Ok(())
+    }
+
+    fn setup(&self, profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
+        // The builder's layout for the profile's shard count, see `num_shards`.
         let shard_layout = ShardLayout::multi_shard(profile.num_shards() as NumShards, 1);
         let shard_id = shard_layout.get_shard_id(self.shard).unwrap();
         let activation_epoch_height = profile.activation_epoch_height();

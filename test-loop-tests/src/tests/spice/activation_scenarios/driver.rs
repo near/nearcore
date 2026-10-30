@@ -94,11 +94,12 @@ fn drive(scenario: Scenario) {
 
     let mut builder = profile.builder();
     for fault in &faults {
-        builder = fault.setup(builder);
+        builder = fault.setup(profile, builder);
     }
     let mut env = builder.build();
     let mut driver = Driver::new(profile, faults, load_rate);
 
+    driver.check_producers(&env);
     driver.fire(&mut env, Progress::Built);
     driver.observe_code_requests_on_every_node(&env);
     let mut env = env.warmup();
@@ -149,11 +150,38 @@ impl Driver {
             profile,
             faults,
             timeline: Timeline::new(SPICE_EPOCHS_TO_RUN),
-            loads: Loads::new(load_rate),
+            loads: Loads::new(profile, load_rate),
             code_requests: Arc::default(),
             spice_epoch_id: None,
             gate_snapshots: HashMap::new(),
         }
+    }
+
+    /// The genesis epoch's block producers are the nodes the profile says they are, so the
+    /// conflict list's producer checks hold on the chain.
+    fn check_producers(&self, env: &TestLoopEnv) {
+        let node = env.rpc_node();
+        let mut producers: Vec<_> = node
+            .client()
+            .epoch_manager
+            .get_epoch_block_producers_ordered(&node.head().epoch_id)
+            .unwrap()
+            .into_iter()
+            .map(|stake| stake.take_account_id())
+            .collect();
+        producers.sort();
+        let mut expected: Vec<_> = self
+            .profile
+            .producer_indices()
+            .into_iter()
+            .map(|index| env.node_datas[index].account_id.clone())
+            .collect();
+        expected.sort();
+        assert_eq!(
+            producers, expected,
+            "the genesis epoch's block producers are not the nodes the profile assumes, so the \
+             conflict list would check the wrong nodes",
+        );
     }
 
     /// Fires `progress` at the loads and at every fault, then hands the faults' events to
@@ -393,7 +421,7 @@ impl Driver {
             code_requests: self.code_requests.lock().clone(),
             gate_snapshots: self.gate_snapshots,
         };
-        let mut failures = collect_failures(env, &self.faults, &record);
+        let mut failures = collect_failures(env, self.profile, &self.faults, &record);
         // A fault whose check needs the chain to run on past `done` runs it now; only its
         // own check runs after that.
         for fault in &mut self.faults {
@@ -413,6 +441,7 @@ impl Driver {
 /// faults' relaxations. Returns each failure with the name of what failed.
 fn collect_failures(
     env: &TestLoopEnv,
+    profile: Profile,
     faults: &[Box<dyn Fault>],
     record: &RunRecord,
 ) -> Vec<(String, String)> {
@@ -426,7 +455,7 @@ fn collect_failures(
             ));
         }
     }
-    if let Err(error) = loads::check_gas_price_moves(env, record.last_pre_spice()) {
+    if let Err(error) = loads::check_gas_price_moves(env, profile, record.last_pre_spice()) {
         failures.push(("gas_price_moves".to_string(), error));
     }
 

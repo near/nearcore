@@ -1,5 +1,6 @@
 //! `track_all`: every validator tracks every shard.
 
+use super::super::resolve::Profile;
 use super::super::scenario::{Fault, Narrowing, OracleId, Relaxation};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
@@ -32,7 +33,7 @@ impl Fault for TrackAll {
         self
     }
 
-    fn setup(&self, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, _profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder.track_all_shards()
     }
 

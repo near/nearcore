@@ -1,7 +1,7 @@
 //! `shard_skip`: a shard silenced from warmup through the last pre-spice block, or for the
 //! whole first spice epoch.
 
-use super::super::loads::CONTRACT_SHARD_INDEX;
+use super::super::resolve::Profile;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -134,8 +134,8 @@ impl Fault for ShardSkip {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
-        if self.shard == CONTRACT_SHARD_INDEX && self.epochs == Epochs::PreSpice {
+    fn validate(&self, profile: Profile) -> Result<(), String> {
+        if self.shard == profile.contract_shard_index() && self.epochs == Epochs::PreSpice {
             return Err(format!(
                 "shard {} holds the contract: silencing it keeps the deploy and the call backlog \
                  in the pool, and the shard's first spice chunks congest until the pool's \

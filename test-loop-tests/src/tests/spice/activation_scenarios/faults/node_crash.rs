@@ -2,6 +2,7 @@
 
 use super::super::driver::RunRecord;
 use super::super::oracles::{Oracle, Relaxations};
+use super::super::resolve::Profile;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -302,7 +303,7 @@ impl Fault for NodeCrash {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, _profile: Profile) -> Result<(), String> {
         if let At::Height(offset) = self.at {
             if offset < -1 {
                 return Err(format!(

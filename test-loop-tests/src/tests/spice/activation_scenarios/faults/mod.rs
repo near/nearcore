@@ -5,6 +5,7 @@
 mod archival;
 mod drop_contract_accesses;
 mod endorsement_delay;
+mod fallback;
 mod gc_tight;
 mod late_tracker;
 mod missing_chunk;
@@ -19,6 +20,7 @@ mod validator_churn;
 pub use archival::Archival;
 pub use drop_contract_accesses::DropContractAccesses;
 pub use endorsement_delay::{EndorsementDelay, WindowEnd, WindowStart};
+pub use fallback::Fallback;
 pub use gc_tight::GcTight;
 pub use late_tracker::LateTracker;
 pub use missing_chunk::{MissingChunk, Shards};

@@ -1,6 +1,7 @@
 //! `missing_chunk`: chunks dropped at heights around the boundary.
 
 use super::super::oracles::observed_chunk_pattern;
+use super::super::resolve::Profile;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -220,7 +221,7 @@ impl Fault for MissingChunk {
         self
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self, _profile: Profile) -> Result<(), String> {
         if self.how == How::Parts {
             return Err("how=parts needs the chunk-part rules of milestone 7".to_string());
         }
