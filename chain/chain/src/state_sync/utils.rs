@@ -1,8 +1,9 @@
+use crate::spice::core::certification_window;
 use crate::types::BlockHeader;
 use crate::{Chain, ChainStoreAccess};
 use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
@@ -452,12 +453,18 @@ impl Chain {
     ///
     ///  - set_state_finalize upon completing state sync
     ///  - collect_incoming_receipts_from_chunks when processing blocks after state sync
+    ///
+    /// Under spice it returns the certification window instead.
     pub fn get_extra_sync_block_hashes(&self, sync_prev_hash: &CryptoHash) -> Vec<CryptoHash> {
         // Get the sync prev block. It's possible that the block is not yet available.
         // It's ok because we will retry this method later.
         let Ok(sync_prev_block) = self.get_block(&sync_prev_hash) else {
             return vec![];
         };
+
+        if sync_prev_block.header().is_spice() {
+            return self.get_spice_certification_window_hashes(&sync_prev_block);
+        }
 
         let Some(min_height_included) = sync_prev_block.chunks().min_height_included() else {
             tracing::warn!(target: "sync", ?sync_prev_hash, "cannot find the min block height to sync from");
@@ -481,5 +488,17 @@ impl Chain {
             next_hash = *next_header.prev_hash();
         }
         extra_block_hashes
+    }
+
+    fn get_spice_certification_window_hashes(&self, sync_prev_block: &Block) -> Vec<CryptoHash> {
+        certification_window(
+            &self.chain_store.store().chain_store(),
+            self.epoch_manager.as_ref(),
+            sync_prev_block.header().prev_hash(),
+        )
+        .unwrap_or_else(|err| {
+            tracing::warn!(target: "sync", ?err, "cannot walk the spice certification window");
+            vec![]
+        })
     }
 }
