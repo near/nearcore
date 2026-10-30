@@ -314,12 +314,9 @@ static INVALID_WITNESSES_STORE_UPDATE_LOCK: parking_lot::Mutex<()> = parking_lot
 /// Saves an observed `ChunkStateWitness` to the database for later analysis and debugging.
 /// The witness is stored in `DBCol::InvalidChunkStateWitnesses`.
 ///
-/// This function does a read-before-write. Don't call it in parallel on the same database,
-/// or there will be race conditions.
-///
 /// Unlike the save_latest version, there is a risk of this one being called in parallel
 /// because the witness processing is spawned async and we don't know if a witness is invalid
-/// until we process it. Hence a mutex is used to guard the store update.
+/// until we process it. Hence a mutex guards the read-modify-write of `InvalidWitnessesInfo`.
 pub fn save_invalid_chunk_state_witness(
     store: Store,
     witness: &ChunkStateWitness,
@@ -346,6 +343,8 @@ pub fn save_invalid_chunk_state_witness(
         return Ok(());
     }
 
+    let _guard = INVALID_WITNESSES_STORE_UPDATE_LOCK.lock();
+
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
         .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
@@ -359,8 +358,6 @@ pub fn save_invalid_chunk_state_witness(
     info.next_witness_index += 1;
 
     let (store_update_time, store_commit_time) = {
-        let _guard = INVALID_WITNESSES_STORE_UPDATE_LOCK.lock();
-
         let mut store_update = store.store_update();
 
         // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
