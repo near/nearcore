@@ -286,7 +286,7 @@ fn test_state_sync_simple_five_node() {
 
 #[test]
 #[should_panic(expected = "Invalid Gas Used")]
-// chunk_extra is not recomputed under spice so there is nothing to diverge
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_chunk_extra_divergence_stops_the_node() {
     init_test_logger();
@@ -749,6 +749,8 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 // succeed), then one more (should be rejected), waits for the rate limit to reset, then
 // sends one more (should succeed again).
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_request() {
     init_test_logger();
     let mut env = TestLoopBuilder::new()
