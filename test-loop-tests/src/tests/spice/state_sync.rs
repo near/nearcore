@@ -2,13 +2,9 @@ use crate::setup::builder::TestLoopBuilder;
 use assert_matches::assert_matches;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::{Block, BlockV4};
-use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
-use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::SpiceChunkId;
 use near_store::adapter::StoreAdapter as _;
-use std::sync::Arc;
 
 /// Spice records the epoch's first block as the sync hash, rather than waiting for two new
 /// chunks in every shard: spice executes every shard at every block, applying a missing chunk
@@ -46,10 +42,9 @@ fn test_spice_sync_hash_is_the_epochs_first_block() {
     assert_eq!(num_epochs_with_sync_hash, 2);
 }
 
-/// The served spice state sync header hands out the state the sync block's chunk left behind,
-/// and proves it by carrying the body of the block that certified that chunk: the body hashes
-/// to the `block_body_hash` of a header the syncing node already holds from header sync, and
-/// commits the chunk's execution result whole.
+/// Another node accepts the served spice state sync header, and rejects it when the execution
+/// result is tampered with, when it carries another shard's result with that result's own valid
+/// proof, or when the certifying block is not final yet.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_header_proves_the_post_state_root() {
@@ -78,7 +73,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
     let shard_ids = node.client().epoch_manager.shard_ids(sync_header.epoch_id()).unwrap();
     assert_eq!(shard_ids.len(), SHARDS_COUNT);
 
-    for shard_id in shard_ids {
+    for &shard_id in &shard_ids {
         let response = chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let header = match response {
             Ok(ShardStateSyncResponseHeader::V3(header)) => header,
@@ -88,10 +83,11 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
         // The certifying block sits above the sync block, and is the one the chain recorded
         // as certifying this chunk.
-        assert!(header.certifying_block.header().height() > sync_header.height());
+        let certifying = chain.get_block_header(&header.certifying_block_hash).unwrap();
+        assert!(certifying.height() > sync_header.height());
         assert_eq!(
             node.store().chain_store().get_chunk_certifying_block(&chunk_id),
-            Some(*header.certifying_block.hash()),
+            Some(header.certifying_block_hash),
         );
 
         // Another node accepts the served header.
@@ -102,62 +98,42 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
             .set_state_header(shard_id, sync_hash, ShardStateSyncResponseHeader::V3(header.clone()))
             .expect("valid header should pass the validation");
 
-        // Wrong `state_root` is rejected
+        // A result with a field changed that none of the roots covers is rejected, because the
+        // leaf commits to the hash of the whole result
+        let mut tampered = header.clone();
+        let congestion_info = tampered.execution_result.chunk_extra.congestion_info_mut();
+        let allowed_shard = congestion_info.allowed_shard();
+        congestion_info.set_allowed_shard(allowed_shard.wrapping_add(1));
         assert_matches!(
             syncing_node.client().chain.state_sync_adapter.set_state_header(
                 shard_id,
                 sync_hash,
-                ShardStateSyncResponseHeader::V3(
-                    ShardStateSyncResponseHeaderV3 {
-                        state_root: CryptoHash::default(),
-                        ..header.clone()
-                    }
-                ),
+                ShardStateSyncResponseHeader::V3(tampered),
             ),
-            Err(Error::Other(msg)) if msg.contains("state_root does not match")
+            Err(Error::Other(msg)) if msg.contains("proof does not verify")
         );
 
-        let sync_block = chain.get_block(&sync_hash).unwrap();
-        let Block::BlockV4(sync_block) = sync_block.as_ref() else {
-            panic!("a spice block is a BlockV4");
+        // The certified result of another shard's chunk, with its own valid proof, is rejected,
+        // because the leaf carries the chunk id
+        let other_shard_id = *shard_ids.iter().find(|id| **id != shard_id).unwrap();
+        let Ok(ShardStateSyncResponseHeader::V3(other_header)) =
+            chain.state_sync_adapter.get_state_response_header(other_shard_id, sync_hash)
+        else {
+            panic!("spice must serve a V3 state sync header");
         };
-        let other_body_block = Block::BlockV4(BlockV4 {
-            header: header.certifying_block.header().clone(),
-            body: sync_block.body.clone(),
-        });
-
-        // A certifying block whose body is not the one its header commits to is rejected
         assert_matches!(
             syncing_node.client().chain.state_sync_adapter.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
                     ShardStateSyncResponseHeaderV3 {
-                        certifying_block: Arc::new(other_body_block),
+                        execution_result: other_header.execution_result,
+                        execution_result_proof: other_header.execution_result_proof,
                         ..header.clone()
                     }
                 ),
             ),
-            Err(Error::Other(msg)) if msg.contains("body does not match")
-        );
-
-        // A certifying block whose header is not the one header sync stored is rejected, even
-        // when only the signature differs and the hash, which does not cover it, still matches
-        let mut resigned_block = Block::clone(&header.certifying_block);
-        resigned_block.mut_header().resign(&create_test_signer("not_the_block_producer"));
-        assert_eq!(resigned_block.hash(), header.certifying_block.hash());
-        assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
-                shard_id,
-                sync_hash,
-                ShardStateSyncResponseHeader::V3(
-                    ShardStateSyncResponseHeaderV3 {
-                        certifying_block: Arc::new(resigned_block),
-                        ..header.clone()
-                    }
-                ),
-            ),
-            Err(Error::Other(msg)) if msg.contains("header differs from the stored one")
+            Err(Error::Other(msg)) if msg.contains("proof does not verify")
         );
 
         // A certifying block that is not final yet is rejected
@@ -167,7 +143,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
                     ShardStateSyncResponseHeaderV3 {
-                        certifying_block: chain.get_block(&head.last_block_hash).unwrap(),
+                        certifying_block_hash: head.last_block_hash,
                         ..header.clone()
                     }
                 ),

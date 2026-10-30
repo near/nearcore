@@ -201,29 +201,34 @@ Spice picks a different sync point and a different state to sync to.
 The sync hash is the epoch's **first** block, recorded once that block is
 final. Without spice the node waits for two new chunks in every shard, because
 a chunk that is missing leaves that shard's state trailing the previous epoch.
-Spice puts a chunk in every block, so every shard advances at every height and
+Spice blocks can miss chunks too, but the chunk executor applies every shard at
+every block and treats a missing chunk as an empty one: no transactions,
+incoming receipts still processed. Every shard advances at every height, and
+every (block, shard) gets an execution result that a later block certifies, so
 the epoch's first block is already a well-defined anchor for all of them.
 
 The state synced is the state that block's chunk *left behind*, not the state
 before it. A spice chunk executes after the block that carries it, so its
-post-execution state root reaches the chain through a `ChunkExecutionResult`
-that a later block certifies, committing it in the `chunk_execution_root`
-field of its own header. State sync therefore serves a `V3` header carrying
-the state root node, that execution result, and a merkle proof of the result's
-`ChunkExecutionRoots` leaf against the committing block's
-`chunk_execution_root`. Header sync runs first, so the syncing node already
-holds the header the proof is checked against.
+post-execution state root reaches the chain only through the
+`ChunkExecutionResult` a later block certifies, committing it in the
+`chunk_execution_root` field of its own header. State sync therefore serves a
+`V3` header carrying that execution result and a merkle path from its leaf,
+which holds the chunk id and the hash of the whole result, to the certifying
+block's `chunk_execution_root`. The syncing node already holds that block's
+header from header sync and accepts the result only if the block is final and
+descends from the sync block. `ShardStateSyncResponseHeaderV3` describes the
+fields.
 
 Because the state is the post-state, nothing is applied after the download:
 finalization records the certified `ChunkExtra` for the sync block — which is
 what the chunk executor reads to carry on from the next block — moves the flat
 head to the sync block, and sets the spice execution heads to it.
 
-The snapshot that serves all this is taken by the chunk executor, right after
-the epoch's first block has executed for every tracked shard, and is keyed by
-that block rather than by an earlier one. It is announced to the network only
-once the block's chunks are certified, since before that no peer could prove
-the roots it serves.
+The snapshot that serves all this is taken by the chunk executor once the
+epoch's first block is final, before it moves the flat head past that block,
+and is keyed by that block rather than by an earlier one. It is announced to
+the network only once the block's chunks are certified, since before that no
+peer could prove the roots it serves.
 
 #### Step 4: block sync
 
