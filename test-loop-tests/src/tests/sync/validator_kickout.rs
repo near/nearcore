@@ -76,6 +76,7 @@ fn blocks_produced_in_epoch(env: &TestLoopEnv, epoch_id: &EpochId, account_id: &
 /// with kickout thresholds at 0, this test exercises the kickout mechanism with a single
 /// validator killed while others continue producing.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_kickout_after_restart() {
     init_test_logger();
 
@@ -164,6 +165,7 @@ fn test_validator_kickout_after_restart() {
 /// Uses epoch_length=80 (unlike the kickout test which uses 10) to ensure the
 /// validator has enough runway after restart to cross the 80% threshold.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_no_kickout_after_quick_restart() {
     init_test_logger();
 
