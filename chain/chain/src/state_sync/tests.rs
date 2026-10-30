@@ -1,6 +1,6 @@
 use super::{derive_epoch_sync_hash, update_sync_hashes};
-use crate::ChainStore;
 use crate::test_utils::get_chain_with_genesis;
+use crate::{Chain, ChainStore};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_primitives::block::Tip;
@@ -8,9 +8,10 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::EpochId;
+use near_primitives::utils::index_to_bytes;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter as _;
-use near_store::{DBCol, FINAL_HEAD_KEY};
+use near_store::{DBCol, FINAL_HEAD_KEY, HEADER_HEAD_KEY};
 use std::sync::Arc;
 
 const NUM_SHARDS: usize = 2;
@@ -18,6 +19,7 @@ const EPOCH_ID_1: EpochId = EpochId(CryptoHash([1; 32]));
 const EPOCH_ID_2: EpochId = EpochId(CryptoHash([2; 32]));
 
 struct HeaderChain {
+    chain: Chain,
     chain_store: ChainStore,
     headers: Vec<Arc<BlockHeader>>,
 }
@@ -32,7 +34,7 @@ impl HeaderChain {
         let chain = get_chain_with_genesis(Clock::real(), genesis);
         let chain_store = chain.chain_store().clone();
         let genesis_header = chain_store.get_block_header(chain.genesis().hash()).unwrap();
-        Self { chain_store, headers: vec![genesis_header] }
+        Self { chain, chain_store, headers: vec![genesis_header] }
     }
 
     fn non_spice() -> Self {
@@ -64,6 +66,7 @@ impl HeaderChain {
         let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::BlockHeader, block_hash.as_ref(), &header);
         store_update.set_ser(DBCol::NextBlockHashes, prev.hash().as_ref(), &block_hash);
+        store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(header.height()), &block_hash);
         store_update.commit();
         // What header processing records for the sync hash.
         let mut store_update = self.chain_store.store().store_update();
@@ -87,6 +90,14 @@ impl HeaderChain {
         let header = self.chain_store.get_block_header(block_hash).unwrap();
         let mut store_update = self.chain_store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, &Tip::from_header(&header));
+        store_update.commit();
+    }
+
+    /// Makes the last pushed header the header head.
+    fn set_header_head(&self) {
+        let header = self.headers.last().unwrap();
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, &Tip::from_header(header));
         store_update.commit();
     }
 }
@@ -216,4 +227,43 @@ fn test_update_sync_hashes_spice_epoch_after_genesis() {
     let epoch = chain.push_full(EPOCH_ID_1, EPOCH_LENGTH);
 
     assert_eq!(chain.recorded_sync_hash(&EPOCH_ID_1), Some(epoch[0]));
+}
+
+#[test]
+fn test_is_final_descendant_of_sync_block() {
+    const EPOCH_LENGTH: usize = 10;
+    let mut chain = HeaderChain::non_spice();
+    let epoch = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH);
+    chain.set_header_head();
+    let sync_hash = epoch[0];
+
+    let header = chain.chain_store.get_block_header(&epoch[1]).unwrap();
+
+    assert!(
+        chain
+            .chain
+            .state_sync_adapter
+            .is_final_descendant_of_sync_block(&header, &sync_hash)
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_is_final_descendant_of_sync_block_not_final() {
+    const EPOCH_LENGTH: usize = 10;
+    let mut chain = HeaderChain::non_spice();
+    let epoch = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH);
+    chain.set_header_head();
+    let sync_hash = epoch[0];
+
+    let non_final_hash = chain.push(EPOCH_ID_1, [true, true]);
+    let non_final_header = chain.chain_store.get_block_header(&non_final_hash).unwrap();
+
+    assert!(
+        !chain
+            .chain
+            .state_sync_adapter
+            .is_final_descendant_of_sync_block(&non_final_header, &sync_hash)
+            .unwrap()
+    );
 }

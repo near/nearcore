@@ -1,5 +1,4 @@
 use super::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::snapshot_hash_for_block;
 use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
@@ -10,18 +9,20 @@ use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
 use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, verify_path, verify_path_with_index};
+use near_primitives::merkle::{MerklePath, merklize, verify_path, verify_path_with_index};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
 use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
-    StateHeaderKey, StatePartKey, get_num_state_parts,
+    ShardStateSyncResponseHeaderV3, StateHeaderKey, StatePartKey, get_num_state_parts,
 };
-use near_primitives::types::ShardId;
+use near_primitives::types::{
+    ChunkExecutionResult, ChunkExecutionRoots, ShardId, SpiceChunkId, sorted_chunk_execution_roots,
+};
 use near_primitives::views::RequestedStatePartsView;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -32,6 +33,28 @@ use time::ext::InstantExt as _;
 
 fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
     Error::InvalidStateRequest(format!("shard_id {shard_id:?} out of bounds").into())
+}
+
+/// The path from `chunk_id`'s `ChunkExecutionRoots` leaf to `block`'s `chunk_execution_root`.
+fn execution_result_proof(block: &Block, chunk_id: &SpiceChunkId) -> Result<MerklePath, Error> {
+    let leaves =
+        sorted_chunk_execution_roots(block.spice_core_statements().iter_execution_results());
+    let Some(index) = leaves.iter().position(|leaf| leaf.chunk_id() == chunk_id) else {
+        return Err(Error::Other(format!(
+            "block {} does not commit an execution result for {chunk_id:?}",
+            block.hash()
+        )));
+    };
+
+    let (root, mut paths) = merklize(&leaves);
+    if Some(root) != block.header().chunk_execution_root() {
+        return Err(Error::Other(format!(
+            "block {} chunk_execution_root does not match its own execution results",
+            block.hash()
+        )));
+    }
+
+    Ok(paths.swap_remove(index))
 }
 
 pub struct ChainStateSyncAdapter {
@@ -83,6 +106,9 @@ impl ChainStateSyncAdapter {
         let shard_ids = self.epoch_manager.shard_ids(sync_block_epoch_id)?;
         if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
+        }
+        if sync_block_header.is_spice() {
+            return self.compute_spice_state_response_header(shard_id, sync_hash);
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
@@ -258,6 +284,51 @@ impl ChainStateSyncAdapter {
         Ok(ShardStateSyncResponseHeader::V2(shard_state_header))
     }
 
+    /// The spice state sync header for `shard_id` at `sync_hash`.
+    fn compute_spice_state_response_header(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
+        let (certifying_block, execution_result) = self.certified_execution_result(&chunk_id)?;
+        let execution_result_proof = execution_result_proof(&certifying_block, &chunk_id)?;
+        let state_root = *execution_result.chunk_extra.state_root();
+        let state_root_node =
+            self.runtime_adapter.get_state_root_node(shard_id, &sync_hash, &state_root)?;
+        Ok(ShardStateSyncResponseHeader::V3(ShardStateSyncResponseHeaderV3 {
+            state_root_node,
+            execution_result,
+            certifying_block_hash: *certifying_block.hash(),
+            execution_result_proof,
+        }))
+    }
+
+    /// The block that certifies the chunk's execution result, with that result.
+    fn certified_execution_result(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<(Arc<Block>, ChunkExecutionResult), Error> {
+        let Some(certifying_block_hash) = self.chain_store.get_chunk_certifying_block(chunk_id)
+        else {
+            return Err(Error::Other(format!(
+                "no certifying block for chunk {chunk_id:?}; its execution result is not certified yet"
+            )));
+        };
+        let certifying_block = self.chain_store.get_block(&certifying_block_hash)?;
+        let Some((_, execution_result)) = certifying_block
+            .spice_core_statements()
+            .iter_execution_results()
+            .find(|(id, _)| *id == chunk_id)
+        else {
+            return Err(Error::Other(format!(
+                "block {certifying_block_hash} does not commit an execution result for {chunk_id:?}"
+            )));
+        };
+        let execution_result = execution_result.clone();
+        Ok((certifying_block, execution_result))
+    }
+
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
     /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
     /// If the header was computed then it also gets cached in the DB.
@@ -315,18 +386,27 @@ impl ChainStateSyncAdapter {
         if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
         }
-        let prev_block = self.chain_store.get_block(header.prev_hash())?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = prev_block
-            .chunks()
-            .get(shard_index)
-            .ok_or(Error::InvalidShardId(shard_id))?
-            .prev_state_root();
-        let prev_hash = *prev_block.hash();
-        let snapshot_hash = snapshot_hash_for_block(prev_block.header());
+        // The two hashes below are the block the state root belongs to and the block the
+        // snapshot is keyed by. Non-spice syncs the state from before the sync-prev block's
+        // chunk ran, whose snapshot sits at the block before that; spice syncs the state from
+        // after the sync block's own chunk ran, and snapshots it at the sync block itself.
+        let (state_root, root_node_hash, snapshot_hash) = if header.is_spice() {
+            let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
+            let (_, execution_result) = self.certified_execution_result(&chunk_id)?;
+            (*execution_result.chunk_extra.state_root(), sync_hash, sync_hash)
+        } else {
+            let prev_block = self.chain_store.get_block(header.prev_hash())?;
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
+            let state_root = prev_block
+                .chunks()
+                .get(shard_index)
+                .ok_or(Error::InvalidShardId(shard_id))?
+                .prev_state_root();
+            (state_root, *prev_block.hash(), *prev_block.header().prev_hash())
+        };
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &prev_hash, &state_root)
+            .get_state_root_node(shard_id, &root_node_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
         if part_idx >= num_parts {
@@ -381,7 +461,15 @@ impl ChainStateSyncAdapter {
     ) -> Result<(), Error> {
         let sync_block_header = self.chain_store.get_block_header(&sync_hash)?;
 
-        let chunk = shard_state_header.cloned_chunk();
+        if sync_block_header.is_spice() {
+            return self.set_spice_state_header(shard_id, sync_hash, shard_state_header);
+        }
+
+        let Some(chunk) = shard_state_header.cloned_chunk() else {
+            return Err(Error::Other(
+                "set_shard_state failed: a non-spice header must carry a chunk".into(),
+            ));
+        };
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
@@ -399,9 +487,12 @@ impl ChainStateSyncAdapter {
         // 3aa. Also checking chunk.height_included
         let sync_prev_block_header =
             self.chain_store.get_block_header(sync_block_header.prev_hash())?;
+        let chunk_proof = shard_state_header
+            .chunk_proof()
+            .ok_or_else(|| Error::Other("set_shard_state failed: missing chunk proof".into()))?;
         if !verify_path(
             *sync_prev_block_header.chunk_headers_root(),
-            shard_state_header.chunk_proof(),
+            chunk_proof,
             &ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()),
         ) {
             byzantine_assert!(false);
@@ -551,6 +642,106 @@ impl ChainStateSyncAdapter {
         Ok(())
     }
 
+    /// Verifies and stores a spice state sync header.
+    ///
+    /// There is no chunk and no incoming receipts to check here: the state being synced already
+    /// includes the sync block's chunk, so nothing is applied on top of it. What has to hold is
+    /// that the execution result the node is about to record was committed by the chain, which
+    /// its proof establishes against a block header the node already has from header sync.
+    fn set_spice_state_header(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_state_header: ShardStateSyncResponseHeader,
+    ) -> Result<(), Error> {
+        let header = match &shard_state_header {
+            ShardStateSyncResponseHeader::V1(_) | ShardStateSyncResponseHeader::V2(_) => {
+                byzantine_assert!(false);
+                return Err(Error::Other("set_shard_state failed: not a spice header".into()));
+            }
+            ShardStateSyncResponseHeader::V3(header) => header,
+        };
+
+        // 1. The certifying block must be final and descend from the sync block. Execution
+        // results are committed by a later block, and only a final descendant's commitment says
+        // anything about the chain the node is syncing to.
+        let certifying_header = self.chain_store.get_block_header(&header.certifying_block_hash)?;
+        if !self.is_final_descendant_of_sync_block(&certifying_header, &sync_hash)? {
+            byzantine_assert!(false);
+            return Err(Error::Other(
+                "set_shard_state failed: certifying block is not a final descendant of the sync block".into(),
+            ));
+        }
+
+        // 2. That block's `chunk_execution_root` must commit this execution result for this
+        // shard's chunk in the sync block.
+        let Some(chunk_execution_root) = certifying_header.chunk_execution_root() else {
+            byzantine_assert!(false);
+            return Err(Error::Other(
+                "set_shard_state failed: certifying block commits no execution results".into(),
+            ));
+        };
+        let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
+        let leaf = ChunkExecutionRoots::from_execution_result(&chunk_id, &header.execution_result);
+        if !verify_path(chunk_execution_root, &header.execution_result_proof, &leaf) {
+            byzantine_assert!(false);
+            return Err(Error::Other(
+                "set_shard_state failed: execution result proof does not verify".into(),
+            ));
+        }
+
+        // 3. And the state root node must be the root of the trie the parts will rebuild.
+        if matches!(
+            self.runtime_adapter.validate_state_root_node(
+                &header.state_root_node,
+                header.execution_result.chunk_extra.state_root(),
+            ),
+            StateRootNodeValidationResult::Invalid
+        ) {
+            byzantine_assert!(false);
+            return Err(Error::Other("set_shard_state failed: state_root_node is invalid".into()));
+        }
+
+        let mut store_update = self.chain_store.store().store_update();
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
+        store_update.commit();
+        Ok(())
+    }
+
+    /// Whether `header` is a final descendant of the sync block `sync_hash`: higher than the sync
+    /// block, at or below the header head's last final block, and, like the sync block, on the
+    /// current chain.
+    pub(super) fn is_final_descendant_of_sync_block(
+        &self,
+        header: &BlockHeader,
+        sync_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
+        let sync_header = self.chain_store.get_block_header(sync_hash)?;
+        if header.height() <= sync_header.height() {
+            return Ok(false);
+        }
+
+        let header_head = self.chain_store.header_head()?;
+        let last_final_block =
+            *self.chain_store.get_block_header(&header_head.last_block_hash)?.last_final_block();
+        let final_height = self.chain_store.get_block_header(&last_final_block)?.height();
+        if header.height() > final_height {
+            return Ok(false);
+        }
+
+        Ok(self.is_on_current_chain(&sync_header)? && self.is_on_current_chain(header)?)
+    }
+
+    /// Returns if given block header is on the current chain.
+    ///
+    /// This is done by fetching header by height and checking that it's the
+    /// same one as provided.
+    fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let chain_header = self.chain_store.get_block_header_by_height(header.height())?;
+        Ok(chain_header.hash() == header.hash())
+    }
+
     pub fn set_state_part(
         &self,
         shard_id: ShardId,
@@ -559,8 +750,7 @@ impl ChainStateSyncAdapter {
         part: &StatePart,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.take_chunk();
-        let state_root = *chunk.take_header().take_inner().prev_state_root();
+        let state_root = shard_state_header.synced_state_root();
         if matches!(
             self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
             StatePartValidationResult::Invalid
