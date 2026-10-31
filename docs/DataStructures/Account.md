@@ -145,8 +145,12 @@ Deterministic accounts have a fixed code and fixed initial state associated with
 
 The initial state of a deterministic account is fully defined by an instance of `DeterministicAccountStateInit`.
 
-Key-value pairs in `data` must be at most `max_length_storage_key` and `max_length_storage_value` bytes long,
-respectively. These parameters are currently both set to 4Mib (4194304 bytes).
+Keys in `data` must be at most `max_length_storage_key` bytes long (currently 2048 bytes). Values in `data` must be at
+most `max_length_storage_value` bytes long (currently 4 MiB, 4194304 bytes).
+
+From protocol version 87 (nearcore 2.14.0), all state init actions in one receipt together can carry at most
+`max_state_init_entries` data entries (currently 1500). State init actions inside a delegate action count too. Before
+protocol version 87, there is no practical limit on the number of entries.
 
 ```rust
 pub enum DeterministicAccountStateInit {
@@ -173,8 +177,11 @@ bytes. Then use the following formula: `'0s' + keccak256(bytes)[12:32].hex()`.
 
 ### Deterministic account creation
 
-Deterministic accounts cannot be created with a `CreateAccount` nor with a `Transfer` action.
-A special action, `DeterministicStateInitAction`, is required.
+Deterministic accounts cannot be created with a `CreateAccount` action.
+A `Transfer` that is the only action of its receipt creates the account, but without code or data.
+A refund receipt cannot create an account, even when its only action is a `Transfer` (see [Refunds](../RuntimeSpec/Refunds.md)).
+If a refund goes to a deterministic account that does not exist yet, the refund fails and its amount is burnt.
+A special action, `DeterministicStateInitAction`, is required to initialize it.
 This action validates that the account id matches its initial state.
 
 As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and

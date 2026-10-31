@@ -6,7 +6,7 @@ Receipts are stateful in a sense that they serve not only as messages between ac
 
 Each receipt has a [`predecessor_id`](#predecessor_id) (who sent it) and [`receiver_id`](#receiver_id) the current account.
 
-Receipts are one of 2 types: action receipts or data receipts.
+Receipts are one of these kinds: action receipts, data receipts, promise yield receipts, promise resume receipts and global contract distribution receipts.
 
 Data Receipts are receipts that contains some data for some `ActionReceipt` with the same `receiver_id`.
 Data Receipts have 2 fields: the unique data identifier `data_id` and `data` the received result.
@@ -24,6 +24,18 @@ Which means all corresponding data receipts have to be received.
 If any of the data dependencies are missing, the action receipt is postponed until all missing data dependencies arrive.
 
 Because chain and runtime guarantees that no receipts are missing, we can rely that every action receipt will be executed eventually ([Receipt Matching explanation](#receipt-matching)).
+
+A promise yield receipt is an action receipt with exactly one input `data_id`.
+A contract creates it with a yield host function such as `promise_yield_create`.
+The runtime does not postpone it like other action receipts.
+Instead, it stores the receipt under its input `data_id` and runs it when a promise resume receipt with the same `data_id` arrives.
+A promise resume receipt is a data receipt.
+A contract creates it with a resume host function such as `promise_yield_resume`.
+If the yield is not resumed before it times out, the runtime creates a promise resume receipt with no data.
+
+A global contract distribution receipt carries the code of a global contract.
+A [`DeployGlobalContractAction`](Actions.md#deployglobalcontractaction) creates it.
+When the receipt is applied on a shard, the runtime stores the code there. It then sends a new distribution receipt to the next shard, until every shard has the code. Its `receiver_id` is `system`. The runtime sends it to the shard named in the receipt, not to the shard of an account.
 
 Each `Receipt` has the following fields:
 
@@ -48,9 +60,25 @@ An unique id for the receipt.
 
 #### receipt
 
-- **`type`**: [ActionReceipt](#actionreceipt) | [DataReceipt](#datareceipt)
+- **`type`**: `ReceiptEnum`
 
-There are 2 types of Receipt: [ActionReceipt](#actionreceipt) and [DataReceipt](#datareceipt). An `ActionReceipt` is a request to apply [Actions](Actions.md), while a `DataReceipt` is a result of the application of these actions.
+```rust
+pub enum ReceiptEnum {
+    Action(ActionReceipt) = 0,
+    Data(DataReceipt) = 1,
+    PromiseYield(ActionReceipt) = 2,
+    PromiseResume(DataReceipt) = 3,
+    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
+    ActionV2(ActionReceiptV2) = 5,
+    PromiseYieldV2(ActionReceiptV2) = 6,
+}
+```
+
+An [ActionReceipt](#actionreceipt) is a request to apply [Actions](Actions.md), while a [DataReceipt](#datareceipt) is a result of the application of these actions.
+`PromiseYield`, `PromiseResume` and `GlobalContractDistribution` are the receipts described above.
+`ActionV2` and `PromiseYieldV2` carry an `ActionReceiptV2`, which has the fields of `ActionReceipt` plus `refund_to`.
+If `refund_to` is set, deposit refunds for the receipt go to that account instead of `predecessor_id`.
+Action receipts that contracts create use these V2 kinds.
 
 ## ActionReceipt
 
