@@ -1,6 +1,6 @@
 # action_creation_config
 
-Describes the cost of creating a specific action, `Action`. Includes all variants.
+Describes the cost of creating a specific action, `Action`. It covers the actions up to `delegate_cost`. The fees of newer actions, such as global contract, state init and gas key actions, are separate runtime parameters.
 
 ## create_account_cost
 
