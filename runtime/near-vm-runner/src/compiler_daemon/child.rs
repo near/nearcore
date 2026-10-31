@@ -4,25 +4,30 @@
 //! limit (RLIMIT_AS), [landlocks](https://landlock.io/) itself to minimal
 //! system access, and raises `oom_score_adj`.
 //!
-//! Limits and sandboxing are only implemented for Linux.
+//! Address-space limits are enforced on Unix, sandboxing is Linux-only.
 
 // cspell:words landlocks sandboxing
 
-#[cfg(unix)]
-use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
+use super::allocator::{enable as enable_allocation_failure_exit, exit_for_memory_exhaustion};
 use super::protocol::{
-    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    DaemonStatus, WorkerConfig, read_frame, write_compile_response, write_frame,
+    COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV,
+    CompileRequest, DaemonStartup, DaemonStatus, MemoryLimitStatus, WorkerConfig, read_frame,
+    write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
+#[cfg(unix)]
+use rustix::io::Errno;
 use std::collections::{HashMap, hash_map};
 use std::env;
 use std::fmt::Display;
 use std::io::Write;
 use std::process::exit;
 #[cfg(feature = "test_features")]
-use std::thread::park;
+use std::thread::{park, sleep};
+#[cfg(feature = "test_features")]
+use std::time::Duration;
+use wasmtime::{Error as WasmtimeError, OutOfMemory};
 
 /// Entry point for the dedicated compiler daemon binary.
 pub fn daemon_main() -> ! {
@@ -33,7 +38,11 @@ pub fn daemon_main() -> ! {
         Err(err) => report_startup_error(&mut writer, err),
     };
 
-    set_memory_limit();
+    enable_allocation_failure_exit();
+    let memory_limit = match set_memory_limit(worker_config.memory_limit_bytes) {
+        Ok(status) => status,
+        Err(err) => report_startup_error(&mut writer, err),
+    };
     raise_oom_score_adj();
     let sandbox_status = match sandbox::apply() {
         Ok(status) => status,
@@ -51,12 +60,12 @@ pub fn daemon_main() -> ! {
     {
         report_startup_error(&mut writer, format!("failed to create compiler thread pool: {err}"));
     }
-    let compiler_compatibility_hash = compiler_compatibility_hash().unwrap_or_else(|err| {
-        abort_worker(format!("failed to create compatibility engine: {err}"))
-    });
+    let compiler_compatibility_hash = compiler_compatibility_hash()
+        .unwrap_or_else(|err| abort_wasmtime_worker("failed to create compatibility engine", err));
     let startup = DaemonStartup::Ready(DaemonStatus {
         compiler_compatibility_hash,
         isolation: sandbox_status.isolation_status(),
+        memory_limit,
         worker_config,
     });
     if write_frame(&mut writer, &borsh::to_vec(&startup).unwrap()).is_err() {
@@ -76,7 +85,7 @@ pub fn daemon_main() -> ! {
             Ok(r) => r,
             Err(err) => abort_worker(format!("failed to deserialize request: {err}")),
         };
-        let response = handle_request(&mut engines, request, &sandbox_status);
+        let response = handle_request(&mut engines, request, &sandbox_status, worker_config);
         let response = response.as_ref().map(Vec::as_slice).map_err(String::as_str);
         if write_compile_response(&mut writer, response).is_err() {
             std::process::exit(0);
@@ -97,7 +106,9 @@ fn worker_config_from_env() -> Result<WorkerConfig, String> {
             "environment variable {COMPILER_DAEMON_STACK_SIZE_ENV} exceeds the platform address space"
         )
     })?;
-    Ok(WorkerConfig { threads, thread_stack_size_bytes })
+    let memory_limit_bytes = read_positive_env(COMPILER_DAEMON_MEMORY_LIMIT_ENV)?;
+    validate_memory_limit_representation(memory_limit_bytes)?;
+    Ok(WorkerConfig { threads, thread_stack_size_bytes, memory_limit_bytes })
 }
 
 fn read_positive_env(name: &str) -> Result<u64, String> {
@@ -122,6 +133,8 @@ fn handle_request(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest<'_>,
     sandbox_status: &SandboxStatus,
+    #[cfg_attr(not(feature = "test_features"), allow(unused_variables))]
+    worker_config: WorkerConfig,
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]
     if let Some(action) = request.test_action {
@@ -132,6 +145,39 @@ fn handle_request(
             },
             super::protocol::TestAction::EngineCreationFailure => {
                 abort_worker("failed to create engine: test engine creation failure")
+            }
+            super::protocol::TestAction::SleepMillis(millis) => {
+                sleep(Duration::from_millis(millis));
+            }
+            #[cfg(unix)]
+            super::protocol::TestAction::UnknownSigkill => unsafe {
+                libc::kill(libc::getpid(), libc::SIGKILL);
+                libc::_exit(1);
+            },
+            #[cfg(unix)]
+            super::protocol::TestAction::CloseOutputAndPark => {
+                unsafe {
+                    libc::close(libc::STDOUT_FILENO);
+                }
+                loop {
+                    park();
+                }
+            }
+            #[cfg(unix)]
+            super::protocol::TestAction::AllocationFailure => {
+                // A single allocation as large as the worker's complete
+                // address-space limit must fail without committing host memory.
+                let allocation = Vec::<u8>::with_capacity(
+                    usize::try_from(worker_config.memory_limit_bytes).unwrap(),
+                );
+                std::hint::black_box(allocation);
+                abort_worker("test allocation unexpectedly succeeded")
+            }
+            #[cfg(unix)]
+            super::protocol::TestAction::MemoryExhaustionBelow { memory_limit_bytes } => {
+                if worker_config.memory_limit_bytes < memory_limit_bytes {
+                    exit_for_memory_exhaustion();
+                }
             }
             #[cfg(target_os = "linux")]
             super::protocol::TestAction::LandlockProbe => {
@@ -154,10 +200,38 @@ fn handle_compile(
         hash_map::Entry::Occupied(e) => e.into_mut(),
         hash_map::Entry::Vacant(e) => e.insert(
             create_compiler_engine(request.max_memory_pages)
-                .unwrap_or_else(|err| abort_worker(format!("failed to create engine: {err}"))),
+                .unwrap_or_else(|err| abort_wasmtime_worker("failed to create engine", err)),
         ),
     };
-    engine.precompile_module(&request.prepared_code).map_err(|err| err.to_string())
+    engine.precompile_module(&request.prepared_code).map_err(|err| {
+        if is_memory_exhaustion(&err) {
+            exit_for_memory_exhaustion();
+        }
+        err.to_string()
+    })
+}
+
+/// Whether Wasmtime retained typed evidence of local memory exhaustion.
+///
+/// Wasmtime uses `OutOfMemory` for fallible Rust allocations. Its Unix code
+/// memory path bypasses the global allocator and preserves mmap's typed
+/// `ENOMEM` in the error chain.
+fn is_memory_exhaustion(err: &WasmtimeError) -> bool {
+    if err.is::<OutOfMemory>() {
+        return true;
+    }
+    #[cfg(unix)]
+    if err.chain().any(|cause| cause.downcast_ref::<Errno>() == Some(&Errno::NOMEM)) {
+        return true;
+    }
+    false
+}
+
+fn abort_wasmtime_worker(context: &str, err: WasmtimeError) -> ! {
+    if is_memory_exhaustion(&err) {
+        exit_for_memory_exhaustion();
+    }
+    abort_worker(format!("{context}: {err}"))
 }
 
 /// Exit the worker process with a message to its local stderr.
@@ -172,25 +246,58 @@ fn abort_worker(err: impl Display) -> ! {
 }
 
 #[cfg(unix)]
-fn set_memory_limit() {
-    let ret = unsafe {
-        // cspell:words rlim
-        let limit = libc::rlimit {
-            rlim_cur: MIN_WORKER_MEMORY_LIMIT_BYTES,
-            rlim_max: MIN_WORKER_MEMORY_LIMIT_BYTES,
-        };
-        // cspell:words setrlimit
-        libc::setrlimit(libc::RLIMIT_AS, &limit)
-    };
-    if ret != 0 {
-        eprintln!("warning: failed to set memory limit: {}", std::io::Error::last_os_error());
-        // TODO: Reconsider the behavior when failing to set a memory limit,
-        // especially if we add an async compilation sub-protocol.
+fn validate_memory_limit_representation(memory_limit_bytes: u64) -> Result<(), String> {
+    let limit = libc::rlim_t::try_from(memory_limit_bytes).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} exceeds the platform address space"
+        )
+    })?;
+    if limit == libc::RLIM_INFINITY {
+        return Err(format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} must be a finite limit"
+        ));
     }
+    Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_memory_limit() {}
+fn validate_memory_limit_representation(memory_limit_bytes: u64) -> Result<(), String> {
+    usize::try_from(memory_limit_bytes).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} exceeds the platform address space"
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_memory_limit(memory_limit_bytes: u64) -> Result<MemoryLimitStatus, String> {
+    validate_memory_limit_representation(memory_limit_bytes)?;
+    let requested = libc::rlim_t::try_from(memory_limit_bytes).map_err(|_| {
+        format!("memory limit {memory_limit_bytes} exceeds the platform address space")
+    })?;
+    let limit = libc::rlimit { rlim_cur: requested, rlim_max: requested };
+    if unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) } != 0 {
+        return Err(format!("failed to set memory limit: {}", std::io::Error::last_os_error()));
+    }
+
+    let mut effective = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    if unsafe { libc::getrlimit(libc::RLIMIT_AS, &mut effective) } != 0 {
+        return Err(format!("failed to verify memory limit: {}", std::io::Error::last_os_error()));
+    }
+    if effective.rlim_cur != requested || effective.rlim_max != requested {
+        return Err(format!(
+            "memory limit mismatch after installation: soft {}, hard {}, requested {memory_limit_bytes}",
+            effective.rlim_cur, effective.rlim_max
+        ));
+    }
+    Ok(MemoryLimitStatus::Enforced { memory_limit_bytes })
+}
+
+#[cfg(not(unix))]
+fn set_memory_limit(_memory_limit_bytes: u64) -> Result<MemoryLimitStatus, String> {
+    Ok(MemoryLimitStatus::Unavailable)
+}
 
 /// Mark this worker as the kernel OOM killer's preferred victim.
 ///
@@ -213,3 +320,45 @@ fn raise_oom_score_adj() {
 
 #[cfg(not(target_os = "linux"))]
 fn raise_oom_score_adj() {}
+
+#[cfg(test)]
+mod tests {
+    use super::is_memory_exhaustion;
+    #[cfg(unix)]
+    use rustix::io::Errno;
+    use wasmtime::{Error as WasmtimeError, OutOfMemory};
+
+    #[test]
+    fn recognizes_out_of_memory_with_context() {
+        let err = WasmtimeError::new(OutOfMemory::new(1));
+        assert!(is_memory_exhaustion(&err));
+        assert!(is_memory_exhaustion(&err.context("compiling module")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recognizes_enomem_with_context() {
+        let err = WasmtimeError::new(Errno::NOMEM);
+        assert!(is_memory_exhaustion(&err));
+        assert!(is_memory_exhaustion(
+            &err.context("allocating code memory").context("compiling module")
+        ));
+    }
+
+    #[test]
+    fn rejects_untyped_errors() {
+        for message in ["invalid wasm", "out of memory", "ENOMEM"] {
+            let err = WasmtimeError::msg(message);
+            assert!(!is_memory_exhaustion(&err));
+            assert!(!is_memory_exhaustion(&err.context("compiling module")));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_unrelated_errno() {
+        let err = WasmtimeError::new(Errno::INVAL);
+        assert!(!is_memory_exhaustion(&err));
+        assert!(!is_memory_exhaustion(&err.context("out of memory")));
+    }
+}
