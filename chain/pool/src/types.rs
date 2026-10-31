@@ -1,5 +1,7 @@
+use crate::item::PoolItem;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::ValidatedTransaction;
+use std::collections::VecDeque;
 
 /// Trait acts like an iterator. It iterates over transactions groups by returning mutable
 /// references to them. Each transaction group implements a draining iterator to pull transactions.
@@ -8,40 +10,44 @@ pub trait TransactionGroupIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
 }
 
-/// A hash of (an AccountId, a PublicKey and a seed).
+/// A hash of the group's identity (e.g. an AccountId and a PublicKey) and a seed.
 /// Used to randomize the order of the keys.
 pub(crate) type PoolKey = CryptoHash;
 
-/// Represents a group of transactions with the same key.
-pub struct TransactionGroup {
+/// Represents a group of items with the same key.
+pub struct Group<T> {
     /// The key of the group.
     pub(crate) key: PoolKey,
-    /// Ordered transactions by nonce in non-increasing order (e.g. 3, 2, 2).
-    pub(crate) transactions: Vec<ValidatedTransaction>,
-    /// Hashes of the transactions that were pulled from the group using `.next()`.
-    pub(crate) removed_transaction_hashes: Vec<CryptoHash>,
-    /// Total size of transactions that were pulled from the group using `.next()`.
-    pub(crate) removed_transaction_size: u64,
-    /// Set to `true` when `next()` pops a transaction, reset to `false` when
+    /// The items in the order they are taken in, the next one at the front.
+    pub(crate) items: VecDeque<T>,
+    /// Hashes of the items that were pulled from the group using `.next()`.
+    pub(crate) removed_hashes: Vec<CryptoHash>,
+    /// Total size of items that were pulled from the group using `.next()`.
+    pub(crate) removed_size: u64,
+    /// Set to `true` when `next()` pops an item, reset to `false` when
     /// the iterator yields this group. Used to detect stalled groups.
     pub(crate) removed_any_since_yield: bool,
 }
 
-impl TransactionGroup {
-    /// Returns the next transaction with the smallest nonce and removes it from the group.
-    /// It also stores all hashes of returned transactions.
-    pub fn next(&mut self) -> Option<ValidatedTransaction> {
-        if let Some(validated_tx) = self.transactions.pop() {
-            self.removed_transaction_hashes.push(validated_tx.get_hash());
-            self.removed_transaction_size += validated_tx.wire_size();
+/// A group of signed transactions with the same key, taken in the order of nonces.
+pub type TransactionGroup = Group<ValidatedTransaction>;
+
+impl<T: PoolItem> Group<T> {
+    /// Returns the next item and removes it from the group. For transactions that is the one
+    /// with the smallest nonce.
+    /// It also stores all hashes of returned items.
+    pub fn next(&mut self) -> Option<T> {
+        if let Some(item) = self.items.pop_front() {
+            self.removed_hashes.push(item.hash());
+            self.removed_size += item.size();
             self.removed_any_since_yield = true;
-            Some(validated_tx)
+            Some(item)
         } else {
             None
         }
     }
 
-    pub fn peek_next(&self) -> Option<&ValidatedTransaction> {
-        self.transactions.last()
+    pub fn peek_next(&self) -> Option<&T> {
+        self.items.front()
     }
 }
