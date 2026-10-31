@@ -201,7 +201,7 @@ export interface EpochInfoView {
     block_producers: ValidatorInfo[];
     chunk_producers: string[];
     chunk_validators: string[];
-    validator_info: EpochValidatorInfo;
+    validator_info: EpochValidatorInfo | null;
     protocol_version: number;
     // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
     // index, which does not identify the shards after a resharding.
