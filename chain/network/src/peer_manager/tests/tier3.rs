@@ -1,7 +1,7 @@
 use crate::broadcast;
 use crate::client::{
-    StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestUpdate,
-    StateRequestUpdateMessage,
+    StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestResponse,
+    StateRequestUpdate, StateRequestUpdateMessage,
 };
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
@@ -70,11 +70,13 @@ async fn start_pm(
     cfg.max_inbound_tier3_connections = MAX_INBOUND_TIER3_CONNECTIONS as u32;
     let state_request_sender = StateRequestSenderForNetwork {
         state_request_header: AsyncSender::from_fn(|StateRequestHeader { shard_id, sync_hash }| {
-            Some(StatePartOrHeader(Box::new(state_response(shard_id, sync_hash, None))))
+            StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
+                shard_id, sync_hash, None,
+            ))))
         }),
         state_request_part: AsyncSender::from_fn(
             |StateRequestPart { shard_id, sync_hash, part_idx }| {
-                Some(StatePartOrHeader(Box::new(state_response(
+                StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
                     shard_id,
                     sync_hash,
                     Some(part_idx),
