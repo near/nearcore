@@ -93,6 +93,7 @@ impl SpiceTimer {
         target_height: BlockHeight,
         chain_store: &ChainStoreAdapter,
         head_hash: &CryptoHash,
+        head_height: BlockHeight,
         last_block_timestamp_ns: u64,
     ) -> Result<bool, Error> {
         let now = u128::try_from(self.clock.now_utc().unix_timestamp_nanos()).unwrap_or(0);
@@ -100,8 +101,8 @@ impl SpiceTimer {
 
         let certification_height = self.get_certification_head_height(chain_store, head_hash)?;
 
-        // Target height should always be > certification height in normal operation
-        let certification_lag = target_height.saturating_sub(certification_height);
+        // Measured from the head, not target_height: skipped heights have no blocks to certify.
+        let certification_lag = (head_height + 1).saturating_sub(certification_height);
 
         let required_delay_ns = self.calculate_production_delay_ns(certification_lag);
 
@@ -128,6 +129,7 @@ impl SpiceTimer {
 mod tests {
     use super::*;
     use near_async::time::{FakeClock, Utc};
+    use near_chain::test_utils::setup;
 
     #[test]
     fn test_calculate_production_delay_no_lag() {
@@ -180,5 +182,34 @@ mod tests {
         // Lag of 102 blocks: should still be capped at 2000ms
         let delay = timer.calculate_production_delay_ns(102);
         assert_eq!(delay, Duration::milliseconds(2000).unsigned_abs().as_nanos());
+    }
+
+    #[test]
+    fn skipped_heights_do_not_increase_production_delay() {
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
+        let (chain, _, _, _) = setup(clock.clock());
+        let mut timer = SpiceTimer::new(
+            clock.clock(),
+            MutableConfigValue::new(Duration::milliseconds(600), "min_block_time"),
+            MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
+        );
+        let head = chain.head().unwrap();
+        let last_block_timestamp_ns = clock.now_utc().unix_timestamp_nanos() as u64;
+        clock.advance(Duration::milliseconds(700));
+
+        let next_height = head.height + 1;
+        let skip_target_height = head.height + 5;
+        for target_height in [next_height, skip_target_height] {
+            let ready = timer
+                .ready_to_produce_block(
+                    target_height,
+                    &chain.chain_store(),
+                    &head.last_block_hash,
+                    head.height,
+                    last_block_timestamp_ns,
+                )
+                .unwrap();
+            assert!(ready, "target_height {target_height} is not ready");
+        }
     }
 }
