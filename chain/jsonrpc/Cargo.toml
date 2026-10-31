@@ -43,7 +43,6 @@ near-chain-primitives.workspace = true
 test_features = [
     "near-client/test_features",
     "near-network/test_features",
-    "near-jsonrpc-primitives/test_features",
     "near-jsonrpc-adversarial-primitives/test_features",
     "near-primitives/test_features",
 ]

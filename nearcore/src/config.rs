@@ -11,7 +11,7 @@ use near_chain_configs::test_utils::{
     random_chain_id,
 };
 use near_chain_configs::{
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    AdversarialMode, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
     EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
@@ -460,10 +460,23 @@ pub struct Config {
     /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
+    /// Adversarial behavior. Do not enable in production.
+    /// Not written to config.json when it is the default.
+    #[serde(skip_serializing_if = "is_default_adversarial_mode")]
+    pub adversarial_mode: AdversarialMode,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Tests use the `adv_*` RPC methods, so `test_features` builds accept them by default.
+fn default_adversarial_mode() -> AdversarialMode {
+    if cfg!(feature = "test_features") { AdversarialMode::Rpc } else { AdversarialMode::None }
+}
+
+fn is_default_adversarial_mode(mode: &AdversarialMode) -> bool {
+    *mode == default_adversarial_mode()
 }
 impl Default for Config {
     fn default() -> Self {
@@ -539,6 +552,7 @@ impl Default for Config {
             chunks_cache_height_horizon: None,
             #[cfg(feature = "protocol_feature_spice")]
             spice_pending_transaction_queue_enabled: false,
+            adversarial_mode: default_adversarial_mode(),
         }
     }
 }
@@ -1829,6 +1843,9 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
+    // In-process test nodes do not use the `adv_*` RPC methods, so they start without
+    // `ADVERSARY_CONSENT`.
+    config.adversarial_mode = AdversarialMode::None;
     NearConfig::new(
         config,
         genesis,
@@ -1845,7 +1862,9 @@ mod tests {
     };
     use itertools::Itertools;
     use near_async::time::Duration;
-    use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode, TrackedShardsConfig};
+    use near_chain_configs::{
+        AdversarialMode, GCConfig, Genesis, GenesisValidationMode, TrackedShardsConfig,
+    };
     use near_crypto::InMemorySigner;
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use near_store::ShardUId;
@@ -1866,6 +1885,29 @@ mod tests {
         assert_eq!(config.receipt_to_tx_max_hint_window, None);
         assert_eq!(config.receipt_to_tx_max_hop_distance, None);
         assert_eq!(config.receipt_to_tx_max_outcomes_per_request, None);
+    }
+
+    #[test]
+    fn test_adversarial_mode_config() {
+        let expected_default = if cfg!(feature = "test_features") {
+            AdversarialMode::Rpc
+        } else {
+            AdversarialMode::None
+        };
+        let config: Config = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(config.adversarial_mode, expected_default);
+        // The default is not written, so config.json from a `test_features` build does not turn
+        // on adversarial behavior in a release build.
+        let value = serde_json::to_value(&config).unwrap();
+        assert!(value.get("adversarial_mode").is_none());
+
+        for mode in [AdversarialMode::None, AdversarialMode::Rpc] {
+            let config: Config =
+                serde_json::from_value(json!({ "adversarial_mode": mode })).unwrap();
+            assert_eq!(config.adversarial_mode, mode);
+            let value = serde_json::to_value(&config).unwrap();
+            assert_eq!(value.get("adversarial_mode").is_some(), mode != expected_default);
+        }
     }
 
     #[test]

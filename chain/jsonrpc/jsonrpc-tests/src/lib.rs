@@ -8,7 +8,9 @@ use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    AdversarialMode, ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig,
+};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
@@ -136,7 +138,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     });
 
     // 6. Create ViewClientActor
-    let adv = Controls::default();
+    let adv = Controls::new(false, AdversarialMode::Rpc);
     let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -319,8 +321,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         rpc_handler_actor.into_multi_sender(),
         noop().into_multi_sender(),
         block_notification_watch_receiver,
-        #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
+        AdversarialMode::Rpc,
         Arc::new(DummyEntityDebugHandler {}),
         pool,
     );
