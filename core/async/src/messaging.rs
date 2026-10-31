@@ -15,17 +15,6 @@ pub trait Actor {
     /// It is called before any messages are processed.
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 
-    /// This is called for every message that the actor handles, so that the actor can do something
-    /// else before and after handling the message.
-    fn wrap_handler<M, R>(
-        &mut self,
-        msg: M,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
-    ) -> R {
-        f(self, msg, ctx)
-    }
-
     /// Called by the actor runtime right before the actor is dropped.
     fn stop_actor(&mut self) {}
 }
@@ -62,8 +51,8 @@ where
     M: Send + 'static,
     R: Send,
 {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R {
-        self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
+    fn handle(&mut self, msg: M, _ctx: &mut dyn DelayedActionRunner<Self>) -> R {
+        Handler::handle(self, msg)
     }
 }
 
