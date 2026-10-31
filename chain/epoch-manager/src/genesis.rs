@@ -15,7 +15,6 @@ use rand::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use std::collections::HashMap;
 use std::iter;
-use std::sync::Arc;
 
 impl EpochManager {
     pub fn initialize_genesis_epoch_info(
@@ -29,7 +28,7 @@ impl EpochManager {
         // If we view it as block in epoch -1 and height -1, it naturally extends the
         // EpochId formula using T-2 for T=1, and height field is unused.
         let mut store_update = self.store.store_update();
-        self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
+        store_update.set_epoch_info(&EpochId::default(), &genesis_epoch_info);
         store_update.set_block_info(&BlockInfo::default());
         store_update.commit();
         Ok(())

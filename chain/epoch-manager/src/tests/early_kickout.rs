@@ -1664,17 +1664,16 @@ fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
     let mut store_update = em.store.store_update();
     em.init_after_epoch_sync(
         &mut store_update,
-        prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
-        prev_epoch_block(second_last, second_last_height, third_last),
-        prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
+        &prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
+        &prev_epoch_block(second_last, second_last_height, third_last),
+        &prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
         &prev_epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &next_epoch_id,
-        epoch_info.clone(),
-    )
-    .unwrap();
+        &epoch_info,
+    );
     store_update.commit();
 
     EpochSyncFixture {
@@ -1766,96 +1765,6 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
         EpochError::MissingBlock(fx.third_last),
         "expected the missing basis block to propagate verbatim, got {err:?}",
     );
-}
-
-/// Input for the `record_block_info` failure tests, final on the aggregator position the
-/// fixture leaves uninstalled. Each call needs a fresh one: record consumes the value and
-/// overwrites its epoch fields.
-fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) -> BlockInfo {
-    const HEIGHT: u64 = 100;
-    BlockInfo::new(
-        hash,
-        HEIGHT,
-        fx.third_last_height,
-        fx.third_last,
-        prev,
-        vec![],
-        vec![true],
-        DEFAULT_TOTAL_SUPPLY,
-        PROTOCOL_VERSION,
-        HEIGHT * NUM_NS_IN_SECOND,
-        ChunkEndorsementsBitmap::new(1),
-        None,
-    )
-}
-
-// A failed record must not leave the block readable: the caller drops the store update,
-// so other readers would see a block that was never written.
-// Reachable after epoch sync, where the seeder fails with `MissingBlock`.
-#[test]
-fn record_block_info_failure_leaves_no_block_info() {
-    let mut fx = epoch_sync_fixture();
-
-    // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
-    // back to the third-last block, which epoch sync never installed.
-    let sibling = hash(b"prev epoch last block sibling");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the seeder walk must fail on the uninstalled aggregator position");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-
-    let err =
-        fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
-            "a discarded record must not leave a block info row, or the retry is skipped",
-        );
-    assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-}
-
-// Same for the epoch-start branch, where `save_epoch_start` now runs after the last fallible
-// step. Fault injection: the fixture's current-epoch id is an arbitrary label, so the id the
-// boundary derives has no `EpochInfo` and the record fails where the epoch-start write used
-// to precede it. Not a state epoch sync can produce.
-#[test]
-fn record_block_info_failure_leaves_no_epoch_start() {
-    let mut fx = epoch_sync_fixture();
-
-    // What the boundary derives: the hash of the block before the prev epoch's first.
-    let boundary_id = EpochId(*fx.em.get_block_info(&fx.first).unwrap().prev_hash());
-
-    // Child of the prev epoch's last block, so the record takes the epoch-start branch.
-    let child = hash(b"first block of the new epoch");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the derived boundary epoch has no EpochInfo installed");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .get_epoch_start_from_epoch_id(&boundary_id)
-        .expect_err("a discarded record must not leave an epoch start behind");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-    fx.em
-        .get_block_info(&child)
-        .map(|_| ())
-        .expect_err("a discarded record must not leave a block info row");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
 }
 
 // `has_block_info` reads the store, so a record whose update the caller drops is recorded

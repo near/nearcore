@@ -55,7 +55,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
-    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// Fork-order-dependent across same-parent boundary siblings (last `set_epoch_start`
     /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
     /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
@@ -760,24 +760,27 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError>;
+        next_epoch_info: &EpochInfo,
+    );
 
     /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
     /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
     /// Writes into `store_update` so it commits atomically with the block.
+    /// Takes `epoch_info` of the block's epoch because `init_after_epoch_sync` writes
+    /// it into the same uncommitted update, so the store can't return it yet.
     fn seed_chunk_producers_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
     /// Verify validator signature for the given epoch.
@@ -1106,7 +1109,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.read().get_epoch_start_from_epoch_id(epoch_id)
+        self.read().store.get_epoch_start(epoch_id)
     }
 
     fn get_static_shard_layout_for_protocol_version(
@@ -1263,16 +1266,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError> {
+        next_epoch_info: &EpochInfo,
+    ) {
         let mut epoch_manager = self.write();
         epoch_manager.init_after_epoch_sync(
             store_update,
@@ -1285,15 +1288,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_info,
             next_epoch_id,
             next_epoch_info,
-        )
+        );
     }
 
     fn seed_chunk_producers_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
-        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info, epoch_info)
     }
 
     fn get_shard_layout_history(
