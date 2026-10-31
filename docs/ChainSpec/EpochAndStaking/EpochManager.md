@@ -62,21 +62,36 @@ necessarily validators of `T+1`, but are kept in slashing sets due to the rule d
 
 1. `Slashed`: accounts in the slash set of the last block in `T`
 2. `Unstaked`: accounts that remove their stake in epoch `T`, if their stake is non-zero for epoch `T+1`
-3. `NotEnoughBlocks/NotEnoughChunks`: For each validator compute the ratio of blocks produced to expected blocks produced (same with chunks produced/expected).
+3. `NotEnoughBlocks/NotEnoughChunks/NotEnoughChunkEndorsements`: For each validator compute the ratio of blocks produced to expected blocks produced (same with chunks produced/expected).
     If the percentage is below `block_producer_kickout_threshold` (`chunk_producer_kickout_threshold`), the validator is kicked out.
-    - Exception: If all validators of `T` are either in `kickout[T+1]` or to be kicked out, we don't kick out the
-    validator with the maximum number of blocks produced. If there are multiple, we choose the one with
-    lowest validator id in the epoch.
-4. `NotEnoughStake`: computed after validator selection. Accounts who have stake in epoch `T+1`, but don't meet stake threshold for epoch `T+2`.
-5. `DidNotGetASeat`: computed after validator selection. Accounts who have stake in epoch `T+1`, meet stake threshold for epoch `T+2`, but didn't get any seats.
+    Both thresholds are 80% on mainnet.
+    A validator that is not expected to produce any blocks or chunks (a chunk validator only) is checked on its ratio of
+    produced to expected chunk endorsements instead. If this ratio is below `chunk_validator_only_kickout_threshold`
+    (70% on mainnet), the validator is kicked out.
+    - Exception: If all validators of `T` are either in `kickout[T+1]` or to be kicked out for the reasons in this
+    item, one validator is not kicked out for these reasons. It is the validator with the most produced blocks among
+    the validators that are not in `kickout[T+1]`. If there are multiple, we choose the one with the lowest validator
+    id in the epoch. If all validators of `T` are in `kickout[T+1]`, no validator is kept. The reasons in items 2 and 4
+    still apply to the kept validator.
+    - Exception: The validators with the best production are exempt from the kickouts in this item, until the exempt
+    validators hold at least `100 - validator_max_kickout_stake_perc` percent of the total stake of `T` (70% on
+    mainnet). Validators in `kickout[T+1]` are never exempt. To choose the exempt validators, validators are sorted by
+    their average production ratio. This is the average of the block, chunk and chunk endorsement ratios, counting only
+    the kinds of work the validator was expected to do. Validators with equal ratios are sorted by stake, highest first,
+    and then by account id in descending order.
+4. `ProtocolVersionTooOld`: block producers whose latest block in epoch `T` voted for a protocol version lower than the
+    version chosen for epoch `T+2`. The exceptions in item 3 do not apply to this reason.
+5. `NotEnoughStake`: computed after validator selection. Accounts who have stake in epoch `T+1`, but don't meet stake threshold for epoch `T+2`.
+6. `DidNotGetASeat`: computed after validator selection. Accounts who have stake in epoch `T+1`, meet stake threshold for epoch `T+2`, but didn't get any seats.
 
 ### Processing proposals
 
 The set of proposals is processed by the validator selection algorithm, but before that, the set of proposals is adjusted
 the following way:
 
-1. If an account is in the slash set as of the end of `T`, or gets kicked out for `NotEnoughBlocks/NotEnoughChunks` in epoch `T`,
-  its proposal is ignored.
+1. If an account is in the slash set as of the end of `T`, or gets kicked out in epoch `T` for one of the reasons in items 2 to 4
+  of the [kickout set](#kickout-set), its proposal is ignored. If an account is in `kickout[T+1]` for `ProtocolVersionTooOld`,
+  its proposal is also ignored.
 2. If a validator is in `validators[T+1]`, and didn't make a proposal, add an implicit proposal with its stake in `T+1`.
 3. If a validator is in both `validators[T]` and `validators[T+1]`, and made a proposal in `T` (including implicit),
   then its reward for epoch `T` is automatically added to the proposal.

@@ -36,9 +36,9 @@ Nonce for transactions.
 
 Index of the block.
 
-## type ShardId = u64
+## ShardId = u64
 
-Shard index, from 0 to NUM_SHARDS - 1.
+Shard identifier. It is a newtype over `u64` and can be any number. Shard IDs do not need to be sequential or contiguous, because resharding gives new shards new IDs. Use the shard layout (`shard_ids`) to list the current shards. The 0-based position of a shard in the layout is a separate type, `ShardIndex = usize`.
 
 ## type Balance = u128
 
