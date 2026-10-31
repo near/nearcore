@@ -367,12 +367,6 @@ fn validate_source_receipts_proofs(
 
         receipt_proofs.push(receipt_proof.clone());
     }
-    // TODO(spice): In chunk executor actor order of the receipts before shuffling is determined by
-    // the way in which we retrieve them from the trie. At the moment they are retrieved sorted by
-    // from_shard_id. To keep behaviour as similar as possible with what we had before spice, chunk
-    // executor actor should process receipts in order in which respective chunks appear in block.
-    receipt_proofs.sort_by_key(|proof| proof.1.from_shard_id);
-
     receipt_proofs =
         filter_incoming_receipts_for_shard(shard_layout, shard_id, Arc::new(receipt_proofs))?;
 
