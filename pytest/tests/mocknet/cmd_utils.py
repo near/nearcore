@@ -39,14 +39,11 @@ def schedule_cmd(node,
 
 def run_in_background(node, cmd, log_filename, env='', pre_cmd=None):
     setup_cmd = f'truncate --size 0 {STATUS_DIR}/{log_filename} '
-    setup_cmd += f'&& for i in {{8..0}}; do if [ -f {LOG_DIR}/{log_filename}.$i ]; then mv {LOG_DIR}/{log_filename}.$i {LOG_DIR}/{log_filename}.$((i+1)); fi done'
-    if pre_cmd is not None:
-        pre_cmd += ' && '
-    else:
-        pre_cmd = ''
+    setup_cmd += f'&& for i in $(seq 8 -1 0); do if [ -f {LOG_DIR}/{log_filename}.$i ]; then mv {LOG_DIR}/{log_filename}.$i {LOG_DIR}/{log_filename}.$((i+1)); fi done'
+    pre_cmd = (pre_cmd + ' && ') if pre_cmd else ''
     run_cmd(
         node,
-        f'( {pre_cmd}{setup_cmd} && {env} nohup {cmd} > {LOG_DIR}/{log_filename}.0 2>&1; nohup echo "$?" ) > {STATUS_DIR}/{log_filename} 2>&1 &'
+        f'( {pre_cmd}{setup_cmd} && {env} nohup {cmd} > {LOG_DIR}/{log_filename}.0 2>&1; echo $? > {STATUS_DIR}/{log_filename} ) > /dev/null 2>&1 &'
     )
 
 
