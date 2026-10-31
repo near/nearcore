@@ -7,6 +7,7 @@ mod core_statement_limit;
 mod data_faults;
 mod garbage_collection;
 mod key_rotation;
+mod late_parent_endorsement;
 mod light_client;
 mod malicious_chunk_producer;
 mod pre_activation;

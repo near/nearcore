@@ -429,9 +429,27 @@ impl SpiceCoreReader {
 
         let mut core_statements = Vec::new();
         let mut referenced_chunks = 0;
+        // Shards with a chunk that stays uncertified after this block. Uncertified chunks are
+        // ordered parent before child within a shard, and validation rejects certifying a chunk
+        // while an earlier one of its shard stays uncertified, so later chunks of these shards
+        // may carry only endorsements that don't certify them.
+        let mut blocked_shards = HashSet::new();
         let mut uncertified_chunks = uncertified_chunks.into_iter();
         for chunk_info in uncertified_chunks.by_ref() {
-            let statements = self.core_statements_for_chunk(block_header, chunk_info)?;
+            let shard_id = chunk_info.chunk_id.shard_id;
+            let mut statements = self.core_statements_for_chunk(block_header, chunk_info)?;
+            let certifies = statements.iter().any(|statement| {
+                matches!(statement, SpiceCoreStatement::ChunkExecutionResult { .. })
+            });
+            if blocked_shards.contains(&shard_id) {
+                if certifies {
+                    // Without its result the endorsements would certify the chunk, which
+                    // validation rejects too, so hold back all of them.
+                    statements.clear();
+                }
+            } else if !certifies {
+                blocked_shards.insert(shard_id);
+            }
             if !statements.is_empty() {
                 core_statements.extend(statements);
                 referenced_chunks += 1;
