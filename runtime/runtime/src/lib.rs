@@ -3046,8 +3046,8 @@ fn process_external_call(
         Err(err) => return Err(err),
     }
     // TODO(ecc): enforce the per-chunk limits on external calls: refuse a call, without running
-    // it, once the chunk's calls exceed the allowed count or the state they read together
-    // exceeds its budget.
+    // it, once the chunk's calls exceed the allowed count, the state they read together exceeds
+    // its budget, or the compute they use together exceeds their share of the chunk's compute.
 
     // Read and update the contract's account through the chunk's working copy, which signed
     // transactions later in the chunk start from. Otherwise a later transaction from the
