@@ -157,7 +157,7 @@ Records in storage at genesis (get split into shards at genesis creation).
 
 `type: u64`
 
-Number of blocks for which a given transaction is valid.
+Number of block heights for which a transaction is valid, counted from the height of the block named in its `block_hash`.
 The value must not be more than twice the `epoch_length` of any epoch config that the node loads, or the node does not start.
 On mainnet and testnet that `epoch_length` is 43200.
 Mainnet uses 86400.
@@ -268,9 +268,13 @@ Mainnet uses 10.
 
 `type: ShardLayout`
 
-This field is optional. If it is omitted, the chain starts with one shard.
+This field is optional. If it is omitted, the layout has one shard.
 Defines the shards at genesis and how accounts map to them.
 The node uses it to split the genesis records into shards.
+The epoch config can override it for the genesis epoch.
+If the epoch config that the node loads for the genesis protocol version has a fixed shard layout, the genesis epoch uses that layout instead.
+This applies to mainnet, testnet and any chain whose node home has an `epoch_configs` folder.
+Keep the two layouts the same, because the genesis records are still split with this field.
 On mainnet and testnet, the later shard layouts come from the built-in epoch configs and from resharding.
 The mainnet genesis file does not set this field, so mainnet starts with one shard.
 
@@ -279,7 +283,7 @@ The mainnet genesis file does not set this field, so mainnet starts with one sha
 `type: u64`
 
 This field is optional. The default is 1.
-Minimum number of validators that each shard must have.
+Minimum number of chunk producers assigned to each shard.
 On mainnet and testnet the node uses the value from its built-in epoch config instead.
 Mainnet uses 1.
 
