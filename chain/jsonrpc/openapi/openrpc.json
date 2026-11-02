@@ -5,7 +5,7 @@
         "description": "Access key provides limited access to an account. Each access key belongs to some account and\nis identified by a unique (within the account) public key. One account may have large number of\naccess keys. Access keys allow to act on behalf of the account by restricting transactions\nthat can be issued.\n`account_id,public_key` is a key in the state",
         "properties": {
           "nonce": {
-            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\nis set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.\nSee <https://github.com/near/nearcore/issues/3779> for more details.",
+            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\nis set to `block_height * 1e6 - 1` (`(block_height - 1) * 1e6` before protocol version 89)\nto avoid tx hash collision on access key re-creation.\nSee <https://github.com/near/nearcore/issues/3779> for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
