@@ -121,6 +121,19 @@ impl TestLoopEnv {
         self.network_rule(index, matches, action)
     }
 
+    /// From now on `observe` reports every request node `index` sends that `matches`, as
+    /// the node sent it: ahead of the node's other rules, which may delay, hold or rewrite
+    /// the same requests, see `NetworkRules::observe_first` in [`super::network_rules`].
+    pub fn observe_messages_from(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
+    ) -> RuleHandle {
+        let account_id = self.node_datas[index].account_id.clone();
+        self.shared_state.network_rules.observe_first(account_id, matches, observe)
+    }
+
     /// From now on node `index` drops every request it sends that `matches`.
     pub fn drop_messages_from(
         &self,

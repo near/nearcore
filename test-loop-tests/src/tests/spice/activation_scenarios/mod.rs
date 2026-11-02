@@ -10,12 +10,13 @@
 use crate::setup::task_delays::task_names;
 use driver::run_scenario;
 use faults::{
-    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadFirstSpiceBlock, ChurnKind,
-    DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, Fallback, ForkAtBoundary,
-    ForkKind, GcTight, HeightSkip, How, Kind, LateChunk, LateTracker, MissingChunk, NodeCrash,
-    Only, Outcome, PartialDataFault, Producers, ShardSkip, Shards, SlowNode, TrackAll,
+    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadBoundaryWitness, BadFirstSpiceBlock,
+    ChurnKind, DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, Fallback,
+    ForkAtBoundary, ForkKind, GcTight, HeightSkip, How, Kind, LateChunk, LateTracker, MissingChunk,
+    NodeCrash, Only, Outcome, PartialDataFault, Producers, ShardSkip, Shards, SlowNode, TrackAll,
     ValidatorChurn, What, WindowEnd, WindowStart,
 };
+use near_client::spice::chunk_executor_actor::AdvBoundaryWitnessMode;
 use near_o11y::testonly::init_test_logger;
 use random::RandomSpec;
 use resolve::{Profile, conflicts_of};
@@ -301,6 +302,43 @@ fn ultra_slow_test_spice_activation_matrix_network() {
     run_scenarios(network_presets());
 }
 
+/// The adversarial boundary producer: a tampered boundary witness in each of its modes,
+/// from the two producer seats whose shard's honest witness the validators decode first
+/// (the other two are under investigation, see the design's findings), and with the
+/// faults that stress the honest witness's delivery, the certification and the boundary
+/// block itself. Profile B has no preset: every producer there is its shard's only one,
+/// so no honest witness exists and nothing certifies, see the fault's entry.
+fn adversarial_presets() -> Vec<Scenario> {
+    vec![
+        Scenario::new().fault(BadBoundaryWitness::new()),
+        Scenario::new()
+            .fault(BadBoundaryWitness::new().mode(AdvBoundaryWitnessMode::DropReceiptProof)),
+        Scenario::new().fault(BadBoundaryWitness::new().producer(3)),
+        Scenario::new().fault(
+            BadBoundaryWitness::new().producer(3).mode(AdvBoundaryWitnessMode::DropReceiptProof),
+        ),
+        Scenario::new()
+            .fault(BadBoundaryWitness::new().mode(AdvBoundaryWitnessMode::WrongPostState))
+            .fault(MissingChunk::new()),
+        Scenario::new()
+            .fault(
+                BadBoundaryWitness::new().mode(AdvBoundaryWitnessMode::MissingImplicitTransition),
+            )
+            .fault(MissingChunk::new()),
+        Scenario::new().fault(BadBoundaryWitness::new()).fault(PartialDataFault::new()),
+        Scenario::new().fault(BadBoundaryWitness::new()).fault(BadBoundaryEndorsement::new()),
+        Scenario::new().fault(BadBoundaryWitness::new()).fault(EndorsementDelay::new()),
+        Scenario::new().fault(BadBoundaryWitness::new()).fault(ForkAtBoundary::new()),
+    ]
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_adversarial() {
+    run_scenarios(adversarial_presets());
+}
+
 /// Every fault of the catalog at its defaults, in the catalog's order, for the group built
 /// from pairs. `shard_rotation` is left out: it cannot fire on profile A, see the fault.
 const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
@@ -321,6 +359,7 @@ const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
     || Box::new(BadBoundaryEndorsement::new()),
     || Box::new(BadFirstSpiceBlock::new()),
     || Box::new(ForkAtBoundary::new()),
+    || Box::new(BadBoundaryWitness::new()),
 ];
 
 /// Every pair of distinct default faults that the resolver accepts, in the catalog's
@@ -383,6 +422,11 @@ fn under_investigation_presets() -> Vec<Scenario> {
         Scenario::new().fault(EndorsementDelay::new().blocks(24).end(WindowEnd::Done)),
         // The same one block later: heights 68 and 69 are both rejected before the chain resumes.
         Scenario::new().fault(EndorsementDelay::new().blocks(25).end(WindowEnd::Done)),
+        // A tampered boundary witness from the producer whose parts the validators decode
+        // first: they reject it and never recover the honest producer's, so the chunk
+        // never certifies and the chain never leaves the first spice epoch.
+        Scenario::new().fault(BadBoundaryWitness::new().producer(0)),
+        Scenario::new().fault(BadBoundaryWitness::new().producer(1)),
     ]
 }
 
@@ -400,6 +444,7 @@ fn test_presets_are_accepted_by_the_resolver() {
     presets.extend(nodes_presets());
     presets.extend(storage_presets());
     presets.extend(network_presets());
+    presets.extend(adversarial_presets());
     presets.extend(fallback_presets());
     presets.extend(boundary_presets());
     presets.extend(pairwise_presets());

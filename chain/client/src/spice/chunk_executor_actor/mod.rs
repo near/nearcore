@@ -4,12 +4,14 @@
 //! - [`receipt_tracker`] — the per-shard unverified-receipt buffer,
 //! - [`storage`] — DB read/write helpers for per-chunk artifacts.
 
+mod adversarial;
 mod coordinator;
 mod per_shard;
 mod receipt_tracker;
 mod storage;
 pub mod testonly;
 
+pub use adversarial::{AdvBoundaryWitnessMode, AdvSpiceBoundaryWitness};
 pub use coordinator::{
     ChunkExecutorActor, ExecutorApplyChunksDone, ExecutorIncomingUnverifiedReceipts,
 };

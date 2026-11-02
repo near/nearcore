@@ -4,6 +4,7 @@
 
 mod archival;
 mod bad_boundary_endorsement;
+mod bad_boundary_witness;
 mod bad_first_spice_block;
 mod data_before_block;
 mod drop_contract_accesses;
@@ -25,6 +26,7 @@ mod validator_churn;
 
 pub use archival::Archival;
 pub use bad_boundary_endorsement::BadBoundaryEndorsement;
+pub use bad_boundary_witness::BadBoundaryWitness;
 pub use bad_first_spice_block::{BadFirstSpiceBlock, Mode as BadBlockMode};
 pub use data_before_block::{DataBeforeBlock, What};
 pub use drop_contract_accesses::DropContractAccesses;

@@ -1,6 +1,8 @@
 //! Profile choice and the conflict list: turns a scenario into the setup it runs on.
 
-use super::faults::{DataBeforeBlock, LateChunk, MissingChunk, NodeCrash, SlowNode};
+use super::faults::{
+    BadBoundaryWitness, DataBeforeBlock, LateChunk, MissingChunk, NodeCrash, SlowNode,
+};
 use super::loads;
 use super::scenario::Scenario;
 use crate::setup::builder::{MIN_BLOCK_PROD_TIME, TestLoopBuilder};
@@ -441,16 +443,30 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
             }
         }
     }
+    let dropped: Vec<(usize, i64)> = faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
+        .flat_map(|fault| fault.dropped_offsets(profile.num_shards()))
+        .collect();
+    // The post state and implicit transition modes change a boundary witness only when
+    // it carries an implicit transition, which it does when the boundary block lacks the
+    // shard's chunk.
+    let boundary_chunk_missing = dropped.iter().any(|(_, offset)| *offset == -1);
+    for witness in
+        faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<BadBoundaryWitness>())
+    {
+        if witness.needs_missing_boundary_chunk() && !boundary_chunk_missing {
+            errors.push(format!(
+                "{witness:?}: the mode changes a boundary witness only when the boundary block \
+                 lacks the shard's chunk; add missing_chunk at offset -1"
+            ));
+        }
+    }
     // A chunk cannot be both dropped and delayed.
     let delayed: Vec<(usize, i64)> = faults
         .iter()
         .filter_map(|fault| fault.as_any().downcast_ref::<LateChunk>())
         .map(LateChunk::delayed_offset)
-        .collect();
-    let dropped: Vec<(usize, i64)> = faults
-        .iter()
-        .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
-        .flat_map(|fault| fault.dropped_offsets(profile.num_shards()))
         .collect();
     for (shard, offset) in &delayed {
         if dropped.contains(&(*shard, *offset)) {

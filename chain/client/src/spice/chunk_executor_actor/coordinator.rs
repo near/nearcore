@@ -2,6 +2,7 @@
 //! upstream events to the per-shard executors, and runs the disk-driven
 //! execution-head advance / finalize.
 
+use super::adversarial::AdversarialState;
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_manager::DataId;
@@ -53,6 +54,10 @@ pub struct ChunkExecutorActor {
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
+
+    /// The adversarial knobs' state, shared with every per-shard executor; inert
+    /// without `test_features`, see [`super::adversarial`].
+    pub(super) adversarial: Arc<AdversarialState>,
 }
 
 /// Message with incoming unverified receipts corresponding to the block.
@@ -118,6 +123,7 @@ impl ChunkExecutorActor {
             core_reader,
             data_distributor_adapter,
             core_writer_sender,
+            adversarial: Arc::default(),
             config,
         }
     }
@@ -133,6 +139,7 @@ impl ChunkExecutorActor {
             config: self.config.clone(),
             validator_signer: self.validator_signer.clone(),
             core_reader: self.core_reader.clone(),
+            adversarial: self.adversarial.clone(),
         }
     }
 

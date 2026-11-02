@@ -89,6 +89,8 @@ impl PerShardChunkExecutor {
         else {
             return Ok(());
         };
+        #[cfg(feature = "test_features")]
+        let witness = self.adversarial.tampered_boundary_witness(witness, block, shard_id);
         let contract_accesses: HashSet<CodeHash> =
             witness.contract_accesses.iter().cloned().collect();
         let state_witness = SpiceChunkStateWitness::Boundary(witness);

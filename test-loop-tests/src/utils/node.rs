@@ -11,6 +11,9 @@ use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
+use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
+#[cfg(feature = "test_features")]
+use near_client::spice::chunk_executor_actor::{AdvBoundaryWitnessMode, AdvSpiceBoundaryWitness};
 use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
@@ -71,6 +74,12 @@ pub struct TestLoopNode<'a> {
 
 #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
 impl<'a> TestLoopNode<'a> {
+    /// This node's spice chunk executor, for what it reports about itself.
+    pub fn chunk_executor(&self) -> &'a ChunkExecutorActor {
+        let handle = self.node_data.spice_chunk_executor_sender.actor_handle();
+        self.data.get(&handle)
+    }
+
     pub fn client(&self) -> &'a Client {
         let handle = self.node_data.client_sender.actor_handle();
         &self.data.get(&handle).client
@@ -820,6 +829,20 @@ impl<'a> NodeRunner<'a> {
             format!("send adversarial {:?} to {}", message, account_id),
             move |_| {
                 client_sender.send(message);
+            },
+        );
+    }
+
+    /// From now on this node's chunk executor tampers with every boundary witness it
+    /// distributes as `mode` says, see `AdvBoundaryWitnessMode`.
+    #[cfg(feature = "test_features")]
+    pub fn send_adversarial_boundary_witness(&self, mode: AdvBoundaryWitnessMode) {
+        let executor_sender = self.node_data.spice_chunk_executor_sender.clone();
+        let account_id = self.node_data.account_id.clone();
+        self.test_loop.send_adhoc_event(
+            format!("send adversarial boundary witness {mode:?} to {account_id}"),
+            move |_| {
+                executor_sender.send(AdvSpiceBoundaryWitness(mode));
             },
         );
     }

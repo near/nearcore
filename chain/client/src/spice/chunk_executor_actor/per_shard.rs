@@ -1,6 +1,7 @@
 //! The per-tracked-shard executor: parked-block queue, apply dispatch, and the
 //! per-shard apply postprocessing (endorsement, witness, outgoing receipts).
 
+use super::adversarial::AdversarialState;
 use super::coordinator::{ExecutorApplyChunksDone, FailedToApplyChunkError};
 use super::receipt_tracker::UnverifiedReceiptTracker;
 use super::storage::{
@@ -71,6 +72,7 @@ pub(crate) struct PerShardDeps {
     pub(crate) config: ChunkPersistenceConfig,
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
+    pub(crate) adversarial: Arc<AdversarialState>,
 }
 
 /// Per-tracked-shard executor: owns this shard's parked-block queue, in-flight
@@ -94,6 +96,10 @@ pub(crate) struct PerShardChunkExecutor {
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
+    /// The adversarial knobs' state, shared with the coordinator; inert without
+    /// `test_features`, see the boundary bootstrap.
+    #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+    adversarial: Arc<AdversarialState>,
 }
 
 /// Outcome of a per-shard `try_apply` attempt for a single parked block.
@@ -136,6 +142,7 @@ impl PerShardChunkExecutor {
             config,
             validator_signer,
             core_reader,
+            adversarial,
         } = deps;
         Self {
             shard_uid,
@@ -154,6 +161,7 @@ impl PerShardChunkExecutor {
             blocks_in_execution: HashSet::new(),
             parked_blocks: BTreeSet::new(),
             unverified_receipts: UnverifiedReceiptTracker::default(),
+            adversarial,
         }
     }
 

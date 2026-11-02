@@ -166,6 +166,29 @@ impl NetworkRules {
         self.add_rule(account_id, Some(tag), Box::new(matches), action)
     }
 
+    /// Adds an observer of the outgoing requests of `account_id` ahead of the account's
+    /// rules, so it reports every request as the node sent it, before any rule has its
+    /// say: what a test needs when another rule on the same requests delays, holds or
+    /// rewrites them, since a request a rule let go later goes to the handlers directly,
+    /// past the rules behind it.
+    pub fn observe_first(
+        &self,
+        account_id: AccountId,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
+    ) -> RuleHandle {
+        let state = Arc::new(RuleState::default());
+        let rule = Rule {
+            account_id,
+            tag: None,
+            matches: Box::new(matches),
+            action: Action::Observe(Box::new(observe)),
+            state: state.clone(),
+        };
+        self.0.lock().rules.insert(0, Arc::new(rule));
+        RuleHandle(state)
+    }
+
     fn add_rule(
         &self,
         account_id: AccountId,

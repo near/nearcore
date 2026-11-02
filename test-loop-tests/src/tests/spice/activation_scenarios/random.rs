@@ -5,14 +5,15 @@
 //! run.
 
 use super::faults::{
-    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadFirstSpiceBlock, ChurnKind,
-    DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, ForkAtBoundary, ForkKind,
-    GcTight, How, Kind, LateChunk, LateTracker, MissingChunk, NodeCrash, Only, Outcome,
+    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadBoundaryWitness, BadFirstSpiceBlock,
+    ChurnKind, DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, ForkAtBoundary,
+    ForkKind, GcTight, How, Kind, LateChunk, LateTracker, MissingChunk, NodeCrash, Only, Outcome,
     PartialDataFault, Producers, ShardSkip, Shards, SlowNode, TrackAll, ValidatorChurn, What,
     WindowEnd, WindowStart,
 };
 use super::resolve::{Profile, conflicts_of};
 use super::scenario::{Fault, Scenario};
+use near_client::spice::chunk_executor_actor::AdvBoundaryWitnessMode;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -46,6 +47,7 @@ const SAMPLERS: &[Sampler] = &[
     bad_boundary_endorsement,
     bad_first_spice_block,
     fork_at_boundary,
+    bad_boundary_witness,
 ];
 
 /// How many scenarios to sample from which seed, and how many faults each may have.
@@ -169,6 +171,22 @@ fn bad_first_spice_block(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
     let mode =
         *[BadBlockMode::FakeBoundaryResult, BadBlockMode::SpiceHeaderPreSpice].choose(rng).unwrap();
     Box::new(BadFirstSpiceBlock::new().mode(mode))
+}
+
+fn bad_boundary_witness(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    // The implicit transition modes need a missing boundary chunk, which the resolver
+    // asks for; they are drawn too, and re-drawn without one.
+    let mode = *[
+        AdvBoundaryWitnessMode::WrongReceiptsHash,
+        AdvBoundaryWitnessMode::DropReceiptProof,
+        AdvBoundaryWitnessMode::WrongPostState,
+        AdvBoundaryWitnessMode::MissingImplicitTransition,
+    ]
+    .choose(rng)
+    .unwrap();
+    // Producers 2 and 3: the validators decode the lower-index producer's witness first,
+    // and never recover from decoding a tampered one, see the design's findings.
+    Box::new(BadBoundaryWitness::new().producer(*[2, 3].choose(rng).unwrap()).mode(mode))
 }
 
 fn fork_at_boundary(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
