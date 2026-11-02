@@ -1593,6 +1593,75 @@ fn test_apply_two_eccs_to_contract() {
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, charges);
 }
 
+/// A refused ECC keeps the outgoing buffer pops that `forward_from_buffer` staged before it.
+#[test]
+fn test_refused_ecc_keeps_forwarded_buffer_pops() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let shard_layout = ShardLayout::multi_shard_custom(vec![alice_account(), bob_account()], 3);
+    let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    let shard_uid = ShardUId::new(3, local_shard);
+    let signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![signer])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
+    );
+    apply_state.shard_id = local_shard;
+    apply_state.congestion_info.insert(local_shard, Default::default());
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    let buffer_len = |root| {
+        let trie = tries.get_trie_for_shard(shard_uid, root);
+        ShardsOutgoingReceiptBuffer::load(&trie).unwrap().buffer_len(receiver_shard)
+    };
+
+    // A congested receiver makes the delegate action's outgoing receipt wait in the buffer.
+    let max_gas = apply_state.config.congestion_control_config.max_congestion_incoming_gas;
+    let receiver =
+        &mut apply_state.congestion_info.get_mut(&receiver_shard).unwrap().congestion_info;
+    receiver.add_delayed_receipt_gas(max_gas).unwrap();
+    receiver.set_allowed_shard(receiver_shard.into());
+    let receipts = generate_delegate_actions(Balance::from_near(1), 1);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(buffer_len(root), Some(1));
+
+    // Once the receiver is not congested, the next chunk forwards the receipt. Alice has no
+    // contract, so the ECC to her is refused.
+    apply_state.congestion_info.insert(receiver_shard, Default::default());
+    let ecc = EccTransaction::new(alice_account(), ECC_PAYLOAD.to_vec());
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![TransactionEnvelope::from(ecc)], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
+    assert_eq!(apply_result.outgoing_receipts.len(), 1);
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(buffer_len(root), Some(0));
+}
+
 /// A contract whose ECC method returns `b"ecc"`.
 fn ecc_method_contract() -> Vec<u8> {
     near_test_contracts::wat_contract(&format!(

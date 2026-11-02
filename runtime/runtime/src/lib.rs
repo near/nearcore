@@ -3036,9 +3036,10 @@ fn process_external_call(
         .and_then(Option::as_mut)
         .expect("verify_ecc checked that the contract exists");
 
-    // Every signed transaction commits its changes or makes none, so the only uncommitted
-    // changes a rollback discards are the run's.
-    debug_assert_eq!(processing_state.state_update.prospective_len(), 0);
+    // The state update may hold changes staged before the call, such as the outgoing buffer pops
+    // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
+    let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
+    processing_state.state_update.commit(cause.clone());
     let run = run_external_call(
         &mut processing_state.state_update,
         apply_state,
@@ -3053,9 +3054,7 @@ fn process_external_call(
     match run.verdict {
         Ok(charge) => {
             set_account(&mut processing_state.state_update, contract_id.clone(), account);
-            processing_state
-                .state_update
-                .commit(StateChangeCause::TransactionProcessing { tx_hash: outcome_id });
+            processing_state.state_update.commit(cause);
             processing_state.stats.balance.tx_burnt_amount =
                 safe_add_balance(processing_state.stats.balance.tx_burnt_amount, charge)?;
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
