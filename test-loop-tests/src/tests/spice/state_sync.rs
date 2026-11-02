@@ -117,7 +117,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
         // The certified result of another shard's chunk, with its own valid proof, is rejected,
         // because the leaf carries the chunk id
-        let other_shard_id = *shard_ids.iter().find(|id| **id != shard_id).unwrap();
+        let other_shard_id = shard_ids.iter().copied().find(|&id| id != shard_id).unwrap();
         let Ok(ShardStateSyncResponseHeader::V3(other_header)) =
             chain.state_sync_adapter.get_state_response_header(other_shard_id, sync_hash)
         else {
