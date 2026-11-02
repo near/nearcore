@@ -71,13 +71,6 @@ The following binding methods cannot be invoked in a view call:
 - `storage_write`
 - `storage_remove`
 
-Some of these functions exist only from a given protocol version. `promise_yield_create_with_id`,
-`promise_yield_resume_with_yield_id`, `promise_batch_action_transfer_to_gas_key`,
-`promise_batch_action_add_gas_key_with_full_access` and `promise_batch_action_add_gas_key_with_function_call` exist from
-protocol version 85. From protocol version 88 (nearcore 2.14.0), `promise_batch_action_universal_state_init` exists and
-is also prohibited in view calls. Before protocol version 88, a call to a contract that imports it fails with a link
-error.
-
 If they are invoked, the smart contract execution will panic with `ProhibitedInView { method_name }`. The `method_name`
 field names the host function that made the check. `promise_create` and `promise_then` report `promise_batch_create`
 and `promise_batch_then`. `promise_batch_action_function_call_weight` reports `promise_batch_action_function_call`.

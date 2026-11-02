@@ -112,7 +112,8 @@ error.
 
   error will be returned
 
-- From protocol version 87 (nearcore 2.14.0), if the method name is empty, a
+- From protocol version 87 (nearcore 2.14.0), if the method name of a new transaction or a newly
+  created receipt is empty, a
 
   ```rust
   /// The method name in a FunctionCall action must not be empty.
@@ -152,9 +153,10 @@ from compiling wasm to native to traps occurred while executing the compiled nat
   Execution outcomes report a `FunctionCallError` in one of three forms:
 
   - `CompilationError`, a structured error, when the contract cannot be compiled.
-  - `MethodResolveError`, a structured error, when the method is not found or its signature is not
-    valid. Before protocol version 87, an empty method name also gave `MethodEmptyName`. From
-    protocol version 87, validation rejects an empty method name with `FunctionCallEmptyMethodName`.
+  - `MethodResolveError`, a structured error, when the method is not found, its signature is not
+    valid, or its name is empty (`MethodEmptyName`). From protocol version 87, validation rejects
+    new transactions and receipts with an empty method name. So only a receipt created before that
+    version can still fail with `MethodEmptyName`.
   - `ExecutionError` with a message string, for all other errors: wasm traps, host errors, link
     errors and errors when loading the compiled contract.
 
@@ -176,34 +178,25 @@ from compiling wasm to native to traps occurred while executing the compiled nat
   }
   ```
 
-  The full enum also has variants that only old data uses, and one unused placeholder,
-  `_EVMError`. The number after each variant is its tag in the Borsh encoding:
+  The full enum also has variants that only old data uses:
 
   ```rust
-  #[borsh(use_discriminant = true)]
-  #[repr(u8)]
   pub enum FunctionCallError {
       /// Wasm compilation error
-      CompilationError(CompilationError) = 0,
-      /// Wasm binary env link error
-      ///
-      /// Note: this is only to deserialize old data, use execution error for new data
+      CompilationError(CompilationError),
+      /// Wasm binary env link error. Only in old data.
       LinkError {
           msg: String,
-      } = 1,
+      },
       /// Import/export resolve error
-      MethodResolveError(MethodResolveError) = 2,
-      /// A trap happened during execution of a binary
-      ///
-      /// Note: this is only to deserialize old data, use execution error for new data
-      WasmTrap(WasmTrap) = 3,
-      WasmUnknownError = 4,
-      /// Note: this is only to deserialize old data, use execution error for new data
-      HostError(HostError) = 5,
-      // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
-      // error borsh serialized at correct index
-      _EVMError = 6,
-      ExecutionError(String) = 7,
+      MethodResolveError(MethodResolveError),
+      /// A trap happened during execution of a binary. Only in old data.
+      WasmTrap(WasmTrap),
+      /// Only in old data.
+      WasmUnknownError,
+      /// Only in old data.
+      HostError(HostError),
+      ExecutionError(String),
   }
   ```
 
@@ -341,9 +334,6 @@ from compiling wasm to native to traps occurred while executing the compiled nat
       DataEntryAlreadyExists,
   }
   ```
-
-  `MlDsaVerifyInvalidInput` can only happen from protocol version 87 (nearcore 2.14.0), because the
-  `ml_dsa_verify` host function is available only from that version.
 
 - `ExternalError` includes errors that occur during the execution inside `External`, which is an interface between runtime
 and the rest of the system. The possible errors are:
