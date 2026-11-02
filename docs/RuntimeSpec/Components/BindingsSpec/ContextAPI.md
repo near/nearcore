@@ -30,7 +30,8 @@ Some of the functions below behave differently depending on how the contract exe
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
   doesn't exist yet. So that the call sees the same values then and when the chunk is applied, it sees the block as
-  the producer does: the block height of the chunk, but the timestamp and the random value of the previous block.
+  the producer does: the block height of the chunk, but the timestamp of the previous block. An external call can't
+  read the random seed (see [Math API](MathAPI.md)).
 
 ---
 

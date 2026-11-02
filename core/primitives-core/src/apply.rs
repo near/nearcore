@@ -1,4 +1,3 @@
-use crate::hash::CryptoHash;
 use std::fmt::{Display, Formatter};
 
 /// Indicates the phase of block production the apply-chunk operation is invoked.
@@ -41,6 +40,4 @@ impl Display for ApplyChunkReason {
 pub struct PrevBlockContext {
     /// The previous block's timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub timestamp: u64,
-    /// The previous block's random value.
-    pub random_seed: CryptoHash,
 }

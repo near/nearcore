@@ -8,12 +8,14 @@ random_seed(register_id: u64)
 
 Returns random seed that can be used for pseudo-random number generation in deterministic way.
 
-In an external call, the seed is derived from the random value of the previous block instead of the current one (see
-[Context API](ContextAPI.md)), and from the call.
+An external call can't read the random seed. A chunk producer runs an external call before the block its chunk goes
+into exists (see [Context API](ContextAPI.md)), so the seed would be known before the call is included, and whoever
+submits the call could wait for a value that suits them.
 
 ###### Panics
 
 - If the size of the registers exceed the set limit `MemoryAccessViolation`;
+- If called in an external call panics with `ProhibitedInExternalCall`.
 
 ---
 

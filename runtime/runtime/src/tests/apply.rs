@@ -61,8 +61,7 @@ use near_primitives::types::{
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::{
-    create_ecc_outcome_id, create_random_seed, create_receipt_id_from_transaction,
-    derive_near_deterministic_account_id,
+    create_ecc_outcome_id, create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
 use near_primitives::version::{
     MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
@@ -877,7 +876,7 @@ fn ecc_contract(ecc_body: &str) -> Vec<u8> {
 }
 
 /// A contract that accepts ECCs. Its ECC method writes the payload, logs `accepted` and returns
-/// the block height, the block timestamp and the random seed it sees, in that order.
+/// the block height and the block timestamp it sees, in that order.
 fn ecc_accepting_contract() -> Vec<u8> {
     ecc_contract(
         r#"
@@ -885,9 +884,7 @@ fn ecc_accepting_contract() -> Vec<u8> {
     (call $log_utf8 (i64.const 8) (i64.const 8))
     (i64.store (i32.const 100) (call $block_index))
     (i64.store (i32.const 108) (call $block_timestamp))
-    (call $random_seed (i64.const 1))
-    (call $read_register (i64.const 1) (i64.const 116))
-    (call $value_return (i64.const 48) (i64.const 100))"#,
+    (call $value_return (i64.const 16) (i64.const 100))"#,
     )
 }
 
@@ -949,8 +946,7 @@ fn setup_ecc_contracts(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
 
-    apply_state.prev_block =
-        PrevBlockContext { timestamp: 42, random_seed: hash(b"previous block") };
+    apply_state.prev_block = PrevBlockContext { timestamp: 42 };
     (runtime, tries, root, apply_state, signers, epoch_info_provider)
 }
 
@@ -1080,8 +1076,7 @@ fn accepted_ecc_charge_and_storage_usage() -> (Balance, u64) {
 
 /// An ECC whose run returns cleanly is accepted: its writes stay, and the contract pays the
 /// fees and the gas the run burnt at the block's gas price. The outcome holds the return value
-/// and the logs, and the run sees the chunk's height and the previous block's timestamp and
-/// random seed.
+/// and the logs, and the run sees the chunk's height and the previous block's timestamp.
 #[test]
 fn test_apply_ecc_accepted() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1108,7 +1103,6 @@ fn test_apply_ecc_accepted() {
     let outcome = &outcome.outcome;
     let mut seen_block = apply_state.block_height.to_le_bytes().to_vec();
     seen_block.extend(apply_state.prev_block.timestamp.to_le_bytes());
-    seen_block.extend(create_random_seed(outcome_id, apply_state.prev_block.random_seed));
     assert_eq!(outcome.status, ExecutionStatus::SuccessValue(seen_block));
     assert_eq!(outcome.logs, vec!["accepted".to_string()]);
     assert!(outcome.receipt_ids.is_empty());
@@ -1154,6 +1148,28 @@ fn test_apply_ecc_refused_panic() {
         TxExecutionError::ActionError(ActionError {
             index: Some(0),
             kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(_)),
+        })
+    );
+}
+
+/// An ECC whose run reads the random seed is refused. The seed of an external call would be
+/// known before the call is included in a chunk, so external calls can't read it.
+#[test]
+fn test_apply_ecc_refused_random_seed() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let code = ecc_contract("(call $write_payload) (call $random_seed (i64.const 1))");
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
+    assert_eq!(
+        err,
+        TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "random_seed is not allowed in external contract calls".to_string()
+            )),
         })
     );
 }

@@ -30,7 +30,6 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionStatus,
 };
 use near_primitives::types::{AccountId, Balance, Compute, EpochInfoProvider, Gas};
-use near_primitives::utils::create_random_seed;
 use near_store::TrieUpdate;
 use near_store::trie::AccessOptions;
 use near_vm_runner::CompilePriority;
@@ -135,7 +134,7 @@ pub(crate) fn run_external_call(
         AccessOptions::DEFAULT,
         apply_state.current_protocol_version,
     )?;
-    let context = external_call_context(apply_state, account, ecc, outcome_id, execution_mode);
+    let context = external_call_context(apply_state, account, ecc, execution_mode);
 
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
@@ -208,13 +207,12 @@ pub(crate) fn run_external_call(
 }
 
 /// The context of the run of an external call. The call sees the block as the chunk producer
-/// saw it when building the chunk: the chunk's height and the previous block's timestamp and
-/// random seed, so that the producer's run and the run at apply see the same values.
+/// saw it when building the chunk: the chunk's height and the previous block's timestamp, so
+/// that the producer's run and the run at apply see the same values.
 fn external_call_context(
     apply_state: &ApplyState,
     account: &Account,
     ecc: &EccTransaction,
-    outcome_id: &CryptoHash,
     execution_mode: ExecutionMode,
 ) -> VMContext {
     let contract_id = ecc.contract_id();
@@ -238,7 +236,9 @@ fn external_call_context(
         account_contract: account.contract().into_owned(),
         attached_deposit: Balance::ZERO,
         prepaid_gas: Gas::ZERO,
-        random_seed: create_random_seed(*outcome_id, apply_state.prev_block.random_seed),
+        // External calls can't read the random seed: its value would be known before the call
+        // is included in a chunk.
+        random_seed: vec![],
         execution_mode,
         output_data_receivers: vec![],
     }

@@ -411,10 +411,7 @@ impl ApplyChunkBlockContext {
 /// The context external calls see of `prev_header`, the block before the one the chunk is
 /// applied in.
 pub fn prev_block_context(prev_header: &BlockHeader) -> PrevBlockContext {
-    PrevBlockContext {
-        timestamp: prev_header.raw_timestamp(),
-        random_seed: *prev_header.random_value(),
-    }
+    PrevBlockContext { timestamp: prev_header.raw_timestamp() }
 }
 
 pub struct ApplyChunkShardContext<'a> {
@@ -833,10 +830,7 @@ mod tests {
         assert_eq!(context.random_seed, *block.header().random_value());
         assert_eq!(
             context.prev_block,
-            PrevBlockContext {
-                timestamp: prev_block.header().raw_timestamp(),
-                random_seed: *prev_block.header().random_value(),
-            }
+            PrevBlockContext { timestamp: prev_block.header().raw_timestamp() }
         );
     }
 
