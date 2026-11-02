@@ -59,14 +59,15 @@ the lower limit.
 | Imports | Function imports from the `env` module only | None |
 
 The parser also limits the number of imports, exports, globals and data segments, and the length
-of names. Only the first violation is reported, so the order of the checks matters. They run in the
-order below.
+of names. Only the first violation is reported, so the order of the checks matters. The checks run
+in the four steps below, one step after another.
 
 Before preparation starts, the validation of the deploy action rejects code longer than the
 `max_contract_size` runtime parameter.
 
 Then the module is parsed. The parser reads the sections in the order of the binary encoding and
-reports the first violation that it finds. These limits are checked while parsing:
+reports the first violation that it finds. So within this step, the order of the checks depends on
+the module, not on the order of this list. These limits are checked while parsing:
 
 * The wasm module must be a valid module according to the WebAssembly core 1.0 specification with
   these extensions enabled: sign-extension operators, non-trapping float-to-int conversions, and,
@@ -274,7 +275,7 @@ body is only executed conditionally:
 ## Consensus stack metering
 
 This limit does not measure the native stack that Wasmtime uses. For each function, preparation
-computes its maximum WebAssembly operand stack size and a fixed frame charge. Instrumentation
+computes its maximum WebAssembly operand stack size and a frame charge. Instrumentation
 subtracts their sum from a budget when the function is entered, and adds it back when the
 function returns. The budget is a protocol parameter, so all nodes stop a contract at the same
 point.

@@ -178,7 +178,7 @@ from compiling wasm to native to traps occurred while executing the compiled nat
   }
   ```
 
-  The full enum also has variants that only old data uses:
+  The enum also has variants that only old data uses:
 
   ```rust
   pub enum FunctionCallError {
