@@ -105,7 +105,6 @@ impl StandaloneRuntime {
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
-            prev_block_hash: Default::default(),
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,

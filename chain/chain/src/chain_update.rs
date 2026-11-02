@@ -11,8 +11,7 @@ use crate::spice::core::{
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkShardContext, BlockType, RuntimeAdapter,
-    RuntimeStorageConfig, prev_block_context,
+    ApplyChunkBlockContext, ApplyChunkShardContext, BlockType, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use near_chain_configs::ProtocolVersionCheckConfig;
@@ -532,8 +531,10 @@ impl<'a> ChainUpdate<'a> {
             block_header.next_gas_price()
         };
         // Genesis has no previous block; its chunks carry no external calls.
-        let prev_block =
-            prev_block_header.as_ref().map(|header| prev_block_context(header)).unwrap_or_default();
+        let (prev_block_height, prev_block_timestamp) = prev_block_header
+            .as_ref()
+            .map(|header| (header.height(), header.raw_timestamp()))
+            .unwrap_or_default();
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
@@ -568,12 +569,13 @@ impl<'a> ChainUpdate<'a> {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
+                prev_block_height,
+                prev_block_timestamp,
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
                 random_seed: *block_header.random_value(),
                 congestion_info: block.block_congestion_info(),
                 bandwidth_requests: block.block_bandwidth_requests(),
-                prev_block,
             },
             &receipts,
             transactions,

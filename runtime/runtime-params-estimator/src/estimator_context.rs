@@ -193,7 +193,6 @@ impl<'c> EstimatorContext<'c> {
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
-            prev_block_hash: Default::default(),
             shard_id,
             epoch_id: Default::default(),
             epoch_height: 0,

@@ -402,7 +402,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,

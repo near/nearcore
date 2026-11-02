@@ -9,7 +9,7 @@ use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -368,13 +368,13 @@ pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
     pub prev_block_hash: CryptoHash,
+    pub prev_block_height: BlockHeight,
+    pub prev_block_timestamp: u64,
     pub block_timestamp: u64,
     pub gas_price: Balance,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
-    /// The previous block, which external calls see instead of this one.
-    pub prev_block: PrevBlockContext,
 }
 
 impl ApplyChunkBlockContext {
@@ -389,12 +389,13 @@ impl ApplyChunkBlockContext {
             block_type: BlockType::Normal,
             height: header.height(),
             prev_block_hash: *header.prev_hash(),
+            prev_block_height: prev_header.height(),
+            prev_block_timestamp: prev_header.raw_timestamp(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
-            prev_block: prev_block_context(prev_header),
         }
     }
 
@@ -406,12 +407,6 @@ impl ApplyChunkBlockContext {
             random_seed: self.random_seed,
         }
     }
-}
-
-/// The context external calls see of `prev_header`, the block before the one the chunk is
-/// applied in.
-pub fn prev_block_context(prev_header: &BlockHeader) -> PrevBlockContext {
-    PrevBlockContext { timestamp: prev_header.raw_timestamp() }
 }
 
 pub struct ApplyChunkShardContext<'a> {
@@ -821,17 +816,20 @@ mod tests {
         let prev_block =
             TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
         clock.advance(Duration::seconds(1));
-        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev_block, signer).build();
+        // The height after the parent's is skipped, so the parent's height isn't one less than
+        // the block's.
+        let height = prev_block.header().height() + 2;
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev_block, signer)
+            .height(height)
+            .build();
         assert_ne!(block.header().raw_timestamp(), prev_block.header().raw_timestamp());
-        assert_ne!(block.header().random_value(), prev_block.header().random_value());
 
         let context = Chain::get_apply_chunk_block_context(&block, prev_block.header(), true);
+        assert_eq!(context.height, height);
         assert_eq!(context.block_timestamp, block.header().raw_timestamp());
-        assert_eq!(context.random_seed, *block.header().random_value());
-        assert_eq!(
-            context.prev_block,
-            PrevBlockContext { timestamp: prev_block.header().raw_timestamp() }
-        );
+        assert_eq!(context.prev_block_hash, *prev_block.hash());
+        assert_eq!(context.prev_block_height, prev_block.header().height());
+        assert_eq!(context.prev_block_timestamp, prev_block.header().raw_timestamp());
     }
 
     #[test]

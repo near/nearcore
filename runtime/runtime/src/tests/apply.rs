@@ -10,7 +10,8 @@ use crate::wallet_contract::{
     eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
 };
 use crate::{
-    ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
+    ActionResult, ApplyResult, ApplyState, PrevBlockContext, Runtime, ValidatorAccountsUpdate,
+    action_add_key,
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
@@ -27,7 +28,7 @@ use near_primitives::action::{
     Action, DeleteAccountAction, DeterministicStateInitAction, GlobalContractIdentifier,
     TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
 };
-use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
@@ -192,7 +193,6 @@ fn setup_runtime_for_shard(
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
-        prev_block_hash: Default::default(),
         shard_id: shard_uid.shard_id(),
         epoch_id: Default::default(),
         epoch_height: 0,
@@ -841,6 +841,7 @@ fn ecc_contract(ecc_body: &str) -> Vec<u8> {
   (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (import "env" "block_index" (func $block_index (result i64)))
   (import "env" "block_timestamp" (func $block_timestamp (result i64)))
+  (import "env" "epoch_height" (func $epoch_height (result i64)))
   (import "env" "random_seed" (func $random_seed (param i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (import "env" "promise_batch_create" (func $promise_batch_create (param i64 i64) (result i64)))
@@ -876,7 +877,7 @@ fn ecc_contract(ecc_body: &str) -> Vec<u8> {
 }
 
 /// A contract that accepts ECCs. Its ECC method writes the payload, logs `accepted` and returns
-/// the block height and the block timestamp it sees, in that order.
+/// the block height, the block timestamp and the epoch height it sees, in that order.
 fn ecc_accepting_contract() -> Vec<u8> {
     ecc_contract(
         r#"
@@ -884,7 +885,8 @@ fn ecc_accepting_contract() -> Vec<u8> {
     (call $log_utf8 (i64.const 8) (i64.const 8))
     (i64.store (i32.const 100) (call $block_index))
     (i64.store (i32.const 108) (call $block_timestamp))
-    (call $value_return (i64.const 16) (i64.const 100))"#,
+    (i64.store (i32.const 116) (call $epoch_height))
+    (call $value_return (i64.const 24) (i64.const 100))"#,
     )
 }
 
@@ -897,8 +899,9 @@ struct EccContractSetup {
 }
 
 /// Deploys each of `contracts` and then sets its account's balance. Alice has no contract and a
-/// large balance. The previous block in the apply state differs from the current one, so tests
-/// can tell which one an ECC sees.
+/// large balance. The chunk's parent block differs from the chunk's block in every field an ECC
+/// can see, so tests can tell which one the ECC sees: the height between the two is skipped, and
+/// the chunk's block starts a new epoch.
 fn setup_ecc_contracts(
     contracts: Vec<EccContractSetup>,
 ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
@@ -946,7 +949,17 @@ fn setup_ecc_contracts(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
 
-    apply_state.prev_block = PrevBlockContext { timestamp: 42 };
+    apply_state.block_height = 10;
+    apply_state.epoch_id = EpochId(hash(b"epoch"));
+    apply_state.epoch_height = 3;
+    apply_state.block_timestamp = 100;
+    apply_state.prev_block = PrevBlockContext {
+        hash: hash(b"previous block"),
+        height: 8,
+        epoch_id: EpochId(hash(b"previous epoch")),
+        epoch_height: 2,
+        timestamp: 42,
+    };
     (runtime, tries, root, apply_state, signers, epoch_info_provider)
 }
 
@@ -1076,7 +1089,8 @@ fn accepted_ecc_charge_and_storage_usage() -> (Balance, u64) {
 
 /// An ECC whose run returns cleanly is accepted: its writes stay, and the contract pays the
 /// fees and the gas the run burnt at the block's gas price. The outcome holds the return value
-/// and the logs, and the run sees the chunk's height and the previous block's timestamp.
+/// and the logs. The run sees the chunk's parent block (height, timestamp and epoch), not the
+/// block the chunk is in, even when the height between them is skipped.
 #[test]
 fn test_apply_ecc_accepted() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1101,8 +1115,12 @@ fn test_apply_ecc_accepted() {
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome.id, outcome_id);
     let outcome = &outcome.outcome;
-    let mut seen_block = apply_state.block_height.to_le_bytes().to_vec();
-    seen_block.extend(apply_state.prev_block.timestamp.to_le_bytes());
+    let parent = &apply_state.prev_block;
+    assert!(parent.height + 1 < apply_state.block_height);
+    assert_ne!(parent.epoch_height, apply_state.epoch_height);
+    let mut seen_block = parent.height.to_le_bytes().to_vec();
+    seen_block.extend(parent.timestamp.to_le_bytes());
+    seen_block.extend(parent.epoch_height.to_le_bytes());
     assert_eq!(outcome.status, ExecutionStatus::SuccessValue(seen_block));
     assert_eq!(outcome.logs, vec!["accepted".to_string()]);
     assert!(outcome.receipt_ids.is_empty());
@@ -5976,7 +5994,6 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let mut apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
-        prev_block_hash: Default::default(),
         shard_id: shard_uid.shard_id(),
         epoch_id: Default::default(),
         epoch_height: 0,
@@ -7484,7 +7501,6 @@ mod self_signed_state_init {
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: CREATION_HEIGHT + 1,
-            prev_block_hash: Default::default(),
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,

@@ -32,12 +32,3 @@ impl Display for ApplyChunkReason {
         f.write_str(self.as_str())
     }
 }
-
-/// The previous block, as the chunk producer saw it when building the chunk.
-/// External calls see this block instead of the one the chunk is applied in,
-/// so that they run with the same values when the producer runs them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PrevBlockContext {
-    /// The previous block's timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub timestamp: u64,
-}

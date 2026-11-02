@@ -5,7 +5,6 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
-    prev_block_context,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -191,11 +190,12 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_timestamp,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
                 bandwidth_requests: block_bandwidth_requests,
-                prev_block: prev_block_context(prev_block.header()),
             },
             &receipts,
             SignedValidPeriodTransactions::new(transactions, valid_txs),

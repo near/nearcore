@@ -56,9 +56,10 @@ use near_runtime::cache_warming::cache_keys_differ;
 use near_runtime::config::{ecc_cost, tx_cost};
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, account_holds_contract, get_signer_and_authorization,
-    validate_envelope, verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
+    ApplyState, PendingConstraints, PrevBlockContext, Runtime, SignedValidPeriodTransactions,
+    TxAuthorizationRef, TxVerdict, ValidatorAccountsUpdate, account_holds_contract,
+    get_signer_and_authorization, validate_envelope, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -222,12 +223,13 @@ impl NightshadeRuntime {
             block_type: _,
             height: block_height,
             ref prev_block_hash,
+            prev_block_height,
+            prev_block_timestamp,
             block_timestamp,
             gas_price,
             random_seed,
             congestion_info,
             bandwidth_requests,
-            prev_block,
         } = block;
         let ApplyChunkShardContext {
             shard_uid,
@@ -288,6 +290,13 @@ impl NightshadeRuntime {
 
         let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
+        let prev_block = PrevBlockContext {
+            hash: *prev_block_hash,
+            height: prev_block_height,
+            epoch_id: prev_block_epoch_id,
+            epoch_height: self.epoch_manager.get_epoch_info(&prev_block_epoch_id)?.epoch_height(),
+            timestamp: prev_block_timestamp,
+        };
         let current_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
@@ -332,7 +341,6 @@ impl NightshadeRuntime {
         let apply_state = ApplyState {
             apply_reason,
             block_height,
-            prev_block_hash: *prev_block_hash,
             shard_id,
             epoch_id,
             epoch_height,

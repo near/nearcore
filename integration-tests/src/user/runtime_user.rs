@@ -209,7 +209,6 @@ impl RuntimeUser {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: self.client.read().block_height + 1,
-            prev_block_hash: Default::default(),
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
@@ -353,7 +352,7 @@ impl User for RuntimeUser {
         let view_state = ViewApplyState {
             // The view reads the state of the last applied chunk.
             block_height: client.block_height,
-            prev_block_hash: apply_state.prev_block_hash,
+            prev_block_hash: apply_state.prev_block.hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,

@@ -143,7 +143,9 @@ pub(crate) fn run_external_call(
         contract_id.clone(),
         account.clone(),
         *outcome_id,
-        apply_state.epoch_id,
+        // The validator stake host functions see the epoch of the chunk's parent block, as the
+        // rest of the run does. Data ids are derived from the chunk's height, like the outcome id.
+        apply_state.prev_block.epoch_id,
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
@@ -206,9 +208,8 @@ pub(crate) fn run_external_call(
     })
 }
 
-/// The context of the run of an external call. The call sees the block as the chunk producer
-/// saw it when building the chunk: the chunk's height and the previous block's timestamp, so
-/// that the producer's run and the run at apply see the same values.
+/// The context of the run of an external call. The run sees the chunk's parent block, which the
+/// chunk producer runs the call on top of when building the chunk.
 fn external_call_context(
     apply_state: &ApplyState,
     account: &Account,
@@ -227,9 +228,9 @@ fn external_call_context(
         refund_to_account_id: contract_id.clone(),
         input: Rc::from(ecc.payload()),
         promise_results: [].into(),
-        block_height: apply_state.block_height,
+        block_height: apply_state.prev_block.height,
         block_timestamp: apply_state.prev_block.timestamp,
-        epoch_height: apply_state.epoch_height,
+        epoch_height: apply_state.prev_block.epoch_height,
         account_balance: account.amount(),
         account_locked_balance: account.locked(),
         storage_usage: account.storage_usage(),

@@ -22,7 +22,7 @@ use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::{AccessKeyPermission, AccountContract};
 use near_primitives::action::UniversalStateInitAction;
-use near_primitives::apply::{ApplyChunkReason, PrevBlockContext};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::{
@@ -290,12 +290,13 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
+                    prev_block_height: 0,
+                    prev_block_timestamp: 0,
                     block_timestamp,
                     gas_price,
                     random_seed: CryptoHash::default(),
                     congestion_info,
                     bandwidth_requests: BlockBandwidthRequests::empty(),
-                    prev_block: PrevBlockContext::default(),
                 },
                 receipts,
                 transactions,

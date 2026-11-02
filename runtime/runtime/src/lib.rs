@@ -75,7 +75,7 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives_core::apply::{ApplyChunkReason, PrevBlockContext};
+use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
@@ -172,14 +172,26 @@ impl PostStateReadyCallback {
     }
 }
 
+/// The chunk's parent block, on top of which the chunk producer built the chunk. The producer
+/// checks the chunk's transactions against this block before the block the chunk goes into
+/// exists, so the checks see it here too: a signed transaction's signature check, and the run
+/// of an external call, which takes the place of that check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PrevBlockContext {
+    pub hash: CryptoHash,
+    pub height: BlockHeight,
+    pub epoch_id: EpochId,
+    pub epoch_height: EpochHeight,
+    /// The number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC.
+    pub timestamp: u64,
+}
+
 #[derive(Debug)]
 pub struct ApplyState {
     /// Points to a phase of the chain lifecycle that we want to run apply for.
     pub apply_reason: ApplyChunkReason,
     /// Currently building block height.
     pub block_height: BlockHeight,
-    /// Prev block hash
-    pub prev_block_hash: CryptoHash,
     /// To which shard the applied chunk belongs.
     pub shard_id: ShardId,
     /// Current epoch id
@@ -195,7 +207,7 @@ pub struct ApplyState {
     pub gas_limit: Option<Gas>,
     /// Current random seed (from current block vrf output).
     pub random_seed: CryptoHash,
-    /// The previous block, which external calls see instead of the current one.
+    /// The chunk's parent block.
     pub prev_block: PrevBlockContext,
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
@@ -756,7 +768,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     stake,
-                    &apply_state.prev_block_hash,
+                    &apply_state.prev_block.hash,
                     epoch_info_provider,
                 )?;
             }

@@ -32,7 +32,7 @@ use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource, prev_block_context,
+    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -1403,12 +1403,13 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_block.header().raw_timestamp(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),
                 congestion_info: chunks.block_congestion_info(),
                 bandwidth_requests: chunks.block_bandwidth_requests(),
-                prev_block: prev_block_context(prev_block.header()),
             };
             let incoming_receipts = incoming_receipts.get(&shard_id);
             let storage_context = StorageContext {

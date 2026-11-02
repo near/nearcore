@@ -29,9 +29,9 @@ Some of the functions below behave differently depending on how the contract exe
   yielded one is rejected.This limitation will be lifted in future work on this feature.
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
-  doesn't exist yet. So that the call sees the same values then and when the chunk is applied, it sees the block as
-  the producer does: the block height of the chunk, but the timestamp of the previous block. An external call can't
-  read the random seed (see [Math API](MathAPI.md)).
+  doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
+  the call sees the height, the timestamp and the epoch of the parent block, both when the producer runs it and when
+  the chunk is applied. An external call can't read the random seed (see [Math API](MathAPI.md)).
 
 ---
 
@@ -180,7 +180,8 @@ block_index() -> u64
 
 Returns the current block height from genesis.
 
-In an external call, returns the height of the block the call's chunk is in.
+In an external call, returns the height of the chunk's parent block. Heights can be skipped, so this can be more than
+one less than the height of the block the chunk is in.
 
 ---
 
@@ -190,7 +191,7 @@ block_timestamp() -> u64
 
 Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
 
-In an external call, returns the timestamp of the previous block.
+In an external call, returns the timestamp of the chunk's parent block.
 
 ---
 
@@ -199,6 +200,8 @@ epoch_height() -> u64
 ```
 
 Returns the current epoch height from genesis.
+
+In an external call, returns the epoch height of the chunk's parent block.
 
 ---
 
