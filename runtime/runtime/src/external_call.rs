@@ -2,7 +2,7 @@
 //!
 //! An external call runs the contract's reserved method in `ExecutionMode::External`, with the
 //! call's payload as input. A clean return accepts the call: the run's writes stay and the
-//! contract pays for the call's fees and the gas the run burnt. Any failure refuses the call:
+//! contract pays for the call's fees and the gas the run used. Any failure refuses the call:
 //! the caller rolls the run's writes back and nobody pays.
 //!
 //! The run and the verdict don't depend on the chunk's processing state, so the chunk producer
@@ -44,7 +44,12 @@ pub(crate) struct ExternalCallRun {
     pub gas_burnt: Gas,
     /// Compute used by the call's fees and its run.
     pub compute_usage: Compute,
-    /// The amount the contract pays if it accepts the call, or why the call is refused.
+    /// The amount the contract pays if it accepts the call, or why the call is refused. The
+    /// whole amount is reported as burnt, in the outcome and in the chunk's stats.
+    // TODO(ecc): once external calls can create receipts, carry the burnt amount separately from
+    // the charge. The contract still pays for the used gas, but only the fees and the burnt gas
+    // are burnt: the gas attached to the receipts goes with them. Until then the two amounts are
+    // the same.
     pub verdict: Result<Balance, TxExecutionError>,
     outcome: VMOutcome,
 }
@@ -272,7 +277,9 @@ fn verdict(
         return Ok(Err(InvalidTxError::InvalidTransactionVersion.into()));
     }
 
-    let gas_cost = safe_gas_to_balance(gas_price, outcome.burnt_gas)?;
+    // The used gas includes the gas attached to the receipts the run created, which the contract
+    // pays for too.
+    let gas_cost = safe_gas_to_balance(gas_price, outcome.used_gas)?;
     let charge = safe_add_balance(cost.burnt_amount, gas_cost)?;
     let Some(balance) = outcome.balance.checked_sub(charge) else {
         return Ok(Err(InvalidTxError::NotEnoughBalance {
