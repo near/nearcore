@@ -406,8 +406,8 @@ impl PerShardChunkExecutor {
 
     /// Postprocess one applied chunk for this shard: persist artifacts, emit the
     /// endorsement / witness / outgoing receipts, and return the produced receipt
-    /// proofs so the coordinator can do local-path fanout. Block-level finalize
-    /// stays on the coordinator.
+    /// proofs so the coordinator can do local-path fanout. Block-level execution
+    /// completion stays on the coordinator.
     fn apply_chunk_postprocessing_and_emit(
         &self,
         block_hash: CryptoHash,
