@@ -542,7 +542,13 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let view_access_key = node_user.get_access_key(&receiver_id, &public_key);
     match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
+            // The first receipt creates the account and its access key.
+            let height = node_user
+                .get_outcome_height(&transaction_result.receipts_outcome[0])
+                .expect("receipt outcome must have an execution height");
+            let mut access_key = AccessKey::full_access();
+            access_key.nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            assert_eq!(view_access_key.unwrap(), access_key.into());
         }
         AccountType::NearDeterministicAccount => {
             // A transfer to NEAR deterministic address does not create access key.
@@ -1203,11 +1209,12 @@ fn assert_access_key(
     result: &FinalExecutionOutcomeView,
     user: &dyn User,
 ) {
+    // The first receipt runs the `AddKey` action.
+    let height = user
+        .get_outcome_height(&result.receipts_outcome[0])
+        .expect("receipt outcome must have an execution height");
     let mut key = access_key.clone();
-    let block = user.get_block(result.transaction_outcome.block_hash);
-    if let Some(b) = block {
-        key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    }
+    key.nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     assert_eq!(access_key_view, key.into());
 }
 
