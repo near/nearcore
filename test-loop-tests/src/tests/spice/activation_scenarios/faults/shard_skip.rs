@@ -1,7 +1,7 @@
 //! `shard_skip`: a shard silenced from warmup through the last pre-spice block, or for the
 //! whole first spice epoch.
 
-use super::super::resolve::Profile;
+use super::super::resolve::{ACTIVATION_EPOCH_HEIGHT, Resolved};
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -134,7 +134,8 @@ impl Fault for ShardSkip {
         self
     }
 
-    fn validate(&self, profile: Profile) -> Result<(), String> {
+    fn validate(&self, resolved: Resolved) -> Result<(), String> {
+        let profile = resolved.profile;
         if self.shard == profile.contract_shard_index() && self.epochs == Epochs::PreSpice {
             return Err(format!(
                 "shard {} holds the contract: silencing it keeps the deploy and the call backlog \
@@ -143,13 +144,7 @@ impl Fault for ShardSkip {
                 self.shard,
             ));
         }
-        match self.epochs {
-            Epochs::PreSpice | Epochs::FirstSpice => Ok(()),
-            Epochs::LastPreSpice => {
-                Err("epochs=last_pre_spice needs setup:vote=epoch(N), which lands in milestone 6"
-                    .to_string())
-            }
-        }
+        Ok(())
     }
 
     fn on_progress(
@@ -165,19 +160,24 @@ impl Fault for ShardSkip {
                     .get_shard_id(self.shard)
                     .unwrap_or_else(|_| panic!("shard index {} is out of range", self.shard));
                 self.shard_id = Some(shard_id);
-                if self.epochs == Epochs::PreSpice {
-                    let node = env.rpc_node();
-                    let epoch_manager = node.client().epoch_manager.as_ref();
-                    let pre_spice_epoch_height =
-                        epoch_manager.get_epoch_info(&node.head().epoch_id).unwrap().epoch_height();
+                // The drop keys are epoch heights: the genesis epoch's, shared with the
+                // epoch after it, is 1, and the last pre-spice epoch's is the one below the
+                // activation epoch's.
+                let last_pre_spice_epoch_height = ACTIVATION_EPOCH_HEIGHT - 1;
+                let epoch_heights: HashSet<u64> = match self.epochs {
+                    Epochs::PreSpice => (1..=last_pre_spice_epoch_height).collect(),
+                    Epochs::LastPreSpice => HashSet::from([last_pre_spice_epoch_height]),
+                    Epochs::FirstSpice => HashSet::new(),
+                };
+                if !epoch_heights.is_empty() {
                     env.add_drop_condition(DropCondition::ChunksForShardsInEpochs {
                         shards: HashSet::from([shard_id]),
-                        epoch_heights: HashSet::from([pre_spice_epoch_height]),
+                        epoch_heights,
                     });
                 }
             }
             Progress::LastPreSpice => match self.epochs {
-                Epochs::PreSpice => {
+                Epochs::PreSpice | Epochs::LastPreSpice => {
                     let last_pre_spice = timeline.last_pre_spice.as_ref().unwrap();
                     let last_included = last_pre_spice.chunks()[self.shard].height_included();
                     self.silenced = Some(last_included + 1..=last_pre_spice.header().height());
@@ -186,7 +186,6 @@ impl Fault for ShardSkip {
                         Some(epoch_manager.get_epoch_start_height(last_pre_spice.hash()).unwrap());
                 }
                 Epochs::FirstSpice => self.set_producers_mode(env, timeline, true),
-                Epochs::LastPreSpice => {}
             },
             Progress::EpochAfter(1) if self.epochs == Epochs::FirstSpice => {
                 self.set_producers_mode(env, timeline, false);
@@ -231,7 +230,7 @@ impl Fault for ShardSkip {
             narrowing: Narrowing::ShardHeights(silenced),
         }];
         match self.epochs {
-            Epochs::PreSpice => relaxations.push(Relaxation {
+            Epochs::PreSpice | Epochs::LastPreSpice => relaxations.push(Relaxation {
                 oracle: OracleId::LoadInFlight,
                 narrowing: Narrowing::Shards(HashSet::from([shard_id])),
             }),
@@ -242,7 +241,6 @@ impl Fault for ShardSkip {
                 oracle: OracleId::ExactlyOnce,
                 narrowing: Narrowing::Shards(HashSet::from([shard_id])),
             }),
-            Epochs::LastPreSpice => {}
         }
         relaxations
     }
@@ -250,7 +248,7 @@ impl Fault for ShardSkip {
     fn assert_fired(&self, env: &TestLoopEnv, timeline: &Timeline) {
         let silenced = self.silenced.clone().expect("the silenced range is read off the chain");
         match self.epochs {
-            Epochs::PreSpice => {
+            Epochs::PreSpice | Epochs::LastPreSpice => {
                 let last_included = silenced.start() - 1;
                 let epoch_start = self.last_pre_spice_epoch_start.unwrap();
                 assert!(
@@ -260,6 +258,26 @@ impl Fault for ShardSkip {
                      the shard was not silent through it",
                     self.shard,
                 );
+                if self.epochs == Epochs::LastPreSpice {
+                    // Silent in that epoch only: the chunk below the silence sits in the
+                    // epoch right before it.
+                    let epoch_manager = env.rpc_node().client().epoch_manager.clone();
+                    let chain = &env.rpc_node().client().chain;
+                    let below = (1..epoch_start)
+                        .rev()
+                        .find_map(|height| chain.chain_store.get_block_hash_by_height(height).ok())
+                        .expect("a block below the last pre-spice epoch exists");
+                    let previous_epoch_start =
+                        epoch_manager.get_epoch_start_height(&below).unwrap();
+                    assert!(
+                        last_included >= previous_epoch_start,
+                        "shard {}'s chunk at the last pre-spice block was included at height \
+                         {last_included}, before the epoch starting at {previous_epoch_start} \
+                         that precedes the last pre-spice one: the shard was silent for more \
+                         than that epoch",
+                        self.shard,
+                    );
+                }
             }
             Epochs::FirstSpice => {
                 let first_spice_height = timeline.first_spice_height().unwrap();
@@ -282,7 +300,6 @@ impl Fault for ShardSkip {
                     );
                 }
             }
-            Epochs::LastPreSpice => unreachable!("rejected by validate"),
         }
     }
 }

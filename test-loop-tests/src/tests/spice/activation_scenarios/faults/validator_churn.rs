@@ -2,7 +2,7 @@
 
 use super::super::driver::RunRecord;
 use super::super::oracles::{Oracle, Relaxations};
-use super::super::resolve::Profile;
+use super::super::resolve::Resolved;
 use super::super::scenario::{Fault, FaultEvent, OracleId, Progress, Timeline};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
@@ -141,7 +141,8 @@ impl Fault for ValidatorChurn {
         self
     }
 
-    fn setup(&self, profile: Profile, mut builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, resolved: Resolved, mut builder: TestLoopBuilder) -> TestLoopBuilder {
+        let profile = resolved.profile;
         if self.joins() {
             // The joiner is the client right after the validators.
             let joiner_index = profile.num_validators();

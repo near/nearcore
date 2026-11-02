@@ -7,11 +7,12 @@
 //! block at a time firing the progress points the faults attach to, and at the end runs the
 //! oracles with the relaxations the faults declare.
 
+use crate::setup::task_delays::task_names;
 use driver::run_scenario;
 use faults::{
     Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, Fallback, GcTight,
-    Kind, LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers, ShardSkip,
-    Shards, SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
+    HeightSkip, Kind, LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers,
+    ShardSkip, Shards, SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
 };
 use near_o11y::testonly::init_test_logger;
 use random::RandomSpec;
@@ -27,7 +28,7 @@ mod random;
 pub(crate) mod resolve;
 mod scenario;
 
-pub(crate) use driver::{drop_chunks_marked_missing, run_until_estimated_first_spice_height};
+pub(crate) use driver::run_until_estimated_first_spice_height;
 
 /// Runs each scenario in turn and keeps going after a failure, so one run shows the whole
 /// picture. Panics at the end listing every failing scenario with its message.
@@ -91,6 +92,7 @@ fn core_presets() -> Vec<Scenario> {
         Scenario::new().fault(MissingChunk::new().shards(Shards::Index(1))),
         Scenario::new().fault(MissingChunk::new().at(-2..0)).fault(EndorsementDelay::new()),
         Scenario::new().fault(ShardSkip::new()),
+        Scenario::new().fault(ShardSkip::new().epochs(Epochs::LastPreSpice)),
         Scenario::new().fault(ShardSkip::new()).fault(EndorsementDelay::new().blocks(4)),
         Scenario::new().fault(EndorsementDelay::new()),
         Scenario::new()
@@ -222,6 +224,40 @@ fn ultra_slow_test_spice_activation_matrix_fallback() {
     run_scenarios(fallback_presets());
 }
 
+/// The faults that move the boundary away from the estimate, alone and with the faults
+/// that resolve their boundary offsets by predicate, and the vote that shapes the upgrade,
+/// with the faults keyed on its epoch heights.
+fn boundary_presets() -> Vec<Scenario> {
+    vec![
+        Scenario::new().fault(HeightSkip::new()),
+        Scenario::new().fault(HeightSkip::new().at(-2..-1)),
+        Scenario::new().fault(HeightSkip::new().at(0..1)),
+        Scenario::new().fault(MissingChunk::new()).fault(HeightSkip::new()),
+        Scenario::new()
+            .fault(MissingChunk::new().pattern(0, "x.x.").pattern(1, "..xx"))
+            .fault(HeightSkip::new()),
+        Scenario::new().fault(HeightSkip::new()).fault(EndorsementDelay::new()),
+        Scenario::new().fault(NodeCrash::new().at(At::Height(-3))),
+        Scenario::new().fault(NodeCrash::new().node(4).at(At::Height(-3))),
+        // A producer slowed before the boundary: applying chunks is what it cannot fall
+        // behind on and still produce.
+        Scenario::new().fault(
+            SlowNode::new()
+                .node(0)
+                .task(task_names::APPLY_CHUNKS_NORMAL)
+                .start(WindowStart::Offset(-6))
+                .end(WindowEnd::Offset(-2)),
+        ),
+    ]
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_boundary() {
+    run_scenarios(boundary_presets());
+}
+
 /// Every fault of the catalog at its defaults, in the catalog's order, for the group built
 /// from pairs. `shard_rotation` is left out: it cannot fire on profile A, see the fault.
 const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
@@ -316,6 +352,7 @@ fn test_presets_are_accepted_by_the_resolver() {
     presets.extend(nodes_presets());
     presets.extend(storage_presets());
     presets.extend(fallback_presets());
+    presets.extend(boundary_presets());
     presets.extend(pairwise_presets());
     presets.extend(under_investigation_presets());
     for scenario in presets {

@@ -9,8 +9,10 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -32,16 +34,22 @@ pub enum DropCondition {
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
-    // Drops Block broadcast messages with height in `self.0`
+    /// Drops the broadcast of every block at a height in the set, and swallows the requests
+    /// other nodes make for a block it dropped, so the skip holds even when the dropped
+    /// block's producer builds the next block on it: the child would otherwise make its
+    /// receivers fetch the parent. What was dropped and swallowed is in
+    /// `SharedState::dropped_blocks`.
     BlocksByHeight(HashSet<BlockHeight>),
+    /// Drops the pre-spice endorsements of the given shards' chunks of whichever block
+    /// turns out to be the last pre-spice block, decided per chunk from its parent before
+    /// the block exists, see [`ends_pre_spice_epoch`]. Keeps hitting the boundary when
+    /// something moves it away from the estimate.
+    LastPreSpiceChunks { shards: HashSet<ShardId> },
     /// Drop every chunk of the given shards produced in any of the listed epoch
     /// heights. Unlike `ChunksProducedByHeight` (keyed on height-within-epoch),
     /// this is keyed on the absolute epoch height, so it silences a shard for
     /// whole specific epochs, including the first block of each such epoch.
-    ChunksForShardsInEpochs {
-        shards: HashSet<ShardId>,
-        epoch_heights: HashSet<u64>,
-    },
+    ChunksForShardsInEpochs { shards: HashSet<ShardId>, epoch_heights: HashSet<u64> },
     /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk,
     /// disabling the designated certification path so chunks can certify only via the all-stake
     /// fallback.
@@ -49,6 +57,61 @@ pub enum DropCondition {
     /// Drops every request for spice data, so a node can only get data that was pushed to
     /// it.
     SpiceDataRequests,
+}
+
+/// What [`DropCondition::BlocksByHeight`] dropped and swallowed, shared by every node's
+/// handler.
+#[derive(Default)]
+pub struct DroppedBlocks {
+    /// The hashes of the blocks whose broadcast was dropped.
+    pub hashes: HashSet<CryptoHash>,
+    /// How many requests for a dropped block were swallowed.
+    pub requests_swallowed: u64,
+}
+
+/// Whether the block built on `parent_hash` will end a pre-spice epoch into a spice one,
+/// so it will be the last pre-spice block, decided before it exists. The next block starts
+/// a new epoch when the current block's last final height plus three reaches the epoch's
+/// estimated end, and a block's last final block is its grandparent when the last three
+/// heights are consecutive, the parent's last final block otherwise; the block is taken to
+/// sit one above its parent, which is where a chunk built on the parent is created.
+pub fn ends_pre_spice_epoch(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent_hash: &CryptoHash,
+) -> bool {
+    let Ok(parent) = epoch_manager.get_block_info(parent_hash) else {
+        return false;
+    };
+    let Ok(grandparent) = epoch_manager.get_block_info(parent.prev_hash()) else {
+        return false;
+    };
+    if epoch_manager.is_next_block_epoch_start(parent_hash).unwrap_or(true) {
+        return false;
+    }
+    let last_final_height = if parent.height() == grandparent.height() + 1 {
+        grandparent.height()
+    } else {
+        match epoch_manager.get_block_info(parent.last_final_block_hash()) {
+            Ok(last_final) => last_final.height(),
+            Err(_) => return false,
+        }
+    };
+    let Ok(estimated_next_epoch_start) = epoch_manager.get_estimated_next_epoch_start(&parent)
+    else {
+        return false;
+    };
+    if last_final_height + 3 < estimated_next_epoch_start {
+        return false;
+    }
+    let Ok(version) = epoch_manager.get_epoch_protocol_version(parent.epoch_id()) else {
+        return false;
+    };
+    let Ok(next_version) =
+        epoch_manager.get_next_epoch_protocol_version_from_prev_block(parent_hash)
+    else {
+        return false;
+    };
+    !ProtocolFeature::Spice.enabled(version) && ProtocolFeature::Spice.enabled(next_version)
 }
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
@@ -114,6 +177,7 @@ impl NodeExecutionData {
         &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+        dropped_blocks: Arc<Mutex<DroppedBlocks>>,
         drop_condition: &DropCondition,
     ) {
         match drop_condition {
@@ -139,7 +203,14 @@ impl NodeExecutionData {
                 );
             }
             DropCondition::BlocksByHeight(heights) => {
-                self.register_drop_blocks_by_height(test_loop_data, heights);
+                self.register_drop_blocks_by_height(test_loop_data, heights, dropped_blocks);
+            }
+            DropCondition::LastPreSpiceChunks { shards } => {
+                self.register_drop_last_pre_spice_chunks(
+                    test_loop_data,
+                    chunks_storage,
+                    shards.clone(),
+                );
             }
             DropCondition::ChunksForShardsInEpochs { shards, epoch_heights } => {
                 self.register_drop_chunks_for_shards_in_epochs(
@@ -284,8 +355,31 @@ impl NodeExecutionData {
         &self,
         test_loop_data: &mut TestLoopData,
         heights: &HashSet<BlockHeight>,
+        dropped_blocks: Arc<Mutex<DroppedBlocks>>,
     ) {
-        self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
+        self.register_override_handler(
+            test_loop_data,
+            block_dropper_by_height(heights.clone(), dropped_blocks),
+        );
+    }
+
+    fn register_drop_last_pre_spice_chunks(
+        &self,
+        test_loop_data: &mut TestLoopData,
+        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+        shards: HashSet<ShardId>,
+    ) {
+        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+        let inner_epoch_manager = epoch_manager.clone();
+        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+            shards.contains(&chunk.shard_id())
+                && ends_pre_spice_epoch(inner_epoch_manager.as_ref(), chunk.prev_block_hash())
+        });
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+        );
     }
 }
 

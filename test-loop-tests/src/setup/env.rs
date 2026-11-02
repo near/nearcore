@@ -45,6 +45,7 @@ impl TestLoopEnv {
             data.register_drop_condition(
                 &mut self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
+                self.shared_state.dropped_blocks.clone(),
                 &drop_condition,
             );
         }

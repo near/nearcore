@@ -22,7 +22,7 @@ use near_chain::spice::boundary_synthesis::{
     execution_result_and_receipt_proofs_from_pre_spice_apply, get_undelivered_receipt_proofs,
     get_undelivered_receipts,
 };
-use near_chain::{Block, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_chain::{Block, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_primitives::block::BlockHeader;
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
@@ -31,7 +31,6 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::ExecutionStatus;
 use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, SpiceChunkId};
 use std::collections::{HashMap, HashSet};
-use std::ops::Range;
 use std::sync::Arc;
 
 /// Returns the formatted message as the error of the enclosing function unless `condition`
@@ -117,6 +116,17 @@ impl Relaxations {
             Narrowing::Whole => true,
             Narrowing::Shards(shards) => shards.contains(&shard_id),
             Narrowing::Heights(_) | Narrowing::ShardHeights(_) | Narrowing::Node(_) => false,
+        })
+    }
+
+    /// Whether `oracle` is switched off for exactly the pair `(shard_id, height)`, by a
+    /// relaxation that names pairs: a shard-wide one does not count, so a fault that relaxes
+    /// a shard for one reason does not switch off checks keyed on pairs for another.
+    pub fn pair_relaxed(&self, oracle: OracleId, shard_id: ShardId, height: BlockHeight) -> bool {
+        self.narrowings(oracle).iter().any(|narrowing| match narrowing {
+            Narrowing::Whole => true,
+            Narrowing::ShardHeights(shard_heights) => shard_heights.contains(&(shard_id, height)),
+            Narrowing::Heights(_) | Narrowing::Shards(_) | Narrowing::Node(_) => false,
         })
     }
 
@@ -624,6 +634,17 @@ fn exactly_once(
         let stale_nonce_tolerated = relaxations.shard_relaxed(OracleId::ExactlyOnce, sender_shard);
         for tx in run.loads.txs(kind) {
             let inclusion_heights = run.loads.inclusion_heights(&tx.hash);
+            // A transaction the rpc node could forward to a dead producer only is lost with
+            // its pool; a fault that kills one names those by shard and submission height.
+            if inclusion_heights.is_empty()
+                && relaxations.pair_relaxed(
+                    OracleId::ExactlyOnce,
+                    sender_shard,
+                    tx.submitted_height,
+                )
+            {
+                continue;
+            }
             if inclusion_heights.len() != 1 {
                 problems.push(format!(
                     "transaction {} of the {} submitted at height {} was included at \
@@ -1234,22 +1255,6 @@ fn gate_quiet(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(),
 /// No node panicked: the test loop reached `done`, which is what makes the oracles run.
 fn no_panics(_: &TestLoopEnv, _: &RunRecord, _: &Relaxations) -> Result<(), String> {
     Ok(())
-}
-
-// -- helpers shared with the hand-written tests --
-
-/// The chunk presence of `shard_index` at `heights`: 'x' missing, '.' present.
-pub fn observed_chunk_pattern(
-    chain: &Chain,
-    shard_index: usize,
-    heights: Range<BlockHeight>,
-) -> String {
-    heights
-        .map(|height| {
-            let block = chain.get_block_by_height(height).unwrap();
-            if block.chunks()[shard_index].is_new_chunk(height) { '.' } else { 'x' }
-        })
-        .collect()
 }
 
 // -- the all-stake fallback, shared with `all_stake_fallback.rs` --

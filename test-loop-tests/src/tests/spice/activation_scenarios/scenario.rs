@@ -2,7 +2,7 @@
 //! progress points faults attach to and the relaxations they declare against the oracles.
 
 use super::oracles::Oracle;
-use super::resolve::Profile;
+use super::resolve::{Profile, Resolved};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use near_chain::Block;
@@ -112,9 +112,12 @@ pub enum Progress {
     WarmedUp,
     /// The driver node knows the estimated height of the first spice block.
     BoundaryKnown { estimate: BlockHeight },
-    /// The driver node's head reached `height`, `offset` away from the first spice height:
-    /// against the estimate until the first spice block exists, against the actual height
-    /// from then on. `-1` is the last pre-spice height, `0` the first spice one.
+    /// The driver node's head reached `height`, `offset` away from the first spice height.
+    /// Offsets at or below `-2` are measured against the estimate, so under a fault that
+    /// moves the boundary they land up to three heights earlier, relative to the real
+    /// boundary, than asked; `-1` is the last pre-spice block and `0` the first spice one,
+    /// whatever moved them; offsets at or above `1` are measured from the first spice
+    /// block's actual height.
     Height { offset: i64, height: BlockHeight },
     /// The driver node's head is the last pre-spice block.
     LastPreSpice,
@@ -187,16 +190,23 @@ pub trait Fault: Debug {
     /// the design lists as a conflict.
     fn as_any(&self) -> &dyn Any;
 
-    /// `Err` with why the fault's parameters are not runnable on `profile`: a combination
+    /// `Err` with why the fault's parameters are not runnable on `resolved`: a combination
     /// the design rejects, or a parameter whose milestone has not landed yet.
-    fn validate(&self, profile: Profile) -> Result<(), String> {
+    fn validate(&self, resolved: Resolved) -> Result<(), String> {
         Ok(())
     }
 
     /// Build-time work: accounts, clients and client config, through the builder of
-    /// `profile`.
-    fn setup(&self, profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
+    /// `resolved`.
+    fn setup(&self, resolved: Resolved, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder
+    }
+
+    /// Whether the fault can skip a pre-spice height near the boundary on `resolved` and
+    /// so move the last pre-spice block away from the estimate. The driver then reports
+    /// where the boundary landed instead of asserting it sits at the estimate.
+    fn moves_boundary(&self, resolved: Resolved) -> bool {
+        false
     }
 
     /// Acts at `progress`. Returns what happened that other faults must know about.

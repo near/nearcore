@@ -1,12 +1,13 @@
 //! `slow_node`: one node's processing is slowed for a window of heights.
 
-use super::super::resolve::Profile;
-use super::super::scenario::{Fault, FaultEvent, Progress, Timeline};
+use super::super::resolve::Resolved;
+use super::super::scenario::{Fault, FaultEvent, Progress, Relaxation, Timeline};
 use super::endorsement_delay::{WindowEnd, WindowStart};
-use super::render;
+use super::{producer_outage_relaxations, render};
 use crate::setup::env::TestLoopEnv;
 use crate::setup::task_delays::{TaskDelayHandle, task_names};
 use near_async::time::Duration;
+use near_primitives::types::BlockHeight;
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 
@@ -19,9 +20,11 @@ const DEFAULT_END: WindowEnd = WindowEnd::Offset(3);
 /// The spawner task `task` on `node` takes `delay` between `start` and `end`, through the
 /// env's task delays: added at `start`, lifted at `end`, and the fired check reads how many
 /// tasks it applied to. A chunk-only validator applies no chunk, so its head never lags, and
-/// what the default task slows is its witness validation. The target is a chunk-only
-/// validator until milestone 6: a slowed producer skips its pre-spice heights and moves the
-/// boundary.
+/// what the default task slows is its witness validation. A slowed producer lags the
+/// driver's head and skips its slots, and a window opening before the boundary moves the
+/// boundary; its skipped slots and missing chunks, from the window's start until it
+/// produces again after the window closed, are read off the chain at `done` and relaxed,
+/// see [`producer_outage_relaxations`].
 pub struct SlowNode {
     node: usize,
     task: String,
@@ -30,7 +33,10 @@ pub struct SlowNode {
     end: WindowEnd,
     /// The delay in force, from the window's start.
     handle: Option<TaskDelayHandle>,
-    closed: bool,
+    /// The driver's head when the window opened and closed.
+    opened_at: Option<BlockHeight>,
+    closed_at: Option<BlockHeight>,
+    relaxations: Vec<Relaxation>,
 }
 
 impl Default for SlowNode {
@@ -50,7 +56,9 @@ impl SlowNode {
             start: DEFAULT_START,
             end: DEFAULT_END,
             handle: None,
-            closed: false,
+            opened_at: None,
+            closed_at: None,
+            relaxations: Vec::new(),
         }
     }
 
@@ -59,15 +67,14 @@ impl SlowNode {
         self
     }
 
-    /// No preset needs it yet.
-    #[allow(dead_code)]
+    /// A spawner task name, see `task_names`; a name no spawner uses slows nothing, which
+    /// the fired check reports. `apply_chunks_normal` is what slows a producer before
+    /// spice: it cannot produce on a block it has not applied.
     pub fn task(mut self, task: &str) -> Self {
         self.task = task.to_string();
         self
     }
 
-    /// No preset needs it yet.
-    #[allow(dead_code)]
     pub fn delay_ms(mut self, delay_ms: u64) -> Self {
         self.delay_ms = delay_ms;
         self
@@ -91,16 +98,17 @@ impl SlowNode {
         assert!(self.handle.is_none(), "the window opens once");
         let delay = Duration::milliseconds(self.delay_ms as i64);
         self.handle = Some(env.delay_task(self.node, &self.task, delay));
+        self.opened_at = Some(env.rpc_node().head().height);
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, env: &TestLoopEnv) {
         assert!(self.is_open(), "the window closes once, after it opened");
         self.handle.as_ref().unwrap().lift();
-        self.closed = true;
+        self.closed_at = Some(env.rpc_node().head().height);
     }
 
     fn is_open(&self) -> bool {
-        self.handle.is_some() && !self.closed
+        self.handle.is_some() && self.closed_at.is_none()
     }
 }
 
@@ -140,7 +148,7 @@ impl Fault for SlowNode {
         self
     }
 
-    fn validate(&self, _profile: Profile) -> Result<(), String> {
+    fn validate(&self, _resolved: Resolved) -> Result<(), String> {
         if self.delay_ms == 0 {
             return Err("delay_ms must be positive".to_string());
         }
@@ -150,6 +158,15 @@ impl Fault for SlowNode {
             }
         }
         Ok(())
+    }
+
+    /// A producer slowed before the boundary skips pre-spice slots.
+    fn moves_boundary(&self, resolved: Resolved) -> bool {
+        let before_boundary = match self.start {
+            WindowStart::WarmedUp => true,
+            WindowStart::Offset(start) => start <= -2,
+        };
+        before_boundary && resolved.profile.is_producer(self.node)
     }
 
     fn on_progress(
@@ -176,12 +193,27 @@ impl Fault for SlowNode {
                     self.open(env);
                 }
                 if self.end == WindowEnd::Offset(*offset) && self.is_open() {
-                    self.close();
+                    self.close(env);
+                }
+            }
+            Progress::Done => {
+                if let Some(opened_at) = self.opened_at {
+                    let account_id = env.node_datas[self.node].account_id.clone();
+                    self.relaxations = producer_outage_relaxations(
+                        env,
+                        &account_id,
+                        opened_at + 1,
+                        self.closed_at,
+                    );
                 }
             }
             _ => {}
         }
         Vec::new()
+    }
+
+    fn relaxes(&self) -> Vec<Relaxation> {
+        self.relaxations.clone()
     }
 
     fn assert_fired(&self, _env: &TestLoopEnv, _timeline: &Timeline) {

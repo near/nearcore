@@ -3,8 +3,10 @@
 use super::faults::{NodeCrash, SlowNode};
 use super::loads;
 use super::scenario::Scenario;
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{MIN_BLOCK_PROD_TIME, TestLoopBuilder};
 use crate::utils::account::create_validator_id;
+use chrono::{DateTime, Utc};
+use near_async::time::FakeClock;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_primitives::gas::Gas;
 use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
@@ -21,8 +23,10 @@ const A_NUM_PRODUCERS: usize = 4;
 /// stake, so a boundary chunk cannot certify without the chunk-only validators.
 const A_NUM_CHUNK_VALIDATORS: usize = 3;
 const A_NUM_SHARDS: usize = 2;
-/// Odd on purpose, so the boundary height is never a fallback-only slot of the all-stake
-/// fallback, see the design's discussion of profile A.
+/// Chosen against the fallback-only slots, which sit at the multiples of
+/// `epoch_length / num_shards`, 10: the boundary height 64 is not one, nor are the heights
+/// a skip near the boundary can move it to, while the first spice epoch has slots at 70
+/// and 80, see the design's discussion of profile A.
 const A_EPOCH_LENGTH: BlockHeightDelta = 21;
 
 /// Producer seats of profile B, among [`B_NUM_VALIDATORS`] validators of equal stake, so
@@ -36,11 +40,17 @@ const B_NUM_VALIDATORS: usize = 14;
 const B_NUM_SHARDS: usize = 6;
 const B_MANDATES_PER_SHARD: NumSeats = 2;
 /// Longer than the fallback window, so certification can trail by a full window without
-/// the boundary chunks leaving the current epoch's uncertified set; the boundary height 51
-/// is not a fallback-only slot either, see the design.
-const B_EPOCH_LENGTH: BlockHeightDelta = 25;
+/// the boundary chunks leaving the current epoch's uncertified set, and chosen against the
+/// fallback-only slots at the multiples of `27 / 6 = 4`: the boundary height 82 is not
+/// one, nor is 83.
+const B_EPOCH_LENGTH: BlockHeightDelta = 27;
 
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 20;
+
+/// The epoch height spice activates at on every profile. The last pre-spice epoch is the
+/// one below it and has an epoch height of its own: the epoch before that is the one
+/// sharing the genesis epoch's.
+pub const ACTIVATION_EPOCH_HEIGHT: EpochHeight = 3;
 
 /// The chunk gas limit of every profile, sized for the loads. One block's load, a transfer
 /// per shard and a contract call, burns about 2.9 Tgas as measured: 0.67 Tgas on the shard
@@ -153,17 +163,6 @@ impl Profile {
         self.num_shards() - 1
     }
 
-    /// The epoch height spice activates at. Under an immediate vote from one version below
-    /// spice the votes of the genesis epoch decide the epoch after next, and the first two
-    /// epochs share the genesis epoch info and so its epoch height, so that is 2. The
-    /// height that epoch starts at is the chain's business: the test genesis sits at height
-    /// 1 and the first full epoch starts right above it, so it is `2 * epoch_length + 2`,
-    /// 44 on profile A and 52 on B, but the driver reads it from the chain rather than
-    /// computing it.
-    pub fn activation_epoch_height(self) -> EpochHeight {
-        2
-    }
-
     /// The letter of the profile, as `setup:profile=` names it.
     pub fn letter(self) -> &'static str {
         match self {
@@ -172,13 +171,32 @@ impl Profile {
         }
     }
 
+    fn upgrade_schedule(self) -> ProtocolUpgradeVotingSchedule {
+        let spice = ProtocolFeature::Spice.protocol_version();
+        let genesis_nanos = FakeClock::default().clock().now_utc().unix_timestamp_nanos();
+        let block_nanos = i128::from(MIN_BLOCK_PROD_TIME) * 1_000_000;
+        let blocks_in = i128::from(self.epoch_length()) + 3;
+        let vote_nanos = genesis_nanos + blocks_in * block_nanos;
+        let datetime = DateTime::<Utc>::from_timestamp(
+            (vote_nanos / 1_000_000_000) as i64,
+            (vote_nanos % 1_000_000_000) as u32,
+        )
+        .expect("the vote datetime is in range");
+        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+            pre_spice_protocol_version(),
+            spice,
+            vec![(datetime, spice)],
+        )
+        .expect("a schedule of one upgrade to the client version is valid")
+    }
+
     /// The builder of the profile, with the accounts of the loads. Returned before
     /// warmup, so the faults can add their setup and the driver can fire `Built` first.
     /// Both profiles use zero inflation, so the supply identity across the boundary is
     /// exact with no minting term, a real gas price, so transactions burn tokens and the
     /// identity subtracts a real burn, a fixed gas limit sized for the loads, the compiled
-    /// contract cache disabled, delayed warmup, and an immediate vote from one version
-    /// below spice.
+    /// contract cache disabled, delayed warmup, and the vote of [`Self::upgrade_schedule`]
+    /// from one version below spice.
     pub fn builder(self) -> TestLoopBuilder {
         let builder = match self {
             Profile::A => {
@@ -193,9 +211,7 @@ impl Profile {
             .num_shards(self.num_shards())
             .epoch_length(self.epoch_length())
             .protocol_version(pre_spice_protocol_version())
-            .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
-                ProtocolFeature::Spice.protocol_version(),
-            ))
+            .protocol_upgrade_schedule(self.upgrade_schedule())
             .max_inflation_rate(Rational32::new(0, 1))
             .gas_prices(
                 Balance::from_yoctonear(100_000_000),
@@ -208,18 +224,6 @@ impl Profile {
             .disable_compiled_contract_cache()
             .delay_warmup();
         loads::add_accounts(builder)
-    }
-
-    /// The setup as a failure message prints it.
-    pub fn describe(self) -> String {
-        format!(
-            "profile {self:?}: {} block producers and {} chunk-only validators, {} shards, \
-             epoch length {}",
-            self.num_producers(),
-            self.num_chunk_validators(),
-            self.num_shards(),
-            self.epoch_length(),
-        )
     }
 }
 
@@ -244,47 +248,65 @@ pub(crate) fn fallback_validators_spec() -> ValidatorsSpec {
     )
 }
 
-/// What a scenario resolved to.
-#[derive(Debug)]
+/// What a scenario resolved to: the profile it runs on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Resolved {
     pub profile: Profile,
+}
+
+impl Resolved {
+    /// The setup as a failure message prints it.
+    pub fn describe(self) -> String {
+        format!(
+            "profile {:?}: {} block producers and {} chunk-only validators, {} shards, \
+             epoch length {}",
+            self.profile,
+            self.profile.num_producers(),
+            self.profile.num_chunk_validators(),
+            self.profile.num_shards(),
+            self.profile.epoch_length(),
+        )
+    }
 }
 
 /// Picks the profile of `scenario` and rejects the combinations the design lists as
 /// conflicts, naming the tags involved. Panics with every conflict found.
 pub fn resolve(scenario: &Scenario) -> Resolved {
-    let profile = profile_of(scenario);
-    let errors = conflicts(scenario, profile);
+    let resolved = resolved_of(scenario);
+    let errors = conflicts(scenario, resolved);
     assert!(errors.is_empty(), "the scenario is rejected:\n{}", errors.join("\n"));
-    Resolved { profile }
+    resolved
 }
 
 /// What [`resolve`] would reject `scenario` for, without panicking, for the sampler and
 /// the pairwise group to leave out what cannot run.
 pub fn conflicts_of(scenario: &Scenario) -> Vec<String> {
-    conflicts(scenario, profile_of(scenario))
+    conflicts(scenario, resolved_of(scenario))
 }
 
-/// The profile the scenario insists on, else B when it contains `fallback` and A otherwise.
-fn profile_of(scenario: &Scenario) -> Profile {
-    scenario.forced_profile().unwrap_or_else(|| {
+/// The profile the scenario insists on, else B when it contains `fallback` and A
+/// otherwise.
+fn resolved_of(scenario: &Scenario) -> Resolved {
+    let profile = scenario.forced_profile().unwrap_or_else(|| {
         if scenario.faults().iter().any(|fault| fault.tag() == "fallback") {
             Profile::B
         } else {
             Profile::A
         }
-    })
+    });
+    Resolved { profile }
 }
 
-/// The conflicts and unmet requirements of `scenario` on `profile`, one message each,
+/// The conflicts and unmet requirements of `scenario` on `resolved`, one message each,
 /// naming the tags involved: what each fault rejects on its own, then the pairs the
 /// design lists.
-fn conflicts(scenario: &Scenario, profile: Profile) -> Vec<String> {
+fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
+    let profile = resolved.profile;
     let faults = scenario.faults();
     let mut errors: Vec<String> = faults
         .iter()
         .filter_map(|fault| {
-            fault.validate(profile).err().map(|error| format!("{}: {error}", fault.tag()))
+            fault.validate(resolved).err().map(|error| format!("{}: {error}", fault.tag()))
         })
         .collect();
     let has = |tag: &str| faults.iter().any(|fault| fault.tag() == tag);
@@ -333,8 +355,8 @@ fn conflicts(scenario: &Scenario, profile: Profile) -> Vec<String> {
         }
     }
     // Only producers approve blocks, and with four producer seats two down leaves half the
-    // stake. Every point a crash can be killed at before milestone 6 sits at the boundary,
-    // so two producer crashes always overlap.
+    // stake. The crash points of a run all sit near the boundary, so two producer crashes
+    // always overlap.
     if crashes.iter().filter(|crash| profile.is_producer(crash.target())).count() >= 2 {
         errors.push(
             "node_crash with node_crash: two block producers down at once stall the chain"
@@ -342,15 +364,11 @@ fn conflicts(scenario: &Scenario, profile: Profile) -> Vec<String> {
         );
     }
     for slow in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<SlowNode>()) {
-        if !profile.is_chunk_only_validator(slow.target()) {
+        if slow.target() >= profile.num_validators() {
             errors.push(format!(
-                "slow_node: node {} must be a chunk-only validator until milestone 6, one of \
-                 {:?} on profile {profile:?}; a slowed producer skips its pre-spice heights \
-                 and moves the boundary",
+                "slow_node: node {} is not a validator; the driver and the clients the faults \
+                 add are never slowed",
                 slow.target(),
-                (0..profile.num_validators())
-                    .filter(|index| profile.is_chunk_only_validator(*index))
-                    .collect::<Vec<_>>(),
             ));
         }
     }

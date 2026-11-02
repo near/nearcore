@@ -3,15 +3,14 @@
 use super::activation_scenarios::loads::scan_inclusions;
 use super::activation_scenarios::oracles::{
     assert_boundary_crossed_without_missing_chunks, assert_boundary_results_validated,
-    assert_supply_subtracts_certified_burn_once, observed_chunk_pattern, prev_block,
+    assert_supply_subtracts_certified_burn_once, prev_block,
 };
-use super::activation_scenarios::{
-    drop_chunks_marked_missing, run_until_estimated_first_spice_height,
-};
+use super::activation_scenarios::run_until_estimated_first_spice_height;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
+use crate::utils::gaps::{drop_chunks_marked_missing, observed_chunk_pattern};
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;

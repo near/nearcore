@@ -2,7 +2,7 @@
 
 use super::super::driver::RunRecord;
 use super::super::oracles::{Oracle, Relaxations};
-use super::super::resolve::Profile;
+use super::super::resolve::{ACTIVATION_EPOCH_HEIGHT, Profile, Resolved};
 use super::super::scenario::{Fault, FaultEvent, OracleId, Progress, Timeline};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
@@ -118,7 +118,8 @@ impl Fault for LateTracker {
 
     /// On profile B the designated sets are sampled, so the late trackers are usually not
     /// designated for the boundary chunk and the precondition cannot hold.
-    fn validate(&self, profile: Profile) -> Result<(), String> {
+    fn validate(&self, resolved: Resolved) -> Result<(), String> {
+        let profile = resolved.profile;
         if profile != Profile::A {
             return Err(format!(
                 "runs on profile A only: on profile {profile:?} the late trackers are usually \
@@ -128,18 +129,18 @@ impl Fault for LateTracker {
         Ok(())
     }
 
-    fn setup(&self, profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, resolved: Resolved, builder: TestLoopBuilder) -> TestLoopBuilder {
+        let profile = resolved.profile;
         // The builder's layout for the profile's shard count, see `num_shards`.
         let shard_layout = ShardLayout::multi_shard(profile.num_shards() as NumShards, 1);
         let shard_id = shard_layout.get_shard_id(self.shard).unwrap();
-        let activation_epoch_height = profile.activation_epoch_height();
         let late =
             profile.num_producers()..profile.num_producers() + profile.num_chunk_validators();
         // Indexed by epoch height: nothing tracked before activation, the shard from then on.
         let schedule: Vec<Vec<ShardId>> = (0..20)
             .map(
                 |epoch_height| {
-                    if epoch_height < activation_epoch_height { vec![] } else { vec![shard_id] }
+                    if epoch_height < ACTIVATION_EPOCH_HEIGHT { vec![] } else { vec![shard_id] }
                 },
             )
             .collect();

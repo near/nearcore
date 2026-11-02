@@ -1,6 +1,6 @@
 //! `partial_data_fault`: faults on the partial data a set of producers send.
 
-use super::super::resolve::Profile;
+use super::super::resolve::Resolved;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -173,7 +173,8 @@ impl Fault for PartialDataFault {
         self
     }
 
-    fn validate(&self, profile: Profile) -> Result<(), String> {
+    fn validate(&self, resolved: Resolved) -> Result<(), String> {
+        let profile = resolved.profile;
         if self.from == Producers::All && matches!(self.kind, Kind::Drop | Kind::Corrupt) {
             return Err(format!(
                 "{:?} from every producer leaves no copy of the data anywhere, so nothing \

@@ -4,9 +4,8 @@
 
 use super::loads::{self, Loads};
 use super::oracles::{Relaxations, always_on_oracles};
-use super::resolve::{Profile, resolve};
+use super::resolve::{ACTIVATION_EPOCH_HEIGHT, Profile, Resolved, resolve};
 use super::scenario::{Fault, FaultEvent, Progress, Scenario, Timeline};
-use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::network_rules::Action;
 use crate::utils::node::TestLoopNode;
@@ -15,7 +14,6 @@ use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::{Block, ChainStoreAccess};
 use near_network::types::NetworkRequests;
 use near_primitives::types::{BlockHeight, EpochId, SpiceChunkId};
-use near_primitives::version::ProtocolFeature;
 use parking_lot::Mutex;
 use std::any::Any;
 use std::collections::HashMap;
@@ -43,6 +41,9 @@ const TICK_TIMEOUT: Duration = Duration::seconds(120);
 /// How long certification may take to catch up with the head at `done`, in test-loop
 /// time; a slow catch-up the chain waits on can put it far behind.
 const CERTIFICATION_TIMEOUT: Duration = Duration::seconds(600);
+/// How long the first full epoch may take, in test-loop time, before the run's own
+/// `warmed_up` at the start of the second.
+const WARMUP_TIMEOUT: Duration = Duration::seconds(120);
 
 /// The per-actor, per-kind drop counts of one node's spice message gates.
 pub type GateCounts = Vec<(&'static str, SpiceMessageKind, u64)>;
@@ -89,27 +90,33 @@ pub fn run_scenario(scenario: Scenario) {
 /// Builds the environment, runs the chain across the boundary and checks the run. The
 /// environment is dropped here, so its shutdown finishes before the caller goes on.
 fn drive(scenario: Scenario) {
-    let profile = resolve(&scenario).profile;
+    let resolved = resolve(&scenario);
     let (faults, load_rate) = scenario.into_parts();
 
-    let mut builder = profile.builder();
+    let mut builder = resolved.profile.builder();
     for fault in &faults {
-        builder = fault.setup(profile, builder);
+        builder = fault.setup(resolved, builder);
     }
     let mut env = builder.build();
-    let mut driver = Driver::new(profile, faults, load_rate);
+    let mut driver = Driver::new(resolved, faults, load_rate);
 
     driver.check_producers(&env);
     driver.fire(&mut env, Progress::Built);
     driver.observe_code_requests_on_every_node(&env);
     let mut env = env.warmup();
+    // Every scenario votes for spice from a few blocks into the second full epoch, so the
+    // run's `warmed_up` is that epoch's first block: the vote, the stake changes a fault
+    // submits there and the loads' deploy all fall in the epoch whose votes and stake
+    // decide the first spice epoch, the epoch after next.
+    let first_epoch_id = env.rpc_node().head().epoch_id;
+    env.rpc_runner().run_until(|node| node.head().epoch_id != first_epoch_id, WARMUP_TIMEOUT);
     driver.timeline.head_height = env.rpc_node().head().height;
     driver.fire(&mut env, Progress::WarmedUp);
 
     let extra_epochs: u64 = driver.faults.iter().map(|fault| fault.extra_epochs()).sum();
     let budget =
         (BASE_EPOCH_BUDGET + EPOCH_BUDGET_PER_FAULT * driver.faults.len() as u64 + extra_epochs)
-            * profile.epoch_length();
+            * resolved.profile.epoch_length();
     for _ in 0..budget {
         let head_before = env.rpc_node().head().height;
         let advanced =
@@ -133,7 +140,10 @@ fn drive(scenario: Scenario) {
 }
 
 struct Driver {
-    profile: Profile,
+    resolved: Resolved,
+    /// Whether a fault may move the last pre-spice block away from the estimate, in which
+    /// case the driver reports where it landed instead of asserting the estimate.
+    boundary_may_move: bool,
     faults: Vec<Box<dyn Fault>>,
     timeline: Timeline,
     loads: Loads,
@@ -145,12 +155,13 @@ struct Driver {
 }
 
 impl Driver {
-    fn new(profile: Profile, faults: Vec<Box<dyn Fault>>, load_rate: usize) -> Self {
+    fn new(resolved: Resolved, faults: Vec<Box<dyn Fault>>, load_rate: usize) -> Self {
         Self {
-            profile,
+            resolved,
+            boundary_may_move: faults.iter().any(|fault| fault.moves_boundary(resolved)),
             faults,
             timeline: Timeline::new(SPICE_EPOCHS_TO_RUN),
-            loads: Loads::new(profile, load_rate),
+            loads: Loads::new(resolved.profile, load_rate),
             code_requests: Arc::default(),
             spice_epoch_id: None,
             gate_snapshots: HashMap::new(),
@@ -171,6 +182,7 @@ impl Driver {
             .collect();
         producers.sort();
         let mut expected: Vec<_> = self
+            .resolved
             .profile
             .producer_indices()
             .into_iter()
@@ -274,16 +286,24 @@ impl Driver {
             self.spice_epoch_id = Some(*block.header().epoch_id());
         }
 
-        // Offsets are against the actual first spice height once it is known, and
-        // against the estimate before, so `0` is the first spice block whatever moved it.
-        let reference = self.timeline.first_spice_height().or(self.timeline.estimate);
-        if let Some(reference) = reference {
-            self.fire(env, Progress::Height { offset: height as i64 - reference as i64, height });
+        // Offsets at or above `1` are measured from the actual first spice height, `-1`
+        // and `0` are the boundary blocks themselves, whatever moved them, and only offsets
+        // at or below `-2` are measured against the estimate: the blocks at the estimate's
+        // `-1` and `0` fire nothing when the boundary moved past them.
+        let offset = match (self.timeline.first_spice_height(), self.timeline.estimate) {
+            (Some(first_spice_height), _) => Some(height as i64 - first_spice_height as i64),
+            (None, Some(estimate)) => Some(height as i64 - estimate as i64).filter(|o| *o <= -2),
+            (None, None) => None,
+        };
+        if let Some(offset) = offset {
+            self.fire(env, Progress::Height { offset, height });
         }
         if found_last_pre_spice {
+            self.fire(env, Progress::Height { offset: -1, height });
             self.fire(env, Progress::LastPreSpice);
         }
         if found_first_spice {
+            self.fire(env, Progress::Height { offset: 0, height });
             self.fire(env, Progress::FirstSpice);
         } else if let Some(spice_epoch_id) = self.spice_epoch_id {
             if block.header().epoch_id() != &spice_epoch_id {
@@ -313,21 +333,32 @@ impl Driver {
         self.loads.tick(env);
     }
 
-    /// Nothing moves the boundary until the faults of milestone 6 arrive, so the last
-    /// pre-spice block must sit right below the estimate; and spice must activate at the
-    /// epoch height the vote puts it at, whatever height that epoch starts at.
+    /// Unless a fault moves the boundary, the last pre-spice block must sit right below the
+    /// estimate; with one, the driver reports where it landed. Either way spice must
+    /// activate at the epoch height the vote puts it at, whatever height that epoch starts
+    /// at.
     fn check_boundary(&self, env: &TestLoopEnv, last_pre_spice: &Block) {
         let height = last_pre_spice.header().height();
         let estimate = self
             .timeline
             .estimate
             .expect("the last pre-spice block came before the estimate was known");
-        assert!(
-            height + 1 == estimate,
-            "the last pre-spice block is at height {height}, but the estimate {estimate} puts \
-             it at {}: the boundary moved",
-            estimate - 1,
-        );
+        if self.boundary_may_move {
+            tracing::info!(
+                target: "test",
+                height,
+                estimate,
+                moved_by = height as i64 + 1 - estimate as i64,
+                "the last pre-spice block landed relative to the estimate",
+            );
+        } else {
+            assert!(
+                height + 1 == estimate,
+                "the last pre-spice block is at height {height}, but the estimate {estimate} \
+                 puts it at {}: the boundary moved",
+                estimate - 1,
+            );
+        }
         let epoch_height = env
             .rpc_node()
             .client()
@@ -335,10 +366,9 @@ impl Driver {
             .get_epoch_height_from_prev_block(last_pre_spice.hash())
             .unwrap();
         assert_eq!(
-            epoch_height,
-            self.profile.activation_epoch_height(),
-            "spice activates at epoch height {epoch_height}, the profile expects {}",
-            self.profile.activation_epoch_height(),
+            epoch_height, ACTIVATION_EPOCH_HEIGHT,
+            "spice activates at epoch height {epoch_height}, the vote cast at warmup puts it \
+             at {ACTIVATION_EPOCH_HEIGHT}",
         );
     }
 
@@ -369,7 +399,7 @@ impl Driver {
         };
         format!(
             "setup: {}; estimate {}, last pre-spice height {}, first spice height {}",
-            self.profile.describe(),
+            self.resolved.describe(),
             height(self.timeline.estimate),
             height(self.timeline.last_pre_spice_height()),
             height(self.timeline.first_spice_height()),
@@ -421,7 +451,7 @@ impl Driver {
             code_requests: self.code_requests.lock().clone(),
             gate_snapshots: self.gate_snapshots,
         };
-        let mut failures = collect_failures(env, self.profile, &self.faults, &record);
+        let mut failures = collect_failures(env, self.resolved.profile, &self.faults, &record);
         // A fault whose check needs the chain to run on past `done` runs it now; only its
         // own check runs after that.
         for fault in &mut self.faults {
@@ -513,24 +543,4 @@ pub fn run_until_estimated_first_spice_height(env: &mut TestLoopEnv) -> BlockHei
     env.rpc_runner()
         .run_until(|node| estimated_first_spice_height(node).is_some(), Duration::seconds(100));
     estimated_first_spice_height(&env.rpc_node()).unwrap()
-}
-
-/// Drops `shard_index`'s chunk at every height `pattern` marks 'x'. The pattern covers
-/// the last `pattern.len()` pre-spice heights, oldest first.
-pub fn drop_chunks_marked_missing(
-    env: TestLoopEnv,
-    shard_index: usize,
-    pattern: &str,
-) -> TestLoopEnv {
-    let first_height_offset = -(pattern.len() as i64);
-    pattern.chars().enumerate().filter(|(_, presence)| *presence == 'x').fold(
-        env,
-        |env, (position, _)| {
-            let offset = first_height_offset + position as i64;
-            env.drop(DropCondition::ProtocolUpgradeChunkRange(
-                ProtocolFeature::Spice.protocol_version(),
-                HashMap::from([(shard_index, offset..offset + 1)]),
-            ))
-        },
-    )
 }

@@ -1,4 +1,4 @@
-use crate::setup::drop_condition::TestLoopChunksStorage;
+use crate::setup::drop_condition::{DroppedBlocks, TestLoopChunksStorage};
 use crate::setup::peer_manager_actor::HandlerResult;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
@@ -117,28 +117,33 @@ pub fn chunk_endorsement_dropper(
     }
 }
 
-/// Handler to drop all block broadcasts at certain heights.
+/// Handler to drop all block broadcasts at certain heights, and the requests for the blocks
+/// it dropped. The requests matter when the producer of a dropped height `h` also produces
+/// `h+1` and builds it on its own block.
 /// A few things to note:
-/// - This will not fully prevent the blocks from being distributed if they are explicitly requested with
-/// a `NetworkRequests::BlockRequest`, because that case isn't handled here. For example, this can happen
-/// if the producer for a height, `h`, in `heights` is also the producer for `h+1`, and then distributes `h+1`
-/// with prev block equal to the one with height `h`. Then a node that receives that block with height `h+1` will
-/// record it as an orphan and request the block with height `h`. We don't handle it here because it's a bit more
-/// complicated since the BlockRequest just references the hash and not the height, so we would need to do something
-/// like the `TestLoopChunksStorage` but for blocks. For now we only use this in a test setup with enough block
-/// producers so that this will not come up.
 /// - Using this when there are too few validators will lead to the chain stalling rather than the intended behavior
 /// of a skip being generated.
 /// - Only the producer of the skipped block will receive it, so we only observe the behavior when we see two different
 /// descendants of the same block on one node. This could be improved, though.
 pub fn block_dropper_by_height(
     heights: HashSet<BlockHeight>,
+    dropped_blocks: Arc<Mutex<DroppedBlocks>>,
 ) -> impl Fn(NetworkRequests) -> HandlerResult {
     move |request| match &request {
         NetworkRequests::Block { block } => {
             if !heights.contains(&block.header().height()) {
                 HandlerResult::Unhandled(request)
             } else {
+                dropped_blocks.lock().hashes.insert(*block.hash());
+                HandlerResult::Handled(NetworkResponses::NoResponse)
+            }
+        }
+        NetworkRequests::BlockRequest { hash, .. } => {
+            let mut dropped_blocks = dropped_blocks.lock();
+            if !dropped_blocks.hashes.contains(hash) {
+                HandlerResult::Unhandled(request)
+            } else {
+                dropped_blocks.requests_swallowed += 1;
                 HandlerResult::Handled(NetworkResponses::NoResponse)
             }
         }

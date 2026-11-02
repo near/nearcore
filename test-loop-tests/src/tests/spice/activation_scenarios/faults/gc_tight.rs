@@ -1,7 +1,7 @@
 //! `gc_tight`: garbage collection runs past the boundary during the test.
 
 use super::super::loads::LoadKind;
-use super::super::resolve::Profile;
+use super::super::resolve::Resolved;
 use super::super::scenario::{Fault, Timeline};
 use super::render;
 use crate::setup::builder::TestLoopBuilder;
@@ -60,7 +60,7 @@ impl Fault for GcTight {
         self
     }
 
-    fn validate(&self, _profile: Profile) -> Result<(), String> {
+    fn validate(&self, _resolved: Resolved) -> Result<(), String> {
         if self.keep < DEFAULT_KEEP {
             return Err(format!(
                 "keep={} would let the tail pass the last pre-spice block before done, where \
@@ -71,7 +71,7 @@ impl Fault for GcTight {
         Ok(())
     }
 
-    fn setup(&self, _profile: Profile, builder: TestLoopBuilder) -> TestLoopBuilder {
+    fn setup(&self, _resolved: Resolved, builder: TestLoopBuilder) -> TestLoopBuilder {
         builder.gc_num_epochs_to_keep(self.keep)
     }
 

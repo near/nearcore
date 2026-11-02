@@ -1,6 +1,6 @@
 //! `endorsement_delay`: endorsements held back during a window of heights.
 
-use super::super::resolve::Profile;
+use super::super::resolve::Resolved;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
@@ -146,7 +146,7 @@ impl Fault for EndorsementDelay {
         self
     }
 
-    fn validate(&self, _profile: Profile) -> Result<(), String> {
+    fn validate(&self, _resolved: Resolved) -> Result<(), String> {
         if self.blocks == 0 {
             return Err("blocks must be at least 1".to_string());
         }

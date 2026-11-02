@@ -18,6 +18,7 @@ aurora-engine-types.workspace = true
 base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
+chrono.workspace = true
 derive_builder.workspace = true
 ethabi.workspace = true
 futures.workspace = true

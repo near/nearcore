@@ -73,6 +73,7 @@ pub fn setup_client(
         network_rules,
         upgrade_schedule,
         chunks_storage,
+        dropped_blocks,
         drop_conditions,
         load_memtries_for_tracked_shards,
         disable_compiled_contract_cache,
@@ -654,7 +655,12 @@ pub fn setup_client(
 
     // Register all accumulated drop conditions
     for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+        node_data.register_drop_condition(
+            &mut test_loop.data,
+            chunks_storage.clone(),
+            dropped_blocks.clone(),
+            condition,
+        );
     }
 
     node_data

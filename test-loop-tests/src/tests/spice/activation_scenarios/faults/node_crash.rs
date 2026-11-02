@@ -2,18 +2,18 @@
 
 use super::super::driver::RunRecord;
 use super::super::oracles::{Oracle, Relaxations};
-use super::super::resolve::Profile;
+use super::super::resolve::Resolved;
 use super::super::scenario::{
     Fault, FaultEvent, Narrowing, OracleId, Progress, Relaxation, Timeline,
 };
-use super::render;
+use super::{producer_outage_relaxations, render};
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeSetupState;
+use crate::utils::gaps::forwarding_dead_ends;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight};
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::{self, Debug, Formatter};
 
 /// When the node is killed.
@@ -64,6 +64,9 @@ pub struct NodeCrash {
     restarted: Option<usize>,
     /// The driver height at the restart.
     restarted_at: Option<BlockHeight>,
+    /// The first driver height the restarted node had as its own head when the driver saw
+    /// it: until then the node is fetching the blocks it missed and takes no transactions.
+    caught_up_at: Option<BlockHeight>,
     /// Whether the restarted node executed past the boundary by `done`.
     crossed: bool,
     relaxations: Vec<Relaxation>,
@@ -92,6 +95,7 @@ impl NodeCrash {
             state: None,
             restarted: None,
             restarted_at: None,
+            caught_up_at: None,
             crossed: false,
             relaxations: Vec::new(),
         }
@@ -166,93 +170,29 @@ impl NodeCrash {
     }
 
     /// The outage window, read off the chain: from the kill through the last height the
-    /// crashed account skipped, per thing it produces. Its block heights are relaxed until
-    /// the first block it produced after the restart that is on the chain, and each of its
-    /// shards' chunks until the first new chunk it produced for that shard after the
-    /// restart; a node that never came back is relaxed through the head. A block built on
-    /// height `p` carries the chunks produced for height `p + 1`, so the producer answering
-    /// for a block's chunk is the one of `p + 1`, which after a skipped height is not the
-    /// block's own: the block above the gap carries what the dead producer owed for the
-    /// gap. Only what comes after the restart counts as resuming: the chunk for the height
-    /// right above the kill is produced while the block at the kill height is processed,
-    /// so it exists although the node is down. The first block the restarted node produces
-    /// is relaxed for every shard: a producer that comes back to a slot already overdue
-    /// produces at once, before its shards manager has placed the chunks it received while
-    /// it was syncing, so that block can carry no chunks at all.
+    /// crashed account skipped, per thing it produces, see the framework's
+    /// `producer_outage`. A node that never came back is relaxed through the head. The
+    /// loads' transactions are relaxed too where they were lost, see the framework's
+    /// `forwarding_dead_ends`.
     fn resolve_relaxations(&mut self, env: &TestLoopEnv) {
-        let node = env.rpc_node();
-        let chain = &node.client().chain;
-        let epoch_manager = node.client().epoch_manager.as_ref();
-        let account_id = self.account_id();
         let killed_at = self.killed_at.expect("the node was killed");
-        let resumable = |height: BlockHeight| self.restarted_at.is_some_and(|at| height > at);
-        let mut heights = HashSet::new();
-        let mut pairs: HashSet<(ShardId, BlockHeight)> = HashSet::new();
-        let mut blocks_resumed = false;
-        let mut chunks_resumed: HashSet<ShardId> = HashSet::new();
-        for height in killed_at + 1..=node.head().height {
-            // The epoch of `height` is the one the next block of the canonical block below
-            // it is in, whether or not `height` itself has a block.
-            let mut below = height - 1;
-            let prev_hash = loop {
-                if let Ok(hash) = chain.chain_store.get_block_hash_by_height(below) {
-                    break hash;
-                }
-                below -= 1;
-            };
-            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-            let block = chain.get_block_by_height(height).ok();
-            let mut first_block_back = false;
-            if !blocks_resumed
-                && epoch_manager.get_block_producer(&epoch_id, height).unwrap() == *account_id
-            {
-                if block.is_none() {
-                    heights.insert(height);
-                } else if resumable(height) {
-                    blocks_resumed = true;
-                    first_block_back = true;
-                }
-            }
-            let Some(block) = block else {
-                continue;
-            };
-            let height_created = below + 1;
-            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-            for shard_id in shard_layout.shard_ids() {
-                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                let is_new = block.chunks()[shard_index].is_new_chunk(height);
-                if first_block_back && !is_new {
-                    pairs.insert((shard_id, height));
-                    continue;
-                }
-                if chunks_resumed.contains(&shard_id) {
-                    continue;
-                }
-                // The lookup the producers themselves run: anchored at the grandparent,
-                // which early kickout can move away from the plain sampler mid-epoch.
-                let producer = epoch_manager
-                    .get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
-                    .unwrap();
-                if producer.account_id() != account_id {
-                    continue;
-                }
-                if !is_new {
-                    pairs.insert((shard_id, height));
-                } else if resumable(height_created) {
-                    chunks_resumed.insert(shard_id);
-                }
-            }
-        }
-        self.relaxations = vec![
-            Relaxation {
-                oracle: OracleId::HeightContiguity,
-                narrowing: Narrowing::Heights(heights),
-            },
-            Relaxation {
-                oracle: OracleId::ChunkCompleteness,
-                narrowing: Narrowing::ShardHeights(pairs),
-            },
-        ];
+        self.relaxations =
+            producer_outage_relaxations(env, self.account_id(), killed_at + 1, self.restarted_at);
+        let node = env.rpc_node();
+        let unavailable = killed_at..self.caught_up_at.unwrap_or(node.head().height + 1);
+        let lost = forwarding_dead_ends(&node, self.account_id(), unavailable);
+        tracing::info!(
+            target: "test",
+            killed_at,
+            restarted_at = ?self.restarted_at,
+            caught_up_at = ?self.caught_up_at,
+            lost = ?lost,
+            "node_crash relaxed the transactions lost with the crashed node",
+        );
+        self.relaxations.push(Relaxation {
+            oracle: OracleId::ExactlyOnce,
+            narrowing: Narrowing::ShardHeights(lost),
+        });
     }
 }
 
@@ -303,19 +243,18 @@ impl Fault for NodeCrash {
         self
     }
 
-    fn validate(&self, _profile: Profile) -> Result<(), String> {
-        if let At::Height(offset) = self.at {
-            if offset < -1 {
-                return Err(format!(
-                    "at=height({offset}) is a pre-spice point: a crashed producer there moves \
-                     the boundary, which lands in milestone 6"
-                ));
-            }
-        }
+    fn validate(&self, _resolved: Resolved) -> Result<(), String> {
         if self.down == 0 {
             return Err("down must be at least 1 block".to_string());
         }
         Ok(())
+    }
+
+    /// A producer crashed at a pre-spice point skips its slots before the boundary, which
+    /// delays the end of the last pre-spice epoch.
+    fn moves_boundary(&self, resolved: Resolved) -> bool {
+        matches!(self.at, At::Height(offset) if offset <= -2)
+            && resolved.profile.is_producer(self.node)
     }
 
     fn on_progress(
@@ -358,6 +297,11 @@ impl Fault for NodeCrash {
                     if self.restart && self.restarted.is_none() && *height >= killed_at + self.down
                     {
                         return self.restart_node(env);
+                    }
+                    if let Some(index) = self.restarted {
+                        if self.caught_up_at.is_none() && env.node(index).head().height >= *height {
+                            self.caught_up_at = Some(*height);
+                        }
                     }
                 }
             },
