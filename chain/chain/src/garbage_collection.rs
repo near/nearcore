@@ -837,7 +837,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
+        if !matches!(&gc_mode, GCMode::StateSync) {
+            // State sync cleanup keeps BlockHeader; the epoch sync proof update reads it.
+            self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
+        }
         if cfg!(feature = "protocol_feature_spice") {
             self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
         }
@@ -854,7 +857,10 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
-        self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+        if !matches!(&gc_mode, GCMode::StateSync) {
+            // State sync cleanup keeps BlockInfo; the epoch sync proof update reads it.
+            self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+        }
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
         self.gc_spice_core_data(&block_hash, &shard_layout);
