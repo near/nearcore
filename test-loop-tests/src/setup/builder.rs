@@ -14,6 +14,7 @@ use near_chain_configs::test_genesis::{
 };
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, DumpConfig, Genesis, SyncConfig, TrackedShardsConfig};
+use near_jsonrpc::RpcConfig;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
@@ -41,6 +42,7 @@ pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     setup_config: SetupConfig,
     epoch_config_store: Option<EpochConfigStore>,
+    shuffle_shard_assignment_for_chunk_producers: bool,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -63,6 +65,7 @@ pub(crate) struct TestLoopBuilder {
     /// Whether to add a non-validator RPC node (tracks all shards). Honored by both the auto and
     /// manual setup APIs.
     enable_rpc: bool,
+    rpc_config: RpcConfig,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
@@ -91,6 +94,7 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
+            shuffle_shard_assignment_for_chunk_producers: false,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -100,6 +104,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: true,
             disable_compiled_contract_cache: false,
             enable_rpc: false,
+            rpc_config: RpcConfig::default(),
             upgrade_schedule: None,
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
@@ -268,6 +273,16 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, gas_price_adjustment_rate: Rational32) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(
+            auto.gas_price_adjustment_rate.is_none(),
+            "gas_price_adjustment_rate is already set"
+        );
+        auto.gas_price_adjustment_rate = Some(gas_price_adjustment_rate);
+        self
+    }
+
     pub fn add_user_account(mut self, account_id: &AccountId, initial_balance: Balance) -> Self {
         let auto = self.setup_config.ensure_auto();
         auto.user_accounts.push((account_id.clone(), initial_balance));
@@ -339,8 +354,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
-        // noop, this is a default behavior now, to be removed
+    pub(crate) fn shuffle_shard_assignment_for_chunk_producers(mut self, shuffle: bool) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = shuffle;
         self
     }
 
@@ -369,6 +384,11 @@ impl TestLoopBuilder {
         let handle = Arc::new(parking_lot::RwLock::new(None));
         self.rpc_pool_fault_handles.insert(account, handle.clone());
         handle
+    }
+
+    pub(crate) fn rpc_config(mut self, config: RpcConfig) -> Self {
+        self.rpc_config = config;
+        self
     }
 
     /// Custom function to change the configs before constructing each client.
@@ -448,10 +468,20 @@ impl TestLoopBuilder {
     }
 
     fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
-        if self.epoch_config_store.is_none() {
-            self.epoch_config_store =
-                Some(TestEpochConfigBuilder::build_store_from_genesis(genesis));
+        if self.epoch_config_store.is_some() {
+            assert!(
+                !self.shuffle_shard_assignment_for_chunk_producers,
+                "shuffle_shard_assignment_for_chunk_producers cannot be used with epoch_config_store"
+            );
+            return;
         }
+        self.epoch_config_store = Some(
+            TestEpochConfigBuilder::from_genesis(genesis)
+                .shuffle_shard_assignment_for_chunk_producers(
+                    self.shuffle_shard_assignment_for_chunk_producers,
+                )
+                .build_store_for_genesis_protocol_version(),
+        );
     }
 
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {
@@ -541,6 +571,7 @@ impl TestLoopBuilder {
             .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
             genesis,
+            rpc_config: self.rpc_config,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
@@ -733,6 +764,7 @@ struct AutoSetupConfig {
     max_inflation_rate: Option<Rational32>,
     minimum_stake_ratio: Option<Rational32>,
     gas_prices: Option<(Balance, Balance)>,
+    gas_price_adjustment_rate: Option<Rational32>,
 }
 
 impl SetupConfig {
@@ -795,6 +827,7 @@ impl AutoSetupConfig {
             max_inflation_rate: None,
             minimum_stake_ratio: None,
             gas_prices: None,
+            gas_price_adjustment_rate: None,
         }
     }
 
@@ -829,6 +862,9 @@ impl AutoSetupConfig {
         }
         if let Some((min, max)) = self.gas_prices {
             genesis_builder = genesis_builder.gas_prices(min, max);
+        }
+        if let Some(gas_price_adjustment_rate) = self.gas_price_adjustment_rate {
+            genesis_builder = genesis_builder.gas_price_adjustment_rate(gas_price_adjustment_rate);
         }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);

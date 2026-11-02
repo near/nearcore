@@ -586,7 +586,7 @@ pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(
     try_create_int_counter_vec(
         "near_state_sync_peer_msgs",
         "Count of number of state sync peer messages by state type (header, part),
-               and message content (will_respond, busy, error, state)",
+               and message content (will_respond, busy, error, state, not_sent)",
         &["shard_id", "type", "content"],
     )
     .unwrap()
@@ -805,7 +805,9 @@ pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCoun
         try_create_int_counter_vec(
             "near_partial_witness_part_messages_received_total",
             "Partial state witness part-messages received from chunk producers, \
-             labeled by wire version. Increments once per part-message.",
+             labeled by wire version. Increments once per part-message. The shard_id \
+             label is peer-supplied and counted before validation, so shards outside \
+             the epoch's layout are bucketed as \"unknown\" to bound cardinality.",
             &["shard_id", "version"],
         )
         .unwrap()
@@ -866,14 +868,6 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
         "near_cold_store_copy_result",
         "The result of a cold store copy iteration in the cold store loop.",
         &["result"],
-    )
-    .unwrap()
-});
-
-pub(crate) static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_spice_certification_lag",
-        "Number of blocks between target height and certification height",
     )
     .unwrap()
 });

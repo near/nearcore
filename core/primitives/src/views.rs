@@ -37,9 +37,9 @@ use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
-    PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, EccTransaction, ExecutionMetadata, ExecutionOutcome,
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, NonceMode, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedTransaction, StakeAction, TransactionEnvelope, TransferAction,
 };
 use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
@@ -57,13 +57,14 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKeyInfo};
+use near_primitives_core::account::{AccountContract, AccountState, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives_core::types::NonceIndex;
 use near_time::Utc;
 use serde_with::base64::Base64;
+use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -94,6 +95,17 @@ pub struct AccountView {
     /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
+    /// Whether the account is initialized. Only a universal account can be
+    /// uninitialized: it has no access keys, code or data until a
+    /// `UniversalStateInit` arrives. Omitted for initialized accounts.
+    #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
+    pub state: AccountState,
+    /// The nonce an uninitialized account's own transactions must use, present
+    /// only while it is uninitialized. A self-signed state init is the one
+    /// transaction such an account can send, and this is the only way for a
+    /// client to learn the nonce it must carry: there is no access key to query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_nonce: Option<Nonce>,
 }
 
 /// A view of the contract code.
@@ -108,10 +120,6 @@ pub struct ContractCodeView {
     pub hash: CryptoHash,
 }
 
-// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized account
-// is reported as an ordinary one. That hits `view_account` and, via
-// `StateChangeValueView::AccountUpdate`, everything downstream of state
-// changes. Needs fixing before universal accounts stabilize.
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         let (global_contract_hash, global_contract_account_id) =
@@ -128,6 +136,8 @@ impl From<&Account> for AccountView {
             storage_paid_at: 0,
             global_contract_hash,
             global_contract_account_id,
+            state: account.state(),
+            bootstrap_nonce: account.bootstrap_nonce(),
         }
     }
 }
@@ -1034,16 +1044,7 @@ impl From<BlockHeaderView> for BlockHeader {
 }
 
 /// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
@@ -1148,7 +1149,11 @@ pub struct ChunkHeaderView {
     /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
     /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
     /// `Some(Some(split))`: field present and set
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option::deserialize"
+    )]
     pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
 }
@@ -1319,7 +1324,7 @@ impl BlockView {
 pub struct ChunkView {
     pub author: AccountId,
     pub header: ChunkHeaderView,
-    pub transactions: Vec<SignedTransactionView>,
+    pub transactions: Vec<TransactionEnvelopeView>,
     pub receipts: Vec<ReceiptView>,
 }
 
@@ -1649,12 +1654,7 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name,
-                    args: args.into(),
-                    gas,
-                    deposit,
-                }))
+                Action::function_call_with_deposit(method_name, args, gas, deposit)
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
@@ -1775,6 +1775,44 @@ impl From<SignedTransaction> for SignedTransactionView {
             hash,
             _priority_fee: 0,
             nonce_mode,
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct EccTransactionView {
+    pub contract_id: AccountId,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub payload: Vec<u8>,
+    pub hash: CryptoHash,
+}
+
+impl From<EccTransaction> for EccTransactionView {
+    fn from(tx: EccTransaction) -> Self {
+        let hash = tx.get_hash();
+        let (contract_id, payload) = tx.into_parts();
+        Self { contract_id, payload, hash }
+    }
+}
+
+/// A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it
+/// always had.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum TransactionEnvelopeView {
+    Signed(SignedTransactionView),
+    Unsigned(EccTransactionView),
+}
+
+impl From<TransactionEnvelope> for TransactionEnvelopeView {
+    fn from(tx: TransactionEnvelope) -> Self {
+        match tx {
+            TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
+            TransactionEnvelope::Unsigned(tx) => Self::Unsigned(tx.into()),
         }
     }
 }
@@ -2716,16 +2754,7 @@ pub struct NextEpochValidatorInfo {
 }
 
 /// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
@@ -2738,7 +2767,7 @@ pub struct LightClientBlockView {
     pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockLiteView {
     pub prev_block_hash: CryptoHash,
@@ -3187,14 +3216,76 @@ impl CongestionInfoView {
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 mod tests {
-    use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
+    use super::{
+        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum,
+        TransactionEnvelopeView,
+    };
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
-    use crate::transaction::ExecutionMetadata;
+    use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use crate::transaction::{
+        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+    };
+    use crate::trie_split::TrieSplit;
+    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
+    use near_crypto::InMemorySigner;
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::Balance;
     use serde_json::json;
+
+    /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
+    /// the JSON shape it always had.
+    #[test]
+    fn test_transaction_envelope_view_json_roundtrip() {
+        let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            "alice.near".parse().unwrap(),
+            "bob.near".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+
+        let signed_view = TransactionEnvelopeView::from(TransactionEnvelope::from(signed_tx));
+        let ecc_view = TransactionEnvelopeView::from(TransactionEnvelope::from(ecc));
+        assert_matches!(signed_view, TransactionEnvelopeView::Signed(_));
+        assert_matches!(ecc_view, TransactionEnvelopeView::Unsigned(_));
+
+        for view in [signed_view.clone(), ecc_view] {
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
+        }
+        let signed_json = serde_json::to_value(&signed_view).unwrap();
+        assert_eq!(signed_json["signer_id"], "alice.near");
+    }
+
+    #[test]
+    fn test_chunk_header_proposed_split_json_roundtrip() {
+        let mut view: ChunkHeaderView = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
+            1,
+            0.into(),
+            CryptoHash::default(),
+            MIN_SUPPORTED_PROTOCOL_VERSION,
+        ))
+        .into();
+        // Missing, present-null and present-value distinguish header versions.
+        for proposed_split in [None, Some(None), Some(Some(TrieSplit::dummy()))] {
+            view.proposed_split = proposed_split.clone();
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(json.get("proposed_split").is_some(), proposed_split.is_some());
+            let decoded: ChunkHeaderView = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(decoded.proposed_split, proposed_split);
+            assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+            // Version selection affects the recomputed chunk hash.
+            let expected_header: ShardChunkHeader = view.clone().into();
+            let decoded_header: ShardChunkHeader = decoded.into();
+            assert_eq!(decoded_header.chunk_hash(), expected_header.chunk_hash());
+        }
+    }
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -3203,7 +3294,7 @@ mod tests {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new();
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});

@@ -22,27 +22,28 @@ fn block_chunk_signature_rejection() {
 
     for node_data in &env.node_datas {
         let mutated_blocks = mutated_blocks.clone();
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| match request {
-            NetworkRequests::Block { block } => {
-                let mut block_clone = (*block).clone();
-                if let Some(chunk) = first_chunk_mut(&mut block_clone) {
-                    if zero_chunk_signature(chunk) {
-                        let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
-                        assert!(
-                            previous < 2,
-                            "Expected at most two mutated blocks before a ban kicks in"
-                        );
-                        return HandlerResult::Unhandled(NetworkRequests::Block {
-                            block: Arc::new(block_clone),
-                        });
+        node_data.register_override_handler(
+            &mut env.test_loop.data,
+            move |request| match request {
+                NetworkRequests::Block { block } => {
+                    let mut block_clone = (*block).clone();
+                    if let Some(chunk) = first_chunk_mut(&mut block_clone) {
+                        if zero_chunk_signature(chunk) {
+                            let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
+                            assert!(
+                                previous < 2,
+                                "Expected at most two mutated blocks before a ban kicks in"
+                            );
+                            return HandlerResult::Unhandled(NetworkRequests::Block {
+                                block: Arc::new(block_clone),
+                            });
+                        }
                     }
+                    HandlerResult::Unhandled(NetworkRequests::Block { block })
                 }
-                HandlerResult::Unhandled(NetworkRequests::Block { block })
-            }
-            other => HandlerResult::Unhandled(other),
-        }));
+                other => HandlerResult::Unhandled(other),
+            },
+        );
     }
 
     env.test_loop.run_for(Duration::seconds(TIMEOUT_SECONDS));

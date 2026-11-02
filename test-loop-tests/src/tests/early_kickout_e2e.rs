@@ -1,6 +1,6 @@
 //! End-to-end tests for early (mid-epoch) chunk producer kickout.
 //!
-//! `ProtocolFeature::EarlyKickout` (nightly) tracks each chunk producer's
+//! `ProtocolFeature::EarlyKickout` tracks each chunk producer's
 //! production stats within an epoch and, once a producer crosses the
 //! mid-epoch thresholds, excludes it from the `DBCol::ChunkProducers`
 //! assignment for the chunks anchored at later blocks. The excluded slot is
@@ -23,12 +23,13 @@
 //!   base layout, fires again on the child shard the producer lands on, and the
 //!   persisted rows across the split resolve with no `ChunkProducerNotInDB`.
 //!
-//! All of these require `nightly` (feature gate) and `test_features` (adversarial
-//! messages, plus the threshold override below).
+//! All of these require `test_features` (adversarial messages, plus the threshold override
+//! below).
 //!
-//! Production trips the blacklist at 100 misses accumulated past a 1000-block
-//! start-of-epoch grace, which is ~1100 blocks — far more than a test-loop chain
-//! can run. All of them therefore shrink both thresholds through
+//! Production accumulates misses from epoch start but keeps the blacklist suppressed
+//! through a 1000-block start-of-epoch grace, so the earliest exclusion is ~1000 blocks
+//! in — far more than a test-loop chain can run. All of them therefore shrink both
+//! thresholds through
 //! `set_early_kickout_thresholds_for_testing` so the gate trips in tens of
 //! blocks. The overrides are thread-local with production-constant defaults, so
 //! nothing outside these tests is affected; the exact production values
@@ -37,8 +38,9 @@
 //! the thresholds do not affect.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::tests::early_kickout_probe::walk_anchor_rows;
 use crate::tests::early_kickout_probe::{
-    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region, walk_anchor_rows,
+    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region,
 };
 use crate::tests::sync::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -74,7 +76,8 @@ use near_primitives::types::{
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Grace window used by the reassignment and epoch-sync bootstrap tests, in blocks into
@@ -512,20 +515,11 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
             }
         })
         .collect();
-    let validators_spec = ValidatorsSpec::raw(validators, 4, 4, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    // The default epoch config leaves all kickout thresholds at 0 (no standard kickout).
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard(2, 1))
-        .validators_spec(validators_spec)
-        .build();
-    // `from_genesis` leaves all kickout thresholds at 0 (no standard kickout).
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .validators_spec(ValidatorsSpec::raw(validators, 4, 4, 0))
         .build();
 
     let source_em = env.node(0).client().epoch_manager.clone();
@@ -558,22 +552,16 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("ek_sync_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("ek_sync_node", node_state);
     let synced_em = env.node(new_node_idx).client().epoch_manager.clone();
 
     // Wait for the epoch-sync proof to apply: the follower's header head jumps from
     // genesis into the synced epoch (or past it — header sync applies whole batches
     // per event) in the same event that commits the proof's store update.
-    {
-        let synced_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-        env.test_loop.run_until(
-            |data| {
-                data.get(&synced_handle).client.chain.header_head().unwrap().height > epoch_length
-            },
-            Duration::seconds(200),
-        );
-    }
+    env.node_runner(new_node_idx).run_until(
+        |node| node.client().chain.header_head().unwrap().height > epoch_length,
+        Duration::seconds(200),
+    );
 
     // Assertion 0: the synced epoch's `EpochStart` row. It is the min-height row on
     // the follower: a fresh node has none before epoch sync (genesis writes none),
@@ -911,23 +899,17 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    // Deliberately no `kickouts_standard_80_percent()`: the default epoch config leaves the
+    // end-of-epoch thresholds at 0, so the stopped target survives each boundary and keeps missing
+    // chunks.
+    // With standard kickout on it would be removed after the first epoch, leaving nobody to
+    // rebuild the blacklist. The mid-epoch math ignores those thresholds anyway.
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(3), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    // Deliberately no `kickouts_standard_80_percent()`: `from_genesis` leaves the end-of-epoch
-    // thresholds at 0, so the stopped target survives each boundary and keeps missing chunks.
-    // With standard kickout on it would be removed after the first epoch, leaving nobody to
-    // rebuild the blacklist. The mid-epoch math ignores those thresholds anyway.
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     // Create nontrivial user state before the multi-epoch scenario.
@@ -1039,16 +1021,11 @@ fn slow_test_early_kickout_across_resharding() {
 
     let _thresholds = shrink_early_kickout_gate(TEST_MIN_MISSES, TEST_EPOCH_GRACE_BLOCKS);
 
-    // Genesis runs one version back, so both features must already be active there:
-    // EarlyKickout for the pre-split kickout and the row writes under the base layout,
-    // sticky assignment for the target to land on a child of its old shard.
+    // Genesis runs one version back, so EarlyKickout must already be active there:
+    // for the pre-split kickout and the row writes under the base layout.
     assert!(
         ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION - 1),
         "test requires EarlyKickout enabled at PROTOCOL_VERSION - 1 (the pre-split epochs)"
-    );
-    assert!(
-        ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION - 1),
-        "test requires sticky resharding assignment for the target to land on a child shard"
     );
 
     // Pre-split the target holds ~25% of its shard's slots (4 producers), so it clears
@@ -1323,13 +1300,8 @@ fn slow_test_early_kickout_across_resharding() {
     // Runway so chunks whose grandparent anchor blacklists the target exist to check.
     // Waits on the FINAL head, not the head: everything below reads `final_head`, and the
     // row walk's width bound is stated in terms of how far the final head advanced past
-    // the trigger. Copy the height out because the liveness window below still needs
-    // `post_trigger_head`.
-    let post_trigger_height = post_trigger_head.height;
-    env.node_runner(0).run_until(
-        move |node| node.final_head().height >= post_trigger_height + 20,
-        Duration::seconds(EPOCH_LENGTH as i64),
-    );
+    // the trigger.
+    env.node_runner(0).run_until_final_head_height(post_trigger_head.height + 20);
     assert_eq!(
         env.node(0).final_head().epoch_id,
         split_epoch_id,

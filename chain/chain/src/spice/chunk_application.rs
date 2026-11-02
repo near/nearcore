@@ -13,6 +13,7 @@ use near_primitives::receipt::{
     ProcessedReceipt, ProcessedReceiptMetadata, ReceiptSource, ReceiptToTxInfo,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{BlockExecutionResults, BlockHeight, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
@@ -119,11 +120,20 @@ pub fn apply_chunk_postprocessing(
     );
 
     if config.save_tx_outcomes {
+        let outcomes_with_proofs: Vec<_> = outcomes
+            .into_iter()
+            .zip(outcome_paths)
+            .map(|(outcome_with_id, proof)| {
+                (
+                    outcome_with_id.id,
+                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                )
+            })
+            .collect();
         store_update.chain_store_update().set_outcomes_with_proofs(
             block_hash,
             shard_id,
-            outcomes,
-            outcome_paths,
+            &outcomes_with_proofs,
         );
     }
     if config.save_receipt_to_tx {
@@ -218,12 +228,13 @@ fn write_processed_receipts(
 
 pub fn build_spice_apply_chunk_block_context(
     block_header: &BlockHeader,
+    prev_block_header: &BlockHeader,
     prev_block_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<ApplyChunkBlockContext, Error> {
     // TODO(spice): gas price should be based on execution results and not part of the
     // block since it's calculated based on gas usage during execution.
-    let gas_price = block_header.next_gas_price();
+    let gas_price = prev_block_header.next_gas_price();
     let congestion_info =
         build_block_congestion_info(block_header, prev_block_execution_results, epoch_manager)?;
     let bandwidth_requests =

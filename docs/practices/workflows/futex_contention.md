@@ -47,7 +47,7 @@ neard0[55783] lock 0x79a1b1dfcfb0 contended 41 times, 22 avg msecs [max: 48 msec
     _ZN10near_store4trie4Trie3get17h11d4bcd3667e3c8fE
     _ZN85_$LT$near_store..trie..update..TrieUpdate$u20$as$u20$near_store..trie..TrieAccess$GT$3get17h041c58f313ed6d6cE
     _ZN10near_store5utils11get_account17hf3071e79288206c0E
-    _ZN12node_runtime8verifier25get_signer_and_access_key17hca85f102c5a0241bE
+    _ZN12near_runtime8verifier25get_signer_and_access_key17hca85f102c5a0241bE
     _ZN92_$LT$near_chain..runtime..NightshadeRuntime$u20$as$u20$near_chain..types..RuntimeAdapter$GT$24can_verify_and_charge_tx17hb1907151d54f3c6bE
     _ZN11near_client11rpc_handler10RpcHandler10process_tx17h3ca7fec97c6dd01eE
     _ZN110_$LT$actix..sync..SyncContextEnvelope$LT$M$GT$$u20$as$u20$actix..address..envelope..EnvelopeProxy$LT$A$GT$$GT$6handle17h0f78e99e6ce63395E

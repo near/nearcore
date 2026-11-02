@@ -1,15 +1,15 @@
 use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    FunctionCallAction, StakeAction, TransferAction, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction, StakeAction,
+    TransferAction, TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
+use near_primitives::universal_state_init::RawStateInit;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
@@ -307,6 +307,29 @@ impl ReceiptManager {
         self.append_action(receipt_index, action) as u64
     }
 
+    /// Attach a `UniversalStateInit` action, carrying `state_init` verbatim, to an
+    /// existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `state_init`    - the borsh of a `UniversalStateInit`
+    /// * `deposit`       - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        deposit: Balance,
+    ) {
+        let action =
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction { state_init, deposit }));
+        self.append_action(receipt_index, action);
+    }
+
     /// Set a data entry to an existing [`DeterministicStateInit`] action.
     ///
     /// # Arguments
@@ -346,13 +369,15 @@ impl ReceiptManager {
         }
     }
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
+    /// Attach the [`FunctionCallAction`](near_primitives::action::FunctionCallAction) action to an
+    /// existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
-    /// For more information, see [super::VMLogic::promise_batch_action_function_call_weight].
+    /// For more information, see the `promise_batch_action_function_call_weight` host function
+    /// in `near-vm-runner`.
     ///
     /// # Arguments
     ///
@@ -377,13 +402,12 @@ impl ReceiptManager {
     ) -> Result<(), VMLogicError> {
         let action_index = self.append_action(
             receipt_index,
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: String::from_utf8(method_name)
-                    .map_err(|_| HostError::InvalidMethodName)?,
+            Action::function_call_with_deposit(
+                String::from_utf8(method_name).map_err(|_| HostError::InvalidMethodName)?,
                 args,
-                gas: prepaid_gas,
-                deposit: attached_deposit,
-            })),
+                prepaid_gas,
+                attached_deposit,
+            ),
         );
 
         if gas_weight.0 > 0 {

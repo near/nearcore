@@ -5,6 +5,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
@@ -29,17 +30,13 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, NonceIndex, StorageUsage,
 };
-use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::universal_account_id::is_universal_account_id;
-use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
 
 /// Reports a rejected account-state change as a storage inconsistency.
@@ -211,36 +208,34 @@ pub(crate) fn action_create_account(
 }
 
 /// Can only be used for implicit accounts.
+///
+/// The account is created without claiming `actor_id`, which stays the receipt's
+/// predecessor. A `0u` id can be created by a transfer inside a batch (see
+/// [`implicit_creation_allowed`]), and claiming it would hand the
+/// rest of that batch the new account's own authority: a relayer sending
+/// `[Transfer, UniversalStateInit, AddKey]` would install a key the id does not
+/// commit to, and one ending in `DeleteAccount` would take the balance. For the
+/// other implicit kinds the transfer is the whole receipt, so there is nothing
+/// after it to authorize either way.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
-    actor_id: &mut AccountId,
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
     epoch_info_provider: &dyn EpochInfoProvider,
+    protocol_version: ProtocolVersion,
 ) {
-    *actor_id = account_id.clone();
-    // TODO(universal-accounts): replace with an `AccountType::Universal` variant in the match
-    // below once `near-account-id` supports 0u accounts. For now this needs to be checked before
-    // the match, because 0u account is parsed as `AccountType::NamedAccount` and would panic.
-    if apply_state.config.wasm_config.universal_accounts
-        && is_universal_account_id(account_id.as_str())
-    {
-        *account = Some(Account::new_uninitialized(
-            deposit,
-            fee_config.storage_usage_config.num_bytes_account,
-        ));
-        return;
-    }
-    match account_id.get_account_type() {
+    // Config-aware: account type whose feature is off reads as `NamedAccount` and panics
+    // below rather than being created. Only `universal_accounts` can still be off.
+    match get_account_type(account_id, apply_state.config.as_ref()) {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
             access_key.nonce = initial_nonce_value(block_height);
 
-            // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
+            // unwrap: the arm we are in means `account_id` is 64 hex characters.
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
@@ -261,7 +256,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let chain_id = epoch_info_provider.chain_id();
 
             // Use a deployed global contract for ETH implicit accounts.
-            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id, protocol_version);
             let storage_usage = fee_config.storage_usage_config.num_bytes_account
                 + global_contract_hash.as_bytes().len() as u64;
 
@@ -278,8 +273,16 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 &apply_state.config.fees.storage_usage_config,
             ));
         }
-        // This panic is unreachable as this is an implicit account creation transfer.
-        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
+        AccountType::UniversalAccount => {
+            *account = Some(Account::new_uninitialized(
+                deposit,
+                fee_config.storage_usage_config.num_bytes_account,
+                initial_nonce_value(block_height),
+            ));
+        }
+        // Unreachable: this is an implicit account creation transfer, so
+        // `check_account_existence` has already turned away every receiver that
+        // `implicit_creation_allowed` refuses.
         AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
@@ -333,31 +336,10 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
-    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
-        .enabled(current_protocol_version)
-    {
-        let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
-        account_ref.storage_usage().saturating_sub(contract_storage)
-    } else {
-        // Legacy behavior: only subtracts local contract code, misses the
-        // global contract identifier overhead.
-        let account_storage_usage = account_ref.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account_ref.local_contract_hash().unwrap_or_default(),
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage.saturating_sub(code_len)
-    };
+    let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
+    let account_storage_usage = account_ref.storage_usage().saturating_sub(contract_storage);
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -680,14 +662,7 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
-                // Before this fix, the missing early return allowed execution
-                // to fall through to the receiver_id and method_name checks,
-                // which could overwrite this error with a different one.
-                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
             if delegate_action.receiver_id() != &function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -797,12 +772,23 @@ pub(crate) fn check_actor_permissions(
     Ok(())
 }
 
+/// The bits of the enclosing receipt that decide whether a transfer to a
+/// nonexistent account may create it. Named fields, because the two flags are
+/// both `bool` and swapping them would still compile.
+#[derive(Clone, Copy)]
+pub(crate) struct ReceiptShape {
+    /// The receipt was produced by the system, i.e. it is a refund.
+    pub is_refund: bool,
+    /// The action is the receipt's only one.
+    pub is_the_only_action: bool,
+}
+
 pub(crate) fn check_account_existence(
     action: &Action,
     account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
-    implicit_account_creation_eligible: bool,
+    receipt_shape: ReceiptShape,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -811,39 +797,31 @@ pub(crate) fn check_account_existence(
                     account_id: account_id.clone(),
                 }
                 .into());
-            } else {
-                if account_is_implicit(
-                    account_id,
-                    config.wasm_config.eth_implicit_accounts,
-                    config.wasm_config.universal_accounts,
-                ) {
-                    // If the account doesn't exist and it's implicit, then you
-                    // should only be able to create it using single transfer action.
-                    // Because you should not be able to add another access key to the account in
-                    // the same transaction.
-                    // Otherwise you can hijack an account without having the private key for the
-                    // public key. We've decided to make it an invalid transaction to have any other
-                    // actions on the implicit hex accounts.
-                    // The easiest way is to reject the `CreateAccount` action.
-                    // See https://github.com/nearprotocol/NEPs/pull/71
-                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
-                        account_id: account_id.clone(),
-                    }
-                    .into());
+            }
+            if get_account_type(account_id, config).is_implicit() {
+                // Implicit accounts can only be created implicitly.
+                // `CreateAccount` claims `actor_id` for the new account, which
+                // would let the rest of the receipt add an access key to an id
+                // whose private key the sender does not hold. Rejecting the action
+                // is the simplest way to close that.
+                // See https://github.com/nearprotocol/NEPs/pull/71
+                return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                    account_id: account_id.clone(),
                 }
+                .into());
             }
         }
         Action::Transfer(_) => {
-            if account.is_none() {
-                return check_transfer_to_nonexisting_account(
-                    config,
-                    account_id,
-                    implicit_account_creation_eligible,
-                );
+            let account_type = get_account_type(account_id, config);
+            if account.is_none() && !implicit_creation_allowed(account_type, receipt_shape) {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
         }
         Action::DeterministicStateInit(_) => {
-            // Existing and non existing is valid for DeterministicStateInit.
+            // Both existing and non-existing is valid for DeterministicStateInit.
             // Does not exist => The account will be created by the action.
             // Does exist => Nothing happens but the receipt is not aborted to
             // allow optional init before other actions.
@@ -865,8 +843,17 @@ pub(crate) fn check_account_existence(
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
         | Action::WithdrawFromGasKey(_) => {
-            if account.is_none() {
+            let Some(account) = account else {
                 return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            };
+            // An uninitialized `0u` account has no access keys, code or data, so
+            // for everything but its own state init and a transfer it is as good
+            // as absent.
+            if !account.is_initialized() {
+                return Err(ActionErrorKind::AccountNotInitialized {
                     account_id: account_id.clone(),
                 }
                 .into());
@@ -876,29 +863,45 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
-fn check_transfer_to_nonexisting_account(
-    config: &RuntimeConfig,
-    account_id: &AccountId,
-    implicit_account_creation_eligible: bool,
-) -> Result<(), ActionError> {
-    if implicit_account_creation_eligible
-        && account_is_implicit(
-            account_id,
-            config.wasm_config.eth_implicit_accounts,
-            config.wasm_config.universal_accounts,
-        )
-    {
-        // OK. It's implicit account creation.
-        // Notes:
-        // - Transfer action has to be the only action in the transaction to avoid
-        // abuse by hijacking this account with other public keys or contracts.
-        // - Refunds don't automatically create accounts, because refunds are free and
-        // we don't want some type of abuse.
-        // - Account deletion with beneficiary creates a refund, so it'll not create a
-        // new account.
-        Ok(())
-    } else {
-        Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+/// As which account type should this `account_id` be treated, given the
+/// flags in `config`. This exists because support for new account types
+/// is added via config flags and depends on protocol version. This should
+/// be used instead of raw `AccountId::get_account_type` to avoid implicit
+/// protocol upgrade.
+fn get_account_type(account_id: &AccountId, config: &RuntimeConfig) -> AccountType {
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => AccountType::NamedAccount,
+        AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
+        AccountType::EthImplicitAccount => AccountType::EthImplicitAccount,
+        AccountType::NearDeterministicAccount => AccountType::NearDeterministicAccount,
+        AccountType::UniversalAccount => {
+            if config.wasm_config.universal_accounts {
+                AccountType::UniversalAccount
+            } else {
+                AccountType::NamedAccount
+            }
+        }
+    }
+}
+
+/// Whether a transfer to an account that does not exist yet may create it.
+fn implicit_creation_allowed(account_type: AccountType, receipt_shape: ReceiptShape) -> bool {
+    let ReceiptShape { is_refund, is_the_only_action } = receipt_shape;
+    if is_refund {
+        return false; // Refund can never create an account
+    }
+
+    match account_type {
+        // Named accounts can never be implicitly created by transfer
+        AccountType::NamedAccount => false,
+        // Near-implicit, Eth-implicit, and deterministic accounts can only be created
+        // if transfer is the only action, to avoid account hijacking.
+        AccountType::NearImplicitAccount
+        | AccountType::EthImplicitAccount
+        | AccountType::NearDeterministicAccount => is_the_only_action,
+        // Universal account creation does NOT require transfer to be the only action.
+        // It cannot be hijacked by other actions batched with the transfer.
+        AccountType::UniversalAccount => true,
     }
 }
 
@@ -908,23 +911,44 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use crate::universal_account_id::action_universal_state_init;
+    use crate::{StorageStakingError, check_storage_stake};
+    use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
+        VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    };
+    use near_primitives::action::{
+        AddKeyAction, DeleteKeyAction, DeployGlobalContractAction, GlobalContractDeployMode,
+        GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+        UseGlobalContractAction, WithdrawFromGasKeyAction,
     };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
+    use near_primitives::types::Nonce;
+    use near_primitives::universal_account_id::encode_universal_account_id;
+    use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
     const TEST_GAS_KEY_NUM_NONCES: u16 = 1;
+    /// Seed for an uninitialized account's pre-key nonce; its value is
+    /// irrelevant to these tests, which never check a nonce.
+    const TEST_BOOTSTRAP_NONCE: Nonce = 1_000_000;
+    /// The receipt shape `check_account_existence` is called with below. Only
+    /// the transfer-to-a-nonexistent-account path reads it, and none of these
+    /// tests take it.
+    const TEST_RECEIPT_SHAPE: ReceiptShape =
+        ReceiptShape { is_refund: false, is_the_only_action: false };
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -1033,7 +1057,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1047,10 +1070,7 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(
-        storage_usage: u64,
-        protocol_version: ProtocolVersion,
-    ) -> ActionResult {
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1079,7 +1099,6 @@ mod tests {
                 account.local_contract_hash().unwrap_or_default(),
             ),
             storage_usage,
-            protocol_version,
             &mut state_update,
         )
     }
@@ -1100,72 +1119,32 @@ mod tests {
         account_id: &AccountId,
         contract: AccountContract,
         storage_usage: u64,
-        protocol_version: ProtocolVersion,
     ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        test_delete_account(
-            account_id,
-            contract,
-            storage_usage,
-            protocol_version,
-            &mut state_update,
-        )
+        test_delete_account(account_id, contract, storage_usage, &mut state_update)
     }
 
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_delete_account_with_contract_and_large_state() {
-        let action_result = test_delete_account_with_contract(
-            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
         expect_delete_account_too_large(&action_result);
     }
 
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_global_contract_protocol_transition() {
-        let account_id: AccountId = "alice".parse().unwrap();
-        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
-        let enabled =
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
-
-        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
-        let before = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled - 1,
-        );
-        expect_delete_account_too_large(&before);
-
-        // From the fix onwards: the 32-byte identifier is subtracted, so
-        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
-        let after = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled,
-        );
-        assert!(after.result.is_ok());
     }
 
     /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
@@ -1175,7 +1154,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1190,7 +1168,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1202,7 +1179,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1214,7 +1190,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
     }
@@ -1226,7 +1201,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
     }
@@ -1258,7 +1232,6 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);
@@ -1272,16 +1245,12 @@ mod tests {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
-                    non_delegate_action(
-                        Action::FunctionCall(
-                            Box::new(FunctionCallAction {
-                                 method_name: "ft_transfer".parse().unwrap(),
-                                 args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: Gas::from_teragas(30),
-                                 deposit: Balance::from_yoctonear(1),
-                            })
-                        )
-                    )
+                    non_delegate_action(Action::function_call_with_deposit(
+                        "ft_transfer",
+                        br#"{"receiver_id":"jane.test.near","amount":"4"}"#,
+                        Gas::from_teragas(30),
+                        Balance::from_yoctonear(1),
+                    ))
                 ],
                 nonce: 19000001,
                 max_block_height: 57,
@@ -1511,7 +1480,7 @@ mod tests {
                 &mut None,
                 &sender_id,
                 &RuntimeConfig::test(),
-                false,
+                TEST_RECEIPT_SHAPE,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );
@@ -1701,13 +1670,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
     }
@@ -1753,18 +1720,16 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            }))),
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                method_name: "test_method".parse().unwrap(),
-                gas: Gas::from_gas(300),
-            }))),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
         ];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1791,13 +1756,12 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1839,13 +1803,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.nonce = initial_nonce + 1;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "any_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "any_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let mut result = ActionResult::default();
         validate_delegate_action_key(
@@ -1860,30 +1823,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
-
-        // Legacy: missing early return lets ReceiverMismatch overwrite
-        // DepositWithFunctionCall.
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: "token.test.near".parse().unwrap(),
-                    ak_receiver: "other.test.near".parse().unwrap(),
-                },
-            )
-            .into()),
-        );
-    }
-
-    #[test]
     fn test_delegate_deposit_with_function_call_reports_deposit_error() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
+        let result = deposit_with_function_call_and_receiver_mismatch(PROTOCOL_VERSION);
 
         assert_eq!(
             result.result,
@@ -1907,13 +1848,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1942,13 +1881,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1976,13 +1913,11 @@ mod tests {
         );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert_eq!(
             result.result,
@@ -2128,12 +2063,12 @@ mod tests {
     }
 
     fn function_call_action(method_name: &str, deposit: Balance) -> NonDelegateAction {
-        non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-            args: Vec::new(),
+        non_delegate_action(Action::function_call_with_deposit(
+            method_name,
+            Vec::new(),
+            Gas::from_gas(300),
             deposit,
-            gas: Gas::from_gas(300),
-            method_name: method_name.parse().unwrap(),
-        })))
+        ))
     }
 
     fn function_call_permission(
@@ -2237,5 +2172,392 @@ mod tests {
             )
             .into())
         );
+    }
+
+    fn account_id() -> AccountId {
+        // cspell:disable-next-line
+        "0u4bwt6zbknvvcyzmfnfhitcfzatxtthkbzdcm4zwezyf7zwe6pnc4c".parse().unwrap()
+    }
+
+    fn public_key() -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn signed_delegate_action() -> SignedDelegateAction {
+        SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: account_id(),
+                receiver_id: account_id(),
+                actions: vec![
+                    NonDelegateAction::try_from(Action::Transfer(TransferAction {
+                        deposit: Balance::from_yoctonear(1),
+                    }))
+                    .unwrap(),
+                ],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: public_key(),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }
+    }
+
+    /// Every action that needs a set-up account, i.e. the arm of
+    /// `check_account_existence` that rejects a missing one.
+    fn actions_requiring_an_account() -> Vec<Action> {
+        vec![
+            Action::DeployContract(DeployContractAction { code: vec![] }),
+            Action::function_call("foo", vec![], Gas::from_teragas(1)),
+            Action::Stake(Box::new(StakeAction {
+                stake: Balance::from_yoctonear(1),
+                public_key: public_key(),
+            })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key() })),
+            Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id: "bob.near".parse().unwrap(),
+            }),
+            Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: vec![].into(),
+                deploy_mode: GlobalContractDeployMode::CodeHash,
+            }),
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+            })),
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: public_key(),
+                deposit: Balance::from_yoctonear(1),
+            })),
+            Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+                public_key: public_key(),
+                amount: Balance::from_yoctonear(1),
+            })),
+            // Meta-transactions: a delegate whose sender is an uninitialized
+            // account is stopped here, before `validate_delegate_action_key`
+            // would look for a key it does not have. Gasless self-init through a
+            // delegate is an explicit non-goal, so this pins it shut.
+            Action::Delegate(Box::new(signed_delegate_action())),
+            Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                delegate_action: VersionedDelegateActionPayload::V2(DelegateActionV2 {
+                    sender_id: account_id(),
+                    receiver_id: account_id(),
+                    actions: vec![],
+                    nonce: TransactionNonce::from_nonce(1),
+                    max_block_height: 1000,
+                    public_key: public_key(),
+                }),
+                signature: Signature::empty(KeyType::ED25519),
+            })),
+        ]
+    }
+
+    /// An uninitialized account has no access keys, code or data, so for
+    /// anything but its own state init and a transfer it is as good as absent.
+    #[test]
+    fn uninitialized_account_rejects_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
+        let expected: Result<(), ActionError> =
+            Err(ActionErrorKind::AccountNotInitialized { account_id: account_id.clone() }.into());
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &uninitialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                expected,
+                "expected rejection for {action:?}",
+            );
+        }
+    }
+
+    /// The same actions are fine once the state is installed. Guards against the
+    /// check rejecting more than the uninitialized case.
+    #[test]
+    fn initialized_account_accepts_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let initialized =
+            Some(Account::new(Balance::from_near(1), Balance::ZERO, AccountContract::None, 100));
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &initialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+    }
+
+    /// A missing account still reports `AccountDoesNotExist`, so the new variant
+    /// does not swallow the pre-existing case.
+    #[test]
+    fn missing_account_still_reports_does_not_exist() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(&action, &None, &account_id, &config, TEST_RECEIPT_SHAPE),
+                Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into()),
+                "expected AccountDoesNotExist for {action:?}",
+            );
+        }
+    }
+
+    /// The actions an uninitialized account must still accept: the state init that
+    /// sets it up, and a transfer that funds it further. A deterministic state init
+    /// passes the check too, but its receiver is pinned to a `0s` id, so it cannot
+    /// reach an uninitialized account.
+    #[test]
+    fn uninitialized_account_accepts_state_init_and_transfer() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
+
+        let state_init = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: RawStateInit(vec![]),
+            deposit: Balance::ZERO,
+        }));
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+
+        for action in [state_init, transfer] {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &uninitialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+
+        // Creating it again is still the pre-existing "already exists", not the new error.
+        assert_eq!(
+            check_account_existence(
+                &Action::CreateAccount(CreateAccountAction {}),
+                &uninitialized,
+                &account_id,
+                &config,
+                TEST_RECEIPT_SHAPE,
+            ),
+            Err(ActionErrorKind::AccountAlreadyExists { account_id }.into())
+        );
+    }
+
+    /// Applies a universal state init carrying `deposit` to an initialized account that lacks
+    /// balance for its storage staking, under `protocol_version`.
+    fn apply_repeated_universal_state_init(
+        protocol_version: ProtocolVersion,
+        receipt: &Receipt,
+        deposit: Balance,
+    ) -> (Account, ActionResult) {
+        let mut apply_state = create_apply_state(1);
+        apply_state.current_protocol_version = protocol_version;
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let balance = Balance::from_yoctonear(1);
+        let mut account =
+            Some(Account::new(balance, Balance::ZERO, AccountContract::None, 1_000_000));
+        let missing =
+            match check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config) {
+                Err(StorageStakingError::LackBalanceForStorageStaking(missing)) => missing,
+                _ => panic!("the account must lack balance for storage staking"),
+            };
+        assert!(missing > deposit, "the deposit must not cover the missing storage stake");
+        let action = UniversalStateInitAction { state_init: RawStateInit(vec![]), deposit };
+        let mut result = ActionResult::default();
+
+        action_universal_state_init(
+            &mut state_update,
+            &apply_state,
+            &mut account,
+            &account_id(),
+            receipt,
+            &action,
+            &mut result,
+        )
+        .unwrap();
+        (account.unwrap(), result)
+    }
+
+    /// A state init on an already initialized account refunds the whole deposit,
+    /// even when the account lacks balance for its storage staking. The deposit
+    /// only covers storage staking for the action that initializes the account.
+    #[test]
+    fn repeated_universal_state_init_refunds_whole_deposit() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let deposit = Balance::from_near(1);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version(),
+            &receipt,
+            deposit,
+        );
+
+        assert!(result.result.is_ok());
+        assert_eq!(
+            account.amount(),
+            Balance::from_yoctonear(1),
+            "the account must not be topped up"
+        );
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit)]
+        );
+    }
+
+    /// Before the refund feature, the deposit of a repeated state init still settles the
+    /// storage stake, so a deposit short of the missing stake fails the action.
+    #[test]
+    fn repeated_universal_state_init_settles_storage_before_refund_feature() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version() - 1,
+            &receipt,
+            Balance::from_near(1),
+        );
+
+        assert!(matches!(
+            result.result,
+            Err(ActionError { kind: ActionErrorKind::LackBalanceForState { .. }, .. })
+        ));
+        assert_eq!(account.amount(), Balance::from_yoctonear(1));
+        assert!(result.new_receipts.is_empty());
+    }
+
+    fn config_with(universal_accounts: bool) -> RuntimeConfig {
+        let mut config = RuntimeConfig::test();
+        let wasm_config = Arc::make_mut(&mut config.wasm_config);
+        wasm_config.universal_accounts = universal_accounts;
+        config
+    }
+
+    /// `get_account_type` decides which rules an id is judged by, so every kind
+    /// and every flag that gates one is pinned here. Reading as `NamedAccount`
+    /// while the flag is off is the whole point: it is what stops a kind from
+    /// coming into being before the protocol version that introduces it.
+    #[test]
+    fn test_get_account_type_follows_the_config_flags() {
+        let named: AccountId = "alice.near".parse().unwrap();
+        let near_implicit: AccountId = "ab".repeat(32).parse().unwrap();
+        let eth: AccountId = format!("0x{}", "ab".repeat(20)).parse().unwrap();
+        let deterministic: AccountId = format!("0s{}", "ab".repeat(20)).parse().unwrap();
+        let universal = encode_universal_account_id(&[0x33; 32]);
+
+        let cases = [
+            (&named, false, AccountType::NamedAccount),
+            (&named, true, AccountType::NamedAccount),
+            // These kinds are enabled in every supported protocol version and have
+            // no flag of their own.
+            (&near_implicit, false, AccountType::NearImplicitAccount),
+            (&near_implicit, true, AccountType::NearImplicitAccount),
+            (&eth, false, AccountType::EthImplicitAccount),
+            (&eth, true, AccountType::EthImplicitAccount),
+            (&deterministic, false, AccountType::NearDeterministicAccount),
+            (&deterministic, true, AccountType::NearDeterministicAccount),
+            (&universal, true, AccountType::UniversalAccount),
+            (&universal, false, AccountType::NamedAccount),
+        ];
+
+        for (account_id, universal_accounts, expected) in cases {
+            let config = config_with(universal_accounts);
+            assert_eq!(
+                get_account_type(account_id, &config),
+                expected,
+                "{account_id} with universal_accounts={universal_accounts}"
+            );
+        }
+    }
+
+    /// The transfer arm has to judge a `0u` id by the config-aware type, not the
+    /// raw one: with the flag off the id reads as a named account and a transfer
+    /// creates nothing. Reading it raw would instead admit the transfer and hand
+    /// it to `action_implicit_account_creation_transfer`, whose `must be implicit`
+    /// panic is unreachable only because of this check.
+    #[test]
+    fn transfer_to_missing_universal_account_follows_the_flag() {
+        let account_id = encode_universal_account_id(&[0x33; 32]);
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+        let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
+
+        assert_eq!(
+            check_account_existence(&transfer, &None, &account_id, &config_with(false), alone),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+        );
+        assert_eq!(
+            check_account_existence(&transfer, &None, &account_id, &config_with(true), alone),
+            Ok(())
+        );
+    }
+
+    /// Every path through `implicit_creation_allowed`: a refund creates nothing
+    /// whatever it is addressed to, a named id is never created by a transfer,
+    /// the three older implicit kinds need the transfer to be the whole receipt,
+    /// and a `0u` id is the one exception to that.
+    #[test]
+    fn test_implicit_creation_allowed() {
+        const ALL: [AccountType; 5] = [
+            AccountType::NamedAccount,
+            AccountType::NearImplicitAccount,
+            AccountType::EthImplicitAccount,
+            AccountType::NearDeterministicAccount,
+            AccountType::UniversalAccount,
+        ];
+        let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
+        let batched = ReceiptShape { is_refund: false, is_the_only_action: false };
+        let refund = ReceiptShape { is_refund: true, is_the_only_action: true };
+
+        // Refunds are free, and account deletion with a beneficiary makes one, so
+        // no kind may be created by one however lonely the transfer is.
+        for account_type in ALL {
+            assert!(
+                !implicit_creation_allowed(account_type, refund),
+                "{account_type:?} must not be created by a refund"
+            );
+        }
+
+        // A name has to be claimed by whoever is entitled to it.
+        assert!(!implicit_creation_allowed(AccountType::NamedAccount, alone));
+        assert!(!implicit_creation_allowed(AccountType::NamedAccount, batched));
+
+        // These are usable the moment they exist, so a batch could take one over.
+        for account_type in [
+            AccountType::NearImplicitAccount,
+            AccountType::EthImplicitAccount,
+            AccountType::NearDeterministicAccount,
+        ] {
+            assert!(
+                implicit_creation_allowed(account_type, alone),
+                "{account_type:?} must be created by a transfer of its own"
+            );
+            assert!(
+                !implicit_creation_allowed(account_type, batched),
+                "{account_type:?} must not be created by a batched transfer"
+            );
+        }
+
+        // A `0u` id commits to its own state init, so a batch cannot take it over.
+        assert!(implicit_creation_allowed(AccountType::UniversalAccount, alone));
+        assert!(implicit_creation_allowed(AccountType::UniversalAccount, batched));
     }
 }

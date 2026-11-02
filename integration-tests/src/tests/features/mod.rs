@@ -6,7 +6,6 @@ mod adversarial_behaviors;
 mod cap_max_gas_price;
 mod chunk_nodes_cache;
 mod delegate_action;
-mod fix_contract_loading_cost;
 mod in_memory_tries;
 mod orphan_chunk_state_witness;
 mod reduced_gas_refunds;

@@ -188,7 +188,13 @@ fn default_state_parts_compression_level() -> i32 {
 }
 
 pub fn default_archival_writer_polling_interval() -> Duration {
-    Duration::seconds(1)
+    Duration::seconds(5)
+}
+
+/// The reader is allowed to lag the chain, and it polls only while it has nothing to
+/// pull.
+pub fn default_archival_reader_polling_interval() -> Duration {
+    Duration::seconds(5)
 }
 
 pub fn default_archival_writer_catch_up_throttle() -> Duration {
@@ -203,10 +209,21 @@ pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
 
-// TODO(cloud_archival): the reader has no settings of its own yet.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudArchivalReaderConfig {}
+pub struct CloudArchivalReaderConfig {
+    /// Interval at which the reader checks the bucket for data past its own head.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_reader_polling_interval")]
+    pub polling_interval: Duration,
+}
+
+impl Default for CloudArchivalReaderConfig {
+    fn default() -> Self {
+        Self { polling_interval: default_archival_reader_polling_interval() }
+    }
+}
 
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
@@ -571,7 +588,7 @@ pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+// Kept in sync with `near_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
 pub fn default_view_access_keys_limit() -> u32 {
     100
 }
@@ -719,9 +736,6 @@ pub struct ClientConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
-    /// Time to persist Accounts Id in the router without removing them.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub ttl_account_id_router: Duration,
     /// Time between check to perform catchup.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub catchup_step_period: Duration,
@@ -869,9 +883,9 @@ pub struct ClientConfig {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
-    /// constraints during chunk production and RPC validation. Disabled by
-    /// default; only meaningful when SPICE is active.
+    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
+    /// during chunk production and RPC validation. Disabled by default; only
+    /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
 }

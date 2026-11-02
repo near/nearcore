@@ -6,6 +6,7 @@ pub use crate::db::{
     STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use crate::db::{DBTransaction, Database, StoreStatistics, metadata};
+#[cfg(feature = "rocksdb")]
 pub use crate::node_storage::opener::{
     StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
     clear_columns,
@@ -33,6 +34,7 @@ pub mod db;
 mod deserialized_column;
 pub mod flat;
 pub mod genesis;
+pub mod light_client_block;
 pub mod merkle_proof;
 pub mod metrics;
 mod node_storage;

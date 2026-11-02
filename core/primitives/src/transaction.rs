@@ -1,3 +1,4 @@
+use crate::action::UniversalStateInitAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -7,8 +8,10 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::universal_state_init::UniversalStateInit;
+use crate::utils::derive_universal_account_id;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::account::AccountContract;
@@ -200,7 +203,7 @@ impl Transaction {
         }
     }
 
-    /// Check if this transaction version requires the GasKeys protocol feature to be enabled.
+    /// Check if this transaction version uses gas keys (requires `Transaction::V1`).
     pub fn gas_keys_required(&self) -> bool {
         match self {
             Transaction::V0(_) => false,
@@ -213,6 +216,52 @@ impl Transaction {
             Transaction::V0(_) => NonceMode::Monotonic,
             Transaction::V1(tx) => tx.nonce_mode,
         }
+    }
+
+    /// The state init action which this transaction contains, if it is shaped as
+    /// a self-signed universal account bootstrap.
+    ///
+    /// A `0u` account id is the hash of its state init, and the state init names
+    /// the account's access keys. Therefore, a transaction addressed to that account,
+    /// signed by one of those keys, and carrying the state init itself is authorized
+    /// by the account id alone.
+    ///
+    /// This is only the stateless half of the check. Whether the account exists,
+    /// is still uninitialized, and is at the right nonce is decided against the state.
+    ///
+    /// Deliberately looks only at top-level actions. A `UniversalStateInit`
+    /// nested in a `Delegate` is validated against the *delegate's* receiver
+    /// (see `validate_delegate_action`) and executes in a receipt of its own, so
+    /// it authorizes nothing here.
+    pub fn state_init_bootstrap(&self) -> Option<&UniversalStateInitAction> {
+        // A bootstrap pays from the account's own balance, so it can never be a
+        // gas-key transaction: a gas key is state this account does not have yet.
+        if self.nonce().nonce_index().is_some() {
+            return None;
+        }
+        let account_id = self.signer_id();
+        if account_id != self.receiver_id() {
+            return None;
+        }
+        let handle = PublicKeyHandle::from(self.public_key());
+        self.actions().iter().find_map(|action| {
+            let Action::UniversalStateInit(action) = action else { return None };
+            if derive_universal_account_id(&action.state_init) != *account_id {
+                return None;
+            }
+            // Lenient: a transaction is validated before it is looked at here, and from
+            // `CanonicalUniversalStateInit` on that already rejected a non-canonical state
+            // init. Below it, such a state init is valid and a bootstrap like any other.
+            let state_init = UniversalStateInit::from_raw_lenient(&action.state_init).ok()?;
+            state_init.access_keys().contains(&handle).then_some(&**action)
+        })
+    }
+
+    /// Whether this transaction is shaped as a self-signed universal account
+    /// bootstrap. [`Self::state_init_bootstrap`] is the same check for callers
+    /// that need the action itself.
+    pub fn is_state_init_bootstrap(&self) -> bool {
+        self.state_init_bootstrap().is_some()
     }
 }
 
@@ -283,9 +332,8 @@ impl ValidatedTransaction {
         signed_tx: SignedTransaction,
         protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
-            Ok(()) => {}
-            Err(err) => return Err((err, signed_tx)),
+        if let Err(err) = signed_tx.check_valid_for_config(config, protocol_version) {
+            return Err((err, signed_tx));
         }
 
         if !signed_tx
@@ -295,49 +343,6 @@ impl ValidatedTransaction {
             return Err((InvalidTxError::InvalidSignature, signed_tx));
         }
         Ok(Self(signed_tx))
-    }
-
-    /// Performs validity checks that depend on the runtime config, but does not
-    /// check the signature.
-    pub fn check_valid_for_config(
-        config: &RuntimeConfig,
-        signed_tx: &SignedTransaction,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), InvalidTxError> {
-        if !ProtocolFeature::GasKeys.enabled(protocol_version)
-            && signed_tx.transaction.gas_keys_required()
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        if signed_tx.transaction.nonce_mode() == NonceMode::Strict
-            && !ProtocolFeature::StrictNonce.enabled(protocol_version)
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        // Reject ML-DSA-65 transactions on pre-PostQuantumSignatures protocol
-        // versions. The signature/pubkey types parse via Borsh unconditionally
-        // (so pre-existing state remains readable), but the gate at this layer
-        // ensures no PQ key is ever accepted into state on an old protocol.
-        //
-        // Centralized here (rather than scattered across per-action validators)
-        // so the exhaustive `Action` match in
-        // `Action::post_quantum_signatures_required` forces every future
-        // action variant to make an explicit decision at compile time.
-        if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version)
-            && signed_tx.post_quantum_signatures_required()
-        {
-            return Err(InvalidTxError::InvalidTransactionVersion);
-        }
-        let tx_size = signed_tx.size_for_limits(protocol_version);
-        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-        if tx_size > max_tx_size {
-            return Err(InvalidTxError::TransactionSizeExceeded {
-                size: tx_size,
-                limit: max_tx_size,
-            });
-        }
-
-        Ok(())
     }
 
     /// This method should only be used for test purposes.
@@ -373,8 +378,8 @@ impl ValidatedTransaction {
     }
 
     /// See [`SignedTransaction::size_for_limits`].
-    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
-        self.0.size_for_limits(protocol_version)
+    pub fn size_for_limits(&self) -> u64 {
+        self.0.size_for_limits()
     }
 
     pub fn signer_id(&self) -> &AccountId {
@@ -452,27 +457,37 @@ impl SignedTransaction {
     }
 
     /// Transaction size charged against the `max_transaction_size` and
-    /// `combined_transactions_size_limit` gates: [`Self::wire_size`] from
-    /// [`ProtocolFeature::PostQuantumSignatures`] onward, else the legacy
-    /// [`Self::get_size`]. Version-gated to keep chunk production deterministic.
-    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
-        if ProtocolFeature::PostQuantumSignatures.enabled(protocol_version) {
-            self.wire_size()
-        } else {
-            self.get_size()
-        }
+    /// `combined_transactions_size_limit` gates: [`Self::wire_size`].
+    pub fn size_for_limits(&self) -> u64 {
+        self.wire_size()
     }
 
     /// Returns `true` if this transaction carries any post-quantum key
     /// material - its signer pubkey, its signature, or anywhere inside
     /// one of its actions (including a nested `Delegate` action).
-    ///
-    /// Used to decide whether the `PostQuantumSignatures` protocol
-    /// feature must be enabled before admitting the transaction.
     pub fn post_quantum_signatures_required(&self) -> bool {
         self.transaction.public_key().key_type().is_post_quantum()
             || self.signature.key_type().is_post_quantum()
             || self.transaction.actions().iter().any(Action::post_quantum_signatures_required)
+    }
+
+    /// Performs validity checks that depend on the runtime config, but does not
+    /// check the signature.
+    fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        _protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        let tx_size = self.size_for_limits();
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if tx_size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: tx_size,
+                limit: max_tx_size,
+            });
+        }
+
+        Ok(())
     }
 }
 
@@ -514,10 +529,10 @@ impl<'de> serde::Deserialize<'de> for SignedTransaction {
     {
         let signed_tx_base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
         let signed_tx_borsh = from_base64(&signed_tx_base64).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from base64 due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
         })?;
         borsh::from_slice::<Self>(&signed_tx_borsh).map_err(|err| {
-            D::Error::custom(&format!("the value could not decoded from borsh due to: {}", err))
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
         })
     }
 }
@@ -533,6 +548,412 @@ impl schemars::JsonSchema for SignedTransaction {
             "type": "string",
             "format": "byte"
         })
+    }
+}
+
+/// First byte of the borsh encoding of an [`EccTransaction`], which tells it apart from the
+/// signed transactions (see [`TransactionEnvelope`]).
+const ECC_ESCAPE_BYTE: u8 = 0xFF;
+
+/// Version of the borsh encoding of an [`EccTransaction`], the byte after [`ECC_ESCAPE_BYTE`].
+const ECC_VERSION: u8 = 0;
+
+/// Name of the contract method an [`EccTransaction`] calls. Only an external call or a view
+/// call can run it; an ordinary `FunctionCall` action to it fails.
+///
+/// TODO(ecc): The `__nightly_` prefix is temporary; the final name will be chosen when the feature
+/// is stabilized.
+pub const ECC_METHOD_NAME: &str = "__nightly_external_call";
+
+/// An external contract call (ECC): a call that carries no signer, public key, nonce or
+/// signature. A clean return from the target's standardized method serves as authorization.
+#[derive(Eq, Debug, Clone, ProtocolSchema)]
+pub struct EccTransaction {
+    /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
+    /// also the receiver.
+    contract_id: AccountId,
+    payload: Vec<u8>,
+    hash: CryptoHash,
+    size: u64,
+}
+
+impl EccTransaction {
+    pub fn new(contract_id: AccountId, payload: Vec<u8>) -> Self {
+        let mut tx = Self { contract_id, payload, hash: CryptoHash::default(), size: 0 };
+        tx.init();
+        tx
+    }
+
+    fn init(&mut self) {
+        let bytes = borsh::to_vec(self).expect("failed to serialize an ECC transaction");
+        self.hash = hash(&bytes);
+        self.size = bytes.len() as u64;
+    }
+
+    pub fn contract_id(&self) -> &AccountId {
+        &self.contract_id
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    pub fn into_parts(self) -> (AccountId, Vec<u8>) {
+        (self.contract_id, self.payload)
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
+    }
+
+    /// Full borsh-serialized size. There is no signature, so this is also the wire size.
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
+
+    /// Performs validity checks that depend on the protocol version and the runtime config.
+    pub fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        if !ProtocolFeature::ExternalContractCalls.enabled(protocol_version) {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        let size = self.get_size();
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if size > max_tx_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
+        }
+        Ok(())
+    }
+}
+
+impl PartialEq for EccTransaction {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl BorshSerialize for EccTransaction {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        BorshSerialize::serialize(&ECC_ESCAPE_BYTE, writer)?;
+        BorshSerialize::serialize(&ECC_VERSION, writer)?;
+        self.contract_id.serialize(writer)?;
+        self.payload.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for EccTransaction {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let escape_byte = u8::deserialize_reader(reader)?;
+        if escape_byte != ECC_ESCAPE_BYTE {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("invalid ECC escape byte: {escape_byte}"),
+            ));
+        }
+        let version = u8::deserialize_reader(reader)?;
+        if version != ECC_VERSION {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("unsupported ECC version: {version}"),
+            ));
+        }
+        let contract_id = AccountId::deserialize_reader(reader)?;
+        let payload = Vec::<u8>::deserialize_reader(reader)?;
+        Ok(Self::new(contract_id, payload))
+    }
+}
+
+/// A transaction as it appears in a chunk: either signed by an access key, or an unsigned
+/// [`EccTransaction`].
+///
+/// The borsh encoding of the signed variant is the one of [`SignedTransaction`], so existing
+/// chunks stay valid. The unsigned variant starts with the escape byte `0xFF` and then the
+/// version of its encoding. No signed transaction starts with `0xFF`: a V0 transaction starts
+/// with the length of the signer's [`AccountId`], which is at most 64, and the version tags of
+/// [`Transaction`] are small numbers. So the versions of signed and unsigned transactions
+/// evolve independently. A derived encoding would write a discriminant of `0` or `1` first, so
+/// it cannot be used.
+#[derive(Eq, PartialEq, Debug, Clone, ProtocolSchema)]
+#[allow(clippy::large_enum_variant)]
+pub enum TransactionEnvelope {
+    Signed(SignedTransaction),
+    Unsigned(EccTransaction),
+}
+
+impl TransactionEnvelope {
+    pub fn get_hash(&self) -> CryptoHash {
+        *self.hash()
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash(),
+            Self::Unsigned(tx) => tx.hash(),
+        }
+    }
+
+    pub fn get_size(&self) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.get_size(),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// See [`SignedTransaction::wire_size`].
+    pub fn wire_size(&self) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.wire_size(),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// See [`SignedTransaction::size_for_limits`].
+    pub fn size_for_limits(&self) -> u64 {
+        match self {
+            Self::Signed(tx) => tx.size_for_limits(),
+            Self::Unsigned(tx) => tx.get_size(),
+        }
+    }
+
+    /// The block the transaction was created at, which anchors its validity period.
+    ///
+    /// An ECC has none and is exempt from the validity period: nothing signs it, so anyone
+    /// resubmitting it could refresh any such field, and expiry is up to the contract.
+    pub fn block_hash(&self) -> Option<&CryptoHash> {
+        self.as_signed().map(|tx| tx.transaction.block_hash())
+    }
+
+    pub fn as_signed(&self) -> Option<&SignedTransaction> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    pub fn into_signed(self) -> Option<SignedTransaction> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    pub fn as_unsigned(&self) -> Option<&EccTransaction> {
+        match self {
+            Self::Signed(_) => None,
+            Self::Unsigned(tx) => Some(tx),
+        }
+    }
+
+    /// Performs the validity checks that depend on the protocol version and the runtime
+    /// config, without checking the signature.
+    pub fn check_valid_for_config(
+        &self,
+        config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        match self {
+            Self::Signed(tx) => tx.check_valid_for_config(config, protocol_version),
+            Self::Unsigned(tx) => tx.check_valid_for_config(config, protocol_version),
+        }
+    }
+}
+
+impl From<SignedTransaction> for TransactionEnvelope {
+    fn from(tx: SignedTransaction) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl From<EccTransaction> for TransactionEnvelope {
+    fn from(tx: EccTransaction) -> Self {
+        Self::Unsigned(tx)
+    }
+}
+
+impl Hash for TransactionEnvelope {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash().hash(state)
+    }
+}
+
+impl Borrow<CryptoHash> for TransactionEnvelope {
+    fn borrow(&self) -> &CryptoHash {
+        self.hash()
+    }
+}
+
+impl BorshSerialize for TransactionEnvelope {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::Signed(tx) => tx.serialize(writer),
+            Self::Unsigned(tx) => tx.serialize(writer),
+        }
+    }
+}
+
+impl BorshDeserialize for TransactionEnvelope {
+    /// Peeks at the first byte: the escape byte means an [`EccTransaction`], anything else is
+    /// handed to [`SignedTransaction`], which tells V0 from V1.
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let prefix = [u8::deserialize_reader(reader)?];
+        let mut reader = prefix.chain(reader);
+        if prefix[0] == ECC_ESCAPE_BYTE {
+            return Ok(Self::Unsigned(EccTransaction::deserialize_reader(&mut reader)?));
+        }
+        Ok(Self::Signed(SignedTransaction::deserialize_reader(&mut reader)?))
+    }
+}
+
+impl serde::Serialize for TransactionEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let borsh = borsh::to_vec(self).map_err(|err| {
+            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
+        })?;
+        serializer.serialize_str(&to_base64(&borsh))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for TransactionEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let borsh = from_base64(&base64).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
+        })?;
+        borsh::from_slice::<Self>(&borsh).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
+        })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for TransactionEnvelope {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "TransactionEnvelope".to_string().into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "type": "string",
+            "format": "byte"
+        })
+    }
+}
+
+/// An [`EccTransaction`] that passed [`EccTransaction::check_valid_for_config`]. There is no
+/// signature to verify: the contract's own check at apply time takes its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedEcc(EccTransaction);
+
+impl ValidatedEcc {
+    #[allow(clippy::result_large_err)]
+    pub fn new(
+        config: &RuntimeConfig,
+        ecc: EccTransaction,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, (InvalidTxError, EccTransaction)> {
+        match ecc.check_valid_for_config(config, protocol_version) {
+            Ok(()) => Ok(Self(ecc)),
+            Err(err) => Err((err, ecc)),
+        }
+    }
+
+    /// This method should only be used for test purposes.
+    pub fn new_for_test(ecc: EccTransaction) -> Self {
+        Self(ecc)
+    }
+
+    pub fn to_ecc(&self) -> &EccTransaction {
+        &self.0
+    }
+
+    pub fn into_ecc(self) -> EccTransaction {
+        self.0
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.0.get_hash()
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.0.get_size()
+    }
+
+    pub fn contract_id(&self) -> &AccountId {
+        self.0.contract_id()
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        self.0.payload()
+    }
+}
+
+/// A [`TransactionEnvelope`] that passed validation, either kind. This is what the transaction
+/// pool holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ValidatedTransactionEnvelope {
+    Signed(ValidatedTransaction),
+    Unsigned(ValidatedEcc),
+}
+
+impl ValidatedTransactionEnvelope {
+    #[allow(clippy::result_large_err)]
+    pub fn new(
+        config: &RuntimeConfig,
+        envelope: TransactionEnvelope,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, (InvalidTxError, TransactionEnvelope)> {
+        match envelope {
+            TransactionEnvelope::Signed(signed_tx) => {
+                ValidatedTransaction::new(config, signed_tx, protocol_version)
+                    .map(Self::Signed)
+                    .map_err(|(err, signed_tx)| (err, signed_tx.into()))
+            }
+            TransactionEnvelope::Unsigned(ecc) => ValidatedEcc::new(config, ecc, protocol_version)
+                .map(Self::Unsigned)
+                .map_err(|(err, ecc)| (err, ecc.into())),
+        }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.get_hash(),
+            Self::Unsigned(tx) => tx.get_hash(),
+        }
+    }
+
+    /// The account that decides which shard the transaction goes to: the signer, or the
+    /// contract for an ECC.
+    pub fn routing_account_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.signer_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+}
+
+impl From<ValidatedTransaction> for ValidatedTransactionEnvelope {
+    fn from(tx: ValidatedTransaction) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl From<ValidatedEcc> for ValidatedTransactionEnvelope {
+    fn from(tx: ValidatedEcc) -> Self {
+        Self::Unsigned(tx)
     }
 }
 
@@ -724,6 +1145,21 @@ impl ExecutionOutcomeWithId {
         Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
     }
 
+    /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
+    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+        Self {
+            id: transaction.get_hash(),
+            outcome: ExecutionOutcome {
+                executor_id: transaction.contract_id().clone(),
+                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                gas_burnt: Gas::ZERO,
+                compute_usage: Some(0),
+                tokens_burnt: Balance::ZERO,
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn failed_with_gas_burnt(
         transaction: &SignedTransaction,
         error: InvalidTxError,
@@ -788,9 +1224,15 @@ pub struct ExecutionOutcomeWithProof {
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+    use crate::universal_state_init::UniversalStateInitV1;
+    use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
+    use near_crypto::SecretKey;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
     use near_primitives::types::Gas;
+    use near_primitives_core::version::PROTOCOL_VERSION;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::slice::from_ref;
 
     #[test]
     fn test_verify_transaction() {
@@ -828,12 +1270,12 @@ mod tests {
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "qqq".to_string(),
-                    args: vec![1, 2, 3],
-                    gas: Gas::from_gas(1_000),
-                    deposit: Balance::from_yoctonear(1_000_000),
-                })),
+                Action::function_call_with_deposit(
+                    "qqq",
+                    vec![1, 2, 3],
+                    Gas::from_gas(1_000),
+                    Balance::from_yoctonear(1_000_000),
+                ),
                 Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
@@ -869,12 +1311,12 @@ mod tests {
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "qqq".to_string(),
-                    args: vec![1, 2, 3],
-                    gas: Gas::from_gas(1_000),
-                    deposit: Balance::from_yoctonear(1_000_000),
-                })),
+                Action::function_call_with_deposit(
+                    "qqq",
+                    vec![1, 2, 3],
+                    Gas::from_gas(1_000),
+                    Balance::from_yoctonear(1_000_000),
+                ),
                 Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
@@ -965,6 +1407,150 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidData);
         assert!(err.to_string().contains("invalid transaction version tag: 2"));
+    }
+
+    fn test_ecc() -> EccTransaction {
+        EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3])
+    }
+
+    fn test_signed_txs() -> Vec<SignedTransaction> {
+        let signer: Signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let (from, to) = ("alice.near".parse().unwrap(), "bob.near".parse().unwrap());
+        let deposit = Balance::from_yoctonear(1);
+        vec![
+            SignedTransaction::send_money(1, from, to, &signer, deposit, CryptoHash::default()),
+            SignedTransaction::send_money_v1(
+                TransactionNonce::from_nonce(2),
+                "alice.near".parse().unwrap(),
+                "bob.near".parse().unwrap(),
+                &signer,
+                deposit,
+                CryptoHash::default(),
+            ),
+        ]
+    }
+
+    /// A signed transaction has the same encoding in an envelope as on its own, so existing
+    /// chunks stay valid.
+    #[test]
+    fn test_envelope_signed_borsh_compat() {
+        for signed_tx in test_signed_txs() {
+            let bytes = borsh::to_vec(&signed_tx).unwrap();
+            let envelope = TransactionEnvelope::from(signed_tx.clone());
+            assert_eq!(borsh::to_vec(&envelope).unwrap(), bytes);
+            let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
+            assert_eq!(decoded, envelope);
+            assert_eq!(decoded.as_signed(), Some(&signed_tx));
+            assert_eq!(decoded.get_hash(), signed_tx.get_hash());
+        }
+    }
+
+    #[test]
+    fn test_envelope_ecc_borsh_roundtrip() {
+        let ecc = test_ecc();
+        let envelope = TransactionEnvelope::from(ecc);
+        let bytes = borsh::to_vec(&envelope).unwrap();
+        assert_eq!(&bytes[..2], &[ECC_ESCAPE_BYTE, ECC_VERSION]);
+
+        let decoded = TransactionEnvelope::try_from_slice(&bytes).unwrap();
+        assert_eq!(decoded, envelope);
+        assert!(matches!(decoded, TransactionEnvelope::Unsigned(_)));
+        assert_eq!(decoded.get_hash(), hash(&bytes));
+        assert_eq!(decoded.get_size(), bytes.len() as u64);
+        assert_eq!(decoded.wire_size(), bytes.len() as u64);
+        assert_eq!(decoded.block_hash(), None);
+        assert_eq!(decoded.into_signed(), None);
+    }
+
+    /// Different content, different hash.
+    #[test]
+    fn test_ecc_hash_covers_all_fields() {
+        let ecc = test_ecc();
+        let other_contract = EccTransaction::new("other.near".parse().unwrap(), vec![1, 2, 3]);
+        let other_payload = EccTransaction::new(ecc.contract_id().clone(), vec![]);
+        for other in [other_contract, other_payload] {
+            assert_ne!(other.get_hash(), ecc.get_hash());
+        }
+    }
+
+    #[test]
+    fn test_envelope_deserialize_invalid_tag() {
+        let err = TransactionEnvelope::try_from_slice(&[3, 5, 0, 0, 0, 0, 0, 0]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid transaction version tag: 3"));
+    }
+
+    #[test]
+    fn test_envelope_deserialize_unsupported_ecc_version() {
+        let err = TransactionEnvelope::try_from_slice(&[ECC_ESCAPE_BYTE, 1, 0, 0, 0, 0, 0, 0])
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("unsupported ECC version: 1"));
+    }
+
+    #[test]
+    fn test_envelope_json_roundtrip() {
+        let mut envelopes = vec![TransactionEnvelope::from(test_ecc())];
+        envelopes.extend(test_signed_txs().into_iter().map(TransactionEnvelope::from));
+        for envelope in envelopes {
+            let json = serde_json::to_string(&envelope).unwrap();
+            assert_eq!(serde_json::from_str::<TransactionEnvelope>(&json).unwrap(), envelope);
+        }
+    }
+
+    #[test]
+    fn test_ecc_check_valid_for_config() {
+        let config = RuntimeConfig::test();
+        let envelope = TransactionEnvelope::from(test_ecc());
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+
+        assert_eq!(
+            envelope.check_valid_for_config(&config, feature_version - 1),
+            Err(InvalidTxError::InvalidTransactionVersion)
+        );
+        assert_eq!(envelope.check_valid_for_config(&config, feature_version), Ok(()));
+
+        let max_size = config.wasm_config.limit_config.max_transaction_size;
+        let oversized = TransactionEnvelope::from(EccTransaction::new(
+            "wallet.near".parse().unwrap(),
+            vec![0; max_size as usize],
+        ));
+        assert_matches!(
+            oversized.check_valid_for_config(&config, feature_version),
+            Err(InvalidTxError::TransactionSizeExceeded { .. })
+        );
+    }
+
+    #[test]
+    fn test_validated_envelope() {
+        let config = RuntimeConfig::test();
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+
+        let ecc = TransactionEnvelope::from(test_ecc());
+        let validated =
+            ValidatedTransactionEnvelope::new(&config, ecc.clone(), feature_version).unwrap();
+        assert_matches!(validated, ValidatedTransactionEnvelope::Unsigned(_));
+        assert_eq!(validated.get_hash(), ecc.get_hash());
+        assert_eq!(validated.routing_account_id().as_str(), "wallet.near");
+        // An invalid transaction is handed back unchanged.
+        let (err, returned) =
+            ValidatedTransactionEnvelope::new(&config, ecc.clone(), feature_version - 1)
+                .unwrap_err();
+        assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
+        assert_eq!(returned, ecc);
+
+        for signed_tx in test_signed_txs() {
+            let envelope = TransactionEnvelope::from(signed_tx.clone());
+            let validated =
+                ValidatedTransactionEnvelope::new(&config, envelope.clone(), feature_version)
+                    .unwrap();
+            assert_eq!(validated.get_hash(), envelope.get_hash());
+            assert_eq!(validated.routing_account_id().as_str(), "alice.near");
+            let ValidatedTransactionEnvelope::Signed(validated_tx) = validated else {
+                panic!("expected a signed transaction");
+            };
+            assert_eq!(validated_tx.into_signed_tx(), signed_tx);
+        }
     }
 
     #[test]
@@ -1063,68 +1649,24 @@ mod tests {
         }
     }
 
-    /// Centralized gate in `check_valid_for_config`: a transaction signed
-    /// with an ML-DSA-65 key is rejected pre-feature, accepted post-feature.
+    /// A transaction signed with an ML-DSA-65 key is accepted by
+    /// `check_valid_for_config`.
     #[test]
-    fn test_check_valid_for_config_ml_dsa_signer_gated() {
+    fn test_check_valid_for_config_ml_dsa_signer_accepted() {
         let config = RuntimeConfig::test();
         let signed_tx =
             signed_tx_with_action(KeyType::MLDSA65, Action::CreateAccount(CreateAccountAction {}));
 
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
-
-        assert!(matches!(
-            ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
-            Err(InvalidTxError::InvalidTransactionVersion)
-        ));
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
-            .expect("ML-DSA-65 signer accepted post-feature");
-    }
-
-    /// Centralized gate: an ed25519-signed transaction carrying an
-    /// ML-DSA-65 `AddKey` action is rejected pre-feature.
-    #[test]
-    fn test_check_valid_for_config_ml_dsa_in_add_key_gated() {
-        let config = RuntimeConfig::test();
-        let pq_pubkey = near_crypto::SecretKey::from_seed(KeyType::MLDSA65, "victim").public_key();
-        let signed_tx = signed_tx_with_action(
-            KeyType::ED25519,
-            Action::AddKey(Box::new(AddKeyAction {
-                public_key: pq_pubkey,
-                access_key: AccessKey::full_access(),
-            })),
-        );
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        assert!(matches!(
-            ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
-            Err(InvalidTxError::InvalidTransactionVersion)
-        ));
-    }
-
-    /// Centralized gate: a pure-ed25519 transaction with no ML-DSA-65
-    /// material is unaffected by the PostQuantumSignatures gate.
-    #[test]
-    fn test_check_valid_for_config_ed25519_pre_feature_still_ok() {
-        let config = RuntimeConfig::test();
-        let signed_tx = signed_tx_with_action(
-            KeyType::ED25519,
-            Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
-        );
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre)
-            .expect("ed25519 tx unaffected by PQ gate pre-feature");
+        signed_tx
+            .check_valid_for_config(&config, PROTOCOL_VERSION)
+            .expect("ML-DSA-65 signer accepted");
     }
 
     /// An outer ed25519 transaction whose only action is a `Delegate`
     /// wrapping an inner ML-DSA-65 signer + an inner `AddKey` of a third
-    /// ML-DSA-65 pubkey must be rejected pre-feature: the centralized
-    /// `post_quantum_signatures_required` walks into `SignedDelegateAction`
-    /// and the nested `actions` vec recursively. This is the case the
-    /// per-action gates would have had to remember to handle for both
-    /// `validate_delegate_action` and `validate_add_key_action`.
+    /// ML-DSA-65 pubkey is accepted by `check_valid_for_config`.
     #[test]
-    fn test_check_valid_for_config_ml_dsa_in_delegate_gated() {
+    fn test_check_valid_for_config_ml_dsa_in_delegate_accepted() {
         use crate::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 
         let config = RuntimeConfig::test();
@@ -1150,23 +1692,13 @@ mod tests {
         };
         let signed_delegate = SignedDelegateAction::sign(&inner_signer, delegate_action);
 
-        // Outer transaction is signed with a classical ed25519 key, so the
-        // gate must reach into the delegate to find the PQ material.
+        // Outer transaction is signed with a classical ed25519 key.
         let signed_tx =
             signed_tx_with_action(KeyType::ED25519, Action::Delegate(Box::new(signed_delegate)));
 
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
-
-        assert!(
-            matches!(
-                ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
-                Err(InvalidTxError::InvalidTransactionVersion)
-            ),
-            "ML-DSA-65 buried inside a Delegate action must be rejected pre-feature",
-        );
-        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
-            .expect("same transaction must be accepted post-feature");
+        signed_tx
+            .check_valid_for_config(&config, PROTOCOL_VERSION)
+            .expect("transaction with nested ML-DSA-65 material accepted");
     }
 
     /// `wire_size` equals the full borsh length of the signed transaction
@@ -1201,18 +1733,201 @@ mod tests {
         );
     }
 
-    /// `size_for_limits` is the body-only size before `PostQuantumSignatures`
-    /// and the full wire size from that version onward.
+    /// `size_for_limits` returns the full wire size (body + signature).
     #[test]
-    fn test_size_for_limits_version_gated() {
+    fn test_size_for_limits_wire_size() {
         let signed_tx = signed_tx_with_action(
             KeyType::MLDSA65,
             Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
         );
-        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
-        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
-        assert_eq!(signed_tx.size_for_limits(pre), signed_tx.get_size());
-        assert_eq!(signed_tx.size_for_limits(post), signed_tx.wire_size());
-        assert!(signed_tx.size_for_limits(post) > signed_tx.size_for_limits(pre));
+        assert_eq!(signed_tx.size_for_limits(), signed_tx.wire_size());
+        assert!(signed_tx.size_for_limits() > signed_tx.get_size());
+    }
+
+    fn key(seed: &str, key_type: KeyType) -> PublicKey {
+        SecretKey::from_seed(key_type, seed).public_key()
+    }
+
+    fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: keys.iter().cloned().map(PublicKeyHandle::from).collect::<BTreeSet<_>>(),
+        })
+    }
+
+    /// A transaction shaped as a self-signed bootstrap: addressed to the id its
+    /// own state init derives to, and signed by one of that state init's keys.
+    fn bootstrap_tx(
+        state_init: &UniversalStateInit,
+        signer: PublicKey,
+        extra_actions: Vec<Action>,
+    ) -> Transaction {
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let mut actions = vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw,
+            deposit: Balance::ZERO,
+        }))];
+        actions.extend(extra_actions);
+        Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions,
+        })
+    }
+
+    #[test]
+    fn recognizes_a_self_signed_state_init() {
+        let signer = key("uaid-a", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(&state_init, signer, vec![]);
+
+        let found = tx.state_init_bootstrap().expect("state init not found");
+        assert_eq!(found.state_init, state_init.to_raw());
+    }
+
+    /// Batched actions do not change the claim: safety comes from the runtime's
+    /// uninitialized-account guard, not from restricting the action list.
+    #[test]
+    fn extra_actions_do_not_disqualify_the_claim() {
+        let signer = key("uaid-b", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(
+            &state_init,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        );
+
+        assert!(tx.is_state_init_bootstrap());
+    }
+
+    /// The signing key must be one the account id commits to. Without this, the
+    /// state init bytes are public, so anyone could spend the account's balance.
+    #[test]
+    fn rejects_a_key_the_state_init_does_not_commit_to() {
+        let committed = key("uaid-c", KeyType::ED25519);
+        let outsider = key("uaid-outsider", KeyType::ED25519);
+        let state_init = state_init_for(&[committed]);
+        let tx = bootstrap_tx(&state_init, outsider, vec![]);
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// An ML-DSA-65 handle is a hash of the key, so a naive public-key
+    /// comparison would never match for a post-quantum signer.
+    #[test]
+    fn matches_a_post_quantum_key_on_its_handle() {
+        let signer = key("uaid-pq", KeyType::MLDSA65);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(&state_init, signer, vec![]);
+
+        assert!(tx.is_state_init_bootstrap());
+    }
+
+    /// The state init must derive to the account it is addressed to, otherwise
+    /// the account id is not a commitment to anything in this transaction.
+    #[test]
+    fn rejects_a_state_init_for_another_account() {
+        let signer = key("uaid-d", KeyType::ED25519);
+        let ours = state_init_for(from_ref(&signer));
+        let theirs = state_init_for(&[signer.clone(), key("uaid-e", KeyType::ED25519)]);
+
+        // Addressed to our id, but carrying somebody else's state init.
+        let account_id = derive_universal_account_id(&ours.to_raw());
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: theirs.to_raw(),
+                deposit: Balance::ZERO,
+            }))],
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// The account pays for itself, so the transaction must be addressed to the
+    /// signer. A relayer-paid init is a different, already-supported flow.
+    #[test]
+    fn rejects_a_relayer_paid_state_init() {
+        let signer = key("uaid-f", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let mut tx = bootstrap_tx(&state_init, signer, vec![]);
+        match &mut tx {
+            Transaction::V0(tx) => tx.signer_id = "relayer.near".parse().unwrap(),
+            Transaction::V1(tx) => tx.signer_id = "relayer.near".parse().unwrap(),
+        }
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// A gas key is state the account does not have yet, so a bootstrap can
+    /// never carry a nonce index.
+    #[test]
+    fn rejects_a_gas_key_nonce() {
+        let signer = key("uaid-g", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let tx = Transaction::V1(TransactionV1 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: TransactionNonce::from_nonce_and_index(1, 0),
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw,
+                deposit: Balance::ZERO,
+            }))],
+            nonce_mode: NonceMode::Monotonic,
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// A state init nested in a `Delegate` is validated against the delegate's
+    /// receiver and runs in a receipt of its own, so it must not authorize the
+    /// outer transaction.
+    #[test]
+    fn does_not_look_inside_a_delegate_action() {
+        use crate::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+
+        let signer = key("uaid-h", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let inner = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw,
+            deposit: Balance::ZERO,
+        }));
+        let delegate = Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                actions: vec![NonDelegateAction::try_from(inner).unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: signer.clone(),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![delegate],
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
     }
 }

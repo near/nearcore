@@ -1,16 +1,15 @@
 //! DB read/write helpers for SPICE per-chunk artifacts (receipt proofs,
 //! witnesses, contract accesses). Shared by the per-shard executor and, for the
 //! read helpers, by the data distributor.
+//!
+//! TODO(spice-cleanup): move these onto `ChainStoreAdapter` next to the other spice accessors.
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::types::ShardId;
-use near_primitives::utils::{
-    get_contract_accesses_key, get_receipt_proof_key, get_receipt_proof_target_shard_prefix,
-    get_witnesses_key,
-};
+use near_primitives::utils::{get_contract_accesses_key, get_receipt_proof_key, get_witnesses_key};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
@@ -39,15 +38,6 @@ fn set_witness(
     let key = get_witnesses_key(block_hash, shard_id);
     let value = borsh::to_vec(&witness).unwrap();
     store_update.set(DBCol::witnesses(), &key, &value);
-}
-
-pub(crate) fn get_receipt_proofs_for_shard(
-    store: &Store,
-    block_hash: &CryptoHash,
-    to_shard_id: ShardId,
-) -> Vec<ReceiptProof> {
-    let prefix = get_receipt_proof_target_shard_prefix(block_hash, to_shard_id);
-    store.iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix).map(|kv| kv.1).collect()
 }
 
 pub fn get_witness(

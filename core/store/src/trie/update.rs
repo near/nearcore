@@ -11,7 +11,7 @@ use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
 };
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -297,6 +297,11 @@ impl TrieUpdate {
     /// Records deployment of a contract due to a deploy-contract action.
     pub fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
+    }
+
+    /// Records deployment of a global contract
+    pub fn record_global_contract_deploy(&self, code: ContractCode) {
+        self.contract_storage.record_global_contract_deploy(code);
     }
 }
 

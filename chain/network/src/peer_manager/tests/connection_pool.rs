@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Disconnect, PeerMessage};
-use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo};
+use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
@@ -16,65 +16,6 @@ use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
-
-// Verify that unsolicited inbound Tier3 connections are rejected.
-#[tokio::test]
-async fn unsolicited_tier3_rejected() {
-    init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let pm = peer_manager::testonly::start(
-        clock.clock(),
-        near_store::db::TestDB::new(),
-        chain.make_config(rng),
-        chain.clone(),
-    )
-    .await;
-
-    let cfg = chain.make_config(rng);
-
-    // Attempt an inbound Tier3 connection without any prior state sync request.
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
-        .await
-        .unwrap();
-    let stream_id = stream.id();
-    let port = stream.local_addr.port();
-    let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
-    stream
-        .write(&PeerMessage::Tier3Handshake(Handshake {
-            protocol_version: PROTOCOL_VERSION,
-            oldest_supported_version: PROTOCOL_VERSION,
-            sender_peer_id: cfg.node_id(),
-            target_peer_id: pm.cfg.node_id(),
-            sender_listen_port: Some(port),
-            sender_chain_info: chain.get_peer_chain_info(),
-            partial_edge_info: PartialEdgeInfo::new(
-                &cfg.node_id(),
-                &pm.cfg.node_id(),
-                Edge::create_fresh_nonce(&clock.clock()),
-                &cfg.node_key,
-            ),
-            owned_account: None,
-        }))
-        .await;
-    let reason = events
-        .recv_until(|ev| match ev {
-            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
-            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
-                panic!("PeerManager accepted unsolicited Tier3 handshake")
-            }
-            _ => None,
-        })
-        .await;
-    assert_eq!(
-        ClosingReason::RejectedByPeerManager(RegisterPeerError::UnexpectedTier3Connection),
-        reason,
-    );
-}
 
 // Verify that an inbound Tier3 connection is accepted when we have a pending state sync
 // request for that peer.
@@ -446,7 +387,7 @@ async fn owned_account_mismatch() {
                     account_key: signer.public_key(),
                     // random peer_id, different than the expected cfg.node_id().
                     peer_id: data::make_peer_id(rng),
-                    timestamp: clock.now_utc(),
+                    timestamp: to_unix_nanos(clock.now_utc()),
                 }
                 .sign(&signer),
             ),
@@ -566,7 +507,7 @@ async fn invalid_edge() {
                     OwnedAccount {
                         account_key: signer.public_key(),
                         peer_id: cfg.node_id(),
-                        timestamp: clock.now_utc(),
+                        timestamp: to_unix_nanos(clock.now_utc()),
                     }
                     .sign(&signer),
                 ),
@@ -594,7 +535,7 @@ async fn invalid_edge() {
     }
 
     // Dedicated T3 sub-case: insert the peer into pending_tier3_requests so the
-    // connection passes the authorization check, then verify the invalid edge is
+    // connection is treated as a host answering our request, then verify the invalid edge is
     // still caught, and that the pending entry is NOT consumed by the failed attempt.
     for (name, edge) in &testcases {
         tracing::info!(target:"test", %name, tier=?tcp::Tier::T3, "test case (pending T3)");
@@ -627,7 +568,7 @@ async fn invalid_edge() {
                 OwnedAccount {
                     account_key: signer.public_key(),
                     peer_id: cfg.node_id(),
-                    timestamp: clock.now_utc(),
+                    timestamp: to_unix_nanos(clock.now_utc()),
                 }
                 .sign(&signer),
             ),

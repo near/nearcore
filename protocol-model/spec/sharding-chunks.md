@@ -106,7 +106,7 @@ Activation versions verified against `core/primitives-core/src/version.rs::proto
 | `StickyReshardingValidatorAssignment` | **85** (`version.rs:409`→arm `:565`) — **active at 86** | Switches chunk-producer stickiness from `ShardIndex` to `ShardId` and bin-packs a split parent's producers into its children (`shard_assignment/mod.rs:178`). Doc cites v153; actual is 85. |
 | Shard-layout version bumps (`_DeprecatedSimpleNightshadeV*`) | deprecated, ≤78 | Historical static reshardings that produced V0→V1→V2 layouts. At v86 the genesis/static path uses V2; dynamic produces V3. |
 | `ShuffleShardAssignments` | 143 (nightly, `version.rs:582`) | Shuffle chunk-producer→shard assignments every epoch. **Not active at v86.** |
-| `EarlyKickout` | 152 (nightly, `version.rs:583`) | Pre-compute/persist chunk-producer assignments. **Not active at v86.** |
+| `EarlyKickout` | **87** | Pre-compute/persist chunk-producer assignments. Not active at v86; stabilized at v87, after this model's pinned snapshot. |
 
 `Spice` (v180, `version.rs:586`) adds a tx-only chunk path (`ShardChunkWithEncoding::new_for_spice`, `sharding.rs:1487`; V6 inner) but is not active at v86. **2.13.0 note:** the PV-86 feature on this release is `EnforcePerReceiptStorageProofLimit` (`version.rs:449`, arm `:576`), which affects [stateless validation](stateless-validation.md), not this component; there is no `FixContractLoadingError` on this release (`FixContractLoadingCost` exists but is nightly-only at v129, `:579`).
 

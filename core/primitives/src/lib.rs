@@ -23,6 +23,7 @@ pub mod epoch_info;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;
+pub mod fees;
 pub mod genesis;
 pub mod merkle;
 pub mod network;
@@ -51,6 +52,8 @@ pub mod trie_key;
 pub mod trie_split;
 pub mod types;
 pub mod universal_state_init;
+#[cfg(feature = "test_utils")]
+pub mod universal_state_init_vectors;
 pub mod upgrade_schedule;
 pub mod utils;
 pub mod validator_mandates;

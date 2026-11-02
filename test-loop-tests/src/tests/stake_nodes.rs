@@ -2,7 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
 };
-use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
+use crate::utils::transactions::get_shared_block_hash;
 use crate::utils::validators::get_epoch_all_validators_sorted;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -54,17 +54,12 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: TESTING_INIT_STAKE,
     }];
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
-        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .add_non_validator_client(&accounts[1])
+        .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(Rational32::new(0, 1))
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
         .delay_warmup()
         .build();
     env.delay_endorsements_propagation(execution_delay);
@@ -80,7 +75,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         create_test_signer(accounts[1].as_str()).public_key(),
         block_hash,
     );
-    run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
+    env.runner_for_account(&accounts[0]).run_tx(tx, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
 
@@ -135,7 +130,6 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .delay_warmup()
@@ -161,7 +155,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
             )
         })
         .collect();
-    run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
+    env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator2".to_string(), "validator3".to_string()];
 
@@ -233,17 +227,13 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
-        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .add_non_validator_client(&accounts[2])
+        .add_non_validator_client(&accounts[3])
+        .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(Rational32::new(0, 1))
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
         .track_all_shards()
         .delay_warmup()
         .build();
@@ -270,7 +260,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
             block_hash,
         ),
     ];
-    run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
+    env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator0".to_string(), "validator2".to_string()];
 
@@ -527,11 +517,7 @@ fn test_inflation() {
         .build();
     let initial_total_supply = genesis.config.total_supply;
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts)
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
     // Check total_supply unchanged in epoch 1
     {
@@ -605,14 +591,10 @@ fn test_validator_reward_in_get_validator_info() {
         .validators_spec(validators_spec)
         .protocol_reward_rate(Rational32::new(1, 10))
         .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
-        .build();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts.clone()).build();
 
     env.node_runner(0).run_until_new_epoch();
-    let boundary_block = env.node(0).client().chain.get_head_block().unwrap();
+    let boundary_block = env.node(0).head_block();
     env.node_runner(0).run_until_new_epoch();
 
     let mut all_ids = accounts;

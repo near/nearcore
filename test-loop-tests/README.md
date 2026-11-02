@@ -38,6 +38,18 @@ let mut env = TestLoopBuilder::new()
     .build();
 ```
 
+Use `.rpc_config()` to configure RPC endpoints for the test nodes. For example,
+opt in to the indexer RPC while leaving the other RPC settings at their defaults:
+
+```rust
+use near_jsonrpc::RpcConfig;
+
+let mut env = TestLoopBuilder::new()
+    .enable_rpc()
+    .rpc_config(RpcConfig { enable_indexer_rpc: true, ..RpcConfig::default() })
+    .build();
+```
+
 Add user accounts and override genesis parameters as needed:
 
 ```rust
@@ -49,7 +61,7 @@ let mut env = TestLoopBuilder::new()
     .build();
 ```
 
-Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
+Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`, `gas_price_adjustment_rate`.
 
 ### Manual genesis setup
 

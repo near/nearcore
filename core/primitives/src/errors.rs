@@ -486,7 +486,8 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 24,
-    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the
+    /// canonical representation of the struct.
     MalformedUniversalStateInit = 25,
     /// The transaction includes a feature that was removed at or before the
     /// current protocol version. The counterpart of
@@ -497,6 +498,22 @@ pub enum ActionsValidationError {
     } = 26,
     /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
     WithdrawFromGasKeyNotAllowedInDelegate = 27,
+    /// The state-init actions in one receipt commit to more access keys in total
+    /// than allowed.
+    TotalNumberOfStateInitKeysExceeded {
+        number_of_keys: u64,
+        limit: u64,
+    } = 28,
+    /// The state-init actions in one receipt carry more storage entries in total
+    /// than allowed.
+    TotalNumberOfStateInitEntriesExceeded {
+        number_of_entries: u64,
+        limit: u64,
+    } = 29,
+    /// A transfer to a universal account while transfers to them are banned.
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
+    } = 30,
 }
 
 /// Describes the error for validating a receipt.
@@ -735,7 +752,31 @@ impl Display for ActionsValidationError {
                 )
             }
             ActionsValidationError::MalformedUniversalStateInit => {
-                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+                write!(
+                    f,
+                    "RawStateInit bytes are not a canonical borsh encoding of UniversalStateInit"
+                )
+            }
+            ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
+                number_of_keys,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the state inits in this receipt commit to {number_of_keys} access keys in total but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                number_of_entries,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
+                write!(f, "transfers to the universal account {account_id} are not allowed yet")
             }
         }
     }
@@ -921,10 +962,21 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
-    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
-    /// Action validation rejects such an action before it runs, so this only fires
-    /// if that check was bypassed.
+    /// The bytes of a `UniversalStateInit` action are not the canonical borsh of a
+    /// state init. Action validation rejects such an action before it runs, so this
+    /// only fires if that check was bypassed.
     MalformedUniversalStateInit = 29,
+    /// The action needs a set-up account, but the receiver is an uninitialized
+    /// universal account. Distinct from `AccountDoesNotExist`: the account is
+    /// there, it just has no access keys, code or data yet.
+    AccountNotInitialized {
+        account_id: AccountId,
+    } = 30,
+    /// A `FunctionCall` action called the method reserved for external contract calls.
+    /// That method only runs in an external call or a view call.
+    ReservedMethodName {
+        method_name: String,
+    } = 31,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1280,6 +1332,16 @@ impl Display for ActionErrorKind {
             ActionErrorKind::MalformedUniversalStateInit => {
                 write!(f, "UniversalStateInit payload is not a valid state init")
             }
+            ActionErrorKind::AccountNotInitialized { account_id } => write!(
+                f,
+                "Can't complete the action because account {:?} is uninitialized",
+                account_id
+            ),
+            ActionErrorKind::ReservedMethodName { method_name } => write!(
+                f,
+                "Method {:?} is reserved for external contract calls and can't be called by a FunctionCall action",
+                method_name
+            ),
         }
     }
 }
@@ -1592,6 +1654,10 @@ pub enum HostError {
     /// otherwise well-sized inputs return 0 from the host function instead of
     /// aborting.
     MlDsaVerifyInvalidInput { msg: String } = 34,
+    /// `method_name` is not allowed in external contract calls
+    ProhibitedInExternalCall { method_name: String } = 35,
+    /// An external contract call has an attached deposit, which it cannot have
+    DepositInExternalCall = 36,
 }
 
 #[derive(

@@ -340,8 +340,8 @@ mod test {
             storage_iter_next_base -> 43 [0% host]
             storage_iter_next_key_byte -> 44 [0% host]
             storage_iter_next_value_byte -> 45 [0% host]
-            touching_trie_node -> 46 [1% host]
-            read_cached_trie_node -> 47 [1% host]
+            touching_trie_node -> 46 [0% host]
+            read_cached_trie_node -> 47 [0% host]
             promise_and_base -> 48 [1% host]
             promise_and_per_promise -> 49 [1% host]
             promise_return -> 50 [1% host]
@@ -386,10 +386,12 @@ mod test {
             sha3_256_byte -> 89 [1% host]
             sha3_384_base -> 90 [1% host]
             sha3_384_byte -> 91 [1% host]
-            sha3_512_base -> 92 [2% host]
-            sha3_512_byte -> 93 [2% host]
-            ml_dsa_verify_base -> 94 [2% host]
-            ml_dsa_verify_byte -> 95 [2% host]
+            sha3_512_base -> 92 [1% host]
+            sha3_512_byte -> 93 [1% host]
+            ml_dsa_verify_base -> 94 [1% host]
+            ml_dsa_verify_byte -> 95 [1% host]
+            universal_state_init_to_account_id_base -> 96 [2% host]
+            universal_state_init_to_account_id_byte -> 97 [2% host]
             ------ Actions --------
             create_account -> 1000
             delete_account -> 1001

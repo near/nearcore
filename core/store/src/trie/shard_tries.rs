@@ -18,10 +18,9 @@ use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -775,29 +774,6 @@ impl ShardTries {
         tracing::info!(target: "memtrie", "memtries freezing complete");
         Ok(())
     }
-
-    /// Used in state_sync to create a snapshot of the state as of the given block.
-    /// As convention, we use the previous state root of each chunk header as the state root for that shard.
-    ///
-    /// For state sync, we have the assumption that at least 2 chunks have been produced for each shard,
-    /// which means the shard_id belongs to the current epoch.
-    pub fn create_memtrie_snapshot(
-        &self,
-        block: &Block,
-        shard_layout: &ShardLayout,
-    ) -> Result<(), StorageError> {
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
-            // With the sync_hash constraints, we are assured that the chunk belongs to the current epoch.
-            assert_eq!(shard_uid.shard_id(), chunk_header.shard_id());
-            let Some(memtries) = self.get_memtries(shard_uid) else {
-                continue;
-            };
-            let mut guard = memtries.write();
-            guard.snapshot(&chunk_header.prev_state_root())?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Clone)]
@@ -880,17 +856,11 @@ impl WrappedTrieChanges {
                 continue;
             }
 
-            let storage_key = match change_with_trie_key.trie_key.get_account_id() {
-                // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
-                None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
-                    block_hash,
-                    &change_with_trie_key.trie_key,
-                    &self.shard_uid,
-                ),
-                // TrieKey has enough information to identify the shard it comes from.
-                _ => KeyForStateChanges::from_trie_key(block_hash, &change_with_trie_key.trie_key),
-            };
-
+            let storage_key = KeyForStateChanges::for_state_change(
+                block_hash,
+                &change_with_trie_key.trie_key,
+                &self.shard_uid,
+            );
             store_update.set_state_changes(storage_key, &change_with_trie_key);
         }
     }
@@ -944,6 +914,19 @@ impl KeyForStateChanges {
         let mut key = Self::new(block_hash, trie_key.len());
         trie_key.append_into(&mut key.0);
         key
+    }
+
+    /// The row key of one state change. A trie key naming no account does not say which
+    /// shard it belongs to, so its row key carries the shard uid.
+    pub fn for_state_change(
+        block_hash: &CryptoHash,
+        trie_key: &TrieKey,
+        shard_uid: &ShardUId,
+    ) -> Self {
+        match trie_key.get_account_id() {
+            Some(_) => Self::from_trie_key(block_hash, trie_key),
+            None => Self::delayed_receipt_key_from_trie_key(block_hash, trie_key, shard_uid),
+        }
     }
 
     /// Without changing the existing TrieKey format, encodes ShardUId into the row key.

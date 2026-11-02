@@ -19,7 +19,6 @@ borsh.workspace = true
 bytesize.workspace = true
 bytes.workspace = true
 chrono.workspace = true
-derive_builder.workspace = true
 derive_more = { workspace = true, features = [
     "as_ref",
     "from",
@@ -83,8 +82,6 @@ nightly = [
 protocol_feature_spice = [
   "near-primitives-core/protocol_feature_spice",
 ]
-
-calimero_zero_storage = []
 
 protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 

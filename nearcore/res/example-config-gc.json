@@ -50,10 +50,6 @@
             "nanos": 0
         },
         "blacklist": [],
-        "ttl_account_id_router": {
-            "secs": 3600,
-            "nanos": 0
-        },
         "peer_stats_period": {
             "secs": 5,
             "nanos": 0

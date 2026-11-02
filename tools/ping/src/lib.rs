@@ -2,15 +2,15 @@ use anyhow::Context;
 use axum::Router;
 use axum::routing::get;
 pub use cli::PingCommand;
-use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
+use near_network::raw::{ConnectError, Connection, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::network::PeerId;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use std::cmp;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use time::ext::InstantExt as _;
@@ -98,10 +98,6 @@ impl Ord for PingTimeout {
     }
 }
 
-fn peer_str(peer_id: &PeerId, account_id: Option<&AccountId>) -> String {
-    account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a))
-}
-
 const MAX_PINGS_IN_FLIGHT: usize = 10;
 const PING_TIMEOUT: near_time::Duration = near_time::Duration::seconds(100);
 
@@ -109,7 +105,6 @@ const PING_TIMEOUT: near_time::Duration = near_time::Duration::seconds(100);
 struct PingState {
     stats: PingStats,
     last_pinged: Option<near_time::Instant>,
-    account_id: Option<AccountId>,
 }
 
 struct PingTimes {
@@ -123,17 +118,15 @@ struct AppInfo {
     // targets ordered by when we last pinged them.
     requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
     timeouts: BTreeSet<PingTimeout>,
-    account_filter: Option<HashSet<AccountId>>,
     chain_id: String,
 }
 
 impl AppInfo {
-    fn new(account_filter: Option<HashSet<AccountId>>, chain_id: &str) -> Self {
+    fn new(chain_id: &str) -> Self {
         Self {
             stats: HashMap::new(),
             requests: BTreeMap::new(),
             timeouts: BTreeSet::new(),
-            account_filter,
             chain_id: chain_id.to_owned(),
         }
     }
@@ -151,10 +144,7 @@ impl AppInfo {
         let timestamp = near_time::Instant::now();
         let timeout = timestamp + PING_TIMEOUT;
 
-        let account_id = self.peer_id_to_account_id(&peer_id);
-        crate::metrics::PING_SENT
-            .with_label_values(&[chain_id, peer_str(peer_id, account_id).as_str()])
-            .inc();
+        crate::metrics::PING_SENT.with_label_values(&[chain_id, &peer_id.to_string()]).inc();
 
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
@@ -167,10 +157,7 @@ impl AppInfo {
                     })
                     .unwrap();
 
-                println!(
-                    "send ping --------------> {}",
-                    peer_str(&peer_id, state.account_id.as_ref())
-                );
+                println!("send ping --------------> {}", peer_id);
 
                 state.stats.pings_sent += 1;
                 state.last_pinged = Some(timestamp);
@@ -203,7 +190,7 @@ impl AppInfo {
         peer_id: &PeerId,
         nonce: u64,
         received_at: near_time::Instant,
-    ) -> Option<(near_time::Duration, Option<&AccountId>)> {
+    ) -> Option<near_time::Duration> {
         match self.stats.get_mut(peer_id) {
             Some(state) => {
                 let pending_pings = self
@@ -225,17 +212,13 @@ impl AppInfo {
                         }));
 
                         let l: std::time::Duration = latency.try_into().unwrap();
-                        println!(
-                            "recv pong <-------------- {} latency: {:?}",
-                            peer_str(&peer_id, state.account_id.as_ref()),
-                            l
-                        );
-                        Some((latency, state.account_id.as_ref()))
+                        println!("recv pong <-------------- {} latency: {:?}", peer_id, l);
+                        Some(latency)
                     }
                     None => {
                         tracing::warn!(
                             target: "ping",
-                            %nonce, peer = %peer_str(&peer_id, state.account_id.as_ref()),
+                            %nonce, peer = %peer_id,
                             "received pong after probably treating it as timed out previously"
                         );
                         None
@@ -258,57 +241,14 @@ impl AppInfo {
             .get_mut(&PingTarget { peer_id: t.peer_id.clone(), last_pinged: state.last_pinged })
             .unwrap();
         assert!(pending_pings.remove(&t.nonce).is_some());
-        println!(
-            "{} timeout after {} ---------",
-            peer_str(&t.peer_id, state.account_id.as_ref()),
-            PING_TIMEOUT
-        );
+        println!("{} timeout after {} ---------", t.peer_id, PING_TIMEOUT);
     }
 
-    fn add_peer(&mut self, peer_id: PeerId, account_id: Option<AccountId>) {
-        if let Some(filter) = self.account_filter.as_ref() {
-            if let Some(account_id) = account_id.as_ref() {
-                if !filter.contains(account_id) {
-                    tracing::debug!(target: "ping", %account_id, "skipping announce account");
-                    return;
-                }
-            }
+    fn add_peer(&mut self, peer_id: PeerId) {
+        if let Entry::Vacant(e) = self.stats.entry(peer_id.clone()) {
+            e.insert(PingState { last_pinged: None, stats: PingStats::default() });
+            self.requests.insert(PingTarget { peer_id, last_pinged: None }, HashMap::new());
         }
-        match self.stats.entry(peer_id.clone()) {
-            Entry::Occupied(mut e) => {
-                if let Some(account_id) = account_id {
-                    let state = e.get_mut();
-                    if let Some(old) = state.account_id.as_ref() {
-                        if old != &account_id {
-                            // TODO: we should just keep track of all accounts that map
-                            // to this peer id, since it's valid for there to be more than one.
-                            // We only use the accounts in the account filter and when displaying
-                            // ping targets, so theres no reason we cant keep track of all of them
-                            tracing::warn!(
-                                target: "ping", ?peer_id, %account_id, old_account_id = %old,
-                                "received announce account mapping but already knew of account id, keeping old value"
-                            );
-                        }
-                    } else {
-                        state.account_id = Some(account_id);
-                    }
-                }
-            }
-            Entry::Vacant(e) => {
-                e.insert(PingState { account_id, last_pinged: None, stats: PingStats::default() });
-                self.requests.insert(PingTarget { peer_id, last_pinged: None }, HashMap::new());
-            }
-        }
-    }
-
-    fn add_announce_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
-        for AnnounceAccount { account_id, peer_id, .. } in accounts {
-            self.add_peer(peer_id, Some(account_id));
-        }
-    }
-
-    fn peer_id_to_account_id(&self, peer_id: &PeerId) -> Option<&AccountId> {
-        self.stats.get(peer_id).and_then(|s| s.account_id.as_ref())
     }
 }
 
@@ -318,47 +258,22 @@ fn handle_message(
     received_at: near_time::Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
-    match msg {
-        Message::Routed(RoutedMessage::Pong { nonce, source }) => {
-            let chain_id = app_info.chain_id.clone(); // Avoid an immutable borrow during a mutable borrow.
-            if let Some((latency, account_id)) = app_info.pong_received(&source, nonce, received_at)
-            {
-                crate::metrics::PONG_RECEIVED
-                    .with_label_values(&[&chain_id, &peer_str(&source, account_id)])
-                    .observe(latency.as_seconds_f64());
-                if let Some(csv) = latencies_csv {
-                    csv.write(&source, account_id, latency)
-                        .context("Failed writing to CSV file")?;
-                }
+    if let Message::Routed(RoutedMessage::Pong { nonce, source }) = msg {
+        if let Some(latency) = app_info.pong_received(&source, nonce, received_at) {
+            crate::metrics::PONG_RECEIVED
+                .with_label_values(&[&app_info.chain_id, &source.to_string()])
+                .observe(latency.as_seconds_f64());
+            if let Some(csv) = latencies_csv {
+                csv.write(&source, latency).context("Failed writing to CSV file")?;
             }
         }
-        Message::Direct(DirectMessage::AnnounceAccounts(a)) => {
-            app_info.add_announce_accounts(a);
-        }
-        _ => {}
-    };
+    }
     Ok(())
 }
 
-#[derive(Debug)]
-struct PeerIdentifier {
-    account_id: Option<AccountId>,
-    peer_id: PeerId,
-}
-
-impl std::fmt::Display for PeerIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &self.account_id {
-            Some(a) => a.fmt(f),
-            None => self.peer_id.fmt(f),
-        }
-    }
-}
-
-fn collect_stats(app_info: AppInfo, ping_stats: &mut Vec<(PeerIdentifier, PingStats)>) {
+fn collect_stats(app_info: AppInfo, ping_stats: &mut Vec<(PeerId, PingStats)>) {
     for (peer_id, state) in app_info.stats {
-        let PingState { stats, account_id, .. } = state;
-        ping_stats.push((PeerIdentifier { peer_id, account_id }, stats));
+        ping_stats.push((peer_id, state.stats));
     }
 }
 
@@ -381,15 +296,14 @@ async fn ping_via_node(
     ttl: u8,
     ping_frequency_millis: u64,
     recv_timeout_seconds: u32,
-    account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
-    ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
+    ping_stats: &mut Vec<(PeerId, PingStats)>,
     prometheus_addr: &str,
     just_handshake: bool,
 ) -> anyhow::Result<()> {
-    let mut app_info = AppInfo::new(account_filter, chain_id);
+    let mut app_info = AppInfo::new(chain_id);
 
-    app_info.add_peer(peer_id.clone(), None);
+    app_info.add_peer(peer_id.clone());
 
     let clock = near_time::Clock::real();
 
@@ -487,14 +401,9 @@ async fn ping_via_node(
             _ = &mut next_timeout, if pending_timeout.is_some() => {
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
-                let account_id = app_info.peer_id_to_account_id(&t.peer_id);
-                crate::metrics::PONG_TIMEOUTS.with_label_values(&[chain_id, peer_str(&t.peer_id, account_id).as_str()]).inc();
+                crate::metrics::PONG_TIMEOUTS.with_label_values(&[chain_id, &t.peer_id.to_string()]).inc();
                 if let Some(csv) = latencies_csv.as_mut() {
-                    result = csv.write_timeout(
-                        &t.peer_id,
-                        account_id,
-                    )
-                    .context("Failed writing to CSV file");
+                    result = csv.write_timeout(&t.peer_id).context("Failed writing to CSV file");
                     if result.is_err() {
                         break;
                     }

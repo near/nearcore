@@ -106,19 +106,48 @@ impl SpicePartialData {
         }
     }
 
-    pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
+    pub fn has_parts(&self) -> bool {
+        match self {
+            Self::V1(v1) => !v1.inner.parts.is_empty(),
+        }
+    }
+
+    pub fn num_parts(&self) -> usize {
+        match self {
+            Self::V1(v1) => v1.inner.parts.len(),
+        }
+    }
+
+    /// Returns whether the signature matches any of `public_keys`.
+    pub fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
         match self {
             Self::V1(v1) => {
                 let data = v1.inner.serialize_for_signing();
-                if !v1.signature.verify(&data, public_key) {
-                    return None;
-                }
-                Some(SpiceVerifiedPartialData {
+                public_keys.iter().any(|public_key| v1.signature.verify(&data, public_key))
+            }
+        }
+    }
+
+    pub fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedPartialData> {
+        self.into_verified_with_key(public_keys).map(|(verified, _)| verified)
+    }
+
+    /// Like `into_verified`, also returning the key of `public_keys` that signed it.
+    pub fn into_verified_with_key(
+        self,
+        public_keys: &[PublicKey],
+    ) -> Option<(SpiceVerifiedPartialData, PublicKey)> {
+        match self {
+            Self::V1(v1) => {
+                let data = v1.inner.serialize_for_signing();
+                let key = public_keys.iter().find(|key| v1.signature.verify(&data, key))?;
+                let verified = SpiceVerifiedPartialData {
                     id: v1.inner.id,
                     commitment: v1.inner.commitment,
                     parts: v1.inner.parts,
                     sender: v1.sender,
-                })
+                };
+                Some((verified, key.clone()))
             }
         }
     }

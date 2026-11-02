@@ -1,6 +1,5 @@
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -67,10 +66,7 @@ fn test_rpc_single_shard_tracking() {
 
     let num_blocks_to_wait = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 1);
     env.test_loop.run_for(Duration::seconds(num_blocks_to_wait as i64));
-    let chain_store = &retrieve_client_actor(&env.node_datas, &mut env.test_loop.data, &rpc_client)
-        .client
-        .chain
-        .chain_store;
+    let chain_store = &env.node_for_account(&rpc_client).client().chain.chain_store;
 
     assert_old_chunks_are_cleared(chain_store, &tracked_shards_set);
     assert_new_chunks_exist(chain_store, &tracked_shards_set);
@@ -138,9 +134,9 @@ fn test_archival_single_shard_tracking_when_resharding() {
         })
         .build();
 
-    let client_handle = env.node_datas[archival_client_index].client_sender.actor_handle();
-    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
-    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+    let client = env.node(archival_client_index).client();
+    let chain_store = client.chain.chain_store.clone();
+    let epoch_manager = client.epoch_manager.clone();
 
     // Wait for GC to kick in for the first time. This should clean up genesis data from the hot store.
     let num_blocks_to_wait = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP;

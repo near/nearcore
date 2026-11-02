@@ -1,8 +1,10 @@
 use crate::ApplyState;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
+use crate::contract_preparation::{
+    ContractPreparation, prepare_contract_metadata, prepare_function_call,
+};
 use crate::ext::RuntimeExt;
-use crate::function_call::execute_function_call;
-use crate::pipelining::ReceiptPreparationPipeline;
+use crate::function_call::{execute_function_call, function_call_context};
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
@@ -12,9 +14,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
-};
+use near_primitives::receipt::{ActionReceipt, VersionedActionReceipt};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::{self, parse_key_handle_from_access_key_key};
@@ -29,8 +29,8 @@ use near_store::{
     Trie, TrieAccess as _, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
     get_gas_key_nonce,
 };
-use near_vm_runner::logic::{ProtocolVersion, ReturnData};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
+use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
 use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
@@ -95,7 +95,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         Self {
             runtime_config_store,
             state_size_limit: None,
@@ -142,6 +142,7 @@ impl TrieViewer {
             state_update,
             chain_id,
             AccessOptions::DEFAULT,
+            current_protocol_version,
         )?;
         let maybe_code = match contract_id {
             RuntimeContractIdentifier::None => None,
@@ -176,9 +177,15 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
-        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-        })
+        if let Some(access_key) = get_access_key(state_update, account_id, public_key)? {
+            return Ok(access_key);
+        }
+        if get_account(state_update, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
+        Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() })
     }
 
     /// Lists an account's access keys, optionally paginated.
@@ -272,6 +279,11 @@ impl TrieViewer {
                 }
             }
         }
+        if keys.is_empty() && get_account(trie, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
         Ok((keys, last_key))
     }
 
@@ -281,10 +293,19 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
-        let access_key =
-            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-                errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { public_key: public_key.clone() }
-            })?;
+        let access_key = match get_access_key(state_update, account_id, public_key)? {
+            Some(access_key) => access_key,
+            None if get_account(state_update, account_id)?.is_none() => {
+                return Err(errors::ViewGasKeyNoncesError::AccountDoesNotExist {
+                    requested_account_id: account_id.clone(),
+                });
+            }
+            None => {
+                return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+                    public_key: public_key.clone(),
+                });
+            }
+        };
         // If the access key is not a gas key, treat as not found.
         let Some(gas_key_info) = access_key.gas_key_info() else {
             return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
@@ -464,32 +485,20 @@ impl TrieViewer {
             input_data_ids: vec![],
             actions: vec![function_call.clone().into()],
         };
-        let receipt = Receipt::V0(ReceiptV0 {
-            predecessor_id: contract_id.clone(),
-            receiver_id: contract_id.clone(),
-            receipt_id: empty_hash,
-            receipt: ReceiptEnum::Action(action_receipt.clone()),
-        });
-        let pipeline = ReceiptPreparationPipeline::new(
-            Arc::clone(config),
-            apply_state.next_wasm_config.clone(),
-            apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage().clone(),
-            epoch_info_provider.chain_id(),
-            apply_state.shard_id,
-        );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
-        let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
-        let contract_id_resolved = RuntimeContractIdentifier::resolve(
-            contract_id,
-            account.contract().into_owned(),
-            &state_update,
+        let execution_mode = ExecutionMode::View(ViewConfig { max_gas_burnt: max_gas_burnt_view });
+        let preparation = prepare_contract_metadata(
+            config,
+            state_update.contract_storage(),
             &epoch_info_provider.chain_id(),
+            contract_id,
+            &account,
+            &state_update,
+            &function_call,
+            &execution_mode,
             AccessOptions::DEFAULT,
+            apply_state.current_protocol_version,
         )?;
-        let contract_code_hash = contract_id_resolved.hash();
-        let contract =
-            pipeline.get_contract(&receipt, contract_id_resolved, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -501,25 +510,54 @@ impl TrieViewer {
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
-            config.wasm_config.storage_get_mode,
             Arc::clone(&apply_state.trie_access_tracker_state),
             None,
         );
-        let outcome = execute_function_call(
-            contract,
-            contract_code_hash,
+        let context = function_call_context(
             &apply_state,
-            &mut runtime_ext,
+            &runtime_ext,
             originator_id,
             &VersionedActionReceipt::from(action_receipt),
             [].into(),
             &function_call,
             &empty_hash,
-            config,
             true,
-            view_config,
-        )
-        .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
+            execution_mode,
+        );
+        let outcome = match preparation {
+            ContractPreparation::Ready { contract: code_ext, gas_counter } => {
+                let contract_id_resolved = code_ext.identifier.clone();
+                // Views prepare directly: speculative tasks use non-view gas accounting.
+                near_vm_runner::reset_metrics();
+                let contract = prepare_function_call(
+                    &code_ext,
+                    apply_state.cache.as_deref(),
+                    Arc::clone(&config.wasm_config),
+                    gas_counter,
+                    &function_call.method_name,
+                    // View calls are user-facing (RPC) but off the block-production path.
+                    CompilePriority::Interactive,
+                );
+                near_vm_runner::report_metrics(
+                    apply_state.shard_id,
+                    &apply_state.apply_reason.to_string(),
+                );
+                execute_function_call(
+                    contract,
+                    &contract_id_resolved,
+                    &apply_state,
+                    &mut runtime_ext,
+                    &context,
+                    config,
+                )
+                .map_err(|e| errors::CallFunctionError::InternalError {
+                    error_message: e.to_string(),
+                })?
+            }
+            ContractPreparation::Aborted(abort) => {
+                abort.into_outcome(&context, Arc::clone(&config.wasm_config))
+            }
+        };
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

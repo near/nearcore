@@ -1,5 +1,6 @@
 use crate::logic::{
-    ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
+    ExecutionMode, ProtocolVersion, ReturnData, VMContext, VMOutcome,
+    mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
@@ -28,7 +29,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
@@ -46,6 +47,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_outcome: false,
         method: "main".into(),
         max_gas_burnt: None,
+        min_contract_size_per_local: None,
     }
 }
 
@@ -58,6 +60,7 @@ pub(crate) struct TestBuilder {
     opaque_outcome: bool,
     method: String,
     max_gas_burnt: Option<Gas>,
+    min_contract_size_per_local: Option<Option<u64>>,
 }
 
 impl TestBuilder {
@@ -90,6 +93,11 @@ impl TestBuilder {
 
     pub(crate) fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
         self.max_gas_burnt = Some(max_gas_burnt);
+        self
+    }
+
+    pub(crate) fn min_contract_size_per_local(mut self, min_size: Option<u64>) -> Self {
+        self.min_contract_size_per_local = Some(min_size);
         self
     }
 
@@ -146,7 +154,7 @@ impl TestBuilder {
     }
 
     pub(crate) fn configs(&self) -> impl Iterator<Item = Arc<RuntimeConfig>> {
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         self.protocol_versions
             .clone()
             .into_iter()
@@ -160,7 +168,7 @@ impl TestBuilder {
         I::IntoIter: ExactSizeIterator,
     {
         self.protocol_versions.sort();
-        let mut runtime_config_store = RuntimeConfigStore::new(None);
+        let mut runtime_config_store = RuntimeConfigStore::new();
         let wants = wants.into_iter();
         assert_eq!(
             wants.len(),
@@ -185,19 +193,31 @@ impl TestBuilder {
                 if let Some(max_gas_burnt) = self.max_gas_burnt {
                     config.limit_config.max_gas_burnt = max_gas_burnt;
                 }
+                if let Some(min_size) = self.min_contract_size_per_local {
+                    config.limit_config.min_contract_size_per_local = min_size;
+                }
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-                let gas_counter = context.make_gas_counter(&config);
-                let Some(runtime) = vm_kind.runtime(config) else {
-                    panic!("runtime for {:?} has not been compiled", vm_kind);
-                };
+                let loading = context.make_gas_counter(&config).prepare_for_contract(
+                    &config,
+                    &self.method,
+                    fake_external.code_len(),
+                );
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
-                let outcome = runtime
-                    .prepare(&fake_external, None, gas_counter, &self.method)
-                    .run(&mut fake_external, &context, fees)
-                    .expect("execution failed");
+                let outcome = match loading {
+                    Ok(gas_counter) => {
+                        let Some(runtime) = vm_kind.runtime(config) else {
+                            panic!("runtime for {:?} has not been compiled", vm_kind);
+                        };
+                        runtime
+                            .prepare(&fake_external, None, gas_counter, &self.method)
+                            .run(&mut fake_external, &context, fees)
+                            .expect("execution failed")
+                    }
+                    Err(abort) => abort.into_outcome(&context, config),
+                };
 
                 let mut got = String::new();
 

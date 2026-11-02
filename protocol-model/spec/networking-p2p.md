@@ -62,7 +62,7 @@ The negotiated `protocol_version` is the **wire** protocol version (the same `PR
 **Send to an `AccountId`** — `NetworkState::send_message_to_account` (`network_state/mod.rs:770`):
 1. If the target account is *this* node's validator account, deliver locally via `receive_routed_message` instead of the wire (`network_state/mod.rs:790`); a `debug_assert!(msg.allow_sending_to_self())` (`network_state/mod.rs:780`) documents the expectation that only self-deliverable bodies (witnesses, endorsements — `mod.rs:678`) reach this path.
 2. If `Tier::T1.is_allowed_send_routed(body)` (i.e. a T1 body, `network_state/mod.rs:803`), look up the account's `SignedAccountData`, pick a TIER1 peer via `get_tier1_proxy` (`tier1.rs:351`) — a direct T1 connection if present, else one of the validator's advertised proxies — and send directly over T1. No BFS, single hop.
-3. Otherwise resolve the account → `PeerId`: prefer the peer id from `accounts_data` (`network_state/mod.rs:827`), fall back to the (being-deprecated) `account_announcements` table (`network_state/mod.rs:841`). If neither resolves, drop with `MessageDropped::UnknownAccount` (`network_state/mod.rs:846`).
+3. Otherwise resolve the account → `PeerId` from `accounts_data` (`network_state/mod.rs:827`). If it does not resolve, drop with `MessageDropped::UnknownAccount` (`network_state/mod.rs:846`).
 4. Sign once and `send_message_to_peer` over T2 `message_resend_count()` times (3× for important bodies, else 1×, `network_state/mod.rs:861`).
 
 **Send to a `PeerId`/`Hash`** — `NetworkState::send_message_to_peer` (`network_state/mod.rs:687`), per tier:
@@ -92,7 +92,7 @@ Responses to a request are addressed `PeerIdOrHash::Hash(request_hash)` rather t
 
 ### 6. Routing-table / peer-info exchange
 
-Peers periodically gossip `PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges, accounts })` (`mod.rs:315`). On receipt, `PeerActor::handle_sync_routing_table` (`peer_actor.rs:1371`): an ingress cap of `routing_graph_max_edges_per_message` (default `DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE = 50_000`, `chain/network/src/config.rs:32`) drops the edge set wholesale if exceeded (`peer_actor.rs:1380`, still processing accounts); otherwise `NetworkState::add_edges` (`routing.rs:99`) validates and merges them into the `Graph` (a bad edge ⇒ ban the source). `AnnounceAccount`s are forwarded to the client for signature verification and staleness filtering before being adopted (`peer_actor.rs:1411`). New local edges are themselves broadcast (`broadcast_routing_table_update`, `routing.rs:20`). `PeersRequest`/`PeersResponse` (`mod.rs:372`, `:381`) exchange `PeerInfo`s (and direct peers) for discovery.
+Peers periodically gossip `PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges })` (`mod.rs:315`). On receipt, `PeerActor::handle_sync_routing_table` (`peer_actor.rs:1371`): an ingress cap of `routing_graph_max_edges_per_message` (default `DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE = 50_000`, `chain/network/src/config.rs:32`) drops the edge set wholesale if exceeded (`peer_actor.rs:1380`); otherwise `NetworkState::add_edges` (`routing.rs:99`) validates and merges them into the `Graph` (a bad edge ⇒ ban the source). Field 2, which carried the removed `AnnounceAccount`s, is reserved; older nodes may still send it and it is skipped during parsing. New local edges are themselves broadcast (`broadcast_routing_table_update`, `routing.rs:20`). `PeersRequest`/`PeersResponse` (`mod.rs:372`, `:381`) exchange `PeerInfo`s (and direct peers) for discovery.
 
 Validator discovery rides on top: `SyncAccountsData` (`mod.rs:364`) propagates `SignedAccountData` (validator ↔ peer-id ↔ proxies) so `tier1_connect` (`tier1.rs:206`) can dial the right T1 peers/proxies; `SyncSnapshotHosts` propagates state-snapshot availability (§9).
 
@@ -119,7 +119,7 @@ Per-connection `RateLimits` (`rate_limits/messages_limits.rs:13`) maintains a `T
 
 ## Interactions
 
-- **Consumes**: TCP byte streams (`tcp.rs`, `tcp_transport.rs`); `NetworkRequests` from the client/shards-manager/partial-witness actors (mapped to `PeerMessage`s in `peer_manager_actor.rs`); `SignedAccountData` and `AnnounceAccount` for validator discovery.
+- **Consumes**: TCP byte streams (`tcp.rs`, `tcp_transport.rs`); `NetworkRequests` from the client/shards-manager/partial-witness actors (mapped to `PeerMessage`s in `peer_manager_actor.rs`); `SignedAccountData` for validator discovery.
 - **Produces**: decoded `PeerMessage`/routed bodies delivered to the right actor by `receive_routed_message` (`network_state/mod.rs:866`) and the direct-payload handlers.
 - **Touches**: [sync](sync.md) (block/header/state-part/epoch-sync transport and `SnapshotHostInfo` availability), [chain-block-processing](chain-block-processing.md) (block/header broadcast & ingest), [sharding-chunks](sharding-chunks.md) (partial chunk parts/forwards/requests), [stateless-validation](stateless-validation.md) (partial witnesses, endorsements, contract-code distribution), [consensus-finality](consensus-finality.md) (block approvals), [data-structures-serialization](data-structures-serialization.md) (borsh/proto encoding of payloads). Payload meaning lives in those specs; this layer only transports them.
 
@@ -193,6 +193,5 @@ No `ProtocolFeature` at v86 (the sole PV-86 feature is `EnforcePerReceiptStorage
 
 ## Open questions
 
-- The `account_announcements` (`AnnounceAccount`) account→peer table is explicitly being deprecated in favor of `accounts_data` (comment near `network_state/mod.rs:835`); the exact removal version / protocol-compat plan is not encoded in code read here.
 - At v86 *every* peer emits V1 borsh on the wire — outbound serialization unconditionally calls `msg_v1()` (`proto_conv/peer_message.rs:272`) — so the V3 proto variant is decode-only. TODO #13709 (`mod.rs:1163`) tracks removing V1 support after a forward-compatible release that starts emitting V3; the cutover version is not fixed in code.
 - `docs/architecture/network.md`, `docs/NetworkSpec/*`, and `docs/advanced_configuration/networking.md` were not re-read line-by-line for this pass; the spec is derived from source. They predate the T1/T2/T3 tier split and `RoutedMessageV3`, so cross-check before relying on them.

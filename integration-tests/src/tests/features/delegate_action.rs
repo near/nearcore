@@ -21,7 +21,7 @@ use near_primitives::test_utils::{
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+    DeployContractAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
@@ -29,8 +29,8 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_primitives_core::types::Balance;
+use near_runtime::config::total_prepaid_gas;
 use near_test_contracts::{ft_contract, smallest_rs_contract};
-use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,
@@ -107,6 +107,9 @@ fn check_meta_tx_execution(
         }
         AccountType::NearDeterministicAccount => {
             panic!("NEAR deterministic accounts usually have no access key");
+        }
+        AccountType::UniversalAccount => {
+            panic!("universal accounts take their keys from the state init");
         }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
@@ -711,12 +714,7 @@ fn meta_tx_ft_transfer() {
 
 /// Call the function "log_something" in the test contract.
 fn log_something_fn_call() -> Action {
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: TEST_METHOD.to_owned(),
-        args: vec![],
-        gas: Gas::from_teragas(30),
-        deposit: Balance::ZERO,
-    }))
+    Action::function_call(TEST_METHOD, vec![], Gas::from_teragas(30))
 }
 
 /// Construct an function call action with a FT transfer.
@@ -733,12 +731,12 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     .collect();
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
-    let action = Action::FunctionCall(Box::new(FunctionCallAction {
+    let action = Action::function_call_with_deposit(
         method_name,
         args,
-        gas: Gas::from_teragas(20),
-        deposit: Balance::from_yoctonear(1),
-    }));
+        Gas::from_teragas(20),
+        Balance::from_yoctonear(1),
+    );
 
     (action, num_bytes as u64)
 }
@@ -753,12 +751,12 @@ fn ft_register_action(receiver: &str) -> Action {
     )
     .bytes()
     .collect();
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "storage_deposit".to_owned(),
+    Action::function_call_with_deposit(
+        "storage_deposit",
         args,
-        gas: Gas::from_teragas(20),
-        deposit: Balance::from_near(1),
-    }))
+        Gas::from_teragas(20),
+        Balance::from_near(1),
+    )
 }
 
 /// Format a NEP-141 event for an ft transfer
@@ -906,11 +904,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
 
-    let node = RuntimeNode::new_with_modified_config(&relayer, |runtime_config| {
-        // Increase the outgoing receipts limit to allow the large receipt to be processed immediately.
-        // Without this change the receipt would be processed somewhere in the next few blocks.
-        runtime_config.congestion_control_config.outgoing_receipts_usual_size_limit = 200_000;
-    });
+    let node = RuntimeNode::new(&relayer);
 
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
@@ -950,9 +944,9 @@ fn meta_tx_create_and_use_eth_implicit_account() {
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
 ///
-/// Using the account should only work for NEAR-implicit accounts,
-/// as ETH-implicit accounts do not have access keys
-/// and they can only be used by calling associated smart contract.
+/// Using the account should only work for NEAR-implicit accounts. The other implicit
+/// kinds get no access key from the transfer, so they are reachable only through the
+/// contract or state init behind them.
 fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
@@ -968,6 +962,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         AccountType::NearDeterministicAccount => Balance::ZERO,
         // ETH-implicit accounts fit within zero-balance account limit.
         AccountType::EthImplicitAccount => Balance::ZERO,
+        // Universal accounts fit within zero-balance account limit.
+        AccountType::UniversalAccount => Balance::ZERO,
         AccountType::NamedAccount => panic!("must be implicit"),
     };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
@@ -976,6 +972,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
         AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::UniversalAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => panic!("must be implicit"),
     };
     check_meta_tx_no_fn_call(
@@ -995,8 +992,9 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     if new_account.get_account_type() == AccountType::EthImplicitAccount
         || new_account.get_account_type() == AccountType::NearDeterministicAccount
+        || new_account.get_account_type() == AccountType::UniversalAccount
     {
-        // ETH-implicit account must not have access key added.
+        // The transfer must not add an access key to such an account.
         assert!(node.user().is_locked(&new_account).unwrap());
         // We will not attempt to make a transfer from this account.
         return;

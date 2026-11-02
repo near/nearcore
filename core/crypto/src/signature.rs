@@ -1,7 +1,6 @@
 use crate::hash_domain::HashDomainTag;
 use crate::util::try_fixed_array;
-use aws_lc_rs::signature::UnparsedPublicKey;
-use aws_lc_rs::unstable::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair};
+use aws_lc_rs::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey};
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use near_schema_checker_lib::ProtocolSchema;
@@ -859,7 +858,7 @@ fn ml_dsa_65_secret_from_seed(
 
 /// Build an [`MlDsa65SecretKey`] from a 32-byte seed.
 ///
-/// Wraps `aws_lc_rs::unstable::signature::PqdsaKeyPair::from_seed`.
+/// Wraps `PqdsaKeyPair::from_seed`.
 pub fn ml_dsa_65_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<SecretKey, crate::errors::ParseKeyError> {
@@ -962,13 +961,15 @@ impl Secp256K1Signature {
         &self,
         msg: [u8; 32],
     ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
-        let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::from_compact(
-            &self.0[0..64],
-            secp256k1::ecdsa::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
-        )
-        .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
-            error_message: err.to_string(),
-        })?;
+        let recovery_id =
+            secp256k1::ecdsa::RecoveryId::from_i32(i32::from(self.0[64])).map_err(|err| {
+                crate::errors::ParseSignatureError::InvalidData { error_message: err.to_string() }
+            })?;
+        let recoverable_sig =
+            secp256k1::ecdsa::RecoverableSignature::from_compact(&self.0[0..64], recovery_id)
+                .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                    error_message: err.to_string(),
+                })?;
         let msg = Message::from_slice(&msg).unwrap();
 
         let res = SECP256K1
@@ -1365,6 +1366,20 @@ mod tests {
     fn regression_signature_verification_originally_failed() {
         let signature = Signature::from_parts(KeyType::SECP256K1, &[4; 65]).unwrap();
         let _ = signature.verify(&[], &PublicKey::empty(KeyType::SECP256K1));
+    }
+
+    #[test]
+    fn secp256k1_recover_rejects_invalid_recovery_id() {
+        use super::Secp256K1Signature;
+        for bad_v in [4u8, 5, 42, 255] {
+            let mut bytes = [0u8; 65];
+            bytes[64] = bad_v;
+            let signature = Secp256K1Signature::from(bytes);
+            assert!(
+                signature.recover([0u8; 32]).is_err(),
+                "recover must reject recovery id {bad_v} without panicking",
+            );
+        }
     }
 
     #[cfg(feature = "rand")]

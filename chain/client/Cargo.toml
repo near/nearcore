@@ -48,6 +48,7 @@ near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-external-storage.workspace = true
+near-indexer-primitives.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -56,7 +57,7 @@ near-primitives = { workspace = true, features = ["clock"] }
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

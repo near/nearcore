@@ -2,11 +2,7 @@ use anyhow::Context;
 use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -35,12 +31,6 @@ pub struct PingCommand {
     /// milliseconds to wait between sending pings
     #[clap(long, default_value = "1000")]
     ping_frequency_millis: u64,
-    /// line-separated list of accounts to filter on.
-    /// We will only try to send pings to these accounts
-    // TODO: add --track-validators or something, that will constantly keep track of
-    // which accounts are validators and ping those
-    #[clap(long)]
-    account_filter_file: Option<PathBuf>,
     /// filename to append CSV data to
     #[clap(long)]
     latencies_csv_file: Option<PathBuf>,
@@ -55,17 +45,17 @@ pub struct PingCommand {
     just_handshake: bool,
 }
 
-fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
-    let mut acc_width = "account".len();
+fn display_stats(stats: &mut [(PeerId, crate::PingStats)]) {
+    let mut peer_width = "peer".len();
     for (peer, _) in stats.iter() {
-        acc_width = std::cmp::max(acc_width, format!("{}", peer).len());
+        peer_width = std::cmp::max(peer_width, format!("{}", peer).len());
     }
     // the ones that never responded should end up at the top with this sorting, which is a
     // little weird, but we can fix it later.
     stats.sort_by(|(_, left), (_, right)| left.average_latency.cmp(&right.average_latency));
     println!(
-        "{:<acc_width$} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
-        "account",
+        "{:<peer_width$} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
+        "peer",
         "num pings",
         "num pongs",
         "min ping latency",
@@ -80,14 +70,8 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
         let max_latency: Duration = stats.max_latency.try_into().unwrap();
         let average_latency: Duration = stats.average_latency.try_into().unwrap();
         println!(
-            "{:<acc_width$} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
-            peer,
-            stats.pings_sent,
-            stats.pongs_received,
-            min_latency,
-            max_latency,
-            average_latency,
-            if peer_id == &peer.peer_id { " <-------------- direct pings" } else { "" }
+            "{:<peer_width$} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}",
+            peer, stats.pings_sent, stats.pongs_received, min_latency, max_latency, average_latency
         );
     }
 }
@@ -114,37 +98,6 @@ pub static CHAIN_INFO: &[ChainInfo] = &[
         ]),
     },
 ];
-
-fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<AccountId>> {
-    let f = File::open(filename.as_ref())?;
-    let mut reader = BufReader::new(f);
-    let mut line = String::new();
-    let mut line_num = 1;
-    let mut filter = HashSet::new();
-    loop {
-        if reader.read_line(&mut line)? == 0 {
-            break;
-        }
-        let acc = line.trim().trim_matches('"');
-        if acc.is_empty() {
-            continue;
-        }
-        match AccountId::from_str(acc) {
-            Ok(a) => {
-                filter.insert(a);
-            }
-            Err(e) => {
-                tracing::warn!(target: "ping", %line, %line_num, ?e, "could not parse account on line");
-            }
-        }
-        line.clear();
-        line_num += 1;
-    }
-    if filter.is_empty() {
-        tracing::warn!(target: "ping", filename = ?filename.as_ref(), "no accounts parsed, only sending direct pings");
-    }
-    Ok(filter)
-}
 
 impl PingCommand {
     pub fn run(&self) -> anyhow::Result<()> {
@@ -182,11 +135,6 @@ impl PingCommand {
         if peer.addr.is_none() {
             anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
         }
-        let filter = if let Some(filename) = &self.account_filter_file {
-            Some(parse_account_filter(filename)?)
-        } else {
-            None
-        };
         let csv =
             if let Some(filename) = &self.latencies_csv_file {
                 Some(crate::csv::LatenciesCsv::open(filename).with_context(|| {
@@ -208,7 +156,6 @@ impl PingCommand {
                 self.ttl,
                 self.ping_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),
-                filter,
                 csv,
                 &mut stats,
                 &self.prometheus_addr,
@@ -216,7 +163,7 @@ impl PingCommand {
             )
             .await?;
             if !self.just_handshake {
-                display_stats(&mut stats, &peer.id);
+                display_stats(&mut stats);
             }
             Ok(())
         })

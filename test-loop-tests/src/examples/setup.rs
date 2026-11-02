@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
@@ -85,6 +86,7 @@ fn test_setup_genesis_overrides() {
     let minimum_stake_ratio = Rational32::new(1, 100);
     let min_gas_price = Balance::from_yoctonear(100_000_000);
     let max_gas_price = Balance::from_yoctonear(10_000_000_000);
+    let gas_price_adjustment_rate = Rational32::new(1, 20);
 
     let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
@@ -95,6 +97,7 @@ fn test_setup_genesis_overrides() {
         .max_inflation_rate(max_inflation_rate)
         .minimum_stake_ratio(minimum_stake_ratio)
         .gas_prices(min_gas_price, max_gas_price)
+        .gas_price_adjustment_rate(gas_price_adjustment_rate)
         .build();
 
     let genesis_config = &env.shared_state.genesis.config;
@@ -107,6 +110,7 @@ fn test_setup_genesis_overrides() {
     assert_eq!(genesis_config.minimum_stake_ratio, minimum_stake_ratio);
     assert_eq!(genesis_config.min_gas_price, min_gas_price);
     assert_eq!(genesis_config.max_gas_price, max_gas_price);
+    assert_eq!(genesis_config.gas_price_adjustment_rate, gas_price_adjustment_rate);
 }
 
 /// Demonstrates manually providing genesis and clients via `.genesis()` and `.clients()`.
@@ -122,7 +126,16 @@ fn test_setup_manual_genesis() {
     let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build();
 
-    env.validator_runner().run_for_number_of_blocks(1);
+    let node = env.validator();
+    let epoch_config = node.client().epoch_manager.get_epoch_config(&node.head().epoch_id).unwrap();
+    assert!(epoch_config.shuffle_shard_assignment_for_chunk_producers);
 }

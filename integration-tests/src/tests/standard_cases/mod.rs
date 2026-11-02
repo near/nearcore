@@ -20,9 +20,7 @@ use near_primitives::errors::{
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Gas};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -43,11 +41,11 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwra
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = RuntimeConfig::clone(store.get_config(node.genesis().config.protocol_version));
     FeeHelper::new(config, node.genesis().config.min_gas_price)
 }
@@ -511,6 +509,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
         AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::UniversalAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     };
 
@@ -551,6 +550,10 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         }
         AccountType::EthImplicitAccount => {
             // A transfer to ETH-implicit address does not create access key.
+            assert!(view_access_key.is_err());
+        }
+        AccountType::UniversalAccount => {
+            // A transfer to a universal address does not create an access key.
             assert!(view_access_key.is_err());
         }
         AccountType::NamedAccount => std::panic!("must be implicit"),
@@ -634,7 +637,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
                     create_account_fee.checked_add(add_access_key_fee).unwrap().gas,
                 ))
                 .unwrap(),
-            AccountType::EthImplicitAccount | AccountType::NearDeterministicAccount => {
+            AccountType::EthImplicitAccount
+            | AccountType::NearDeterministicAccount
+            | AccountType::UniversalAccount => {
                 // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
                 fee_helper
                     .create_account_transfer_full_key_cost_fail_on_create_account()
@@ -1845,13 +1850,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
 
 fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     let args: Vec<u64> = key.into_iter().chain(value.into_iter()).collect();
-    FunctionCallAction {
-        method_name: "write_key_value".to_string(),
-        args: test_utils::encode(&args),
-        gas: Gas::from_teragas(100),
-        deposit: Balance::ZERO,
-    }
-    .into()
+    Action::function_call("write_key_value", test_utils::encode(&args), Gas::from_teragas(100))
 }
 
 fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) -> Receipt {
@@ -2005,15 +2004,11 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
     let receipts: Vec<Receipt> = vec![
         make_receipt(
             &node,
-            vec![
-                FunctionCallAction {
-                    args: test_utils::encode(&[1]),
-                    method_name: "read_value".to_string(),
-                    gas: Gas::from_teragas(100),
-                    deposit: Balance::ZERO,
-                }
-                .into(),
-            ],
+            vec![Action::function_call(
+                "read_value",
+                test_utils::encode(&[1]),
+                Gas::from_teragas(100),
+            )],
             bob_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),

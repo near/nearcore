@@ -13,32 +13,13 @@ use near_time::Duration;
 use rocksdb_metrics::export_stats_as_metrics;
 use std::sync::LazyLock;
 
+#[cfg(feature = "rocksdb")]
 pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_database_op_latency_by_op_and_column",
         "Database operations latency by operation and column.",
         &["op", "column"],
         Some(vec![0.00002, 0.0001, 0.0002, 0.0005, 0.0008, 0.001, 0.002, 0.004, 0.008, 0.1]),
-    )
-    .unwrap()
-});
-
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_chunk_cache_hits",
-        "Chunk cache hits",
-        &["shard_id", "is_view"],
-    )
-    .unwrap()
-});
-
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_chunk_cache_misses",
-        "Chunk cache misses",
-        &["shard_id", "is_view"],
     )
     .unwrap()
 });
@@ -72,12 +53,6 @@ pub static SHARD_CACHE_TOO_LARGE: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static SHARD_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_shard_cache_size", "Shard cache size", &["shard_id", "is_view"])
-        .unwrap()
-});
-
-// TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
         .unwrap()
 });
 
@@ -249,6 +224,7 @@ pub(crate) static HAS_STATE_SNAPSHOT: LazyLock<IntGauge> = LazyLock::new(|| {
         .unwrap()
 });
 
+#[cfg(feature = "rocksdb")]
 pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_make_state_snapshot_elapsed_sec",
@@ -450,56 +426,6 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-
-    pub mod inlining_migration {
-        use near_o11y::metrics::{
-            Histogram, IntCounter, try_create_histogram, try_create_int_counter,
-        };
-        use std::sync::LazyLock;
-
-        pub static PROCESSED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
-            try_create_int_counter(
-                "near_flat_state_inlining_migration_processed_count",
-                "Total number of processed FlatState rows since the migration start.",
-            )
-            .unwrap()
-        });
-        pub static PROCESSED_TOTAL_VALUES_SIZE: LazyLock<IntCounter> = LazyLock::new(|| {
-            try_create_int_counter(
-                "near_flat_state_inlining_migration_processed_total_values_size",
-                "Total size processed FlatState values since the migration start.",
-            )
-            .unwrap()
-        });
-        pub static INLINED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
-            try_create_int_counter(
-                "near_flat_state_inlining_migration_inlined_count",
-                "Total number of inlined FlatState values since the migration start.",
-            )
-            .unwrap()
-        });
-        pub static INLINED_TOTAL_VALUES_SIZE: LazyLock<IntCounter> = LazyLock::new(|| {
-            try_create_int_counter(
-                "near_flat_state_inlining_migration_inlined_total_values_size",
-                "Total size of inlined FlatState values since the migration start.",
-            )
-            .unwrap()
-        });
-        pub static SKIPPED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
-            try_create_int_counter(
-                "near_flat_state_inlining_migration_skipped_count",
-                "Total number of FlatState values skipped since the migration start due to some kind of an issue while trying to read the value.",
-            )
-            .unwrap()
-        });
-        pub static FLAT_STATE_PAUSED_DURATION: LazyLock<Histogram> = LazyLock::new(|| {
-            try_create_histogram(
-                "near_flat_state_inlining_migration_flat_state_paused_duration",
-                "FlatState inlining paused duration.",
-            )
-            .unwrap()
-        });
-    }
 }
 
 pub mod resharding {

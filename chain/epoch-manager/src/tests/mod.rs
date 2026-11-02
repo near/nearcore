@@ -9,7 +9,8 @@ use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_info, epoch_info_with_num_seats, hash_range, record_block,
     record_block_with_final_block_hash, record_block_with_version, record_blocks,
-    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
+    record_with_block_info, reward, setup_default_epoch_manager,
+    setup_default_epoch_manager_at_version, setup_epoch_manager, stake,
 };
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -34,6 +35,11 @@ use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
 use std::cmp::Ordering;
 use std::vec;
+
+/// Highest protocol version with EarlyKickout still off, for tests that must keep
+/// observing pre-activation behaviour after the feature stabilizes.
+const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
+    ProtocolFeature::EarlyKickout.protocol_version() - 1;
 
 #[test]
 fn test_stake_validator() {
@@ -520,19 +526,25 @@ fn test_validator_reward_one_validator() {
             ),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .store_update
+        .commit();
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -932,6 +944,7 @@ fn test_expected_chunks() {
                 rng_seed,
             )
             .unwrap()
+            .store_update
             .commit();
         prev_block = *curr_block;
 
@@ -1016,6 +1029,7 @@ fn test_expected_chunks_prev_block_not_produced() {
                     rng_seed,
                 )
                 .unwrap()
+                .store_update
                 .commit();
             prev_block = *curr_block;
         }
@@ -1613,7 +1627,9 @@ fn test_chunk_producer_kickout() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1688,7 +1704,9 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1799,7 +1817,9 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 }),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .store_update
+            .commit();
     }
 
     let last_epoch_info =
@@ -1971,21 +1991,46 @@ fn test_validator_consistency() {
     }
 }
 
-/// Test that when epoch length is larger than the cache size of block info cache, there is
-/// no unexpected error.
+/// Recording an epoch and finalizing it walks each block exactly once.
 #[test]
-fn test_finalize_epoch_large_epoch_length() {
+fn test_aggregator_visits_each_block_once() {
+    const EPOCH_LENGTH: usize = 10;
     let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
-    let mut epoch_manager =
-        setup_default_epoch_manager(validators, (BLOCK_CACHE_SIZE + 1) as u64, 1, 2, 90, 60);
-    let h = hash_range(BLOCK_CACHE_SIZE + 2);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    for i in 1..=(BLOCK_CACHE_SIZE + 1) {
-        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    // Pinned below EarlyKickout: its per-block seeder reads the aggregator once per block,
+    // so the exact walk count asserted below only holds while the feature is off. The
+    // walk-once invariant itself is protocol-independent, and the seed path has its own
+    // coverage in the early_kickout tests.
+    let mut epoch_manager = setup_default_epoch_manager_at_version(
+        validators,
+        EPOCH_LENGTH as u64,
+        1,
+        2,
+        90,
+        60,
+        PV_BEFORE_EARLY_KICKOUT,
+    );
+    let h = hash_range(EPOCH_LENGTH + 1);
+    record_block_with_version(
+        &mut epoch_manager,
+        CryptoHash::default(),
+        h[0],
+        0,
+        vec![],
+        PV_BEFORE_EARLY_KICKOUT,
+    );
+    for i in 1..=EPOCH_LENGTH {
+        record_block_with_version(
+            &mut epoch_manager,
+            h[i - 1],
+            h[i],
+            i as u64,
+            vec![],
+            PV_BEFORE_EARLY_KICKOUT,
+        );
     }
-    let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1])).unwrap();
+    let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[EPOCH_LENGTH])).unwrap();
     assert_eq!(
         epoch_info.validators_iter().map(|v| v.account_and_stake()).collect::<Vec<_>>(),
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
@@ -1997,13 +2042,8 @@ fn test_finalize_epoch_large_epoch_length() {
             ("test2".parse().unwrap(), stake_amount)
         ]),
     );
-    // EarlyKickout's seed_chunk_producers reads the aggregator once per block, so
-    // the exact per-block walk count only holds with the feature compiled out. The
-    // caching invariant is protocol-independent and stays covered on stable; the
-    // kickout seed path is covered by the early_kickout tests.
-    #[cfg(not(feature = "nightly"))]
     assert_eq!(
-        BLOCK_CACHE_SIZE + 2,
+        EPOCH_LENGTH + 1,
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
         "Expected every block to be visited exactly once"
     );
@@ -2418,6 +2458,7 @@ fn test_final_block_consistency() {
             [0; 32],
         )
         .unwrap()
+        .store_update
         .commit();
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
@@ -3284,7 +3325,6 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
             BandwidthRequests::empty(),
             None,
             signer,
-            PROTOCOL_VERSION,
         ))
     }
 }
@@ -3518,7 +3558,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
             num_validators,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3582,7 +3622,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
             num_validators,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3768,7 +3808,6 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
 ///
 /// Endorsements are built at the chunk height (`prev.height + 1`), which differs
 /// from the block height only when the block skips heights above its parent.
-#[cfg(feature = "nightly")]
 fn record_seeded_block(
     em: &mut EpochManager,
     hash: CryptoHash,
@@ -3802,7 +3841,6 @@ fn record_seeded_block(
             vec![true; num_shards],
             DEFAULT_TOTAL_SUPPLY,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             height * NUM_NS_IN_SECOND,
             chunk_endorsements,
             None,
@@ -3810,11 +3848,11 @@ fn record_seeded_block(
         [0; 32],
     )
     .unwrap()
+    .store_update
     .commit();
 }
 
 /// Records the consecutive chain `h` (`h[0]` genesis) and seeds each anchor row.
-#[cfg(feature = "nightly")]
 fn record_seeded_anchored_chain(em: &mut EpochManager, h: &[CryptoHash]) {
     let mut prev = CryptoHash::default();
     for (height, hash) in h.iter().enumerate() {
@@ -3824,7 +3862,6 @@ fn record_seeded_anchored_chain(em: &mut EpochManager, h: &[CryptoHash]) {
 }
 
 /// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_anchored_chunk_producers() {
     use near_primitives::utils::get_block_shard_id;
@@ -3888,7 +3925,6 @@ fn test_aggregator_anchored_chunk_producers() {
 
 /// Missing anchor row at the epoch's first block (the epoch-sync case) must fall
 /// back to the sampler without tripping the missing-row `debug_assert`.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_missing_epoch_first_block_row_falls_back() {
     use near_primitives::utils::get_block_shard_id;
@@ -3951,7 +3987,6 @@ fn test_aggregator_missing_epoch_first_block_row_falls_back() {
 /// Under a skip, the missing-row fallback must sample at `anchor.height + 2`, not
 /// the chunk height. With `prev` skipping above the grandparent anchor (the
 /// post-epoch-sync shape), those differ, so the producer is anchor-determined.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_skip_anchor_uses_anchor_height() {
     use near_primitives::utils::get_block_shard_id;

@@ -118,7 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
-    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
+    chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
@@ -152,7 +152,7 @@ imports! {
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-    #[p256_verify_host_fn] p256_verify<[sig_len: u64,
+    p256_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
@@ -210,15 +210,32 @@ imports! {
     set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
     current_contract_code<[register_id: u64] -> [u64]>,
     refund_to_account_id<[register_id: u64] -> []>,
+    // ######################
+    // # Universal accounts #
+    // ######################
+    // Returns an exit status. The signature cannot follow the protocol version, so it changed
+    // for `UniversalAccounts` as well. The check behind the status is what
+    // `canonical_universal_state_init` turns on.
+    #[universal_accounts] universal_state_init_to_account_id<[
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64
+    ] -> [u64]>,
+    #[universal_accounts] promise_batch_action_universal_state_init<[
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64
+    ] -> []>,
     // #######################
     // # Promise API actions #
     // #######################
     promise_batch_action_create_account<[promise_index: u64] -> []>,
     promise_batch_action_deploy_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_deploy_global_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_deploy_global_contract_by_account_id<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_use_global_contract<[promise_index: u64, code_hash_len: u64, code_hash_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_use_global_contract_by_account_id<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    promise_batch_action_deploy_global_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
+    promise_batch_action_deploy_global_contract_by_account_id<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
+    promise_batch_action_use_global_contract<[promise_index: u64, code_hash_len: u64, code_hash_ptr: u64] -> []>,
+    promise_batch_action_use_global_contract_by_account_id<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
     promise_batch_action_function_call<[
         promise_index: u64,
         method_name_len: u64,
@@ -272,19 +289,19 @@ imports! {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64
     ] -> []>,
-    #[gas_key_host_fns] promise_batch_action_transfer_to_gas_key<[
+    promise_batch_action_transfer_to_gas_key<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
         amount_ptr: u64
     ] -> []>,
-    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_full_access<[
+    promise_batch_action_add_gas_key_with_full_access<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
         num_nonces: u64
     ] -> []>,
-    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_function_call<[
+    promise_batch_action_add_gas_key_with_function_call<[
         promise_index: u64,
         public_key_len: u64,
         public_key_ptr: u64,
@@ -312,7 +329,7 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
-    #[yield_with_id_host_fns] promise_yield_create_with_id<[
+    promise_yield_create_with_id<[
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -329,7 +346,7 @@ imports! {
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
-    #[yield_with_id_host_fns] promise_yield_resume_with_yield_id<[
+    promise_yield_resume_with_yield_id<[
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,

@@ -4,11 +4,8 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_parameters::ExtCosts;
 use near_parameters::vm::{Config as VMConfig, VMKind};
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
-use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::Gas;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -101,7 +98,7 @@ pub(crate) fn overhead_per_measured_block(
 /// Extra block of latency added by the `AccountCostIncrease` feature: every measured receipt
 /// also produces a price_surplus gas-refund receipt that lands one block later.
 pub(crate) fn extra_refund_block_latency() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 #[track_caller]
@@ -322,12 +319,7 @@ pub(crate) fn fn_cost_in_contract(
 }
 
 fn function_call_action(method_name: String) -> Action {
-    Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name,
-        args: Vec::new(),
-        gas: Gas::from_teragas(1000),
-        deposit: Balance::ZERO,
-    }))
+    Action::function_call(method_name, Vec::new(), Gas::from_teragas(1000))
 }
 
 /// Takes a list of measurements of input blocks and returns the cost for a

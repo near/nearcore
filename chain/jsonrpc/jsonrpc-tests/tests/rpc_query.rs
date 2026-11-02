@@ -1,5 +1,6 @@
+use near_chain_configs::default_view_access_keys_limit;
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
-use near_crypto::{InMemorySigner, Signature};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_jsonrpc::client::{ChunkId, JSONRPC_RESPONSE_LIMIT, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::errors::RpcErrorKind;
@@ -10,14 +11,15 @@ use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
 use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
+use near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::action::GlobalContractDeployMode;
+use near_primitives::action::{AddKeyAction, GlobalContractDeployMode};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, EpochId, Gas, ShardId, SyncCheckpoint,
 };
@@ -755,31 +757,35 @@ async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
-    let chunk =
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "chunk",
+        "params": serde_json::json!({
+            "block_id": 0u64,
+            "shard_id": 0u64,
+        })
+    });
+
+    let (status, response_bytes) = client
+        .transport
+        .send_http_request(
+            "/",
+            request.to_string().as_bytes().to_vec(),
+            JSONRPC_RESPONSE_LIMIT,
+            &[],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+    let response: Value = serde_json::from_slice(&response_bytes).unwrap();
+    assert_eq!(response["error"], serde_json::json!(null));
+
+    // test_chunk_by_hash checks the fields of the chunk returned by positional params.
+    let chunk_from_positional_params =
         client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(0))).await.unwrap();
-    assert_eq!(chunk.author, "test1");
-    assert!(chunk.header.balance_burnt.is_zero());
-    assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
-    assert_eq!(chunk.header.encoded_length, 8);
-    assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-    // In spice gas_limit isn't part of the chunk.
-    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
-    }
-    assert_eq!(chunk.header.gas_used, Gas::ZERO);
-    assert_eq!(chunk.header.height_created, 0);
-    assert_eq!(chunk.header.height_included, 0);
-    assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
-    assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
-    assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
-    assert!(chunk.header.rent_paid.is_zero());
-    assert_eq!(chunk.header.shard_id, ShardId::new(0));
-    assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
-    assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
-    assert_eq!(chunk.header.validator_proposals, vec![]);
-    assert!(chunk.header.validator_reward.is_zero());
-    let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
-    assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
+    assert_eq!(response["result"], serde_json::to_value(&chunk_from_positional_params).unwrap());
 }
 
 #[tokio::test]
@@ -1214,6 +1220,133 @@ async fn test_experimental_view_access_key_unknown_key() {
     );
 }
 
+/// A missing account must report the account, not the key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key");
+}
+
+/// A missing account must report the account, not the gas key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_gas_key_nonces(RpcViewGasKeyNoncesRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_gas_key_nonces");
+}
+
+/// A missing account must be a structured error, not the legacy flat shape.
+/// Clients such as near-jsonrpc-client-rs word-match the flat message and read an
+/// unrecognized one as a contract execution error. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKey {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key");
+}
+
+/// Gas-key queries have no legacy flat shape, so this stays a structured error.
+#[tokio::test]
+async fn test_query_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewGasKeyNonces {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_gas_key_nonces");
+}
+
+/// A missing account must report the account, not an empty key list. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: missing_account.clone(),
+                after_key: None,
+                limit: None,
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key_list");
+}
+
+#[tokio::test]
+async fn test_experimental_view_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key_list");
+}
+
 /// Test EXPERIMENTAL_view_access_key_list method
 #[tokio::test]
 async fn test_experimental_view_access_key_list() {
@@ -1256,6 +1389,58 @@ async fn test_experimental_view_access_key_list_unknown_block() {
         .await;
 
     assert_unknown_block_error(result, "EXPERIMENTAL_view_access_key_list");
+}
+
+#[tokio::test]
+async fn test_experimental_view_access_key_list_too_many_access_keys() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&account);
+    let access_keys_limit = default_view_access_keys_limit();
+    let add_key_actions: Vec<Action> = (0..access_keys_limit)
+        .map(|index| {
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: PublicKey::from_seed(KeyType::ED25519, &format!("extra{index}")),
+                access_key: AccessKey::full_access(),
+            }))
+        })
+        .collect();
+    let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+    let add_keys_tx = SignedTransaction::from_actions(
+        1,
+        account.clone(),
+        account.clone(),
+        &signer,
+        add_key_actions,
+        block_hash,
+    );
+    let add_keys_tx_bytes = borsh::to_vec(&add_keys_tx).unwrap();
+    let add_keys_result = client
+        .broadcast_tx_commit(near_primitives::serialize::to_base64(&add_keys_tx_bytes))
+        .await
+        .unwrap();
+    assert_eq!(
+        add_keys_result.final_execution_outcome.unwrap().into_outcome().status,
+        FinalExecutionStatus::SuccessValue(Vec::new())
+    );
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .await;
+
+    let err = result.expect_err("expected RPC error");
+    assert!(matches!(err.error_struct.as_ref(), Some(RpcErrorKind::HandlerError(_))));
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "TOO_MANY_ACCESS_KEYS", "unexpected error: {err:?}");
+    assert_eq!(info["requested_account_id"].as_str(), Some(account.as_str()));
+    assert_eq!(info["limit"].as_u64(), Some(u64::from(access_keys_limit)));
 }
 
 /// Test EXPERIMENTAL_call_function method

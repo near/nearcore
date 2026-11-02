@@ -1,6 +1,6 @@
-use crate::{EpochManagerHandle, SampleEpoch};
+use crate::{EpochManagerHandle, EpochManagerUpdate, SampleEpoch};
 use near_chain_primitives::Error;
-use near_crypto::Signature;
+use near_crypto::{PublicKey, Signature};
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -17,10 +17,12 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
     ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
+use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -53,7 +55,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
-    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// Fork-order-dependent across same-parent boundary siblings (last `set_epoch_start`
     /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
     /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
@@ -110,7 +112,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Returns true, if the block the `BlockInfo` describes is the last block in its
+    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo` from the store.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError>;
 
     /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
     /// It is `Some` only for the first block of an epoch. Used by the block producer,
@@ -484,16 +493,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Vec<AccountId>, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-
-        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
-        let chunk_producers = chunk_producers_settlement
-            .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        Ok(chunk_producers
-            .iter()
-            .map(|index| epoch_info.validator_account_id(*index).clone())
-            .collect())
+        epoch_chunk_producers_for_shard(&epoch_info, &shard_layout, shard_id)
     }
 
     /// Returns all validators for a given epoch.
@@ -595,7 +595,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// block, then resolves via [`Self::get_chunk_producer_info_anchored`].
     ///
     /// Only safe to call when `prev_block_hash` has been processed (registered
-    /// with the epoch manager via `add_validator_proposals`).
+    /// with the epoch manager via `record_block_info`).
     fn get_chunk_producer_info_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -651,6 +651,63 @@ pub trait EpochManagerAdapter: Send + Sync {
             .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
+    /// Returns the public keys `account_id` may use to sign data about block
+    /// `block_hash`: its key in the block's epoch and, if it is also a validator in the next
+    /// epoch with a different key, that key too.
+    /// Fails if `account_id` isn't a validator in the block's epoch.
+    fn get_validator_signing_keys_for_block(
+        &self,
+        block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
+        self.get_validator_signing_keys(&epoch_id, &next_epoch_id, account_id)
+    }
+
+    /// Returns the public keys `account_id` may use to sign data about a block from
+    /// epoch `epoch_id`.
+    /// Fails if `account_id` isn't a validator in `epoch_id`.
+    fn get_validator_signing_keys(
+        &self,
+        epoch_id: &EpochId,
+        next_epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let mut keys =
+            vec![self.get_validator_by_account_id(epoch_id, account_id)?.take_public_key()];
+        match self.get_validator_by_account_id(next_epoch_id, account_id) {
+            Ok(validator) => {
+                if !keys.contains(validator.public_key()) {
+                    keys.push(validator.take_public_key());
+                }
+            }
+            Err(EpochError::NotAValidator(..)) => {}
+            Err(err) => return Err(err),
+        }
+        Ok(keys)
+    }
+
+    /// Returns the distinct keys of `account_id` in those of `epoch_ids` it is a validator in.
+    fn get_validator_keys_in_epochs(
+        &self,
+        epoch_ids: &[EpochId],
+        account_id: &AccountId,
+    ) -> Result<Vec<PublicKey>, EpochError> {
+        let mut keys = Vec::new();
+        for epoch_id in epoch_ids {
+            let validator = match self.get_validator_by_account_id(epoch_id, account_id) {
+                Ok(validator) => validator,
+                Err(EpochError::NotAValidator(..)) => continue,
+                Err(err) => return Err(err),
+            };
+            if !keys.contains(validator.public_key()) {
+                keys.push(validator.take_public_key());
+            }
+        }
+        Ok(keys)
+    }
+
     /// WARNING: this call may be expensive.
     ///
     /// This function is intended for diagnostic use in logging & rpc, don't use
@@ -660,11 +717,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError>;
 
-    fn add_validator_proposals(
+    fn record_block_info(
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError>;
+    ) -> Result<EpochManagerUpdate, EpochError>;
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(
@@ -703,24 +760,27 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError>;
+        next_epoch_info: &EpochInfo,
+    );
 
     /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
     /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
     /// Writes into `store_update` so it commits atomically with the block.
+    /// Takes `epoch_info` of the block's epoch because `init_after_epoch_sync` writes
+    /// it into the same uncommitted update, so the store can't return it yet.
     fn seed_chunk_producers_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
     /// Verify validator signature for the given epoch.
@@ -955,6 +1015,24 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
+/// AccountIds of the chunk producers assigned to `shard_id` in the epoch of `epoch_info` and
+/// `shard_layout`, in the epoch's settlement order.
+pub fn epoch_chunk_producers_for_shard(
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+    shard_id: ShardId,
+) -> Result<Vec<AccountId>, EpochError> {
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
+    let chunk_producers = epoch_info
+        .chunk_producers_settlement()
+        .get(shard_index)
+        .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+    Ok(chunk_producers
+        .iter()
+        .map(|index| epoch_info.validator_account_id(*index).clone())
+        .collect())
+}
+
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
         let epoch_manager = self.read();
@@ -993,9 +1071,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_shard_layout(epoch_id)
     }
 
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(block_hash)
+        epoch_manager.is_next_block_in_next_epoch(block_info)
     }
 
     fn is_produced_block_last_in_epoch(
@@ -1031,7 +1109,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.read().get_epoch_start_from_epoch_id(epoch_id)
+        self.read().store.get_epoch_start(epoch_id)
     }
 
     fn get_static_shard_layout_for_protocol_version(
@@ -1093,40 +1171,30 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // routes to the canonical sampler — no DB entry is needed there.
         // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
         // One option is a large RocksDB memtable for this column.
-        #[cfg(feature = "nightly")]
-        {
-            use near_primitives::utils::get_block_shard_id;
-            use near_primitives::version::ProtocolFeature;
-            use near_store::DBCol;
-            use near_store::adapter::StoreAdapter;
-
-            let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
-            if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
-                // `CryptoHash::default()` means no grandparent (chunk at genesis
-                // or genesis + 1).
-                if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
-                    // Errors with MissingBlock when the anchor is unprocessed.
-                    let anchor_epoch_id = self.get_epoch_id(anchor)?;
-                    if &anchor_epoch_id == chunk_epoch_id {
-                        let epoch_manager = self.read();
-                        let key = get_block_shard_id(anchor, shard_id);
-                        return match epoch_manager
-                            .store
-                            .store_ref()
-                            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                        {
-                            Some(validator) => Ok(validator),
-                            None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
-                        };
-                    }
-                    // Anchor in a previous epoch: the chunk is within the first
-                    // <=2 blocks of its epoch, where the kickout blacklist is
-                    // provably empty — the canonical sampler is exact.
+        let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
+            // `CryptoHash::default()` means no grandparent (chunk at genesis
+            // or genesis + 1).
+            if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
+                // Errors with MissingBlock when the anchor is unprocessed.
+                let anchor_epoch_id = self.get_epoch_id(anchor)?;
+                if &anchor_epoch_id == chunk_epoch_id {
+                    let epoch_manager = self.read();
+                    let key = get_block_shard_id(anchor, shard_id);
+                    return match epoch_manager
+                        .store
+                        .store_ref()
+                        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    {
+                        Some(validator) => Ok(validator),
+                        None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
+                    };
                 }
+                // Anchor in a previous epoch: the chunk is within the first
+                // <=2 blocks of its epoch, where the kickout blacklist is
+                // provably empty — the canonical sampler is exact.
             }
         }
-        #[cfg(not(feature = "nightly"))]
-        let _ = anchor;
         // Feature off, no anchor, or cross-epoch anchor — canonical sampling
         // from the chunk's own epoch.
         let cpk = ChunkProductionKey { epoch_id: *chunk_epoch_id, height_created, shard_id };
@@ -1162,7 +1230,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         };
         Ok(epoch_manager
             .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
-            .blacklist)
+            .blacklist
+            .clone())
     }
 
     fn get_chunk_validator_assignments(
@@ -1185,28 +1254,28 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_validator_info(epoch_id)
     }
 
-    fn add_validator_proposals(
+    fn record_block_info(
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+    ) -> Result<EpochManagerUpdate, EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager.add_validator_proposals(block_info, random_value)
+        epoch_manager.record_block_info(block_info, random_value.0)
     }
 
     fn init_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_first_block_info: &BlockInfo,
+        prev_epoch_prev_last_block_info: &BlockInfo,
+        prev_epoch_last_block_info: &BlockInfo,
         prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
+        prev_epoch_info: &EpochInfo,
         epoch_id: &EpochId,
-        epoch_info: EpochInfo,
+        epoch_info: &EpochInfo,
         next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError> {
+        next_epoch_info: &EpochInfo,
+    ) {
         let mut epoch_manager = self.write();
         epoch_manager.init_after_epoch_sync(
             store_update,
@@ -1219,15 +1288,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_info,
             next_epoch_id,
             next_epoch_info,
-        )
+        );
     }
 
     fn seed_chunk_producers_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
-        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info, epoch_info)
     }
 
     fn get_shard_layout_history(

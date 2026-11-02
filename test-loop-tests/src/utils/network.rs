@@ -17,8 +17,8 @@ pub fn chunk_endorsement_dropper_by_hash(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     drop_chunk_condition: DropChunkCondition,
-) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
-    Box::new(move |request| {
+) -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| {
         // Filter out only messages related to distributing chunk in the
         // network; extract `chunk_hash` from the message.
         let chunk_hash = match &request {
@@ -55,15 +55,15 @@ pub fn chunk_endorsement_dropper_by_hash(
         }
 
         HandlerResult::Unhandled(request)
-    })
+    }
 }
 
 /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk, so chunks
 /// can only certify via the all-stake fallback. Non-designated endorsements pass through.
 pub fn spice_designated_endorsement_dropper(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
-    Box::new(move |request| {
+) -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| {
         let NetworkRequests::SpiceChunkEndorsement(_target, endorsement) = &request else {
             return HandlerResult::Unhandled(request);
         };
@@ -81,25 +81,25 @@ pub fn spice_designated_endorsement_dropper(
             return HandlerResult::Handled(NetworkResponses::NoResponse);
         }
         HandlerResult::Unhandled(request)
-    })
+    }
 }
 
 /// Handler to drop every request for spice data, leaving only pushed data to arrive.
-pub fn spice_data_request_dropper() -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
-    Box::new(move |request| match &request {
+pub fn spice_data_request_dropper() -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| match &request {
         NetworkRequests::SpiceDataRequest { .. } => {
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         _ => HandlerResult::Unhandled(request),
-    })
+    }
 }
 
 /// Handler to drop all network messages containing chunk endorsements sent
 /// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(
     validator: AccountId,
-) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
-    Box::new(move |request| {
+) -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| {
         match &request {
             NetworkRequests::ChunkEndorsement(_target, endorsement)
                 if endorsement.validator_account() == &validator =>
@@ -114,7 +114,7 @@ pub fn chunk_endorsement_dropper(
             _ => {}
         }
         HandlerResult::Unhandled(request)
-    })
+    }
 }
 
 /// Handler to drop all block broadcasts at certain heights.
@@ -133,8 +133,8 @@ pub fn chunk_endorsement_dropper(
 /// descendants of the same block on one node. This could be improved, though.
 pub fn block_dropper_by_height(
     heights: HashSet<BlockHeight>,
-) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
-    Box::new(move |request| match &request {
+) -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| match &request {
         NetworkRequests::Block { block } => {
             if !heights.contains(&block.header().height()) {
                 HandlerResult::Unhandled(request)
@@ -143,5 +143,5 @@ pub fn block_dropper_by_height(
             }
         }
         _ => HandlerResult::Unhandled(request),
-    })
+    }
 }

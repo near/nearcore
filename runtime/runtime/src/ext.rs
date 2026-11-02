@@ -1,6 +1,5 @@
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::receipt_manager::ReceiptManager;
-use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::{CryptoHash, YieldId};
@@ -8,8 +7,12 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
+use near_primitives::universal_state_init::{
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitCounts,
+    state_init_send_counts,
+};
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
@@ -40,7 +43,6 @@ pub struct RuntimeExt<'a> {
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
-    storage_access_mode: StorageGetMode,
     trie_access_tracker: AccountingAccessTracker,
     storage_proof_size_before_receipt: Option<usize>,
 }
@@ -96,7 +98,6 @@ impl<'a> RuntimeExt<'a> {
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        storage_access_mode: StorageGetMode,
         trie_access_tracker_state: Arc<AccountingState>,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Self {
@@ -111,7 +112,6 @@ impl<'a> RuntimeExt<'a> {
             block_height,
             epoch_info_provider,
             current_protocol_version,
-            storage_access_mode,
             trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
             storage_proof_size_before_receipt,
         }
@@ -193,10 +193,7 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let start_ttn = self.trie_access_tracker.state.get_counts();
         let storage_key = self.create_storage_key(key);
-        let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
-            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
-        };
+        let mode = KeyLookupMode::MemOrFlatOrTrie;
         let deref_options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
@@ -278,10 +275,7 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<bool> {
         let start_ttn = self.trie_access_tracker.state.get_counts();
         let storage_key = self.create_storage_key(key);
-        let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
-            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
-        };
+        let mode = KeyLookupMode::MemOrFlatOrTrie;
         let result = self
             .trie_update
             .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
@@ -473,6 +467,27 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
+    fn check_state_init(&self, state_init: &RawStateInit) -> Result<(), StateInitError> {
+        UniversalStateInit::from_raw_strict(state_init).map(|_| ())
+    }
+
+    fn state_init_send_counts(
+        &self,
+        state_init: &RawStateInit,
+        mode: DecodeMode,
+    ) -> UniversalStateInitCounts {
+        state_init_send_counts(state_init, mode)
+    }
+
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    ) {
+        self.receipt_manager.append_universal_state_init(receipt_index, state_init, amount)
+    }
+
     fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -618,7 +633,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn post_quantum_keys_enabled(&self) -> bool {
-        ProtocolFeature::PostQuantumSignatures.enabled(self.protocol_version())
+        true
     }
 }
 

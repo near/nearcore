@@ -19,7 +19,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_vm_runner::ContractCode;
 use std::collections::{BTreeMap, HashSet};
@@ -34,9 +34,6 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
 
     // The fix only works with V3 shard layouts (dynamic resharding).
     // With static resharding, the shard layout doesn't maintain a full split history.
-    if !ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let epoch_length: BlockHeightDelta = 10;
     let base_boundary_accounts = create_account_ids(["user2", "user3"]).to_vec();
@@ -124,10 +121,7 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
     let initial_num_shards = base_shard_layout.num_shards();
     let target_num_shards = initial_num_shards + 2; // after two splits
 
-    let start_height = {
-        let node = env.node_for_account(&chunk_producer);
-        node.client().chain.chain_store().head().unwrap().height
-    };
+    let start_height = env.node_for_account(&chunk_producer).head().height;
 
     // Keep saturating until both resharding events complete. Dynamic resharding has a
     // 2-epoch proposal-to-activation pipeline, so we need enough epochs for both splits.
@@ -166,17 +160,11 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
     // If the vulnerability exists, processing the stale GlobalContractDistribution
     // receipt will panic in receipt_filter_fn() when receiver_shard_id() fails
     // to remap the old target_shard after two resharding generations.
-    let current_height = {
-        let node = env.node_for_account(&chunk_producer);
-        node.client().chain.chain_store().head().unwrap().height
-    };
+    let current_height = env.node_for_account(&chunk_producer).head().height;
     let drain_end = current_height + epoch_length * 2;
     env.runner_for_account(&chunk_producer).run_until_head_height(drain_end);
 
-    let head_height = {
-        let node = env.node_for_account(&chunk_producer);
-        node.client().chain.chain_store().head().unwrap().height
-    };
+    let head_height = env.node_for_account(&chunk_producer).head().height;
     assert!(
         head_height >= drain_end,
         "chain stalled at height {}; expected >= {} (likely panicked processing stale receipt)",
@@ -574,7 +562,7 @@ fn test_global_distribution_receipt_to_tx_gc() {
     }
 
     // Run enough epochs for GC.
-    let current_height = env.chunk_producer_node().client().chain.head().unwrap().height;
+    let current_height = env.chunk_producer_node().head().height;
     let gc_target = current_height + EPOCH_LENGTH * gc_num_epochs_to_keep + 1;
     env.run_until_head_height(gc_target);
 

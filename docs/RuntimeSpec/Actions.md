@@ -16,8 +16,14 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(UseGlobalContractAction),
     DeterministicStateInit(DeterministicStateInitAction),
+    TransferToGasKey(TransferToGasKeyAction),
+    WithdrawFromGasKey(WithdrawFromGasKeyAction),
+    DelegateV2(VersionedSignedDelegateAction),
+    UniversalStateInit(UniversalStateInitAction),
 }
 ```
+
+`TransferToGasKey`, `WithdrawFromGasKey` and `DelegateV2` are accepted from protocol version 85 (nearcore 2.13.0). From protocol version 87 (nearcore 2.14.0), new `DelegateV2` actions are rejected with `RemovedProtocolFeature`. `UniversalStateInit` is accepted from protocol version 88 (nearcore 2.14.0). Before the protocol version that enables an action, the action fails validation with `UnsupportedProtocolFeature`.
 
 Each transaction consists a list of actions to be performed on the `receiver_id` side. Since transactions are first
 converted to receipts when they are processed, we will mostly concern ourselves with actions in the context of receipt
@@ -30,6 +36,11 @@ For the following actions, `predecessor_id` and `receiver_id` are required to be
 - `AddKey`
 - `DeleteKey`
 - `DeleteAccount`
+- `DeployGlobalContract`
+- `UseGlobalContract`
+- `WithdrawFromGasKey`
+
+If they are not equal, the action fails with `ActorNoPermission`.
 
 NOTE: if the first action in the action list is `CreateAccount`, `predecessor_id` becomes `receiver_id`
 for the rest of the actions until `DeleteAccount`. This gives permission by another account to act on the newly created account.
@@ -209,12 +220,15 @@ pub struct AddKeyAction {
 **Outcome**:
 
 - Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
+- If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](/DataStructures/AccessKey.md#gas-keys) with a balance of 0.
+  The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `(block_height - 1) * 1_000_000`.
+  These records add to the storage usage of the account, see [Gas Key Nonces](/DataStructures/AccessKey.md#gas-key-nonces).
 
 ### Errors
 
 **Validation Error**:
 
-If the access key is of type `FunctionCallPermission`, the following errors can happen
+If the access key permission is `FunctionCall` or `GasKeyFunctionCall`, the following errors can happen
 
 - If `receiver_id` in `access_key` is not a valid account id, the following error will be returned 
 
@@ -239,6 +253,33 @@ the following error will be returned
 AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 }
 ```
 
+If the access key permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the following errors can also happen
+
+- If the protocol version is lower than 85, the following error is returned
+
+```rust
+UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+```
+
+- If the permission is `GasKeyFunctionCall` and its `allowance` is not `None`, the following error is returned
+
+```rust
+/// Gas keys with FunctionCall permission cannot have an allowance set.
+GasKeyFunctionCallAllowanceNotAllowed,
+```
+
+- If `num_nonces` is 0 or greater than 1024 (`MAX_NONCES_FOR_GAS_KEY`), the following error is returned
+
+```rust
+GasKeyInvalidNumNonces { requested_nonces: NonceIndex, limit: NonceIndex },
+```
+
+- If `balance` in `GasKeyInfo` is not 0, the following error is returned
+
+```rust
+AddGasKeyWithNonZeroBalance { balance: Balance },
+```
+
 **Execution Error**:
 
 - If an account tries to add an access key with a given public key, but an existing access key with this public key already exists, the following error will be returned
@@ -261,6 +302,7 @@ pub struct DeleteKeyAction {
 **Outcome**:
 
 - Deletes the [AccessKey](/DataStructures/AccessKey.md) associated with `public_key`.
+- If the key is a [gas key](/DataStructures/AccessKey.md#gas-keys), its balance is burnt and all its nonce records are removed.
 
 ### Errors
 
@@ -271,6 +313,14 @@ pub struct DeleteKeyAction {
 ```rust
 /// Account tries to remove an access key that doesn't exist
 DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+- If the key is a gas key with a balance of more than 1 NEAR, the following error is returned, with `public_key` set to the key.
+  Use [WithdrawFromGasKey](#withdrawfromgaskeyaction) to lower the balance first.
+
+```rust
+/// Gas key balance is too high to burn during deletion
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: Option<PublicKey>, balance: Balance }
 ```
 
 - `StorageError` is returned if state or storage is corrupted.
@@ -287,6 +337,7 @@ pub struct DeleteAccountAction {
 **Outcomes**:
 
 - The account, as well as all the data stored under the account, is deleted and the tokens are transferred to `beneficiary_id`.
+- The balances of all [gas keys](/DataStructures/AccessKey.md#gas-keys) of the account are burnt.
 
 ### Errors
 
@@ -315,7 +366,161 @@ DeleteAccountStaking { account_id: AccountId }
 
 **Execution Error**:
 
+- If the storage usage of the account is more than 10,000 bytes, the following error is returned and nothing is deleted.
+  The storage of the contract code or of the global contract reference does not count.
+  All other storage counts, including access keys, gas key nonces and contract data.
+  To delete the account, first remove contract data or delete keys until the storage usage is 10,000 bytes or less.
+
+```rust
+/// Delete account whose state is large is temporarily banned.
+DeleteAccountWithLargeState { account_id: AccountId },
+```
+
+- If the sum of the balances of all gas keys of the account is more than 1 NEAR, the following error is returned, with `public_key: None`.
+  Use [WithdrawFromGasKey](#withdrawfromgaskeyaction) to lower the balances first.
+
+```rust
+/// Gas key balance is too high to burn during deletion
+GasKeyBalanceTooHigh { account_id: AccountId, public_key: Option<PublicKey>, balance: Balance }
+```
+
 - If state or storage is corrupted, a `StorageError` is returned.
+
+## TransferToGasKeyAction
+
+```rust
+pub struct TransferToGasKeyAction {
+    /// The public key of the gas key to fund
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer to the gas key
+    pub deposit: Balance,
+}
+```
+
+Adds `deposit` to the balance of the [gas key](/DataStructures/AccessKey.md#gas-keys) with the given `public_key` on the receiver account.
+Any account can send this action, so an account can fund a gas key of another account.
+The `deposit` is paid by the sender in the same way as the `deposit` of a `Transfer`.
+A contract can create this action with the `promise_batch_action_transfer_to_gas_key` host function.
+
+**Outcome**:
+
+- The balance of the gas key is increased by `deposit`.
+
+### Errors
+
+**Validation Error**:
+
+- If the protocol version is lower than 85, `UnsupportedProtocolFeature` is returned.
+
+**Execution Error**:
+
+- If the receiver account has no access key with `public_key`, or the key is not a gas key, the following error is returned
+
+```rust
+/// Gas key does not exist for the specified public key
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+## WithdrawFromGasKeyAction
+
+```rust
+pub struct WithdrawFromGasKeyAction {
+    /// The public key of the gas key to withdraw from
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer from the gas key
+    pub amount: Balance,
+}
+```
+
+Moves `amount` from the balance of the [gas key](/DataStructures/AccessKey.md#gas-keys) with the given `public_key` to the balance of the receiver account.
+The `predecessor_id` and `receiver_id` must be equal.
+No host function creates this action, so it can only come from a transaction or from the actions of a delegate action.
+From protocol version 87 (nearcore 2.14.0), it cannot be inside a delegate action.
+
+**Outcome**:
+
+- The balance of the gas key is decreased by `amount`.
+- The balance of the account is increased by `amount`.
+
+### Errors
+
+**Validation Error**:
+
+- If the protocol version is lower than 85, `UnsupportedProtocolFeature` is returned.
+- From protocol version 87 (nearcore 2.14.0), if a delegate action contains this action, the following error is returned. A receipt created before protocol version 87 still executes.
+
+```rust
+/// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
+WithdrawFromGasKeyNotAllowedInDelegate
+```
+
+**Execution Error**:
+
+- If the account has no access key with `public_key`, or the key is not a gas key, the following error is returned
+
+```rust
+/// Gas key does not exist for the specified public key
+GasKeyDoesNotExist { account_id: AccountId, public_key: PublicKey }
+```
+
+- If the balance of the gas key is less than `amount`, the following error is returned
+
+```rust
+/// Gas key does not have sufficient balance for the requested withdrawal
+InsufficientGasKeyBalance { account_id: AccountId, public_key: PublicKey, balance: Balance, required: Balance }
+```
+
+## DelegateV2
+
+`DelegateV2` is a version of the [delegate action](#delegate-actions) that a [gas key](/DataStructures/AccessKey.md#gas-keys) can sign.
+It is accepted at protocol versions 85 and 86.
+
+```rust
+pub struct VersionedSignedDelegateAction {
+    pub delegate_action: VersionedDelegateActionPayload,
+    pub signature: Signature,
+}
+
+pub enum VersionedDelegateActionPayload {
+    V2(DelegateActionV2),
+}
+
+pub struct DelegateActionV2 {
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    pub actions: Vec<NonDelegateAction>,
+    /// Nonce of the signing key, advanced when this action is processed. For
+    /// a gas key it also selects which of the parallel nonces to advance.
+    pub nonce: TransactionNonce,
+    /// The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.
+    pub max_block_height: BlockHeight,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
+}
+```
+
+`DelegateActionV2` has the same fields as `DelegateAction`, except that `nonce` is a [`TransactionNonce`](/RuntimeSpec/Transactions.md).
+The signature is over the SHA-256 hash of the Borsh encoding of the 4-byte prefix `(1 << 30) + 611` (NEP-611), followed by the `VersionedDelegateActionPayload`.
+The payload starts with the variant byte `0` for `V2`.
+A `Delegate` action uses the prefix `(1 << 30) + 366` (NEP-366) instead.
+A `TransactionNonce::Nonce` must be signed by a regular access key, and it is checked against the nonce of that key.
+A `TransactionNonce::GasKeyNonce` must be signed by a gas key, and it is checked against the nonce stored for its `nonce_index`.
+The relayer pays for the gas, as with `Delegate`. The balance of the gas key is not used.
+
+From protocol version 87 (nearcore 2.14.0), a new transaction or receipt with a `DelegateV2` action fails validation with the following error. A receipt created before protocol version 87 still executes.
+
+```rust
+RemovedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+```
+
+Besides the errors listed in [Delegate Actions](#delegate-actions), a `DelegateV2` action can fail with these execution errors:
+
+- `DelegateActionAccessKeyError(DelegateActionRequiresGasKey)` if the nonce is a `GasKeyNonce` and the key is not a gas key.
+- `DelegateActionAccessKeyError(DelegateActionRequiresNonGasKey)` if the nonce is a plain `Nonce` and the key is a gas key.
+- `DelegateActionInvalidNonceIndex { nonce_index: NonceIndex, num_nonces: NonceIndex }` if `nonce_index` is not less than the `num_nonces` of the gas key.
 
 ## Delegate Actions
 
@@ -411,6 +616,13 @@ DelegateActionExpired
 ```rust
 /// The given public key doesn't exist for Sender account
 DelegateActionAccessKeyError
+```
+
+- If the action is a `Delegate` and its `public_key` belongs to a [gas key](/DataStructures/AccessKey.md#gas-keys), the following error is returned. A `Delegate` action must be signed with a regular access key.
+
+```rust
+/// A plain access key nonce does not select one of the gas key's nonces.
+DelegateActionAccessKeyError(DelegateActionRequiresNonGasKey)
 ```
 
 - If the `nonce` does match the `public_key` for the `sender_id`

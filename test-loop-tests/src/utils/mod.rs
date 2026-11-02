@@ -1,9 +1,9 @@
-use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use near_async::test_loop::data::TestLoopData;
 use near_client::Client;
 use near_client::client_actor::ClientActor;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, EpochId};
+use near_store::adapter::StoreAdapter;
 
 pub(crate) mod account;
 pub(crate) mod cloud_archival;
@@ -21,41 +21,6 @@ pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
 
-pub(crate) fn get_node_client<'a>(
-    env: &'a TestLoopEnv,
-    client_account_id: &AccountId,
-) -> &'a Client {
-    let client_handle =
-        get_node_data(&env.node_datas, client_account_id).client_sender.actor_handle();
-    &env.test_loop.data.get(&client_handle).client
-}
-
-pub(crate) fn get_node_head_height(
-    env: &TestLoopEnv,
-    client_account_id: &AccountId,
-) -> BlockHeight {
-    get_node_client(env, client_account_id).chain.head().unwrap().height
-}
-
-pub(crate) fn run_for_number_of_blocks(
-    env: &mut TestLoopEnv,
-    client_account_id: &AccountId,
-    num_blocks: usize,
-) {
-    let max_block_production_delay =
-        get_node_client(env, client_account_id).config.max_block_production_delay.get();
-    let initial_head_height = get_node_head_height(env, client_account_id);
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client_actor =
-                retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
-            let current_height = client_actor.client.chain.head().unwrap().height;
-            current_height >= initial_head_height + num_blocks as u64
-        },
-        max_block_production_delay * (num_blocks as u32 + 1),
-    );
-}
-
 /// Returns the test data of for the node with the given account id.
 pub(crate) fn get_node_data<'a>(
     node_datas: &'a [NodeExecutionData],
@@ -67,6 +32,26 @@ pub(crate) fn get_node_data<'a>(
         }
     }
     panic!("client not found");
+}
+
+/// Epoch ids from the first epoch after genesis up to `client`'s current epoch, in order.
+/// Follows `EpochSummary`, which GC keeps: the summary of epoch T stores the last block of
+/// T-1, whose hash is the id of T+1. `client` must have finalized every epoch since
+/// genesis, so an epoch-synced node does not qualify.
+pub(crate) fn epoch_ids_since_genesis(client: &Client) -> Vec<EpochId> {
+    let epoch_store = client.chain.chain_store.store().epoch_store();
+    let current_epoch_id = client.chain.head().unwrap().epoch_id;
+    let mut epoch_id = EpochId::default();
+    let mut epoch_ids = vec![epoch_id];
+    while epoch_id != current_epoch_id {
+        let summary = epoch_store
+            .get_epoch_validator_info(&epoch_id)
+            .expect("every epoch before the current one must have an EpochSummary");
+        // The id of the next epoch is the hash of the last block of the previous epoch.
+        epoch_id = EpochId(summary.prev_epoch_last_block_hash);
+        epoch_ids.push(epoch_id);
+    }
+    epoch_ids
 }
 
 /// Retrieves the client actor of the node having account_id equal to `client_account_id`.

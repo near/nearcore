@@ -155,5 +155,6 @@ pub fn map_account(
         AccountType::EthImplicitAccount => account_id.clone(),
         AccountType::NamedAccount => account_id.clone(),
         AccountType::NearDeterministicAccount => account_id.clone(),
+        AccountType::UniversalAccount => account_id.clone(),
     }
 }

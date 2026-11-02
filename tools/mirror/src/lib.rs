@@ -836,7 +836,7 @@ async fn fetch_access_key_nonce(
             }
         },
         Err(e) => match &e {
-            QueryError::UnknownAccessKey { .. } => Ok(None),
+            QueryError::UnknownAccount { .. } | QueryError::UnknownAccessKey { .. } => Ok(None),
             _ => Err(e.into()),
         },
     }
@@ -870,7 +870,7 @@ async fn fetch_gas_key_nonces(
             }
         },
         Err(e) => match &e {
-            QueryError::UnknownGasKey { .. } => Ok(None),
+            QueryError::UnknownAccount { .. } | QueryError::UnknownGasKey { .. } => Ok(None),
             _ => Err(e.into()),
         },
     }

@@ -1,7 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::validators::get_epoch_all_validators;
-use itertools::Itertools;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::num_rational::Rational32;
@@ -12,12 +10,10 @@ use near_primitives::types::{AccountId, AccountInfo, Balance};
 fn slow_test_fix_validator_stake_threshold() {
     init_test_logger();
 
-    let test_loop_builder = TestLoopBuilder::new();
     let epoch_length = 10;
     let initial_balance = Balance::from_near(1_000_000);
     let accounts =
         (0..6).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect_vec();
     let validators = vec![
         AccountInfo {
             account_id: accounts[0].clone(),
@@ -37,22 +33,15 @@ fn slow_test_fix_validator_stake_threshold() {
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);
 
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&test_loop_builder.clock())
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
         .minimum_stake_ratio(Rational32::new(1, 62_500))
         .max_inflation_rate(Rational32::new(0, 1))
-        .add_user_accounts_simple(&accounts, initial_balance)
+        .add_user_accounts(&accounts, initial_balance)
         .build();
 
-    let env = test_loop_builder
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
 
     let head = client.chain.head().unwrap();
     let epoch_id =

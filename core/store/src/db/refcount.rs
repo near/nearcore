@@ -19,8 +19,6 @@
 //! zero RocksDB removes the key from the database.
 
 use crate::DBCol;
-use crate::db::RocksDB;
-use rocksdb::compaction_filter::Decision;
 use std::cmp::Ordering;
 use std::io;
 
@@ -142,27 +140,6 @@ pub(crate) fn iter_with_rc_logic<'a>(
     }
 }
 
-impl RocksDB {
-    /// Merge adds refcounts, zero refcount becomes empty value.
-    /// Empty values get filtered by get methods, and removed by compaction.
-    pub(crate) fn refcount_merge(
-        _new_key: &[u8],
-        existing: Option<&[u8]>,
-        operands: &rocksdb::MergeOperands,
-    ) -> Option<Vec<u8>> {
-        Some(self::refcount_merge(existing, operands))
-    }
-
-    /// Compaction filter for DBCol::State
-    pub(crate) fn empty_value_compaction_filter(
-        _level: u32,
-        _key: &[u8],
-        value: &[u8],
-    ) -> Decision {
-        if value.is_empty() { Decision::Remove } else { Decision::Keep }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::DBCol;
@@ -273,10 +250,11 @@ mod test {
 
     #[test]
     fn compaction_filter() {
+        use crate::db::RocksDB;
         use rocksdb::compaction_filter::Decision;
 
         fn test(want: Decision, value: &[u8]) {
-            let got = super::RocksDB::empty_value_compaction_filter(42, b"key", value);
+            let got = RocksDB::empty_value_compaction_filter(42, b"key", value);
             assert_eq!(std::mem::discriminant(&want), std::mem::discriminant(&got));
         }
 

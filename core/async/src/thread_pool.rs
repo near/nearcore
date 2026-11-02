@@ -2,7 +2,8 @@ use crate::futures::AsyncComputationSpawner;
 use near_o11y::metrics::{IntGaugeVec, try_create_int_gauge_vec};
 use parking_lot::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
+use std::thread::available_parallelism;
 use std::time::Duration;
 #[cfg(unix)]
 use thread_priority::{
@@ -326,9 +327,9 @@ const PRIORITY_BACKGROUND_RUNTIME_TASKS: u8 = 10;
 
 /// Shared thread pool for contract compilation and pipelining.
 pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
-    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
-        let thread_limit = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
         Arc::new(ThreadPool::new(
             "contract_compilation",
             Duration::from_hours(1),
@@ -338,10 +339,66 @@ pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
     })
 }
 
+/// Pool for bulk background contract compilation when compilation runs in a
+/// subprocess.
+///
+/// This must be separate from [`contract_compilation_pool`]. Daemon calls block
+/// their parent-side thread while waiting on IPC. If background calls occupied
+/// every thread in the shared pool, a critical compile queued there could not
+/// reach the daemon's priority-aware worker checkout.
+pub fn background_contract_compilation_pool() -> &'static Arc<ThreadPool> {
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
+        Arc::new(ThreadPool::new(
+            "background_contract_compilation",
+            Duration::from_hours(1),
+            thread_limit,
+            PRIORITY_BACKGROUND_RUNTIME_TASKS,
+        ))
+    })
+}
+
+/// Coordinator pool for background compilation batches.
+///
+/// Coordinators submit work to [`background_contract_compilation_pool`] and
+/// block until the entire batch completes. They must not run in either that
+/// pool, which could deadlock, or [`contract_compilation_pool`], where they
+/// could starve critical pipelining compilation.
+pub fn background_contract_compilation_coordinator_pool() -> &'static Arc<ThreadPool> {
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
+        Arc::new(ThreadPool::new(
+            "background_contract_compilation_coordinator",
+            Duration::from_secs(60),
+            thread_limit,
+            PRIORITY_BACKGROUND_RUNTIME_TASKS,
+        ))
+    })
+}
+
+/// Dedicated pool for best-effort compiled-contract cache warming.
+///
+/// Warming may block on compiler-daemon IPC. Keeping its single worker separate
+/// prevents it from serializing unrelated [`background_runtime_tasks`] while
+/// retaining the limit of one active warming compilation.
+pub fn contract_cache_warming_pool() -> &'static Arc<ThreadPool> {
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        Arc::new(ThreadPool::new(
+            "contract_cache_warming",
+            Duration::from_secs(60),
+            1,
+            PRIORITY_BACKGROUND_RUNTIME_TASKS,
+        ))
+    })
+}
+
 /// Shared pool for low-priority, fire-and-forget contract-runtime maintenance.
 /// Runs at the low (realtime) priority.
 pub fn background_runtime_tasks() -> &'static Arc<ThreadPool> {
-    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
         Arc::new(ThreadPool::new(
             "background_runtime_tasks",
@@ -564,6 +621,44 @@ mod tests {
         let outcome1 = handle1.wait_executed();
         let outcome2 = handle2.wait_executed();
         assert_eq!(outcome1.thread_id, outcome2.thread_id);
+    }
+
+    /// Show the isolation property of different thread pools.
+    #[test]
+    fn blocked_pool_does_not_block_another_pool() {
+        let blocked_pool =
+            ThreadPool::new("test_blocked", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+        let other_pool = ThreadPool::new("test_other", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+
+        let (blocking_job, blocking_job_handle) = create_job();
+        blocked_pool.spawn_boxed(blocking_job);
+        blocking_job_handle.wait_scheduled();
+
+        let (done_sender, done_receiver) = mpsc::channel();
+        other_pool.spawn_boxed(Box::new(move || done_sender.send(()).unwrap()));
+        done_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("job was blocked by another pool");
+
+        blocking_job_handle.wait_executed();
+    }
+
+    #[test]
+    fn blocking_named_pools_are_separate_from_shared_pools() {
+        assert!(!Arc::ptr_eq(
+            background_contract_compilation_coordinator_pool(),
+            contract_compilation_pool(),
+        ));
+        assert!(!Arc::ptr_eq(
+            background_contract_compilation_coordinator_pool(),
+            background_contract_compilation_pool(),
+        ));
+        assert!(!Arc::ptr_eq(contract_cache_warming_pool(), background_runtime_tasks()));
+        assert_eq!(
+            background_contract_compilation_coordinator_pool().thread_limit,
+            available_parallelism().map_or(4, |n| n.get())
+        );
+        assert_eq!(contract_cache_warming_pool().thread_limit, 1);
     }
 
     #[test]

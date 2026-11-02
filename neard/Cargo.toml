@@ -48,10 +48,10 @@ near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
 near-replay-tool.workspace = true
-near-state-parts.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
+near-vm-runner.workspace = true
 near-dump-test-contract = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -73,6 +73,7 @@ dump-test-contract = ["near-dump-test-contract"]
 
 test_features = [
   "nearcore/test_features",
+  "near-cloud-archive-tool/test_features",
   "near-dump-test-contract/test_features",
 ]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
@@ -90,14 +91,11 @@ nightly = [
   "near-o11y/nightly",
   "near-ping/nightly",
   "near-primitives/nightly",
-  "near-state-parts/nightly",
   "near-store/nightly",
   "near-undo-block/nightly",
   "nearcore/nightly",
 ]
 shadow_chunk_validation = ["near-client/shadow_chunk_validation"]
-
-calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 
 actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 
@@ -106,7 +104,7 @@ actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 # with this flag and then enable it at runtime with `--record-io-trace=path` option.
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
-sandbox = ["near-o11y/sandbox", "nearcore/sandbox"]
+sandbox = ["near-o11y/sandbox", "near-cloud-archive-tool/sandbox", "nearcore/sandbox"]
 
 [package.metadata.workspaces]
 independent = true

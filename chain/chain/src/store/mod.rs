@@ -23,7 +23,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
-    SignedTransaction,
+    SignedTransaction, TransactionEnvelope,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -39,6 +39,7 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::light_client_block::StoredLightClientBlock;
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -181,7 +182,7 @@ pub trait ChainStoreAccess {
         chunk_hash: &ChunkHash,
     ) -> Option<Arc<EncodedShardChunk>>;
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>>;
 
     /// Fetch a receipt by id, if it is stored in the store.
     ///
@@ -506,16 +507,18 @@ impl ChainStore {
         )
     }
 
+    /// Computes, for each of `transactions`, whether it is still within its validity period
+    /// relative to `prev_block_header`. Transactions without `block_hash` (ECC) count as valid.
     pub fn compute_transaction_validity(
         &self,
         prev_block_header: &BlockHeader,
-        chunk: &ShardChunk,
+        transactions: &[TransactionEnvelope],
     ) -> Vec<bool> {
         compute_transaction_validity(
             &self.store,
             self.transaction_validity_period,
             prev_block_header,
-            chunk,
+            transactions,
         )
     }
 
@@ -754,18 +757,6 @@ impl ChainStore {
         key
     }
 
-    /// Retrieves STATE_SYNC_DUMP for the given shard.
-    /// TODO(store): What is this doing here? Cleanup
-    pub fn get_state_sync_dump_progress(
-        &self,
-        shard_id: ShardId,
-    ) -> Result<StateSyncDumpProgress, Error> {
-        self.store
-            .store()
-            .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id))
-            .ok_or_else(|| Error::DBNotFoundErr(format!("STATE_SYNC_DUMP:{}", shard_id)))
-    }
-
     /// For each value stored, this returns an (EpochId, bool), where the bool tells whether it's finished
     /// because those are the only fields we really care about.
     pub fn iter_state_sync_dump_progress<'a>(
@@ -991,7 +982,7 @@ impl ChainStoreAccess for ChainStore {
         self.chunk_store().is_invalid_chunk(height_created, chunk_hash)
     }
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         ChainStoreAdapter::get_transaction(self, tx_hash)
     }
 
@@ -1037,7 +1028,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
-    transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
+    transactions: HashMap<CryptoHash, Arc<TransactionEnvelope>>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
@@ -1374,7 +1365,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<TransactionEnvelope>> {
         if let Some(tx) = self.chain_store_cache_update.transactions.get(tx_hash) {
             Some(Arc::clone(tx))
         } else {
@@ -1728,12 +1719,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    pub fn reset_tail(&mut self) {
-        self.tail = None;
-        self.chunk_tail = None;
-        self.fork_tail = None;
-    }
-
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
@@ -1927,7 +1912,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(
                 DBCol::EpochLightClientBlocks,
                 epoch_hash.as_ref(),
-                light_client_block,
+                &StoredLightClientBlock::from(LightClientBlockView::clone(light_client_block)),
             );
         }
         {

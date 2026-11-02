@@ -40,6 +40,9 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
+pub use near_runtime::PendingConstraints;
+use near_runtime::PostStateReadyCallback;
+use near_runtime::SignedValidPeriodTransactions;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
@@ -47,9 +50,6 @@ pub use near_store::trie::mem::memtries::MaybePinnedMemtrieRoot;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
-pub use node_runtime::PendingConstraints;
-use node_runtime::PostStateReadyCallback;
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -443,27 +443,20 @@ impl PreparedTransactions {
 #[derive(Debug, Clone)]
 pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 
-/// Whether the transaction's signer account has a deployed contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HasContract {
-    Yes,
-    No,
-}
-
 /// Result of checking pending transaction queue admission for a transaction.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PendingTxCheckResult {
     /// Admitted. Use these constraints for balance/nonce validation.
     Admit(PendingConstraints),
-    /// Violates PTQ constraints (P_MAX, deploy exclusivity).
+    /// Violates PTQ constraints (P_MAX).
     /// Push to skipped_transactions for reintroduction to pool.
     Skip,
 }
 
 impl PendingTxCheckResult {
     /// Returns a closure that always admits with default constraints.
-    pub fn always_admit() -> impl FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult {
-        |_, _| PendingTxCheckResult::Admit(PendingConstraints::default())
+    pub fn always_admit() -> impl FnMut(&SignedTransaction) -> PendingTxCheckResult {
+        |_| PendingTxCheckResult::Admit(PendingConstraints::default())
     }
 }
 
@@ -609,7 +602,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;

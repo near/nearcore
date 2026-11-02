@@ -46,7 +46,7 @@ pub enum AccountState {
 }
 
 impl AccountState {
-    fn is_initialized(&self) -> bool {
+    pub fn is_initialized(&self) -> bool {
         match self {
             Self::Initialized => true,
             Self::Uninitialized => false,
@@ -212,16 +212,34 @@ pub struct AccountV2 {
 
 /// A universal account funded before its state init was installed.
 ///
-/// It carries nothing but balance: no contract, no access keys and no data.
-/// Installing the state init is the only thing that can add any of those, and
-/// doing so moves the account out of this state, so everything else that writes
-/// to an account is unreachable while it stays uninitialized.
+/// It carries a balance and a [`UninitializedAccountV1::bootstrap_nonce`], and
+/// no contract, access keys or data. Installing the state init is the only thing
+/// that can add any of those, and doing so moves the account out of this state,
+/// so everything else that writes to an account is unreachable while it stays
+/// uninitialized.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct UninitializedAccountV1 {
     /// The total not locked tokens.
     amount: Balance,
     /// Storage used by the account record itself.
     storage_usage: StorageUsage,
+    /// Nonce for the account's own transactions while it is uninitialized, used
+    /// by the self-signed state init, and what makes that transaction one-shot.
+    ///
+    /// It closes two different replays. Consuming it closes the first: a failed
+    /// init leaves the account uninitialized, so without it the same signed
+    /// bytes would stay admissible and anyone could resubmit them, burning the
+    /// conversion fee each time for as long as the transaction stayed inside its
+    /// validity window. Seeding it from the creation height closes the second: a
+    /// re-created account starts above every nonce its previous incarnation
+    /// could have signed for, so the old bytes cannot bootstrap it either.
+    ///
+    /// Seeded exactly as a newly created access key is:
+    /// `(creation_block_height - 1) * ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
+    ///
+    /// Dropped by [`Account::initialize`]: once the state init has installed
+    /// the access keys, each of them carries its own nonce.
+    bootstrap_nonce: Nonce,
 }
 
 impl Account {
@@ -256,10 +274,41 @@ impl Account {
         Self::Initialized(account)
     }
 
-    /// A universal account funded before its state init was installed. Holds
-    /// nothing but balance until [`Self::initialize`] is called.
-    pub fn new_uninitialized(amount: Balance, storage_usage: StorageUsage) -> Self {
-        Self::Uninitialized(UninitializedAccountV1 { amount, storage_usage })
+    /// A universal account funded before its state init was installed. It stays
+    /// uninitialized, with no access keys, code or data, until
+    /// [`Self::initialize`] is called.
+    ///
+    /// `bootstrap_nonce` should be `initial_nonce_value(block_height)` of the
+    /// block creating the account; see [`UninitializedAccountV1::bootstrap_nonce`].
+    pub fn new_uninitialized(
+        amount: Balance,
+        storage_usage: StorageUsage,
+        bootstrap_nonce: Nonce,
+    ) -> Self {
+        Self::Uninitialized(UninitializedAccountV1 { amount, storage_usage, bootstrap_nonce })
+    }
+
+    /// The nonce for this account's own transactions while it has no access keys.
+    #[inline]
+    pub fn bootstrap_nonce(&self) -> Option<Nonce> {
+        match self {
+            Self::Uninitialized(account) => Some(account.bootstrap_nonce),
+            Self::Initialized(_) => None,
+        }
+    }
+
+    /// Record that a self-signed transaction consumed `nonce`.
+    ///
+    /// Only reached for an already authorized transaction, and `nonce` is not
+    /// the caller's to choose: `verify_and_charge_bootstrap_tx_ephemeral` admits
+    /// nothing but the account's own state init, at exactly the successor of the
+    /// current nonce.
+    pub fn set_bootstrap_nonce(&mut self, nonce: Nonce) -> Result<(), InvalidAccountState> {
+        let Self::Uninitialized(account) = self else {
+            return Err(InvalidAccountState::AlreadyInitialized);
+        };
+        account.bootstrap_nonce = nonce;
+        Ok(())
     }
 
     /// Whether the account's state has been installed.
@@ -291,8 +340,12 @@ impl Account {
         Ok(())
     }
 
+    /// Initialized or uninitialized, as an [`AccountState`] rather than the bool
+    /// [`Self::is_initialized`] returns. Exposed so views can report it: a
+    /// client cannot otherwise tell an uninitialized account from an ordinary
+    /// one, and has to, to know which transaction shape to send.
     #[inline]
-    fn state(&self) -> AccountState {
+    pub fn state(&self) -> AccountState {
         match self {
             Self::Uninitialized(_) => AccountState::Uninitialized,
             Self::Initialized(_) => AccountState::Initialized,
@@ -545,6 +598,12 @@ struct SerdeAccount {
     /// written before universal accounts existed, which are all initialized.
     #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
     state: AccountState,
+    /// Only ever present on an uninitialized account, where it is mandatory:
+    /// see [`UninitializedAccountV1::bootstrap_nonce`]. Kept as an `Option` so
+    /// that a document which omits it is rejected rather than silently reset to
+    /// zero, which would let a state init be replayed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bootstrap_nonce: Option<Nonce>,
     /// Global contracts fields
     #[serde(default, skip_serializing_if = "Option::is_none")]
     global_contract_hash: Option<CryptoHash>,
@@ -577,6 +636,11 @@ impl<'de> serde::Deserialize<'de> for Account {
         if !account_data.state.is_initialized() {
             return uninitialized_account_from_serde(account_data)
                 .map_err(serde::de::Error::custom);
+        }
+        if account_data.bootstrap_nonce.is_some() {
+            return Err(serde::de::Error::custom(
+                "an initialized account can't have a bootstrap nonce",
+            ));
         }
 
         match account_data.version {
@@ -620,7 +684,12 @@ fn uninitialized_account_from_serde(account: SerdeAccount) -> Result<Account, &'
     {
         return Err("an uninitialized account can't have a contract");
     }
-    Ok(Account::new_uninitialized(account.amount, account.storage_usage))
+    // Defaulting this would reset the account's replay barrier, so a document
+    // that omits it is malformed rather than merely incomplete.
+    let Some(bootstrap_nonce) = account.bootstrap_nonce else {
+        return Err("an uninitialized account must carry a bootstrap nonce");
+    };
+    Ok(Account::new_uninitialized(account.amount, account.storage_usage, bootstrap_nonce))
 }
 
 impl serde::Serialize for Account {
@@ -637,6 +706,7 @@ impl serde::Serialize for Account {
             storage_usage: self.storage_usage(),
             version,
             state: self.state(),
+            bootstrap_nonce: self.bootstrap_nonce(),
             global_contract_hash: self.global_contract_hash(),
             global_contract_account_id: self.global_contract_account_id().cloned(),
         };
@@ -932,6 +1002,7 @@ mod tests {
             storage_usage: 1000,
             version: AccountVersion::V2,
             state: AccountState::Initialized,
+            bootstrap_nonce: None,
             global_contract_hash,
             global_contract_account_id,
         }
@@ -954,6 +1025,7 @@ mod tests {
             storage_usage: old_account.storage_usage,
             version: AccountVersion::V1,
             state: AccountState::Initialized,
+            bootstrap_nonce: None,
             global_contract_hash: None,
             global_contract_account_id: None,
         };
@@ -1005,6 +1077,7 @@ mod tests {
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
             state: AccountState::Initialized,
+            bootstrap_nonce: None,
             global_contract_hash: None,
             global_contract_account_id: None,
         };
@@ -1089,6 +1162,11 @@ mod tests {
         assert!(matches!(account, Account::Initialized(InitializedAccount::V2(_))));
     }
 
+    /// Seed for an uninitialized account's pre-key nonce. An arbitrary
+    /// non-zero value: zero is what a missing field would decode to, so these
+    /// tests would not catch a dropped field if they used it.
+    const TEST_BOOTSTRAP_NONCE: Nonce = 7_000_000;
+
     fn borsh_hex(account: &Account) -> String {
         borsh::to_vec(account).unwrap().iter().map(|byte| format!("{byte:02x}")).collect()
     }
@@ -1101,6 +1179,7 @@ mod tests {
             storage_usage: 300,
             version: AccountVersion::V1,
             state: AccountState::Uninitialized,
+            bootstrap_nonce: Some(TEST_BOOTSTRAP_NONCE),
             global_contract_hash: None,
             global_contract_account_id: None,
         }
@@ -1130,16 +1209,18 @@ mod tests {
         });
         expect!["ffffffffffffffffffffffffffffffff0064000000000000000000000000000000c80000000000000000000000000000002c0100000000000002684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"].assert_eq(&borsh_hex(&v2));
 
-        let uninitialized = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let uninitialized =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         expect![
-            "ffffffffffffffffffffffffffffffff01640000000000000000000000000000002c01000000000000"
+            "ffffffffffffffffffffffffffffffff01640000000000000000000000000000002c01000000000000c0cf6a0000000000"
         ]
         .assert_eq(&borsh_hex(&uninitialized));
     }
 
     #[test]
     fn uninitialized_account_accessors() {
-        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
 
         assert!(!account.is_initialized());
         assert_eq!(account.amount(), Balance::from_yoctonear(100));
@@ -1154,7 +1235,8 @@ mod tests {
 
     #[test]
     fn initialize_keeps_balance_and_storage_usage() {
-        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let mut account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         // A transfer can credit the account while it is still uninitialized.
         account.set_amount(Balance::from_yoctonear(500));
 
@@ -1170,14 +1252,16 @@ mod tests {
 
     #[test]
     fn initialize_twice_fails() {
-        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let mut account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         assert_eq!(account.initialize(), Ok(()));
         assert_eq!(account.initialize(), Err(InvalidAccountState::AlreadyInitialized));
     }
 
     #[test]
     fn uninitialized_account_rejects_locked_and_contract() {
-        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let mut account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
 
         assert_eq!(
@@ -1189,7 +1273,8 @@ mod tests {
 
     #[test]
     fn initialized_account_accepts_locked_and_contract() {
-        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let mut account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
 
         account.initialize().unwrap();
@@ -1202,7 +1287,8 @@ mod tests {
 
     #[test]
     fn uninitialized_account_borsh_serialization() {
-        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
 
         let bytes = borsh::to_vec(&account).unwrap();
         let deserialized = <Account as BorshDeserialize>::deserialize(&mut &bytes[..]).unwrap();
@@ -1214,7 +1300,8 @@ mod tests {
     /// account variant it does not know about.
     #[test]
     fn borsh_deserialization_rejects_unknown_discriminant() {
-        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
         let mut bytes = borsh::to_vec(&account).unwrap();
 
         // The discriminant sits right after the sentinel.
@@ -1227,10 +1314,11 @@ mod tests {
 
     #[test]
     fn uninitialized_account_serde_serialization() {
-        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let account =
+            Account::new_uninitialized(Balance::from_yoctonear(100), 300, TEST_BOOTSTRAP_NONCE);
 
         let serialized_account = serde_json::to_string(&account).unwrap();
-        expect![[r#"{"amount":"100","locked":"0","code_hash":"11111111111111111111111111111111","storage_usage":300,"version":"V1","state":"uninitialized"}"#]].assert_eq(&serialized_account);
+        expect![[r#"{"amount":"100","locked":"0","code_hash":"11111111111111111111111111111111","storage_usage":300,"version":"V1","state":"uninitialized","bootstrap_nonce":7000000}"#]].assert_eq(&serialized_account);
 
         let deserialized_account: Account = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(deserialized_account, account);
@@ -1249,6 +1337,37 @@ mod tests {
 
         let serialized_account = serde_json::to_string(&account).unwrap();
         assert!(!serialized_account.contains("\"state\""), "{serialized_account}");
+    }
+
+    /// The bootstrap nonce is an account's only replay barrier before its state
+    /// arrives, so a document that omits it must be rejected rather than
+    /// defaulted. Silently reading it back as zero would make every nonce
+    /// admissible again, which is exactly what a state dump round trip would do
+    /// if the field were `#[serde(default)]` on a bare `Nonce`.
+    #[test]
+    fn uninitialized_account_serde_requires_a_bootstrap_nonce() {
+        let mut missing = uninitialized_serde_account();
+        missing.bootstrap_nonce = None;
+        assert!(deserialize_account(&missing).is_err());
+
+        // Zero is a legal value, but only when it was actually written.
+        let mut zero = uninitialized_serde_account();
+        zero.bootstrap_nonce = Some(0);
+        assert!(deserialize_account(&zero).is_ok());
+    }
+
+    /// An initialized account has no pre-key nonce; its keys carry their own.
+    /// Accepting one would mean two disagreeing sources for the same account.
+    #[test]
+    fn initialized_account_serde_rejects_a_bootstrap_nonce() {
+        let mut repr = uninitialized_serde_account();
+        repr.state = AccountState::Initialized;
+        repr.bootstrap_nonce = Some(TEST_BOOTSTRAP_NONCE);
+        assert!(deserialize_account(&repr).is_err());
+
+        // The same document without it is fine.
+        repr.bootstrap_nonce = None;
+        assert!(deserialize_account(&repr).is_ok());
     }
 
     #[test]

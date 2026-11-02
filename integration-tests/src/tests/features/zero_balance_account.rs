@@ -14,7 +14,7 @@ use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, Signed
 use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
-use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use std::sync::Arc;
 
 /// Assert that an account exists and has zero balance
@@ -280,7 +280,7 @@ fn test_storage_usage_components() {
         borsh::object_length(&fn_access_key).unwrap()
     );
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let config = config_store.get_config(PROTOCOL_VERSION);
     let account_overhead = config.fees.storage_usage_config.num_bytes_account as usize;
     let record_overhead = config.fees.storage_usage_config.num_extra_bytes_record as usize;

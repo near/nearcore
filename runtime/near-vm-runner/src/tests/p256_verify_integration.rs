@@ -94,7 +94,7 @@ fn sign_and_keys(message: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let signing_key = make_signing_key();
     let signature: Signature = signing_key.sign_prehash(message).unwrap();
     let signature_bytes = signature.to_vec();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     (signature_bytes, public_key)
 }
 
@@ -118,7 +118,10 @@ fn run_wat(wat: &str, expected: ExpectedOutcome) {
         let code = ContractCode::new(wasm, None);
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context(vec![]);
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "main", fake_external.code_len())
+            .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(Arc::<Config>::clone(&config)).expect("no runtime");
         let outcome = runtime
             .prepare(&fake_external, None, gas_counter, "main")

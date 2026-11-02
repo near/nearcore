@@ -9,11 +9,13 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
+    QueryError,
 };
 use near_crypto::PublicKeyHandle;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
 };
@@ -149,7 +151,14 @@ impl crate::ChainAccess for ChainAccess {
             if chunk.height_included() == height {
                 chunks.push(SourceChunk {
                     shard_id: chunk.shard_id(),
-                    transactions: chunk.to_transactions().to_vec(),
+                    // TODO(ecc): decide how to mirror ECCs. They have no signer to re-sign with, so they are
+                    // skipped for now.
+                    transactions: chunk
+                        .to_transactions()
+                        .iter()
+                        .filter_map(TransactionEnvelope::as_signed)
+                        .cloned()
+                        .collect(),
                     receipts: chunk.prev_outgoing_receipts().to_vec(),
                 })
             }
@@ -213,7 +222,7 @@ impl crate::ChainAccess for ChainAccess {
         let mut ret = Vec::new();
         let mut after_key = None;
         loop {
-            let response = self
+            let response = match self
                 .view_client
                 .send_async(Query {
                     block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
@@ -224,7 +233,12 @@ impl crate::ChainAccess for ChainAccess {
                     },
                 })
                 .await
-                .unwrap()?;
+                .unwrap()
+            {
+                Ok(response) => response,
+                Err(QueryError::UnknownAccount { .. }) => return Ok(ret),
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };

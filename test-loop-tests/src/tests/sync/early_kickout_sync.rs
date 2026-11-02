@@ -13,9 +13,6 @@
 //! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
 //! `test_resolution_errors_on_anchor_db_miss`); `tests::early_kickout_e2e` owns sync
 //! under an *active* kickout, where rows deviate from the plain schedule.
-//!
-//! Nightly-only (gated at `sync/mod.rs`): EarlyKickout only enters `PROTOCOL_VERSION`
-//! on nightly.
 
 use super::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -35,7 +32,6 @@ use crate::utils::account::{create_account_id, create_validators_spec, validator
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use borsh::BorshDeserialize;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -91,8 +87,7 @@ fn slow_test_early_kickout_far_horizon_observer() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     // One source peer, so the sync sequence below describes one peer's data rather than
     // a race between four.
@@ -206,19 +201,12 @@ fn slow_test_early_kickout_state_sync_shuffling() {
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
@@ -254,8 +242,8 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 fn slow_test_early_kickout_activation_edge_block_sync() {
     init_test_logger();
 
-    // Not `PROTOCOL_VERSION - 1`: that sits well above EarlyKickout on nightly and
-    // would give no activation edge.
+    // Not `PROTOCOL_VERSION - 1`: on a nightly build that sits well above EarlyKickout
+    // and would give no activation edge.
     let genesis_protocol_version = ProtocolFeature::EarlyKickout.protocol_version() - 1;
     assert!(
         genesis_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,
@@ -268,20 +256,13 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     let validators_spec = create_validators_spec(4, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .protocol_version(genesis_protocol_version)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .add_user_accounts(&accounts, Balance::from_near(10_000))
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
         .build();
 
     // No `execute_money_transfers`: it would push the head past the epoch sync horizon,
@@ -297,8 +278,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -308,9 +288,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
 
     let node = env.node(new_node_idx);
-    let head = node.head();
-    let version_at_head =
-        node.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap();
+    let version_at_head = node.protocol_version_at_head();
     assert!(
         ProtocolFeature::EarlyKickout.enabled(version_at_head),
         "head epoch is still at version {version_at_head}; the network never upgraded"

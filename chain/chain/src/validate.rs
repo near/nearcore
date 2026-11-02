@@ -14,7 +14,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, compute_chunk_execution_root};
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -104,7 +104,7 @@ pub fn validate_chunk_with_chunk_extra_and_roots(
     prev_chunk_extra: &ChunkExtra,
     prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
-    new_transactions: &[SignedTransaction],
+    new_transactions: &[TransactionEnvelope],
     rs: &ReedSolomon,
 ) -> Result<(), Error> {
     let outgoing_receipts = validate_chunk_with_chunk_extra(
@@ -251,12 +251,12 @@ pub fn validate_spice_chunk_execution_root(
 }
 
 #[derive(BorshSerialize)]
-struct TransactionReceiptRef<'a>(&'a [SignedTransaction], &'a [Receipt]);
+struct TransactionReceiptRef<'a>(&'a [TransactionEnvelope], &'a [Receipt]);
 
 pub fn validate_chunk_with_encoded_merkle_root(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: &[Receipt],
-    new_transactions: &[SignedTransaction],
+    new_transactions: &[TransactionEnvelope],
     rs: &ReedSolomon,
     shard_id: ShardId,
 ) -> Result<(), Error> {
@@ -369,7 +369,7 @@ mod tests {
     use borsh::to_vec;
     use near_crypto::{InMemorySigner, Signer};
     use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV0};
-    use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
     use near_primitives::types::{AccountId, Balance};
 
     #[test]
@@ -380,14 +380,15 @@ mod tests {
         let receiver: AccountId = "bob.near".parse().unwrap();
 
         // Create example tx and receipt
-        let tx = SignedTransaction::from_actions(
+        let tx: TransactionEnvelope = SignedTransaction::from_actions(
             1,
             signer.get_account_id(),
             receiver.clone(),
             &signer,
             vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
             CryptoHash::default(),
-        );
+        )
+        .into();
         let ar = ActionReceipt {
             signer_id: signer.get_account_id(),
             signer_public_key: signer.public_key(),
@@ -407,7 +408,7 @@ mod tests {
         });
 
         // Cases: empty/empty, txs-only, receipts-only, both
-        let cases: Vec<(Vec<SignedTransaction>, Vec<Receipt>)> = vec![
+        let cases: Vec<(Vec<TransactionEnvelope>, Vec<Receipt>)> = vec![
             (vec![], vec![]),
             (vec![tx.clone()], vec![]),
             (vec![], vec![receipt.clone()]),

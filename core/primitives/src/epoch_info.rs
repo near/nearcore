@@ -6,7 +6,6 @@ use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::version::ProtocolFeature;
 use near_primitives_core::{
     hash::hash,
     types::{BlockHeight, ShardId},
@@ -224,42 +223,20 @@ impl EpochInfo {
         let block_producers_sampler = stake_weights(&block_producers_settlement);
         let chunk_producers_sampler =
             chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-        if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            return Self::V5(EpochInfoV5 {
-                epoch_height,
-                validators,
-                validator_to_index,
-                block_producers_settlement,
-                chunk_producers_settlement,
-                stake_change,
-                validator_reward,
-                validator_kickout,
-                minted_amount,
-                seat_price,
-                protocol_version,
-                shard_layout,
-                last_resharding,
-                rng_seed,
-                block_producers_sampler,
-                chunk_producers_sampler,
-                validator_mandates,
-            });
-        }
-        Self::V4(EpochInfoV4 {
+        Self::V5(EpochInfoV5 {
             epoch_height,
             validators,
-            _fishermen: Default::default(),
             validator_to_index,
             block_producers_settlement,
             chunk_producers_settlement,
-            _hidden_validators_settlement: Default::default(),
             stake_change,
             validator_reward,
             validator_kickout,
-            _fishermen_to_index: Default::default(),
             minted_amount,
             seat_price,
             protocol_version,
+            shard_layout,
+            last_resharding,
             rng_seed,
             block_producers_sampler,
             chunk_producers_sampler,

@@ -1,10 +1,18 @@
 use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
-use super::errors::{HostError, VMLogicError};
+use super::errors::{
+    CompilationError, FunctionCallError, HostError, MethodResolveError, VMLogicError,
+};
+use super::{ExecutionResultState, VMContext, VMOutcome};
 use crate::ProfileDataV3;
+use near_parameters::vm::Config;
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
 use near_primitives_core::types::{Compute, Gas};
+use std::cmp::min;
 use std::collections::HashMap;
+use std::fmt;
+use std::result::Result as StdResult;
+use std::sync::Arc;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -61,7 +69,7 @@ impl StorageAccessTracker for FreeGasCounter {
     }
 }
 
-/// Gas counter (a part of VMlogic)
+/// Gas counter (a part of VMlogic).
 pub struct GasCounter {
     /// Shared gas counter data.
     fast_counter: FastGasCounter,
@@ -89,7 +97,6 @@ impl GasCounter {
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
-        use std::cmp::min;
         // In view mode there is no real prepaid gas; the per-call budget is
         // `max_gas_burnt` (i.e. `max_gas_burnt_view`). Bound `prepaid_gas` by it
         // rather than widening it to `Gas::MAX`: `remaining_gas()` seeds the
@@ -134,7 +141,6 @@ impl GasCounter {
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
-            use std::cmp::min;
             if promises_gas != Gas::ZERO && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
@@ -174,7 +180,6 @@ impl GasCounter {
     }
 
     pub(crate) fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {
-        use std::cmp::min;
         // Never burn more gas than what was paid for.
         let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
         self.fast_counter.burnt_gas = min(new_burnt_gas.as_gas(), hard_burnt_limit.as_gas());
@@ -226,49 +231,37 @@ impl GasCounter {
         self.pay_base(ExtCosts::contract_loading_base)
     }
 
-    /// VM independent setup before loading the executable.
+    /// Charge the loading base before any contract metadata is read.
     ///
-    /// Does VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the executable. This includes pre-charging gas
-    /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(feature = "wasmtime_vm")]
-    pub(crate) fn before_loading_executable(
-        &mut self,
-        config: &near_parameters::vm::Config,
+    /// Used with `FixContractLoadingCost`. The byte fee follows through
+    /// [`ContractLoadingBaseCharged::charge_bytes`].
+    pub fn charge_loading_base(
+        mut self,
         method_name: &str,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+    ) -> StdResult<ContractLoadingBaseCharged, ContractLoadingAbort> {
         if method_name.is_empty() {
-            let error = super::errors::FunctionCallError::MethodResolveError(
-                super::errors::MethodResolveError::MethodEmptyName,
-            );
-            return Err(error);
+            let error = FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self), error });
         }
-        if config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                let error =
-                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
-                return Err(error);
-            }
+        if self.pay_base(ExtCosts::contract_loading_base).is_err() {
+            let error = FunctionCallError::HostError(HostError::GasExceeded);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self), error });
         }
-        Ok(())
+        Ok(ContractLoadingBaseCharged(self))
     }
 
-    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    #[cfg(feature = "wasmtime_vm")]
-    pub(crate) fn after_loading_executable(
-        &mut self,
-        config: &near_parameters::vm::Config,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+    /// Prepare the counter for a contract whose code length is known, for tests and estimations.
+    pub fn prepare_for_contract(
+        self,
+        config: &Config,
+        method_name: &str,
+        code_len: u64,
+    ) -> StdResult<PreparedContractGasCounter, ContractLoadingAbort> {
         if !config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                return Err(super::errors::FunctionCallError::HostError(
-                    super::HostError::GasExceeded,
-                ));
-            }
+            return Ok(PreparedContractGasCounter::Legacy(self));
         }
-        Ok(())
+        let loading_fee_paid = self.charge_loading_base(method_name)?.charge_bytes(code_len)?;
+        Ok(PreparedContractGasCounter::Paid(loading_fee_paid))
     }
 
     #[inline]
@@ -385,9 +378,21 @@ impl GasCounter {
         self.promises_gas.checked_add(Gas::from_gas(self.fast_counter.burnt_gas)).unwrap()
     }
 
-    /// Amount of gas still remaining
+    /// Amount of gas that can still be burnt: what is left of `prepaid_gas`
+    /// or of `max_gas_burnt`, whichever is less.
+    ///
+    /// Note: This is used to seed the in-Wasm gas global on the Wasmtime backend, which only
+    /// calls back into the host when it runs out. In an external contract call
+    /// `max_gas_burnt` (`max_gas_burnt_external`) is far below the prepaid gas,
+    /// so seeding the global from the prepaid gas alone would let a pure-Wasm loop run far past
+    /// the budget before it is checked.
+    ///
+    /// For internal calls, `prepaid_gas <= max_gas_burnt` so this is the same as the old
+    /// behavior of simply returning `self.prepaid_gas.saturating_sub(self.used_gas())`.
     pub(crate) fn remaining_gas(&self) -> Gas {
-        self.prepaid_gas.saturating_sub(self.used_gas())
+        let remaining_prepaid = self.prepaid_gas.saturating_sub(self.used_gas());
+        let remaining_burnt = self.max_gas_burnt.saturating_sub(self.burnt_gas());
+        min(remaining_prepaid, remaining_burnt)
     }
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {
@@ -410,6 +415,69 @@ impl StorageAccessTracker for GasCounter {
     }
     fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()> {
         self.pay_per(ExtCosts::storage_remove_ret_value_byte, bytes)
+    }
+}
+
+/// Gas counter passed to VM contract preparation.
+pub enum PreparedContractGasCounter {
+    /// Before `FixContractLoadingCost`: the VM charges the loading fee after the cache lookup.
+    Legacy(GasCounter),
+    Paid(LoadingFeePaid),
+}
+
+/// The loading base and bytes are paid. Only [`ContractLoadingBaseCharged::charge_bytes`]
+/// creates it.
+pub struct LoadingFeePaid {
+    gas_counter: GasCounter,
+    code_len: u64,
+}
+
+impl LoadingFeePaid {
+    #[cfg_attr(not(feature = "wasmtime_vm"), allow(dead_code))]
+    pub(crate) fn into_parts(self) -> (GasCounter, u64) {
+        (self.gas_counter, self.code_len)
+    }
+}
+
+/// The loading base is paid, the byte fee is not.
+pub struct ContractLoadingBaseCharged(GasCounter);
+
+impl ContractLoadingBaseCharged {
+    pub fn charge_bytes(
+        mut self,
+        code_len: u64,
+    ) -> StdResult<LoadingFeePaid, ContractLoadingAbort> {
+        if self.0.pay_per(ExtCosts::contract_loading_bytes, code_len).is_err() {
+            let error = FunctionCallError::HostError(HostError::GasExceeded);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self.0), error });
+        }
+        Ok(LoadingFeePaid { gas_counter: self.0, code_len })
+    }
+
+    /// No code exists. The call fails with the loading base burnt.
+    pub fn without_code(self, account_id: &str) -> ContractLoadingAbort {
+        let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+            account_id: account_id.into(),
+        });
+        ContractLoadingAbort { gas_counter: Box::new(self.0), error }
+    }
+}
+
+/// A call that fails before VM preparation, with the gas burnt so far.
+pub struct ContractLoadingAbort {
+    gas_counter: Box<GasCounter>,
+    error: FunctionCallError,
+}
+
+impl fmt::Debug for ContractLoadingAbort {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("ContractLoadingAbort").field("error", &self.error).finish()
+    }
+}
+
+impl ContractLoadingAbort {
+    pub fn into_outcome(self, context: &VMContext, config: Arc<Config>) -> VMOutcome {
+        VMOutcome::abort(ExecutionResultState::new(context, *self.gas_counter, config), self.error)
     }
 }
 

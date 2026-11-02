@@ -15,11 +15,13 @@ use near_primitives::block::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ShardId,
-    SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion,
+    ShardId, SpiceChunkId,
 };
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::ProtocolFeature;
 use std::collections::HashSet;
 
 /// Shards in [`FallbackSetup`].
@@ -31,6 +33,7 @@ const NUM_SHARDS: NumShards = 6;
 #[derive(Default)]
 struct FallbackSetup {
     epoch_length: Option<BlockHeightDelta>,
+    protocol_version: Option<ProtocolVersion>,
     user_accounts: Vec<(AccountId, Balance)>,
 }
 
@@ -41,6 +44,11 @@ impl FallbackSetup {
 
     fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = Some(epoch_length);
+        self
+    }
+
+    fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        self.protocol_version = Some(protocol_version);
         self
     }
 
@@ -71,6 +79,9 @@ impl FallbackSetup {
         if let Some(epoch_length) = self.epoch_length {
             genesis_builder = genesis_builder.epoch_length(epoch_length);
         }
+        if let Some(protocol_version) = self.protocol_version {
+            genesis_builder = genesis_builder.protocol_version(protocol_version);
+        }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
         }
@@ -82,32 +93,27 @@ impl FallbackSetup {
     }
 }
 
-/// Asserts every (height, shard) of the genesis epoch has designated validators under 1/3 of total
-/// stake, so the fallback's non-designated remainder can reach 2/3. Genesis epoch is representative.
+/// Asserts every (height, shard) of the genesis epoch has designated validators holding at most 1/3
+/// of total stake, so the non-designated remainder alone can certify via the fallback. Genesis
+/// epoch is representative.
 fn assert_fallback_has_enough_stake(node: &TestLoopNode) {
     let epoch_manager = node.client().epoch_manager.clone();
     let epoch_id = node.head().epoch_id;
     let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
     let shard_ids: Vec<_> =
         epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect();
-    let total_stake: u128 = all_stake_fallback_assignment(epoch_manager.as_ref(), &epoch_id)
-        .unwrap()
-        .assignments()
-        .iter()
-        .map(|(_, stake)| stake.as_yoctonear())
-        .sum();
+    let all_stake = all_stake_fallback_assignment(epoch_manager.as_ref(), &epoch_id).unwrap();
     for height in 1..=epoch_length {
         for &shard_id in &shard_ids {
-            let designated: u128 = epoch_manager
+            let designated_accounts: HashSet<AccountId> = epoch_manager
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
                 .unwrap()
-                .assignments()
-                .iter()
-                .map(|(_, stake)| stake.as_yoctonear())
-                .sum();
+                .ordered_chunk_validators()
+                .into_iter()
+                .collect();
             assert!(
-                designated * 3 < total_stake,
-                "designated stake reaches 1/3 at height {height} shard {shard_id}: {designated} of {total_stake}",
+                !all_stake.is_endorsed_by_more_than_one_third(&designated_accounts),
+                "designated stake exceeds 1/3 at height {height} shard {shard_id}",
             );
         }
     }
@@ -200,6 +206,34 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_all_stake_fallback_certifies_without_accesses_messages() {
+    init_test_logger();
+
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
+    // The non-designated validators get the witness through the fallback push but never the
+    // producers' contract accesses, so they can only endorse from what the witness itself lists.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts.clone())
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    let (faults, observed) = env.install_spice_partial_data_faults();
+    faults.lock().drop_contract_accesses_from.extend(accounts);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    let target = env.node(0).last_certified_block_header().height() + 4;
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= target,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    assert!(observed.lock().dropped_contract_accesses > 0, "no accesses message was dropped");
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     init_test_logger();
 
@@ -215,8 +249,7 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
 
     // Run normally up to just before the epoch boundary, then drop designated endorsements: the
     // all-stake fallback alone must carry certification across into the next epoch.
-    env.node_runner(0)
-        .run_until(|node| node.head().height >= epoch_length - 5, Duration::seconds(60));
+    env.node_runner(0).run_until_head_height(epoch_length - 5);
     let initial_epoch = env.node(0).head().epoch_id;
     let mut env = env.drop(DropCondition::DesignatedSpiceEndorsements);
 
@@ -288,8 +321,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     // Wait for the deploy to be included before submitting the call, so the call runs against an
     // already-settled contract (`record_contract_call` skips newly-deployed code).
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&contract_user);
-    let deploy_hash = deploy_tx.get_hash();
-    env.rpc_node().submit_tx(deploy_tx);
+    let deploy_hash = env.rpc_node().submit_tx(deploy_tx);
     env.rpc_runner().run_until_included(&[deploy_hash]);
 
     // The call's chunk witness omits the code, so a cold non-designated fallback validator must
@@ -302,8 +334,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let call_hash = call_tx.get_hash();
-    env.rpc_node().submit_tx(call_tx);
+    let call_hash = env.rpc_node().submit_tx(call_tx);
     let call_height = env.rpc_runner().run_until_included(&[call_hash]);
 
     // Execution advances only as the fallback certifies; wait for the certified frontier to reach
@@ -314,6 +345,49 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     );
     let frontier = env.rpc_node().last_certified_block_header();
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
+}
+
+/// The protocol upgrade with every designated endorsement dropped: the last
+/// pre-spice block can only certify via the all-stake fallback.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_activation_boundary_all_stake_fallback() {
+    init_test_logger();
+
+    // Longer than the fallback window, so certification can lag by a full window
+    // without the boundary chunks ever leaving the current epoch's uncertified set.
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new()
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    // Cross the boundary (pre-spice epochs are unaffected by the drop), then locate
+    // the last pre-spice block under the head.
+    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
+    let last_pre_spice = env.node(0).last_pre_spice_block_header();
+
+    // An epoch cannot end before its first block certifies, so leaving the first spice
+    // epoch proves the fallback alone certified the last pre-spice block and carried
+    // certification on into spice while the chain kept producing blocks.
+    env.node_runner(0).run_until_new_epoch();
+    assert_certified_via_fallback(&env.node(0), last_pre_spice.as_ref());
+    let frontier = env.node(0).last_certified_block_header();
+    assert!(
+        frontier.height() > last_pre_spice.height(),
+        "certification must advance into the spice epoch",
+    );
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
 }
 
 fn fallback_only_certification_schedule(
@@ -337,34 +411,6 @@ fn fallback_only_certification_schedule(
     fallback_schedule
 }
 
-/// The height of the block carrying `chunk_id`'s execution result, with every account that endorsed
-/// the chunk on chain up to and including it.
-fn certifying_height_and_endorsers(
-    node: &TestLoopNode,
-    chunk_id: &SpiceChunkId,
-) -> Option<(BlockHeight, HashSet<AccountId>)> {
-    let chain_store = node.client().chain.chain_store();
-    let chunk_height = chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
-    let mut endorsers = HashSet::new();
-    for height in chunk_height..=node.head().height {
-        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
-            continue;
-        };
-        let block = node.block(block_hash);
-        endorsers.extend(
-            block
-                .spice_core_statements()
-                .iter_endorsements()
-                .filter(|endorsement| endorsement.chunk_id() == chunk_id)
-                .map(|endorsement| endorsement.account_id().clone()),
-        );
-        if block.spice_core_statements().iter_execution_results().any(|(id, _)| id == chunk_id) {
-            return Some((height, endorsers));
-        }
-    }
-    None
-}
-
 /// Asserts the chunk certified with non-designated validators endorsing it on chain. An ordinary
 /// chunk never admits those on a healthy network: it is not fallback-eligible until it has been
 /// stuck for the full window.
@@ -380,18 +426,18 @@ fn assert_certified_by_all_stake(
     let chunk_id = SpiceChunkId { block_hash: chunk_block_hash, shard_id };
     let chunk_block = chain_store.get_block_header(&chunk_block_hash).unwrap();
 
-    // The designated set alone must fall short of 2/3 of total stake, or the chunk could certify
-    // before any non-designated endorsement lands. This is the 2/3 form, not the 1/3 form
-    // `assert_fallback_has_enough_stake` checks for the outage tests.
+    // The designated set alone must not hold more than 1/3 of total stake, or the chunk could
+    // certify before any non-designated endorsement lands.
     let designated = epoch_manager
         .get_chunk_validator_assignments(chunk_block.epoch_id(), shard_id, chunk_height)
         .unwrap();
     let all_stake = all_stake_fallback_assignment(epoch_manager, chunk_block.epoch_id()).unwrap();
     let designated_accounts: HashSet<AccountId> =
         designated.assignments().iter().map(|(account_id, _)| account_id.clone()).collect();
-    assert!(!all_stake.is_endorsed(&designated_accounts));
+    assert!(!all_stake.is_endorsed_by_more_than_one_third(&designated_accounts));
 
-    let (certifying_height, endorsers) = certifying_height_and_endorsers(node, &chunk_id)
+    let (certifying_height, endorsers) = node
+        .certifying_height_and_endorsers(&chunk_id)
         .unwrap_or_else(|| panic!("fallback-only chunk {chunk_id:?} was not certified"));
     // Inside the ordinary fallback window, so the schedule opened the all-stake path rather than
     // the chunk sitting stuck long enough for the normal one to open.

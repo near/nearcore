@@ -8,15 +8,12 @@ use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
 use near_primitives::epoch_sync::{CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "nightly")]
 use near_primitives::types::ShardId;
-#[cfg(feature = "nightly")]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
-#[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct EpochStoreAdapter {
@@ -40,9 +37,13 @@ impl EpochStoreAdapter {
         }
     }
 
+    /// Depends on fork processing order: two first blocks of competing forks with the same
+    /// parent share an `EpochId`, and the last one written wins. Do not use on consensus
+    /// paths; use `EpochManager::get_epoch_start_height` (the `BlockInfo` walk) instead.
     pub fn get_epoch_start(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.store
-            .get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .caching_get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .map(|epoch_start| *epoch_start)
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
@@ -50,28 +51,16 @@ impl EpochStoreAdapter {
     /// Errors
     ///   EpochError::IOErr if storage returned an error
     ///   EpochError::MissingBlock if block is not in storage
-    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochError> {
+    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.store
-            .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
+            .caching_get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
             .ok_or(EpochError::MissingBlock(*hash))
     }
 
-    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<EpochInfo, EpochError> {
+    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
+            .caching_get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
-    }
-
-    // Iterate over all the epoch infos in store
-    pub fn iter_epoch_info<'a>(&'a self) -> impl Iterator<Item = (EpochId, EpochInfo)> + 'a {
-        self.store.iter(DBCol::EpochInfo).filter(|(key, _)| key.as_ref() != AGGREGATOR_KEY).map(
-            |(key, value)| {
-                (
-                    EpochId::try_from_slice(key.as_ref()).unwrap(),
-                    EpochInfo::try_from_slice(value.as_ref()).unwrap(),
-                )
-            },
-        )
     }
 
     pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {
@@ -87,8 +76,6 @@ impl EpochStoreAdapter {
     }
 
     pub fn get_compressed_epoch_sync_proof(&self) -> Option<CompressedEpochSyncProof> {
-        // Use this function only when ProtocolFeature::ContinuousEpochSync is enabled
-        assert!(ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION));
         let proof = self.store.caching_get_ser::<CompressedEpochSyncProof>(
             DBCol::EpochSyncProof,
             COMPRESSED_EPOCH_SYNC_PROOF_KEY,
@@ -98,20 +85,11 @@ impl EpochStoreAdapter {
 
     /// Slightly expensive function, decodes the compressed epoch sync proof
     pub fn get_epoch_sync_proof(&self) -> Result<Option<EpochSyncProofV1>, EpochError> {
-        // It's fine to check ProtocolFeature::ContinuousEpochSync against PROTOCOL_VERSION here
-        // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            if let Some(proof) = self.get_compressed_epoch_sync_proof() {
-                let (decoded_proof, _) = proof.decode()?;
-                Ok(Some(decoded_proof.into_v1()))
-            } else {
-                Ok(None)
-            }
+        if let Some(proof) = self.get_compressed_epoch_sync_proof() {
+            let (decoded_proof, _) = proof.decode()?;
+            Ok(Some(decoded_proof.into_v1()))
         } else {
-            Ok(self
-                .store
-                .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-                .map(|proof| proof.into_v1()))
+            Ok(None)
         }
     }
 }
@@ -154,9 +132,8 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
 
     /// Record the chunk producer sampled for chunks anchored at `block_hash` on
     /// `shard_id`, keyed by `(block_hash, shard_id)`. Read back by the
-    /// epoch-manager chunk-producer resolvers. Nightly-only: `DBCol::ChunkProducers`
-    /// (and an enabled EarlyKickout) only exist under the `nightly` feature.
-    #[cfg(feature = "nightly")]
+    /// epoch-manager chunk-producer resolvers. Only written when EarlyKickout is
+    /// enabled for the anchor's epoch; the column is empty before then.
     pub fn set_chunk_producer(
         &mut self,
         block_hash: &CryptoHash,
@@ -186,19 +163,13 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {
-        // It's fine to check ProtocolFeature::ContinuousEpochSync against PROTOCOL_VERSION here
-        // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            let (compressed_proof, _) = CompressedEpochSyncProof::encode(proof).unwrap();
-            self.store_update.set_ser(
-                DBCol::EpochSyncProof,
-                COMPRESSED_EPOCH_SYNC_PROOF_KEY,
-                &compressed_proof,
-            );
-            let compressed_proof_size = compressed_proof.size_bytes() as i64;
-            metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(compressed_proof_size);
-        } else {
-            self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof);
-        }
+        let (compressed_proof, _) = CompressedEpochSyncProof::encode(proof).unwrap();
+        self.store_update.set_ser(
+            DBCol::EpochSyncProof,
+            COMPRESSED_EPOCH_SYNC_PROOF_KEY,
+            &compressed_proof,
+        );
+        let compressed_proof_size = compressed_proof.size_bytes() as i64;
+        metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(compressed_proof_size);
     }
 }

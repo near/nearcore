@@ -12,6 +12,7 @@ use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
@@ -141,7 +142,14 @@ impl crate::ChainAccess for ChainAccess {
             };
             chunks.push(SourceChunk {
                 shard_id: chunk.shard_id(),
-                transactions: chunk.to_transactions().to_vec(),
+                // TODO(ecc): decide how to mirror ECCs. They have no signer to re-sign with, so they are
+                // skipped for now.
+                transactions: chunk
+                    .to_transactions()
+                    .iter()
+                    .filter_map(TransactionEnvelope::as_signed)
+                    .cloned()
+                    .collect(),
                 receipts: chunk.prev_outgoing_receipts().to_vec(),
             })
         }
@@ -195,7 +203,7 @@ impl crate::ChainAccess for ChainAccess {
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         let mut after_key = None;
         loop {
-            let response = self.runtime.query(
+            let response = match self.runtime.query(
                 shard_uid,
                 chunk_extra.state_root(),
                 header.height(),
@@ -208,7 +216,13 @@ impl crate::ChainAccess for ChainAccess {
                     after_key,
                     limit: ACCESS_KEY_PAGE_SIZE,
                 },
-            )?;
+            ) {
+                Ok(response) => response,
+                Err(near_chain_primitives::error::QueryError::UnknownAccount { .. }) => {
+                    return Ok(ret);
+                }
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };

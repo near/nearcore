@@ -14,7 +14,6 @@ pub use crate::network_protocol::{
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice::data_distribution::SpiceDataRequest;
-pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
@@ -22,7 +21,7 @@ use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
@@ -247,12 +246,12 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard and given sync hash.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, sync_prev_prev_hash: CryptoHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, snapshot_hash: CryptoHash },
     /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        sync_prev_prev_hash: CryptoHash,
+        snapshot_hash: CryptoHash,
         part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
@@ -265,8 +264,6 @@ pub enum NetworkRequests {
     },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
-    /// Announce account
-    AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
     SnapshotHostEvent(SnapshotHostEvent),
 
@@ -339,40 +336,6 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
-/// These are the information needed for highest height peers. For these peers, we guarantee that
-/// the height and hash of the latest block are set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighestHeightPeerInfo {
-    pub peer_info: PeerInfo,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
-    /// Height and hash of the highest block we've ever received from the peer
-    pub highest_block_height: BlockHeight,
-    /// Hash of the latest block
-    pub highest_block_hash: CryptoHash,
-    /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
-    /// Denote if a node is running in archival mode or not.
-    pub archival: bool,
-}
-
-impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
-    fn from(p: FullPeerInfo) -> Self {
-        if p.chain_info.last_block.is_some() {
-            Some(HighestHeightPeerInfo {
-                peer_info: p.peer_info,
-                genesis_id: p.chain_info.genesis_id,
-                highest_block_height: p.chain_info.last_block.unwrap().height,
-                highest_block_hash: p.chain_info.last_block.unwrap().hash,
-                tracked_shards: p.chain_info.tracked_shards,
-                archival: p.chain_info.archival,
-            })
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct BlockInfo {
     pub height: BlockHeight,
@@ -420,7 +383,6 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
@@ -525,7 +487,6 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(AnnounceAccount);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
@@ -580,6 +541,10 @@ pub struct AccountIdOrPeerTrackingShard {
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
+    /// Requests routed over Tier2 are acknowledged over Tier2, and the response is sent over a
+    /// Tier3 connection to `peer_info.addr`. Requests received directly over a Tier3 connection
+    /// opened by the requester are answered over that connection.
+    pub is_direct: bool,
     /// Contents of the request
     pub body: Tier3RequestBody,
     pub recv_permit: RecvMessagePermit,

@@ -83,8 +83,23 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        Self::test_with_runtime_config_store(
+        Self::test_with_gc_num_epochs_to_keep(
             home_dir,
+            store,
+            genesis_config,
+            epoch_manager,
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+        )
+    }
+
+    pub fn test_with_gc_num_epochs_to_keep(
+        home_dir: &Path,
+        store: Store,
+        genesis_config: &GenesisConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        gc_num_epochs_to_keep: u64,
+    ) -> Arc<Self> {
+        Self::new(
             store,
             FilesystemContractRuntimeCache::with_memory_cache(
                 home_dir,
@@ -100,7 +115,15 @@ impl NightshadeRuntime {
             .handle(),
             genesis_config,
             epoch_manager,
-            RuntimeConfigStore::test(),
+            None,
+            default_view_access_keys_limit(),
+            None,
+            Some(RuntimeConfigStore::test()),
+            gc_num_epochs_to_keep,
+            Default::default(),
+            StateSnapshotConfig::enabled(home_dir.join("data")),
+            DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+            RuntimeOptions::default(),
         )
     }
 }

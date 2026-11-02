@@ -9,6 +9,12 @@ use std::path::Path;
 mod openrpc;
 
 use near_chain_configs::GenesisConfig;
+#[cfg(feature = "protocol_feature_spice")]
+use near_jsonrpc_primitives::types::light_client::{
+    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
+    RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
+};
 use near_jsonrpc_primitives::types::{
     blocks::{RpcBlockError, RpcBlockRequest, RpcBlockResponse},
     call_function::{RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse},
@@ -21,13 +27,11 @@ use near_jsonrpc_primitives::types::{
     config::{RpcProtocolConfigError, RpcProtocolConfigRequest, RpcProtocolConfigResponse},
     congestion::{RpcCongestionLevelError, RpcCongestionLevelRequest, RpcCongestionLevelResponse},
     gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
+    indexer::{RpcIndexerBlockError, RpcIndexerBlockRequest, RpcIndexerBlockResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
-        RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
-        RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
         RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
-        RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
     },
     maintenance::{
         RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
@@ -703,7 +707,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.3.21".to_string(),
+            version: "1.3.38".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -906,6 +910,7 @@ fn main() {
         "EXPERIMENTAL_light_client_block_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_spec_for_path::<
         RpcLightClientChunkExecutionProofRequest,
         RpcLightClientChunkExecutionProofResponse,
@@ -916,6 +921,7 @@ fn main() {
         "EXPERIMENTAL_light_client_chunk_execution_proof".to_string(),
         "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.".to_string(),
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_spec_for_path::<
         RpcLightClientExecutionOutcomeProofRequest,
         RpcLightClientExecutionOutcomeProofResponse,
@@ -926,6 +932,7 @@ fn main() {
         "EXPERIMENTAL_light_client_execution_outcome_proof".to_string(),
         "Returns a transaction or receipt execution outcome together with its proof against the chunk's certified outcome root, verifiable against a trusted light client head.".to_string(),
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_spec_for_path::<
         RpcLightClientStateProofRequest,
         RpcLightClientStateProofResponse,
@@ -935,6 +942,12 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_light_client_state_proof".to_string(),
         "Returns a value from a shard's state together with its trie proof against the chunk's certified state root, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<RpcIndexerBlockRequest, RpcIndexerBlockResponse, RpcIndexerBlockError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_indexer_block".to_string(),
+        "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.".to_string(),
     );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,

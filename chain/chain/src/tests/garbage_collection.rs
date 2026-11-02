@@ -18,7 +18,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::gen_changes;
 use near_store::trie::AccessOptions;
@@ -101,12 +101,12 @@ fn do_fork(
         let final_height =
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::from_header(block.header(), final_height, PROTOCOL_VERSION),
                 *block.header().random_value(),
             )
             .unwrap();
-        store_update.merge(epoch_manager_update.into());
+        store_update.merge(epoch_manager_update.store_update.into());
 
         let mut trie_changes_shards = Vec::new();
         for shard_id in 0..num_shards {
@@ -759,7 +759,7 @@ fn add_block(
         .insert(height, Some(*block.header().hash()));
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
-        .add_validator_proposals(
+        .record_block_info(
             BlockInfo::from_header(
                 block.header(),
                 block.header().height().saturating_sub(2),
@@ -768,7 +768,7 @@ fn add_block(
             *block.header().random_value(),
         )
         .unwrap();
-    store_update.merge(epoch_manager_update.into());
+    store_update.merge(epoch_manager_update.store_update.into());
     store_update.commit().unwrap();
     *prev_block = block.clone();
 }
@@ -819,12 +819,7 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block(blocks[4].hash()).is_err());
     assert!(chain.get_block(blocks[5].hash()).is_ok());
     assert!(chain.get_block(blocks[6].hash()).is_ok());
-    // block header should be available before continuous epoch sync
-    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        assert!(chain.get_block_header(blocks[4].hash()).is_err());
-    } else {
-        assert!(chain.get_block_header(blocks[4].hash()).is_ok());
-    }
+    assert!(chain.get_block_header(blocks[4].hash()).is_err());
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
     assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).is_empty());
@@ -940,9 +935,6 @@ fn test_state_sync_tail_update_clears_skipped_heights() {
 /// epoch S+1 reads that block's header and `BlockInfo`, so the state-sync cleanup must keep them.
 #[test]
 fn test_state_sync_tail_update_keeps_epoch_sync_proof_inputs() {
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut chain = get_chain(Clock::real());
     let epoch_manager = chain.epoch_manager.clone();
     let signer = Arc::new(create_test_signer("test1"));

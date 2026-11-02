@@ -1,9 +1,10 @@
 mod account_cost_increase;
-mod account_cost_increase_diff;
 mod backfill_receipt_to_tx;
+mod ban_universal_account_transfer;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
+mod block_header_v7_before_spice;
 mod bug_repro;
 mod cache_warming;
 mod catching_up;
@@ -29,18 +30,21 @@ mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
-#[cfg(feature = "nightly")]
 mod early_kickout_boundary;
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 mod early_kickout_e2e;
-// `nightly` only, not `test_features`: shared with `sync::early_kickout_sync`.
-#[cfg(feature = "nightly")]
 mod early_kickout_probe;
+mod early_kickout_withheld_block;
 mod early_prepare_transactions;
+mod ecc_reserved_method;
+mod eth_implicit_missing_global_contract;
+mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;
+mod fix_contract_loading_cost;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;
+mod gas_overflow_optimistic_block;
 mod genesis_chunk_request;
 mod global_contracts;
 mod global_contracts_distribution;
@@ -86,10 +90,10 @@ mod split_storage;
 mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
+mod transaction_cost_invariants;
 mod tx_inclusion_with_missed_chunks;
 mod universal_account_id;
 mod unknown_prev_chunk_preemption;
-#[cfg(feature = "nightly")]
 mod v2_partial_witness_resolution;
 mod validator_key_check;
 mod view_requests;

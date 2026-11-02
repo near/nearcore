@@ -1,5 +1,6 @@
 //! The all-stake fallback: if a chunk's designated validators do not certify it in time, it may instead
-//! be certified by 2/3 of total epoch stake.
+//! be certified by more than 1/3 of total epoch stake. With Byzantine stake below 1/3, such a set
+//! holds at least one honest validator.
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -50,7 +51,8 @@ pub fn endorsers_certify_chunk(
     let epoch_id = chunk_block_header.epoch_id();
     let shard_id = chunk_info.chunk_id.shard_id;
     if is_fallback_only_chunk(epoch_manager, chunk_block_header, shard_id)? {
-        return Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?.is_endorsed(endorsers));
+        return Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?
+            .is_endorsed_by_more_than_one_third(endorsers));
     }
     let designated = epoch_manager.get_chunk_validator_assignments(
         epoch_id,
@@ -63,11 +65,13 @@ pub fn endorsers_certify_chunk(
     if !fallback_eligible(epoch_manager, chunk_block_header, chunk_info, carrying_height)? {
         return Ok(false);
     }
-    Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?.is_endorsed(endorsers))
+    Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?
+        .is_endorsed_by_more_than_one_third(endorsers))
 }
 
 /// The epoch's full validator set as a shard-independent assignment weighted by real stake. The
-/// all-stake fallback certifies via 2/3 of this total when the designated assignment didn't in time.
+/// all-stake fallback certifies via more than 1/3 of this total when the designated assignment
+/// didn't in time.
 // TODO(spice-perf): the result is epoch-invariant but rebuilt (with per-validator AccountId clones)
 // on every call, and this is called per fallback-eligible chunk from validation, the producer, and
 // the writer. Cache it per EpochId, like get_chunk_validator_assignments.

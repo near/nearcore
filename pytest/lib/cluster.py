@@ -426,8 +426,11 @@ class BaseNode(object):
             time.sleep(0.2)
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
-        for access_key in self.get_access_key_list(acc,
-                                                   finality)['result']['keys']:
+        resp = self.get_access_key_list(acc, finality)
+        if resp.get('error', {}).get('cause',
+                                     {}).get('name') == 'UNKNOWN_ACCOUNT':
+            return None
+        for access_key in resp['result']['keys']:
             if access_key['public_key'] == pk:
                 return access_key['access_key']['nonce']
         return None
@@ -480,10 +483,18 @@ class BaseNode(object):
     # node's default polling_timeout. It's done this way to differentiate
     # between the case when the transaction is not found on the node and when
     # the node is dead or not responding.
-    def get_tx(self, tx_hash, tx_recipient_id, timeout=15):
+    def get_tx(self,
+               tx_hash,
+               sender_account_id,
+               timeout=15,
+               wait_until='EXECUTED_OPTIMISTIC'):
         return self.json_rpc(
             'tx',
-            [tx_hash, tx_recipient_id],
+            {
+                'tx_hash': tx_hash,
+                'sender_account_id': sender_account_id,
+                'wait_until': wait_until,
+            },
             timeout=timeout,
             max_retries=0,
         )

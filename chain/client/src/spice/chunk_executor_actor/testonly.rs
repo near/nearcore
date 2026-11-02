@@ -76,6 +76,7 @@ impl TestonlySyncChunkExecutorActor {
         let core_writer_actor = SpiceCoreWriterActor::new(
             runtime_adapter.store().chain_store(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
             validator_signer.clone(),
             core_reader,
             noop().into_sender(),
@@ -108,6 +109,7 @@ impl TestonlySyncChunkExecutorActor {
                 core_writer_sender,
                 data_distributor_adapter,
                 chunk_persistence_config,
+                None,
             ),
             actor_rc,
             tasks_rc,

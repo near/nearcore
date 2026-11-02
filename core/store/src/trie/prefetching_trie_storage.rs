@@ -431,15 +431,6 @@ impl PrefetchApi {
         })
     }
 
-    pub fn make_storage(&self) -> Arc<dyn TrieStorage> {
-        Arc::new(TriePrefetchingStorage::new(
-            self.store.clone(),
-            self.shard_uid,
-            self.shard_cache.clone(),
-            self.prefetching.clone(),
-        ))
-    }
-
     pub fn start_io_thread(
         &self,
         shard_uid: ShardUId,

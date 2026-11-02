@@ -1,6 +1,5 @@
 /// ChunkProducers resolution works across a resharding boundary: every shard in the new
 /// epoch's layout resolves correctly when looked up via the old epoch's last block.
-#[cfg(feature = "nightly")]
 mod tests {
     use crate::setup::builder::TestLoopBuilder;
     use crate::utils::account::{create_validators_spec, validators_spec_clients};
@@ -132,7 +131,6 @@ mod tests {
 /// (how DBs written before the own-epoch seeder keyed boundary rows). The legacy row is the
 /// case the generic own-epoch `combine_keys` copy would miss, so it guards the special case
 /// against removal.
-#[cfg(feature = "nightly")]
 mod cold_storage_tests {
     use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
     use crate::utils::setups::derive_new_epoch_config_from_boundary;
@@ -347,7 +345,6 @@ mod cold_storage_tests {
 /// below-tail anchor's rows disappear while an in-window anchor's rows survive and still
 /// resolve. A wrongly-evicted in-window row would surface as `ChunkProducerNotInDB` and stall
 /// the chain, so reaching the target height at all is the liveness check.
-#[cfg(feature = "nightly")]
 mod hot_gc_tests {
     use crate::setup::builder::TestLoopBuilder;
     use crate::utils::setups::derive_new_epoch_config_from_boundary;
@@ -356,8 +353,9 @@ mod hot_gc_tests {
     use near_o11y::testonly::init_test_logger;
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::AccountId;
+    use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, ShardId};
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;

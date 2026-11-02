@@ -4,31 +4,39 @@
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
+use near_async::messaging::IntoSender as _;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use near_chain::types::RuntimeAdapter;
+use near_chain::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
+use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::update_shard::ShardUpdateResult;
 use near_chain::{ChainGenesis, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::PeerManagerAdapter;
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
+};
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::{NumBlocks, ShardId};
+use near_primitives::types::{NumBlocks, ShardId, SpiceChunkId};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
+
+mod boundary;
 
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStoreAdapter,
@@ -42,6 +50,13 @@ pub struct ChunkExecutorActor {
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
+    /// Used to snapshot the state left behind by an epoch's first block, which is what state
+    /// sync hands out for that epoch. `None` where the executor runs without a snapshot actor,
+    /// as in some tests; whether the node takes snapshots at all is up to `StateSnapshotConfig`.
+    snapshot_callbacks: Option<SnapshotCallbacks>,
+    /// The last snapshot announced since this actor started. It is not persisted, so after a
+    /// restart the current snapshot is announced again once its chunks are certified.
+    advertised_snapshot: Option<CryptoHash>,
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
@@ -55,7 +70,8 @@ pub struct ChunkExecutorActor {
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
-    pub block_hash: CryptoHash,
+    /// Id the proof was delivered under.
+    pub data_id: DataId,
     pub receipt_proof: ReceiptProof,
 }
 
@@ -93,6 +109,7 @@ impl ChunkExecutorActor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         config: ChunkPersistenceConfig,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
@@ -115,6 +132,8 @@ impl ChunkExecutorActor {
             data_distributor_adapter,
             core_writer_sender,
             config,
+            snapshot_callbacks,
+            advertised_snapshot: None,
         }
     }
 
@@ -163,6 +182,49 @@ impl ChunkExecutorActor {
             .find(|executor| executor.shard_uid().shard_id() == shard_id)
     }
 
+    /// The `ShardUId` for `shard_id` if this node tracks it this or next epoch as of
+    /// `anchor`, which is read as a prev hash.
+    fn tracked_shard_uid(
+        &self,
+        anchor: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<ShardUId>, Error> {
+        Ok(self
+            .shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(anchor)?
+            .into_iter()
+            .find(|shard_uid| shard_uid.shard_id() == shard_id))
+    }
+
+    /// Create the destination shard's executor if this node tracks that shard as of
+    /// both the source block and the head, so an early receipt is buffered rather than
+    /// dropped: the push is not retried.
+    /// TODO(spice-resharding): neither anchor is enough when the source block is in a
+    /// different shard layout.
+    fn create_executor_if_shard_tracked(
+        &mut self,
+        to_shard_id: ShardId,
+        source_block: &CryptoHash,
+    ) -> Result<(), Error> {
+        if self.executor_for_shard_id(to_shard_id).is_some() {
+            return Ok(());
+        }
+        let head = self.chain_store.head()?.last_block_hash;
+        let anchor = match self.chain_store.get_block_header(source_block) {
+            Ok(_) => *source_block,
+            Err(Error::DBNotFoundErr(_)) => head,
+            Err(err) => return Err(err),
+        };
+        let Some(shard_uid) = self.tracked_shard_uid(&anchor, to_shard_id)? else {
+            return Ok(());
+        };
+        if anchor != head && self.tracked_shard_uid(&head, to_shard_id)?.is_none() {
+            return Ok(());
+        }
+        self.get_or_create_per_shard_executor(shard_uid);
+        Ok(())
+    }
+
     /// Spawn executors for shards tracked this or next epoch and evict ones no
     /// longer tracked. The this-or-next-epoch set matches the
     /// `should_apply_chunk(IsCaughtUp, ..)` gate the monolithic executor used:
@@ -189,6 +251,7 @@ impl ChunkExecutorActor {
         // of block processing and has no spice state to work from, so this returns
         // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            self.bootstrap_last_pre_spice_block(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -232,7 +295,7 @@ impl ChunkExecutorActor {
         }
     }
 
-    /// After a shard applies, wake local destination shards (their incoming
+    /// After a shard applies, progress its receiving shards (their incoming
     /// receipts are now on disk — local-path fanout), then finalize the block once
     /// all its tracked shards are applied.
     pub(crate) fn coordinator_post_apply(
@@ -240,13 +303,7 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
-        let destinations: HashSet<ShardId> =
-            outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
-        for to_shard_id in destinations {
-            if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
-                executor.handle_local_chunk_applied();
-            }
-        }
+        self.try_progress_receiving_shards(outgoing_proofs);
         // Each tracked shard's apply-done lands here; finalize the block once all of
         // them are applied. `finalize_block` is idempotent, so being driven here
         // repeatedly is harmless.
@@ -254,6 +311,18 @@ impl ChunkExecutorActor {
             self.finalize_block(block_hash)?;
         }
         Ok(())
+    }
+
+    /// Local-path fanout: the receipts in `outgoing_proofs` are already on disk, so
+    /// re-check the parked queue of each locally tracked receiving shard.
+    fn try_progress_receiving_shards(&mut self, outgoing_proofs: &[ReceiptProof]) {
+        let destinations: HashSet<ShardId> =
+            outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
+        for to_shard_id in destinations {
+            if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
+                executor.try_apply_pending();
+            }
+        }
     }
 
     /// Disk-driven head recovery: walk canonical-next from `spice_execution_head`
@@ -285,6 +354,13 @@ impl ChunkExecutorActor {
 
     fn finalize_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
+        // Before `apply_block_postprocessing`, which is what advances the flat head: the
+        // snapshot request freezes the flat heads where they are, at or below the sync block,
+        // and once they have moved past it the snapshot could no longer reach the state it is
+        // meant to hold.
+        if let Err(err) = self.process_snapshot(&block) {
+            tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to request a state snapshot");
+        }
         apply_block_postprocessing(
             self.runtime_adapter.as_ref(),
             self.epoch_manager.as_ref(),
@@ -296,7 +372,106 @@ impl ChunkExecutorActor {
         for executor in self.per_shard_executors.values_mut() {
             executor.prune_unverified_receipts_below_final_head()?;
         }
+
+        if let Err(err) = self.advertise_snapshot_if_certified() {
+            tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to announce the state snapshot");
+        }
+
         Ok(())
+    }
+
+    /// Announces the snapshot this node holds once the block it sits at has its chunks certified.
+    fn advertise_snapshot_if_certified(&mut self) -> Result<(), Error> {
+        let Some((sync_hash, shard_uids)) =
+            self.runtime_adapter.get_tries().state_snapshot_hash_and_shards()
+        else {
+            return Ok(());
+        };
+
+        if self.advertised_snapshot == Some(sync_hash) {
+            // No need to re-advertise the snapshot.
+            return Ok(());
+        }
+
+        let header = self.chain_store.get_block_header(&sync_hash)?;
+        if !header.is_spice() {
+            // Without spice the snapshot is announced as soon as it is taken.
+            return Ok(());
+        }
+
+        if !shard_uids.iter().all(|shard_uid| {
+            let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id: shard_uid.shard_id() };
+            self.chain_store.get_chunk_certifying_block(&chunk_id).is_some()
+        }) {
+            // Not every snapshotted chunk is certified yet.
+            return Ok(());
+        }
+
+        let epoch_height =
+            self.epoch_manager.get_epoch_height_from_prev_block(header.prev_hash())?;
+        self.network_adapter.clone().into_sender().send(
+            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+                SnapshotHostEvent::SnapshotCreated {
+                    sync_hash,
+                    epoch_height,
+                    shards: shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
+                },
+            )),
+        );
+        self.advertised_snapshot = Some(sync_hash);
+        tracing::info!(target: "state_snapshot", %sync_hash, "announced the state snapshot");
+
+        Ok(())
+    }
+
+    /// Requests a state snapshot of the sync block of the epoch containing `block`'s last final
+    /// block, unless that snapshot is already wanted or taken, or a flat head has already moved
+    /// past the sync block.
+    ///
+    /// State sync for an epoch hands out the state that epoch's first block left behind.
+    /// The snapshot is created here and announced to the network later, once
+    /// the chunks are certified.
+    fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+
+        let last_final = self.chain_store.get_block_header(block.header().last_final_block())?;
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(last_final.epoch_id())
+        else {
+            return Ok(());
+        };
+
+        let sync_header = self.chain_store.get_block_header(&sync_hash)?;
+        if !sync_header.is_spice() {
+            // At the activation epoch `last_final` still sits in the non-spice epoch, in which
+            // case the snapshot is taken in the non-spice code path.
+            return Ok(());
+        }
+
+        if self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .max_flat_head_height()
+            .is_some_and(|height| height > sync_header.height())
+        {
+            // The snapshot can no longer move the flat head back to the sync block.
+            return Ok(());
+        }
+
+        let tries = self.runtime_adapter.get_tries();
+        if tries.get_flat_storage_manager().snapshot_hash_wanted() == Some(sync_hash)
+            || tries.store().get_state_snapshot_hash().ok() == Some(sync_hash)
+        {
+            return Ok(());
+        }
+
+        request_state_snapshot(
+            snapshot_callbacks,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            &self.chain_store,
+            &tries,
+            self.chain_store.get_block(&sync_hash)?,
+        )
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
@@ -315,24 +490,24 @@ impl ChunkExecutorActor {
     }
 
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
-        let start_block = self.chain_store.spice_final_execution_head()?.last_block_hash;
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        self.process_all_ready_blocks_from(&final_execution_head)
+    }
 
-        // Park every block above the final execution head into its tracked shards'
-        // executors and try to drain. A freshly-started node catches up from disk;
-        // blocks not yet ready stay parked and are re-driven by apply-done fanout,
-        // incoming receipts, and chunk execution result endorsements.
-        let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block).into();
-        while let Some(block_hash) = next_block_hashes.pop_front() {
+    /// Park every block descending from `start` into its tracked shards' executors and try
+    /// to drain, re-running the boundary bootstrap of any last pre-spice block among them.
+    /// A freshly-started node catches up from disk; blocks not yet ready stay parked and are
+    /// re-driven by apply-done fanout, incoming receipts, and chunk execution result
+    /// endorsements.
+    fn process_all_ready_blocks_from(&mut self, start: &Tip) -> Result<(), Error> {
+        for block_hash in self.chain_store.get_processed_descendants(start)? {
             // A single bad block must not abort startup recovery for the whole chain;
             // log and continue. Normal runtime triggers (incoming receipts, chunk execution result
             // endorsements, apply-done fanout) re-drive it later.
             if let Err(err) = self.handle_processed_block(&block_hash) {
                 tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to process block during startup recovery; skipping");
             }
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
-
         Ok(())
     }
 
@@ -350,9 +525,21 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        // Both recovery steps below read the spice execution heads, which only
-        // exist once spice is active
         if !spice_enabled_at_head_on_startup(&self.chain_store) {
+            // The head is still pre-spice, so startup does not resume from the spice execution
+            // heads. A last pre-spice block past the last final block still needs its boundary
+            // bootstrap re-run: its sends are not persisted.
+            let result = self
+                .chain_store
+                .last_final_block_tip()
+                .and_then(|start| self.process_all_ready_blocks_from(&start));
+            if let Err(err) = result {
+                tracing::error!(
+                    target: "chunk_executor",
+                    ?err,
+                    "failed to re-run boundary bootstrap on startup",
+                );
+            }
             return;
         }
         // Recover after a crash between apply-commit and finalize: walk forward
@@ -377,7 +564,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { block_hash, receipt_proof } = receipts;
+        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
+        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
@@ -386,11 +575,12 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = receipt_proof.1.to_shard_id;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
+        let to_shard_id = *to_shard;
+        if let Err(err) = self.create_executor_if_shard_tracked(to_shard_id, &block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, ?to_shard_id, "failed to look up tracking for an incoming receipt");
+        }
+        // TODO(spice-data-distribution): a dropped delivery is lost: the data manager
+        // settled its commitment and does not re-deliver (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;

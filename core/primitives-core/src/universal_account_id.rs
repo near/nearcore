@@ -1,17 +1,18 @@
-//! Codec for `0u` universal account ids (UAIDs).
+//! Encoder for `0u` universal account ids (UAIDs).
 //!
 //! A UAID encodes a 32-byte hash as `0u` + 52 Crockford-base32 symbols of the hash
 //! = 54 characters, all lowercase `[0-9a-z]`, which is a valid NEAR account id.
 //!
-//! This is a pure codec: it turns a hash into an address and back. Hashing a
-//! `StateInit` into the 32-byte input lives with the account-id derivation, not here.
+//! This turns a hash into an address. Hashing a `StateInit` into the 32-byte input
+//! lives with the account-id derivation, not here, and `AccountType` decides whether
+//! a given account id is one of these.
 //!
 //! The base32 is implemented here rather than taken from a crate: it is a handful of
 //! lines and not worth a dependency in this foundational crate. The implementation was
 //! cross-checked against the `data-encoding` crate over 40M random cases with zero
 //! correctness divergence and on-par performance.
 
-// cspell:words crockford uaid nbits kats multibyte
+// cspell:words crockford uaid nbits kats
 
 use crate::types::AccountId;
 
@@ -25,33 +26,6 @@ pub const UAID_LEN: usize = UAID_PREFIX.len() + UAID_DATA_SYMBOLS;
 /// Crockford base32, lowercase, excluding `i l o u` to reduce transcription errors.
 const CROCKFORD: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz"; // cspell:disable-line
 
-/// Reverse lookup: ascii byte -> symbol value, or `-1` if not a Crockford symbol.
-/// Strict: no uppercase and no digit/letter aliases, so decoding is canonical.
-const DECODE: [i8; 256] = build_decode_table();
-
-const fn build_decode_table() -> [i8; 256] {
-    let mut table = [-1i8; 256];
-    let mut i = 0;
-    while i < 32 {
-        table[CROCKFORD[i] as usize] = i as i8;
-        i += 1;
-    }
-    table
-}
-
-/// Error returned when parsing a `0u` universal account id.
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum ParseUaidError {
-    #[error("invalid universal account id length")]
-    BadLength,
-    #[error("invalid universal account id prefix")]
-    BadPrefix,
-    #[error("invalid character in universal account id")]
-    InvalidSymbol,
-    #[error("non-canonical universal account id encoding: padding bits set")]
-    NonCanonical,
-}
-
 /// Encode a 32-byte hash as a `0u` universal account id.
 pub fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
     let data = base32_encode(hash);
@@ -63,44 +37,6 @@ pub fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
     debug_assert_eq!(s.len(), UAID_LEN);
     // Safe: the emitted charset and length are always a valid account id.
     s.parse::<AccountId>().expect("uaid codec must produce a valid account id")
-}
-
-/// Parse and fully validate a `0u` universal account id (prefix, length, charset,
-/// canonicity), returning its 32-byte hash.
-pub fn decode_universal_account_id(id: &str) -> Result<[u8; 32], ParseUaidError> {
-    let bytes = id.as_bytes();
-    if bytes.len() != UAID_LEN {
-        return Err(ParseUaidError::BadLength);
-    }
-    if !id.starts_with(UAID_PREFIX) {
-        return Err(ParseUaidError::BadPrefix);
-    }
-    let body: &[u8; UAID_DATA_SYMBOLS] =
-        bytes[UAID_PREFIX.len()..].try_into().map_err(|_| ParseUaidError::BadLength)?;
-    let mut data = [0u8; UAID_DATA_SYMBOLS];
-    for (slot, &c) in data.iter_mut().zip(body) {
-        *slot = decode_symbol(c)?;
-    }
-    base32_decode(&data)
-}
-
-/// Whether `id` is structurally a UAID. No allocation.
-/// Used later by account-type classification.
-///
-/// TODO(universal-accounts): `AccountType` has no variant for `0u` ids, so they
-/// classify as `NamedAccount` and every caller has to test the prefix by hand.
-/// Once `near-account-id` gains an `AccountType::Universal`, drop this and let
-/// the callers match on the account type like the other implicit kinds do.
-pub fn is_universal_account_id(id: &str) -> bool {
-    decode_universal_account_id(id).is_ok()
-}
-
-fn decode_symbol(c: u8) -> Result<u8, ParseUaidError> {
-    let v = DECODE[c as usize];
-    if v < 0 {
-        return Err(ParseUaidError::InvalidSymbol);
-    }
-    Ok(v as u8)
 }
 
 /// 32 bytes -> 52 five-bit symbol values, MSB-first. The 256 bits leave 1 bit in
@@ -127,34 +63,10 @@ fn base32_encode(hash: &[u8; 32]) -> [u8; UAID_DATA_SYMBOLS] {
     out
 }
 
-/// 52 symbol values -> 32 bytes. Rejects a non-canonical final symbol (padding bits set).
-fn base32_decode(data: &[u8; UAID_DATA_SYMBOLS]) -> Result<[u8; 32], ParseUaidError> {
-    let mut out = [0u8; 32];
-    let mut acc: u32 = 0;
-    let mut nbits: u32 = 0;
-    let mut idx = 0;
-    for &v in data {
-        acc = (acc << 5) | v as u32;
-        nbits += 5;
-        while nbits >= 8 {
-            nbits -= 8;
-            out[idx] = ((acc >> nbits) & 0xff) as u8;
-            idx += 1;
-            acc &= (1u32 << nbits) - 1;
-        }
-    }
-    debug_assert_eq!(idx, 32);
-    debug_assert_eq!(nbits, 4);
-    // The 4 leftover bits are padding and must be zero for a canonical encoding.
-    if acc != 0 {
-        return Err(ParseUaidError::NonCanonical);
-    }
-    Ok(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::id::AccountType;
 
     #[test]
     fn layout_constants() {
@@ -196,106 +108,8 @@ mod tests {
         for &(hash, expected) in KATS {
             let id = encode_universal_account_id(hash);
             assert_eq!(id.as_str(), expected, "encode mismatch for {hash:?}");
-            assert_eq!(decode_universal_account_id(expected).unwrap(), *hash);
             assert_eq!(id.len(), UAID_LEN);
         }
-    }
-
-    #[test]
-    fn round_trip() {
-        for seed in 0u16..=255 {
-            let mut hash = [0u8; 32];
-            for (i, b) in hash.iter_mut().enumerate() {
-                *b = (seed as u8).wrapping_add(i as u8).wrapping_mul(31);
-            }
-            let id = encode_universal_account_id(&hash);
-            assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
-            assert!(is_universal_account_id(id.as_str()));
-        }
-    }
-
-    /// The last symbol holds 1 real hash bit (its top bit) and 4 padding bits (its
-    /// low 4 bits), which must be zero. So only 2 of the 32 symbols are valid
-    /// there; anything else is a second spelling of the same address. Sweep all 32
-    /// to pin the accepted set exactly, not just to reject a few known-bad ones.
-    #[test]
-    fn accepts_exactly_the_canonical_encodings() {
-        let base = encode_universal_account_id(&[0x5a; 32]).as_str().to_owned();
-        let mut accepted = 0;
-        for (v, &sym) in CROCKFORD.iter().enumerate() {
-            let mut bytes = base.clone().into_bytes();
-            *bytes.last_mut().unwrap() = sym;
-            let s = String::from_utf8(bytes).unwrap();
-            match decode_universal_account_id(&s) {
-                Ok(hash) => {
-                    assert_eq!(v & 0b1111, 0, "final symbol {} has padding set", sym as char);
-                    assert_eq!(encode_universal_account_id(&hash).as_str(), s);
-                    accepted += 1;
-                }
-                Err(e) => {
-                    assert_ne!(v & 0b1111, 0, "canonical final symbol {} rejected", sym as char);
-                    assert_eq!(e, ParseUaidError::NonCanonical, "final symbol {}", sym as char);
-                }
-            }
-        }
-        assert_eq!(accepted, 2);
-    }
-
-    #[test]
-    fn rejects_structural_errors() {
-        let valid = encode_universal_account_id(&[0x11; 32]).as_str().to_owned();
-
-        // Wrong length.
-        assert_eq!(
-            decode_universal_account_id(&valid[..UAID_LEN - 1]),
-            Err(ParseUaidError::BadLength)
-        );
-        assert_eq!(
-            decode_universal_account_id(&format!("{valid}0")),
-            Err(ParseUaidError::BadLength)
-        );
-
-        // Wrong prefix, same length.
-        let mut wrong_prefix = valid.clone();
-        wrong_prefix.replace_range(0..2, "0s");
-        assert_eq!(decode_universal_account_id(&wrong_prefix), Err(ParseUaidError::BadPrefix));
-
-        // Out-of-alphabet characters in the body: the excluded glyphs and uppercase.
-        for bad in ['i', 'l', 'o', 'u', 'A', 'Z'] {
-            let mut bytes = valid.clone().into_bytes();
-            bytes[UAID_PREFIX.len()] = bad as u8;
-            let s = String::from_utf8(bytes).unwrap();
-            assert_eq!(
-                decode_universal_account_id(&s),
-                Err(ParseUaidError::InvalidSymbol),
-                "char {bad} should be rejected"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_more_structural_errors() {
-        let valid = encode_universal_account_id(&[0x11; 32]).as_str().to_owned();
-
-        // Empty string.
-        assert_eq!(decode_universal_account_id(""), Err(ParseUaidError::BadLength));
-
-        // Too long via a multibyte char (byte length, not char count, matters).
-        assert_eq!(
-            decode_universal_account_id(&format!("{valid}é")),
-            Err(ParseUaidError::BadLength)
-        );
-
-        // Exactly UAID_LEN bytes but with a multibyte char in the body.
-        let body_tail = &valid[UAID_PREFIX.len() + 2..];
-        let multibyte = format!("{UAID_PREFIX}é{body_tail}"); // 'é' occupies 2 bytes
-        assert_eq!(multibyte.len(), UAID_LEN);
-        assert_eq!(decode_universal_account_id(&multibyte), Err(ParseUaidError::InvalidSymbol));
-
-        // Uppercase body: Crockford decoding is strict lowercase, no aliases.
-        let upper = format!("{UAID_PREFIX}{}", valid[UAID_PREFIX.len()..].to_uppercase());
-        assert_eq!(upper.len(), UAID_LEN);
-        assert_eq!(decode_universal_account_id(&upper), Err(ParseUaidError::InvalidSymbol));
     }
 
     #[test]
@@ -311,18 +125,97 @@ mod tests {
         }
     }
 
+    /// What the encoder emits is a universal account, and an edit that breaks the length,
+    /// the prefix, the alphabet or the padding rule stops it being one. An edit that keeps
+    /// all four is the address of a different hash, so it stays universal.
     #[test]
-    fn is_universal_agrees_with_decode() {
-        let valid = encode_universal_account_id(&[0x33; 32]).as_str().to_owned();
-        assert!(is_universal_account_id(&valid));
-        assert!(!is_universal_account_id("alice.near"));
-        assert!(!is_universal_account_id(&valid[..UAID_LEN - 1]));
+    fn only_canonical_encodings_classify_as_universal() {
+        let account_type = |id: &str| id.parse::<AccountId>().ok().map(|id| id.get_account_type());
+        let valid = encode_universal_account_id(&[0x11; 32]).as_str().to_owned();
+        assert_eq!(account_type(&valid), Some(AccountType::UniversalAccount));
 
-        // A set padding bit in the final symbol is not a UAID.
-        let mut bytes = valid.into_bytes();
-        let last = bytes.last_mut().unwrap();
-        *last = CROCKFORD[DECODE[*last as usize] as usize ^ 1];
-        let bad = String::from_utf8(bytes).unwrap();
-        assert!(!is_universal_account_id(&bad));
+        // One symbol short, and one symbol too many.
+        assert_eq!(account_type(&valid[..UAID_LEN - 1]), Some(AccountType::NamedAccount));
+        assert_eq!(account_type(&format!("{valid}0")), Some(AccountType::NamedAccount));
+
+        // Right length, wrong prefix. The all-hex bodies are the ones the other two
+        // prefixed account types would take if their own length rule ever went.
+        let mut wrong_prefix = valid.clone();
+        wrong_prefix.replace_range(0..UAID_PREFIX.len(), "0s");
+        assert_eq!(account_type(&wrong_prefix), Some(AccountType::NamedAccount));
+        for prefix in ["0s", "0x"] {
+            let hex_body = format!("{prefix}{}", "0".repeat(UAID_DATA_SYMBOLS));
+            assert_eq!(hex_body.len(), UAID_LEN);
+            assert_eq!(account_type(&hex_body), Some(AccountType::NamedAccount));
+        }
+
+        // A universal id inside a longer name is a named account.
+        assert_eq!(account_type(&format!("{valid}.near")), Some(AccountType::NamedAccount));
+        assert_eq!(account_type(&format!("sub.{valid}")), Some(AccountType::NamedAccount));
+
+        // Every byte in a body position, so the alphabet rule is pinned whole rather than
+        // at a few sampled characters. A symbol addresses another hash; anything else
+        // either stops being an account id or becomes a named one.
+        let middle = UAID_LEN / 2;
+        for byte in 0..=u8::MAX {
+            let mut bytes = valid.clone().into_bytes();
+            bytes[middle] = byte;
+            let Ok(edited) = String::from_utf8(bytes) else {
+                continue;
+            };
+            match account_type(&edited) {
+                Some(AccountType::UniversalAccount) => assert!(
+                    CROCKFORD.contains(&byte),
+                    "byte {byte} is not a symbol, so it must not classify universal"
+                ),
+                Some(other) => {
+                    assert!(
+                        !CROCKFORD.contains(&byte),
+                        "byte {byte} is a symbol, so it must classify universal"
+                    );
+                    assert_eq!(other, AccountType::NamedAccount, "byte {byte}");
+                }
+                None => {
+                    assert!(!CROCKFORD.contains(&byte), "byte {byte} is a symbol, so it must parse")
+                }
+            }
+        }
+
+        // Every symbol in the final position. It carries one hash bit and four padding
+        // bits, so only the two spellings that leave the padding clear are universal.
+        let mut accepted = 0;
+        for &symbol in CROCKFORD {
+            let mut bytes = valid.clone().into_bytes();
+            *bytes.last_mut().unwrap() = symbol;
+            let edited = String::from_utf8(bytes).unwrap();
+            if account_type(&edited) == Some(AccountType::UniversalAccount) {
+                accepted += 1;
+                assert!(
+                    matches!(symbol, b'0' | b'g'),
+                    "symbol {} left padding set",
+                    symbol as char
+                );
+            } else {
+                assert_eq!(account_type(&edited), Some(AccountType::NamedAccount));
+            }
+        }
+        assert_eq!(accepted, 2);
+    }
+
+    /// What this encoder emits is what `AccountType` calls a universal account, so
+    /// the two cannot drift apart.
+    #[test]
+    fn encoder_output_classifies_as_universal() {
+        for &(hash, _) in KATS {
+            let id = encode_universal_account_id(hash);
+            assert_eq!(id.get_account_type(), AccountType::UniversalAccount, "{id}");
+        }
+        for seed in 0u8..64 {
+            let id = encode_universal_account_id(&[seed.wrapping_mul(37); 32]);
+            assert_eq!(id.get_account_type(), AccountType::UniversalAccount, "{id}");
+        }
+
+        let named: AccountId = "alice.near".parse().unwrap();
+        assert_ne!(named.get_account_type(), AccountType::UniversalAccount);
     }
 }

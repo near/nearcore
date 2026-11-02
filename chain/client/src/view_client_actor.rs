@@ -37,18 +37,14 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight,
-    TxStatusRequest, TxStatusResponse,
+    BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight, TxStatusRequest, TxStatusResponse,
 };
-use near_network::types::{
-    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
-};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
-use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
@@ -59,7 +55,7 @@ use near_primitives::types::{
     EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -73,7 +69,6 @@ use near_store::merkle_proof::MerkleProofAccess;
 use near_store::trie::AccessOptions;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -84,7 +79,9 @@ const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
 const REQUEST_WAIT_TIME: i64 = 1000;
 
-/// Request and response manager across all instances of ViewClientActor.
+/// Request and response manager shared by every ViewClientActor thread. All threads read one
+/// queue, so the thread that records a `TxStatusRequest` is not the one that handles its
+/// `TxStatusResponse`.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
     pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
@@ -130,6 +127,7 @@ impl ViewClientActor {
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
     ) -> MultithreadRuntimeHandle<ViewClientActor> {
+        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
             ViewClientActor::new(
                 clock.clone(),
@@ -141,6 +139,7 @@ impl ViewClientActor {
                 config.clone(),
                 adv.clone(),
                 validator_signer.clone(),
+                request_manager.clone(),
             )
             .unwrap()
         })
@@ -156,6 +155,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        request_manager: Arc<RwLock<ViewClientRequestManager>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -182,7 +182,7 @@ impl ViewClientActor {
             runtime,
             network_adapter,
             config,
-            request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            request_manager,
             spice_chain_reader,
         })
     }
@@ -326,6 +326,26 @@ impl ViewClientActor {
             self.epoch_manager.get_epoch_start_height(cur_block_info.hash())?
                 + self.epoch_manager.get_epoch_config(&epoch_id)?.epoch_length;
 
+        // An account that is not a validator of this epoch is never sampled as a block or
+        // chunk producer, so the whole remainder of the epoch is a single window.
+        let Some(&validator_id) = epoch_info.get_validator_id(&account_id) else {
+            let rest_of_epoch = head.height..next_epoch_start_height;
+            return Ok(if rest_of_epoch.is_empty() { vec![] } else { vec![rest_of_epoch] });
+        };
+
+        // Sampling only ever returns validators listed in the corresponding settlement, so an
+        // account missing from one can never be drawn from it and needs no sampling there.
+        let samples_as_block_producer =
+            epoch_info.block_producers_settlement().contains(&validator_id);
+        let chunk_producer_shard_ids: Vec<ShardId> = shard_ids
+            .iter()
+            .copied()
+            .filter(|&shard_id| {
+                let Ok(shard_index) = shard_layout.get_shard_index(shard_id) else { return false };
+                epoch_info.chunk_producers_settlement()[shard_index].contains(&validator_id)
+            })
+            .collect();
+
         let mut windows: MaintenanceWindowsView = Vec::new();
         let mut start_block_of_window: Option<BlockHeight> = None;
         let last_block_of_epoch = next_epoch_start_height - 1;
@@ -333,16 +353,14 @@ impl ViewClientActor {
         // This loop does not go beyond the current epoch so it is valid to use
         // the EpochInfo and ShardLayout from the current epoch.
         for block_height in head.height..next_epoch_start_height {
-            let bp = epoch_info.sample_block_producer(block_height);
-            let bp = epoch_info.get_validator(bp).account_id().clone();
-            let mut cps = shard_ids.iter().map(|&shard_id| {
-                let cp = epoch_info
-                    .sample_chunk_producer(&shard_layout, shard_id, block_height)
-                    .unwrap();
-                let cp = epoch_info.get_validator(cp).account_id().clone();
-                cp
+            let produces_block = samples_as_block_producer
+                && epoch_info.sample_block_producer(block_height) == validator_id;
+            let mut chunk_producers = chunk_producer_shard_ids.iter().map(|&shard_id| {
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, block_height).unwrap()
             });
-            if account_id != bp && !cps.any(|a| *a == account_id) {
+            if !produces_block
+                && !chunk_producers.any(|chunk_producer| chunk_producer == validator_id)
+            {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);
@@ -405,18 +423,9 @@ impl ViewClientActor {
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
-                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
-                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-                        && self.is_block_gc(header.height())
-                    {
-                        QueryError::GarbageCollectedBlock {
-                            block_height: header.height(),
-                            block_hash: *header.hash(),
-                        }
-                    } else {
-                        QueryError::UnavailableShard { requested_shard_id: shard_id }
-                    }
+                    // Block headers may be GC'd, so there is no way to tell whether a block
+                    // hash is GC'd or just unknown.
+                    QueryError::UnavailableShard { requested_shard_id: shard_id }
                 }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }
@@ -735,21 +744,6 @@ impl ViewClientActor {
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<Arc<BlockHeader>>, near_chain::Error> {
         retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS)
-    }
-
-    fn check_signature_account_announce(
-        &self,
-        announce_account: &AnnounceAccount,
-    ) -> Result<bool, Error> {
-        let announce_hash = announce_account.hash();
-        self.epoch_manager
-            .verify_validator_signature(
-                &announce_account.epoch_id,
-                &announce_account.account_id,
-                announce_hash.as_ref(),
-                &announce_account.signature,
-            )
-            .map_err(|e| e.into())
     }
 }
 
@@ -1992,62 +1986,6 @@ impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientA
         } else {
             None
         }
-    }
-}
-
-impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
-    for ViewClientActor
-{
-    fn handle(
-        &mut self,
-        msg: AnnounceAccountRequest,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
-            .with_label_values(&["AnnounceAccountRequest"])
-            .start_timer();
-        let AnnounceAccountRequest(announce_accounts) = msg;
-
-        let mut filtered_announce_accounts = Vec::new();
-
-        for (announce_account, last_epoch) in announce_accounts {
-            // Keep the announcement if it is newer than the last announcement from
-            // the same account.
-            if let Some(last_epoch) = last_epoch {
-                match self.epoch_manager.compare_epoch_id(&announce_account.epoch_id, &last_epoch) {
-                    Ok(Ordering::Greater) => {}
-                    _ => continue,
-                }
-            }
-
-            match self.check_signature_account_announce(&announce_account) {
-                Ok(true) => {
-                    filtered_announce_accounts.push(announce_account);
-                }
-                // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
-                // according to BlockInfo for the current chain tip. It is unfair,
-                // given that peers do not have perfectly synchronized heads:
-                // - AFAIU each block can introduce a slashed account, so the announcement
-                //   could be OK at the moment that peer has sent it out.
-                // - the current epoch_id is not related to announce_account.epoch_id,
-                //   so it carry a perfectly valid (outdated) information.
-                Ok(false) => {
-                    return Err(ReasonForBan::InvalidSignature);
-                }
-                // Filter out this account. This covers both good reasons to ban the peer:
-                // - signature didn't match the data and public_key.
-                // - account is not a validator for the given epoch
-                // and cases when we were just unable to validate the data (so we shouldn't
-                // ban), for example when the node is not aware of the public key for the given
-                // (account_id,epoch_id) pair.
-                // We currently do NOT ban the peer for either.
-                // TODO(gprusak): consider whether we should change that.
-                Err(err) => {
-                    tracing::debug!(target: "view_client", ?err, "failed to validate account announce signature");
-                }
-            }
-        }
-        Ok(filtered_announce_accounts)
     }
 }
 

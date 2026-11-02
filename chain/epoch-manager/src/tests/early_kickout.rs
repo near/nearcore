@@ -2,51 +2,49 @@
 //! and the gated `get_chunk_producer_blacklist` accessor: the math directly, and the
 //! accessor end-to-end (gate + boundary reset + enabled path).
 
-#[cfg(feature = "nightly")]
 use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-#[cfg(feature = "nightly")]
 use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
-#[cfg(feature = "nightly")]
 use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 use crate::set_early_kickout_thresholds_for_testing;
 use crate::test_utils::DEFAULT_TOTAL_SUPPLY;
 use crate::test_utils::{
-    epoch_info, record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
+    block_info_with_final_and_mask, epoch_info, record_block, record_block_with_final_and_mask,
+    record_block_with_final_and_mask_at_version, record_block_with_version,
+    setup_default_epoch_manager, setup_default_epoch_manager_at_version,
 };
 use crate::{
     ChunkProducerBlacklist, EpochManager, EpochManagerAdapter, EpochManagerHandle,
     compute_chunk_producer_blacklist,
 };
-#[cfg(feature = "nightly")]
 use crate::{SampleEpoch, SeedAnchor};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-#[cfg(feature = "nightly")]
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
-#[cfg(feature = "nightly")]
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
-#[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
-#[cfg(feature = "nightly")]
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, Balance, ChunkStats, ShardId, ValidatorId};
-#[cfg(feature = "nightly")]
+use near_primitives::types::{
+    AccountId, Balance, ChunkStats, ProtocolVersion, ShardId, ValidatorId,
+};
 use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::PROTOCOL_VERSION;
-#[cfg(feature = "nightly")]
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
-#[cfg(feature = "nightly")]
 use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
-#[cfg(all(feature = "nightly", feature = "test_features"))]
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
+
+/// Highest protocol version with EarlyKickout still off. Used by the gate tests, which
+/// must keep running against a pre-activation epoch after the feature stabilizes.
+const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
+    ProtocolFeature::EarlyKickout.protocol_version() - 1;
 
 /// Builds an `EpochInfo` over `layout` with `num_producers` accounts (ids
 /// `0..num_producers`) and one explicit chunk-producer `settlement` per shard, in
@@ -459,10 +457,22 @@ fn record_block_with_mask(
     height: u64,
     chunk_mask: Vec<bool>,
 ) {
+    record_block_with_mask_at_version(em, prev, cur, height, chunk_mask, PROTOCOL_VERSION);
+}
+
+/// `record_block_with_mask` with the block voting for `protocol_version`.
+fn record_block_with_mask_at_version(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: u64,
+    chunk_mask: Vec<bool>,
+    protocol_version: ProtocolVersion,
+) {
     // ~2-block finality: last-final = grandparent (height - 2). The seeder bases the
     // blacklist on this hash.
     let last_final = *em.get_block_info(&prev).unwrap().prev_hash();
-    record_block_with_final_and_mask(
+    record_block_with_final_and_mask_at_version(
         em,
         prev,
         cur,
@@ -470,24 +480,32 @@ fn record_block_with_mask(
         last_final,
         height.saturating_sub(2),
         chunk_mask,
+        protocol_version,
     );
 }
 
-/// Drives `count` blocks in epoch 0 where the single shard's chunk is missed
-/// exactly on the heights where `target` is the scheduled producer. The result:
-/// `target` accumulates 0 produced / many expected (blacklist candidate) while the
+/// Drives `count` blocks in epoch 0 at `PV_BEFORE_EARLY_KICKOUT` where the single shard's
+/// chunk is missed exactly on the heights where `target` is the scheduled producer. The
+/// result: `target` accumulates 0 produced / many expected (blacklist candidate) while the
 /// other producer stays at 100%. Returns the recorded block hashes (index = height).
 ///
-/// Stable-only: the plain height sampler keeps missing heights on `target`. On nightly the
-/// seeder excludes the target once the grace lifts, so those tests use `drive_down_node`.
-#[cfg(not(feature = "nightly"))]
+/// Only valid below the activation version: the plain height sampler keeps putting missed
+/// heights on `target`. Once EarlyKickout is on, the seeder excludes the target as soon as
+/// the grace lifts, so those tests use `drive_down_node`.
 fn drive_targeted_misses(
     handle: &EpochManagerHandle,
     count: u64,
     target: ValidatorId,
 ) -> Vec<CryptoHash> {
     let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
-    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    record_block_with_version(
+        &mut handle.write(),
+        CryptoHash::default(),
+        h[0],
+        0,
+        vec![],
+        PV_BEFORE_EARLY_KICKOUT,
+    );
     let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
@@ -496,33 +514,43 @@ fn drive_targeted_misses(
     for height in 1..=count {
         let scheduled = epoch_info.sample_chunk_producer(&layout, shard_id, height).unwrap();
         let produced = scheduled != target;
-        record_block_with_mask(
+        record_block_with_mask_at_version(
             &mut handle.write(),
             prev,
             h[height as usize],
             height,
             vec![produced],
+            PV_BEFORE_EARLY_KICKOUT,
         );
         prev = h[height as usize];
     }
     h
 }
 
-// 10. pre-v152 protocol + miss-heavy stats -> accessor returns empty (gate proves
-//     no production leak). Only meaningful on stable (PROTOCOL_VERSION < 152).
-#[cfg(not(feature = "nightly"))]
+// 10. pre-activation protocol + miss-heavy stats -> accessor returns empty (gate proves
+//     no production leak). Drives the same 1200 blocks as the enabled-path test below, so
+//     the stats would blacklist the target if the version gate were removed; a shorter run
+//     would stay inside the 1000-block grace and pass either way.
 #[test]
 fn get_chunk_producer_blacklist_empty_when_feature_disabled() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
-    let h = drive_targeted_misses(&handle, 160, 0);
+    let handle = setup_default_epoch_manager_at_version(
+        validators,
+        10_000,
+        1,
+        3,
+        90,
+        60,
+        PV_BEFORE_EARLY_KICKOUT,
+    )
+    .into_handle();
+    let h = drive_targeted_misses(&handle, 1200, 0);
     let bl = handle.get_chunk_producer_blacklist(h.last().unwrap()).unwrap();
     assert!(bl.is_empty(), "feature disabled must yield empty blacklist, got {bl:?}");
 }
 
-// Enabled-path end-to-end: v152+ protocol + miss-heavy stats past the grace window -> the
+// Enabled-path end-to-end: EarlyKickout on + miss-heavy stats past the grace window -> the
 // down node is blacklisted on its shard (proves the accessor wires aggregator -> compute).
-#[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_blacklists_miss_heavy_producer() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -537,7 +565,6 @@ fn get_chunk_producer_blacklist_blacklists_miss_heavy_producer() {
 }
 
 /// The single-shard epoch-0 context every blacklist-aware driver below records against.
-#[cfg(feature = "nightly")]
 struct ChainCtx<'a> {
     handle: &'a EpochManagerHandle,
     epoch_info: &'a EpochInfo,
@@ -545,7 +572,6 @@ struct ChainCtx<'a> {
     shard_id: ShardId,
 }
 
-#[cfg(feature = "nightly")]
 impl ChainCtx<'_> {
     /// Records `cur` on top of `prev` using **blacklist-aware** assignment (mirrors the
     /// write path): the height's chunk goes to
@@ -584,7 +610,6 @@ impl ChainCtx<'_> {
 
 /// Drives `count` blocks in epoch 0 simulating `down` as a non-producing node, one
 /// [`ChainCtx::step`] per height. Returns the recorded block hashes (index = height).
-#[cfg(feature = "nightly")]
 fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -> Vec<CryptoHash> {
     let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
     record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
@@ -605,7 +630,6 @@ fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -
 // replacement into `DBCol::ChunkProducers`, and the aggregator reads that row back via
 // `anchored_chunk_producers_for_aggregator`, so the replacement (not validator 0) is
 // credited on the reassigned heights. Validator 0 never recovers and never flaps back in.
-#[cfg(feature = "nightly")]
 #[test]
 fn early_kickout_attribution_does_not_flap() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -671,7 +695,7 @@ fn early_kickout_attribution_does_not_flap() {
     );
 }
 
-// 11. v152+ epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
+// 11. epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
 //     seeder), so the boundary anchor (last block of epoch 0) still carries epoch 0's
 //     miss-heavy blacklist. The reset lands on the first epoch-1 anchor: its own epoch flips
 //     while its last-final block (the aggregator basis) still sits in epoch 0, so the
@@ -682,7 +706,6 @@ fn early_kickout_attribution_does_not_flap() {
 //     so a boundary exists. `boundary_idx` is the last block whose next block starts a new epoch;
 //     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx`
 //     is the boundary anchor and `boundary_idx + 1` the first epoch-1 anchor.
-#[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -717,7 +740,6 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
 // sampling at the final block would bake an old-epoch producer into a new-epoch row, and
 // keeping own-epoch sampling without the guard would match old-epoch stats (epoch-local
 // `ValidatorId`s) against the new epoch's settlement.
-#[cfg(feature = "nightly")]
 #[test]
 fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
     // 3 validators (not the usual 2): enough schedule entropy that the old and new epoch
@@ -784,7 +806,6 @@ fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until
 // the anchor is at least EARLY_KICKOUT_EPOCH_GRACE_BLOCKS into the epoch, then blacklists it.
-#[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -852,7 +873,6 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
 // The seeded `DBCol::ChunkProducers` row equals the plain height sampler while the blacklist
 // is empty, and the blacklist-aware sampler (never the down node) once it is non-empty. The
 // strict consensus reader returns that same row.
-#[cfg(feature = "nightly")]
 #[test]
 fn seeded_rows_match_blacklist_aware_sampler() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -917,7 +937,6 @@ fn seeded_rows_match_blacklist_aware_sampler() {
 // aggregator's lenient reader never height-samples (which would re-credit the down node)
 // while a blacklist is active -- the missing-row region and the non-empty-blacklist region
 // are disjoint.
-#[cfg(feature = "nightly")]
 #[test]
 fn nonempty_blacklist_anchor_always_has_row() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -958,7 +977,6 @@ fn nonempty_blacklist_anchor_always_has_row() {
 // Per-shard isolation: with 2 shards, driving shard 0's producer down blacklists it on
 // shard 0 only and leaves shard 1 healthy. Exercises the seeder's per-shard blacklist + loop
 // (every other early_kickout test is single-shard) and the reassignment metric.
-#[cfg(feature = "nightly")]
 #[test]
 fn per_shard_blacklist_isolated() {
     use crate::metrics::EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED;
@@ -1058,12 +1076,8 @@ fn per_shard_blacklist_isolated() {
     );
 }
 
-/// Records a block whose finality is pinned to `(final_hash, final_height)` with all chunks
-/// produced. Holding those fixed across many blocks freezes `largest_final_height`, so
-/// `record_block_info`'s incremental aggregator update is skipped and the per-block seed walk
-/// re-scans the growing not-yet-finalized suffix — the finality-stall regime.
-#[cfg(feature = "nightly")]
-fn record_block_frozen_final(
+/// Unlike `record_block`, keeps the final hash and height consistent for sync-point tests.
+fn record_block_with_final(
     em: &mut EpochManager,
     prev: CryptoHash,
     cur: CryptoHash,
@@ -1077,15 +1091,27 @@ fn record_block_frozen_final(
     record_block_with_final_and_mask(em, prev, cur, height, final_hash, final_height, chunk_mask);
 }
 
-// Regression guard: with finality frozen the seeder walks only to the pinned last-final block,
-// so per-block cost is O(1) and total is linear, not the old O(stall-depth) suffix re-walk. Two
-// stall depths check the per-block walk does not grow with depth.
-#[cfg(feature = "nightly")]
-#[test]
-fn seed_walk_bounded_under_finality_stall() {
-    use std::sync::atomic::Ordering;
+fn height_hashes(tip: u64) -> Vec<CryptoHash> {
+    (0..=tip).map(|i| hash(&i.to_le_bytes())).collect()
+}
 
-    // Total per-block seeding walk iterations over a `count`-block stall frozen at genesis.
+fn record_steady_chain(em: &mut EpochManager, h: &[CryptoHash]) {
+    record_block(em, CryptoHash::default(), h[0], 0, vec![]);
+    for height in 1..h.len() {
+        let two_back = height.saturating_sub(2);
+        record_block_with_final(
+            em,
+            h[height - 1],
+            h[height],
+            height as u64,
+            h[two_back],
+            two_back as u64,
+        );
+    }
+}
+
+#[test]
+fn seed_walk_skipped_during_in_grace_stall() {
     fn stall_walk(count: u64) -> usize {
         let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
         let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
@@ -1093,7 +1119,7 @@ fn seed_walk_bounded_under_finality_stall() {
         record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
         let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
         for height in 1..=count {
-            record_block_frozen_final(
+            record_block_with_final(
                 &mut em,
                 h[(height - 1) as usize],
                 h[height as usize],
@@ -1105,35 +1131,398 @@ fn seed_walk_bounded_under_finality_stall() {
         em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before
     }
 
-    let short = 40u64;
-    let long = 120u64;
-    let walked_short = stall_walk(short);
-    let walked_long = stall_walk(long);
-    let per_block_cap = 4;
-    assert!(
-        walked_short >= short as usize,
-        "seed walk should touch >= 1 block per recorded block, got {walked_short}"
+    for count in [40u64, 120] {
+        let walked = stall_walk(count);
+        assert_eq!(
+            walked, 0,
+            "a {count}-block stall must not walk at all: the pinned genesis basis is inside the \
+             start-of-epoch grace"
+        );
+    }
+}
+
+fn assert_seeded_row_is_canonical(
+    em: &EpochManager,
+    anchor: CryptoHash,
+    anchor_height: u64,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) {
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let seeded = em
+        .store
+        .store_ref()
+        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &get_block_shard_id(&anchor, shard_id))
+        .expect("the seeder must write the anchor's ChunkProducers row");
+    let canonical = epoch_info
+        .sample_chunk_producer(
+            shard_layout,
+            shard_id,
+            anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+        )
+        .unwrap();
+    assert_eq!(
+        seeded.account_id(),
+        epoch_info.get_validator(canonical).account_id(),
+        "an empty blacklist must seed the canonical sample",
     );
-    assert!(
-        walked_short <= per_block_cap * short as usize,
-        "short stall walk {walked_short} exceeds {per_block_cap}/block — suffix re-walk regression?"
+}
+
+// A basis behind the sync point would require a full epoch walk without the grace check.
+#[test]
+fn seed_walk_skips_fork_basis_behind_sync_point() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
+    const TIP: u64 = 30;
+    let h = height_hashes(TIP);
+    record_steady_chain(&mut em, &h);
+
+    // The basis must precede the sync point: equality already skips the walk.
+    let basis = TIP - 3;
+    let fork = hash(b"fork sibling of the tip");
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    record_block_with_final(&mut em, h[(TIP - 1) as usize], fork, TIP, h[basis as usize], basis);
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    assert_eq!(
+        walked, 0,
+        "the fork record must not walk: its basis does not advance `largest_final_height` (no \
+         incremental aggregator update) and the basis is inside the start-of-epoch grace, so \
+         the seeder returns before its walk. Pre-hoist this walked ~{basis} iterations"
     );
-    assert!(
-        walked_long <= per_block_cap * long as usize,
-        "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix re-walk regression?"
+
+    let epoch_id = em.get_epoch_id(&fork).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
+}
+
+// A late block can move the sync point past the canonical basis. Blocks on that basis
+// must still record.
+enum ForkOrder {
+    CanonicalFirst,
+    OrphanFirst,
+}
+
+/// The orphan advances the sync point past the canonical basis. Canonical records must
+/// succeed without an epoch walk.
+fn record_fork_behind_sync_point(order: ForkOrder) {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
+    const TIP: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 200;
+    let h = height_hashes(TIP);
+    record_steady_chain(&mut em, &h);
+    let tip = h[TIP as usize];
+    let (basis, basis_height) = (h[TIP as usize - 2], TIP - 2);
+    let canonical = hash(b"canonical block after the skipped height");
+    let orphan = hash(b"late orphan at the skipped height");
+    let child = hash(b"child of the canonical block");
+
+    let record_behind_sync_point =
+        |em: &mut EpochManager, prev: CryptoHash, cur: CryptoHash, height: u64| {
+            assert_eq!(
+                em.epoch_info_aggregator.last_block_hash,
+                h[TIP as usize - 1],
+                "the orphan must have moved the sync point past the canonical basis"
+            );
+            let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+            let block_info = block_info_with_final_and_mask(
+                em,
+                prev,
+                cur,
+                height,
+                basis,
+                basis_height,
+                vec![true],
+                PROTOCOL_VERSION,
+            );
+            let update = em.record_block_info(block_info, [0; 32]).unwrap();
+            assert!(update.epoch_end.is_none(), "the block must not end the epoch");
+            let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+            assert_eq!(walked, 0, "the basis was computed for the tip, so it must not be walked");
+            update.store_update.commit();
+        };
+
+    match order {
+        ForkOrder::CanonicalFirst => {
+            record_block_with_final(&mut em, tip, canonical, TIP + 2, basis, basis_height);
+            record_block_with_final(&mut em, tip, orphan, TIP + 1, h[TIP as usize - 1], TIP - 1);
+        }
+        ForkOrder::OrphanFirst => {
+            record_block_with_final(&mut em, tip, orphan, TIP + 1, h[TIP as usize - 1], TIP - 1);
+            record_behind_sync_point(&mut em, tip, canonical, TIP + 2);
+        }
+    }
+    record_behind_sync_point(&mut em, canonical, child, TIP + 3);
+}
+
+#[test]
+fn fork_behind_sync_point_canonical_first() {
+    record_fork_behind_sync_point(ForkOrder::CanonicalFirst);
+}
+
+#[test]
+fn fork_behind_sync_point_orphan_first() {
+    record_fork_behind_sync_point(ForkOrder::OrphanFirst);
+}
+
+// Inside `record_block_info`, the first block of an epoch is its own epoch first block.
+#[test]
+fn epoch_boundary_fork_records_canonical_first_block() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
+    let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
+    let last = EPOCH_LENGTH;
+    let h = height_hashes(last);
+    record_steady_chain(&mut em, &h);
+    let p = h[last as usize];
+    assert!(em.is_next_block_epoch_start(&p).unwrap(), "p must be the last block of epoch 0");
+
+    let x = hash(b"late sibling opening epoch 1");
+    record_block_with_final(&mut em, p, x, last + 1, h[last as usize - 1], last - 1);
+    assert_eq!(em.epoch_info_aggregator.last_block_hash, h[last as usize - 1]);
+
+    let b = hash(b"canonical block opening epoch 1");
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    let block_info = block_info_with_final_and_mask(
+        &em,
+        p,
+        b,
+        last + 2,
+        h[last as usize - 2],
+        last - 2,
+        vec![true],
+        PROTOCOL_VERSION,
     );
-    // Linearity: 3x the depth must not more than 3x the walk (a quadratic re-walk would ~9x).
-    assert!(
-        walked_long * short as usize <= 2 * walked_short * long as usize,
-        "per-block walk grew with stall depth ({walked_short} over {short} vs {walked_long} over \
-         {long}) — finality-stall suffix re-walk regression?"
+    let update = em
+        .record_block_info(block_info, [0; 32])
+        .expect("the canonical first block of the epoch must record");
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    update.store_update.commit();
+    let block_info = em.get_block_info(&b).unwrap();
+    assert_eq!(*block_info.epoch_first_block(), b);
+    assert_ne!(block_info.epoch_id(), em.get_block_info(&p).unwrap().epoch_id());
+    assert_eq!(walked, 0, "a basis in the previous epoch must not be walked");
+}
+
+// Same-height siblings require equivocation. Recording the second sibling finalizes
+// the epoch from its `BlockInfo` before commit.
+#[test]
+fn epoch_last_block_sibling_behind_sync_point_records() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
+    let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
+    let last = EPOCH_LENGTH;
+    let h = height_hashes(last - 1);
+    record_steady_chain(&mut em, &h);
+    let p = h[last as usize - 1];
+    let (basis, basis_height) = (h[last as usize - 2], last - 2);
+
+    let x = hash(b"last block of epoch 0");
+    record_block_with_final(&mut em, p, x, last, basis, basis_height);
+    assert!(em.is_next_block_epoch_start(&x).unwrap(), "x must be the last block of epoch 0");
+    let x_child = hash(b"first block of epoch 1");
+    record_block_with_final(&mut em, x, x_child, last + 1, p, last - 1);
+    assert_eq!(em.epoch_info_aggregator.last_block_hash, p);
+
+    let b = hash(b"sibling last block of epoch 0");
+    // A cold memo forces the full-epoch walk inside the record.
+    em.chunk_producer_blacklists.lock().clear();
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    let block_info = block_info_with_final_and_mask(
+        &em,
+        p,
+        b,
+        last,
+        basis,
+        basis_height,
+        vec![true],
+        PROTOCOL_VERSION,
     );
+    let update =
+        em.record_block_info(block_info, [0; 32]).expect("the sibling last block must record");
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    assert!(update.epoch_end.is_some(), "b must be the last block of epoch 0");
+    // Finalization runs on `b` after the walk.
+    // The blacklist is empty by rule for the first EARLY_KICKOUT_EPOCH_GRACE_BLOCKS blocks
+    // of an epoch, so only a later anchor walks.
+    assert!(
+        walked > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS as usize,
+        "the seeding walk must cover the epoch, walked {walked}"
+    );
+}
+
+fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash]) -> CryptoHash {
+    let tip = h.len() as u64 - 1;
+    let mut em = handle.write();
+    let em = &mut *em;
+    let canonical = hash(b"canonical block after the skipped height");
+    let orphan = hash(b"late orphan at the skipped height");
+    let child = hash(b"child of the canonical block");
+    let (basis, basis_height) = (h[tip as usize - 2], tip - 2);
+    record_block_with_final(em, h[tip as usize], canonical, tip + 2, basis, basis_height);
+    record_block_with_final(em, h[tip as usize], orphan, tip + 1, h[tip as usize - 1], tip - 1);
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    record_block_with_final(em, canonical, child, tip + 3, basis, basis_height);
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    assert_eq!(walked, 0, "the child's basis was computed for the tip and must not be walked");
+    child
+}
+
+// A restarted manager recomputes from a different aggregator checkpoint. Its blacklist
+// and producer assignments must match the cached results.
+#[test]
+fn memoized_blacklist_matches_restarted_manager() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    const TIP: u64 = 1200;
+    let h = drive_down_node(&handle, TIP, 0);
+    let child = record_fork_on_down_node_chain(&handle, &h);
+
+    let em = handle.read();
+    let epoch_id = em.get_epoch_id(&child).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    let epoch =
+        SampleEpoch { epoch_id: &epoch_id, epoch_info: &epoch_info, shard_layout: &shard_layout };
+    let (basis, basis_height) = (h[TIP as usize - 2], TIP - 2);
+    let memoized = em.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    assert_eq!(memoized.blacklist.get(&shard_id), Some(&HashSet::from([0])));
+
+    let restarted = EpochManager::new(
+        em.store.clone(),
+        em.config.clone(),
+        em.reward_calculator.clone(),
+        vec![],
+    )
+    .unwrap();
+    assert_ne!(
+        restarted.epoch_info_aggregator.last_block_hash, em.epoch_info_aggregator.last_block_hash,
+        "the restarted manager must recompute along a different walk"
+    );
+    assert!(restarted.chunk_producer_blacklists.is_empty());
+    let recomputed =
+        restarted.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
+    assert_eq!(recomputed.blacklist, memoized.blacklist);
+
+    let empty = HashSet::new();
+    for shard_id in shard_layout.shard_ids() {
+        let seeded = em
+            .store
+            .store_ref()
+            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &get_block_shard_id(&child, shard_id))
+            .expect("the child must have a seeded row");
+        let expected = epoch_info
+            .sample_chunk_producer_excluding(
+                &shard_layout,
+                shard_id,
+                TIP + 3 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+                recomputed.blacklist.get(&shard_id).unwrap_or(&empty),
+            )
+            .unwrap();
+        assert_eq!(seeded, epoch_info.get_validator(expected));
+    }
+}
+
+// Forks can have final blocks at the same height with different hashes. The memo must not
+// reuse one fork's blacklist for the other.
+#[cfg(feature = "test_features")]
+#[test]
+fn memoized_blacklist_is_keyed_by_last_final_block() {
+    let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
+    let fx = ForkFixture::new();
+    let only = |id: ValidatorId| HashMap::from([(fx.shard_id, HashSet::from([id]))]);
+    let height_of =
+        |h: &EpochManagerHandle, tip: CryptoHash| h.read().get_block_info(&tip).unwrap().height();
+    let (tip_1, height_1) =
+        fx.drive_until(fx.genesis, 0, 1, 0, 256, "branch 1 -> {0}", |h, tip| {
+            h.get_chunk_producer_blacklist(&tip).unwrap() == only(0)
+        });
+    // Advance branch 2 past branch 1, filling memo entries at heights branch 1 has not reached.
+    let (tip_2, height_2) =
+        fx.drive_until(fx.genesis, 0, 2, 1, 256, "branch 2 -> {1} past branch 1", |h, tip| {
+            height_of(h, tip) > height_1 && h.get_chunk_producer_blacklist(&tip).unwrap() == only(1)
+        });
+    // Advance branch 1 to the same tip height, so both tips have last final blocks at one height.
+    let (tip_1, _) = fx.drive_until(tip_1, height_1, 1, 0, 256, "branch 1 catches up", |h, tip| {
+        height_of(h, tip) == height_2
+    });
+    let last_final = |tip: CryptoHash| {
+        let info = fx.handle.read().get_block_info(&tip).unwrap();
+        (*info.last_final_block_hash(), info.last_finalized_height())
+    };
+    let ((hash_1, final_height_1), (hash_2, final_height_2)) =
+        (last_final(tip_1), last_final(tip_2));
+    assert_eq!(
+        final_height_1, final_height_2,
+        "both tips must have last final blocks at the same height"
+    );
+    assert_ne!(hash_1, hash_2, "the last final blocks must differ");
+    assert_eq!(
+        fx.handle.get_chunk_producer_blacklist(&tip_1).unwrap(),
+        only(0),
+        "branch 1 must get its own blacklist"
+    );
+    assert_eq!(
+        fx.handle.get_chunk_producer_blacklist(&tip_2).unwrap(),
+        only(1),
+        "branch 2 must get its own blacklist"
+    );
+}
+
+// Epoch 0 ends with validator 0 blacklisted, and the result is memoized. After a skipped
+// height, the first block of epoch 1 has the same last final block. Its blacklist must still
+// be empty, because validator ids are local to an epoch.
+#[test]
+fn memoized_blacklist_does_not_cross_epoch_boundary() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
+    let handle = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60).into_handle();
+    let last = EPOCH_LENGTH;
+    let h = drive_down_node(&handle, last, 0);
+    let p = h[last as usize];
+    assert!(handle.is_next_block_epoch_start(&p).unwrap(), "p must be the last block of epoch 0");
+    let shard_id =
+        handle.get_shard_layout(&EpochId::default()).unwrap().shard_ids().next().unwrap();
+    assert_eq!(
+        handle.get_chunk_producer_blacklist(&p).unwrap(),
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "epoch 0 must end with a non-empty blacklist, or this test proves nothing"
+    );
+    let final_hash = h[last as usize - 2];
+    assert!(
+        handle.read().chunk_producer_blacklists.contains(&final_hash),
+        "epoch 0's blacklist must be memoized before b is recorded, or this test proves nothing"
+    );
+
+    // Skip a height, so b keeps p's last final block.
+    let b = hash(b"canonical block opening epoch 1");
+    record_block_with_final(&mut handle.write(), p, b, last + 2, final_hash, last - 2);
+
+    let epoch_1 = *handle.get_block_info(&b).unwrap().epoch_id();
+    assert_ne!(epoch_1, EpochId::default(), "b must open epoch 1");
+    assert!(
+        handle.get_chunk_producer_blacklist(&b).unwrap().is_empty(),
+        "a last final block in epoch 0 must not blacklist anyone in epoch 1"
+    );
+    let epoch_info = handle.get_epoch_info(&epoch_1).unwrap();
+    let shard_layout = handle.get_shard_layout(&epoch_1).unwrap();
+    assert_seeded_row_is_canonical(&handle.read(), b, last + 2, &epoch_info, &shard_layout);
+}
+
+#[test]
+fn epoch_sync_clears_memoized_blacklists() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    em.chunk_producer_blacklists
+        .put(hash(b"memoized final block"), Arc::new(ChunkProducerBlacklist::empty()));
+    let fx = epoch_sync_fixture_on(em);
+    assert!(fx.em.chunk_producer_blacklists.is_empty());
 }
 
 /// Drives `count` blocks in epoch 0 where the single shard's chunk is ALWAYS missed,
 /// so every scheduled producer accumulates 0 produced / many expected -> all
 /// producers become blacklist candidates (all-bad shard). Returns block hashes.
-#[cfg(feature = "nightly")]
 fn drive_all_chunks_missed(handle: &EpochManagerHandle, count: u64) -> Vec<CryptoHash> {
     let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
     record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
@@ -1145,11 +1534,10 @@ fn drive_all_chunks_missed(handle: &EpochManagerHandle, count: u64) -> Vec<Crypt
     h
 }
 
-// 12. v152+ protocol: an all-bad shard fires the safety valve on the SEEDER (the
+// 12. an all-bad shard fires the safety valve on the SEEDER (the
 //     production write path that runs once per recorded block), so the
 //     `safety_valve_fired` counter increments as blocks are recorded. The accessor
 //     then applies keep-one, keeping exactly one of the two producers eligible.
-#[cfg(feature = "nightly")]
 #[test]
 fn seed_chunk_producers_fires_safety_valve_metric() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
@@ -1181,7 +1569,6 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
 /// The state epoch sync leaves behind: the prev epoch's first, second-last and last
 /// `BlockInfo` are installed, the third-last one deliberately is NOT, even though it is the
 /// aggregator position an anchor can be final on.
-#[cfg(feature = "nightly")]
 struct EpochSyncFixture {
     em: EpochManager,
     prev_epoch_id: EpochId,
@@ -1197,32 +1584,53 @@ struct EpochSyncFixture {
     /// The uninstalled aggregator position.
     third_last: CryptoHash,
     third_last_height: u64,
+    second_last_height: u64,
 }
 
-#[cfg(feature = "nightly")]
 impl EpochSyncFixture {
-    /// An anchor a few blocks past the boundary, final on the uninstalled aggregator
-    /// position — the shape all epoch-sync regression tests below exercise.
     fn seed_anchor(&self, hash: CryptoHash) -> SeedAnchor {
-        SeedAnchor {
-            hash,
-            height: self.third_last_height + 4,
-            final_hash: self.third_last,
-            final_height: self.third_last_height,
-        }
+        self.seed_anchor_final_on(hash, self.third_last, self.third_last_height)
+    }
+
+    fn seed_anchor_final_on(
+        &self,
+        hash: CryptoHash,
+        final_hash: CryptoHash,
+        final_height: u64,
+    ) -> SeedAnchor {
+        SeedAnchor { hash, height: final_height + 4, final_hash, final_height }
+    }
+
+    fn seed(&self, anchor: &SeedAnchor, epoch_id: &EpochId) -> Result<(), EpochError> {
+        let mut seed_update = self.em.store.store_update();
+        self.em.seed_chunk_producers(
+            &mut seed_update,
+            anchor,
+            SampleEpoch {
+                epoch_id,
+                epoch_info: &self.epoch_info,
+                shard_layout: &self.shard_layout,
+            },
+        )?;
+        seed_update.commit();
+        Ok(())
     }
 }
 
-#[cfg(feature = "nightly")]
 fn epoch_sync_fixture() -> EpochSyncFixture {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    epoch_sync_fixture_on(setup_default_epoch_manager(validators, 10, 1, 3, 90, 60))
+}
+
+/// Requires epoch length 10 and one shard.
+fn epoch_sync_fixture_on(mut em: EpochManager) -> EpochSyncFixture {
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap().as_ref().clone();
     let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
 
     const PREV_EPOCH_FIRST_HEIGHT: u64 = 90;
     const PREV_EPOCH_LAST_HEIGHT: u64 = 99;
     let third_last_height = PREV_EPOCH_LAST_HEIGHT - 2;
+    let second_last_height = PREV_EPOCH_LAST_HEIGHT - 1;
 
     let prev_epoch_id = EpochId(hash(b"prev epoch"));
     let epoch_id = EpochId(hash(b"current epoch"));
@@ -1244,7 +1652,6 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
             vec![true],
             DEFAULT_TOTAL_SUPPLY,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             height * NUM_NS_IN_SECOND,
             ChunkEndorsementsBitmap::new(1),
             None,
@@ -1257,17 +1664,16 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     let mut store_update = em.store.store_update();
     em.init_after_epoch_sync(
         &mut store_update,
-        prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
-        prev_epoch_block(second_last, PREV_EPOCH_LAST_HEIGHT - 1, third_last),
-        prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
+        &prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
+        &prev_epoch_block(second_last, second_last_height, third_last),
+        &prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
         &prev_epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &epoch_id,
-        epoch_info.clone(),
+        &epoch_info,
         &next_epoch_id,
-        epoch_info.clone(),
-    )
-    .unwrap();
+        &epoch_info,
+    );
     store_update.commit();
 
     EpochSyncFixture {
@@ -1281,81 +1687,78 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
         last,
         third_last,
         third_last_height,
+        second_last_height,
     }
 }
 
-// Post-epoch-sync regression: the aggregator sits on the prev epoch's third-last block,
-// whose `BlockInfo` is deliberately never installed. An anchor final on that position is a
-// legitimate state; the seeder's cross-epoch early-return must fire before the epoch-start
-// walk, which would fail with `MissingBlock` there.
-#[cfg(feature = "nightly")]
+// Epoch sync leaves the aggregator at a block without `BlockInfo`. Cross-epoch seeding
+// must return before looking up that block.
 #[test]
 fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
     let fx = epoch_sync_fixture();
 
-    // Final block == the aggregator position: the aggregator walk short-circuits and
-    // returns the prev-epoch aggregator, mismatching the (current) sample epoch.
     let anchor = fx.seed_anchor(hash(b"current epoch block"));
-    let mut seed_update = fx.em.store.store_update();
-    fx.em
-        .seed_chunk_producers(
-            &mut seed_update,
-            &anchor,
-            SampleEpoch {
-                epoch_id: &fx.epoch_id,
-                epoch_info: &fx.epoch_info,
-                shard_layout: &fx.shard_layout,
-            },
-        )
+    fx.seed(&anchor, &fx.epoch_id)
         .expect("cross-epoch anchor after epoch sync must seed, not error");
-    seed_update.commit();
-
-    // Empty blacklist -> the seeded row is the canonical sample at the anchor offset.
-    let shard_id = fx.shard_layout.shard_ids().next().unwrap();
-    let key = get_block_shard_id(&anchor.hash, shard_id);
-    let seeded = fx
-        .em
-        .store
-        .store_ref()
-        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-        .expect("seeder must write the ChunkProducers row for the anchor");
-    let canonical = fx
-        .epoch_info
-        .sample_chunk_producer(
-            &fx.shard_layout,
-            shard_id,
-            anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
-        )
-        .unwrap();
-    assert_eq!(
-        seeded.account_id(),
-        fx.epoch_info.get_validator(canonical).account_id(),
-        "empty blacklist must seed the canonical sample",
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
     );
 }
 
-// Companion to the test above, same missing `BlockInfo` but with the sample epoch equal to
-// the aggregator's epoch, so the cross-epoch early-return does NOT fire and the epoch-start
-// walk runs. A missing block there is structural corruption: the seeder must propagate the
-// error, not silently fall back to treating the epoch as just-started (grace).
-#[cfg(feature = "nightly")]
+// The basis exists but its parent does not. Grace must bypass the missing ancestry.
+#[test]
+fn seeder_recovers_from_hole_behind_in_grace_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor = fx.seed_anchor_final_on(
+        hash(b"prev epoch sibling final on the second-last block"),
+        fx.second_last,
+        fx.second_last_height,
+    );
+    fx.seed(&anchor, &fx.prev_epoch_id)
+        .expect("an in-grace basis must seed without walking past the basis");
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
+    );
+}
+
+// Cross-epoch seeding must also bypass missing ancestry when the basis is past the sync point.
+#[test]
+fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor = fx.seed_anchor_final_on(
+        hash(b"current epoch block final on the prev second-last block"),
+        fx.second_last,
+        fx.second_last_height,
+    );
+    fx.seed(&anchor, &fx.epoch_id)
+        .expect("a cross-epoch basis must seed without walking past the basis");
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
+    );
+}
+
+// A missing same-epoch basis must fail, rather than be treated as grace.
 #[test]
 fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
     let fx = epoch_sync_fixture();
 
     let anchor = fx.seed_anchor(hash(b"prev epoch extra block"));
-    let mut seed_update = fx.em.store.store_update();
     let err = fx
-        .em
-        .seed_chunk_producers(
-            &mut seed_update,
-            &anchor,
-            SampleEpoch {
-                epoch_id: &fx.prev_epoch_id,
-                epoch_info: &fx.epoch_info,
-                shard_layout: &fx.shard_layout,
-            },
-        )
+        .seed(&anchor, &fx.prev_epoch_id)
         .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
     assert_eq!(
         err,
@@ -1364,102 +1767,9 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-/// Input for the `record_block_info` failure tests, final on the aggregator position the
-/// fixture leaves uninstalled. Each call needs a fresh one: record consumes the value and
-/// overwrites its epoch fields.
-#[cfg(feature = "nightly")]
-fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) -> BlockInfo {
-    const HEIGHT: u64 = 100;
-    BlockInfo::new(
-        hash,
-        HEIGHT,
-        fx.third_last_height,
-        fx.third_last,
-        prev,
-        vec![],
-        vec![true],
-        DEFAULT_TOTAL_SUPPLY,
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        HEIGHT * NUM_NS_IN_SECOND,
-        ChunkEndorsementsBitmap::new(1),
-        None,
-    )
-}
-
-// A failed record must not leave the block in `blocks_info`: the caller drops the store
-// update, so a surviving entry serves other readers a block that was never written.
-// Reachable after epoch sync, where the seeder fails with `MissingBlock`.
-#[cfg(feature = "nightly")]
-#[test]
-fn record_block_info_failure_does_not_poison_block_info_cache() {
-    let mut fx = epoch_sync_fixture();
-
-    // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
-    // back to the third-last block, which epoch sync never installed.
-    let sibling = hash(b"prev epoch last block sibling");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the seeder walk must fail on the uninstalled aggregator position");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-
-    let err = fx.em.get_block_info(&sibling).map(|_| ()).expect_err(
-        "a discarded record must not leave the block in the cache, or the retry is skipped",
-    );
-    assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
-}
-
-// Same for the epoch-start branch, where `save_epoch_start` now runs after the last fallible
-// step. Fault injection: the fixture's current-epoch id is an arbitrary label, so the id the
-// boundary derives has no `EpochInfo` and the record fails where the epoch-start write used
-// to precede it. Not a state epoch sync can produce.
-#[cfg(feature = "nightly")]
-#[test]
-fn record_block_info_failure_does_not_poison_epoch_start_cache() {
-    let mut fx = epoch_sync_fixture();
-
-    // What the boundary derives: the hash of the block before the prev epoch's first.
-    let boundary_id = EpochId(*fx.em.get_block_info(&fx.first).unwrap().prev_hash());
-
-    // Child of the prev epoch's last block, so the record takes the epoch-start branch.
-    let child = hash(b"first block of the new epoch");
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the derived boundary epoch has no EpochInfo installed");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-
-    let err = fx
-        .em
-        .get_epoch_start_from_epoch_id(&boundary_id)
-        .expect_err("a discarded record must not leave an epoch start behind");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-    fx.em
-        .get_block_info(&child)
-        .map(|_| ())
-        .expect_err("a discarded record must not leave the block in the cache");
-
-    let err = fx
-        .em
-        .record_block_info(record_input_info(&fx, child, fx.last), [0; 32])
-        .map(|_| ())
-        .expect_err("the retry must fail the same way, not be skipped as already recorded");
-    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
-}
-
-// `has_block_info` reads the store, not the `blocks_info` cache, so a record whose update the
-// caller drops is recorded again on retry. The chain drops it whenever a later step of the
-// same block processing fails, not only when the record itself does.
+// `has_block_info` reads the store, so a record whose update the caller drops is recorded
+// again on retry. The chain drops it whenever a later step of the same block processing
+// fails, not only when the record itself does.
 //
 // Covers the first real block: the default final hash makes the seeder return early, and
 // nothing advances the aggregator or finalizes an epoch, so the retry is a plain re-record.
@@ -1482,7 +1792,6 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
             vec![true],
             DEFAULT_TOTAL_SUPPLY,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             NUM_NS_IN_SECOND,
             ChunkEndorsementsBitmap::new(1),
             None,
@@ -1492,15 +1801,14 @@ fn record_block_info_dropped_update_is_recorded_on_retry() {
     // Dropping the update stands in for a caller that fails after the record returned.
     em.record_block_info(block_info(), [0; 32]).map(|_| ()).expect("first record must succeed");
 
-    // Pre-fix the cached entry made this a no-op that returned an empty update.
-    let store_update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
-    store_update.commit();
+    // The retry must record the block again, not return an empty update.
+    let update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
+    update.store_update.commit();
     em.store.get_block_info(&b1).expect("the retry must write the row it skipped before");
 }
 
 /// Builds the anchor `BlockInfo` the accessor tests install: same shape the fixture's
 /// proof blocks have, final on the uninstalled aggregator position.
-#[cfg(feature = "nightly")]
 fn accessor_anchor_info(
     fx: &EpochSyncFixture,
     anchor_hash: CryptoHash,
@@ -1517,7 +1825,6 @@ fn accessor_anchor_info(
         vec![true],
         DEFAULT_TOTAL_SUPPLY,
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         anchor_height * NUM_NS_IN_SECOND,
         ChunkEndorsementsBitmap::new(1),
         None,
@@ -1528,7 +1835,6 @@ fn accessor_anchor_info(
 // same epoch-sync miss state pinned through `get_chunk_producer_blacklist`, so the
 // read-side contract stays enforced even if the accessor and seeder ever stop sharing
 // `chunk_producer_blacklist_at_anchor`.
-#[cfg(feature = "nightly")]
 #[test]
 fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
     let fx = epoch_sync_fixture();
@@ -1554,7 +1860,6 @@ fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
 }
 
 // Accessor-side companion to `seeder_propagates_missing_block_info_on_same_epoch_basis`.
-#[cfg(feature = "nightly")]
 #[test]
 fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
     let fx = epoch_sync_fixture();
@@ -1749,14 +2054,14 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
 /// A block hash on `branch` at `height`. The branch byte is a domain separator, so
 /// sibling branches (and the shared prefix's branch 0) never collide, whatever heights
 /// they reuse across the fork.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 fn fork_block_hash(branch: u8, height: u64) -> CryptoHash {
     hash(&[&[branch][..], &height.to_le_bytes()[..]].concat())
 }
 
 /// Shared context for the two fork tests: the epoch-0 single-shard chain they both build
 /// on, plus the genesis block they both fork from.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 struct ForkFixture {
     handle: EpochManagerHandle,
     epoch_info: Arc<EpochInfo>,
@@ -1766,7 +2071,7 @@ struct ForkFixture {
     genesis: CryptoHash,
 }
 
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 impl ForkFixture {
     /// 3 validators so blacklisting two producers on one branch does not trip the keep-one
     /// valve; the contamination a leak would cause then shows up in the blacklist itself.
@@ -1874,7 +2179,7 @@ impl ForkFixture {
     }
 }
 
-// v152+ protocol: two sibling forks off a shared prefix starve different producers, and the
+// Two sibling forks off a shared prefix starve different producers, and the
 // accessor (keyed on the anchor hash) resolves each fork to its own blacklist. Asserts the
 // aggregator exit directly via `aggregate_epoch_info_upto`'s `full_info` flag rather than
 // inferring it from blacklist equality. Also pins the strict `>` watermark gate at a
@@ -1882,7 +2187,7 @@ impl ForkFixture {
 //
 // Thresholds are lowered (10 misses past a 20-block grace) for speed; real thresholds stay
 // covered by the canonical tests.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 #[test]
 fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
@@ -2025,7 +2330,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // Phase 7: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
     // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
     // cache sits on the sibling, so the walk cannot reach the cached sync point and instead
-    // walks the canonical chain from the epoch start.
+    // walks the canonical chain from the epoch start. That full walk must reproduce the
+    // memoized {0}.
     let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
     assert_eq!(
         canonical_bl,
@@ -2034,7 +2340,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     let canonical_basis =
         *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
-    let (_, canonical_full_info) = handle
+    let (full_walk, canonical_full_info) = handle
         .read()
         .aggregate_epoch_info_upto(&canonical_basis)
         .unwrap()
@@ -2043,6 +2349,9 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         canonical_full_info,
         "after the sibling takeover the canonical basis must walk from the epoch start",
     );
+    let full_bl =
+        compute_chunk_producer_blacklist(&full_walk.shard_tracker, epoch_info.as_ref(), layout);
+    assert_eq!(full_bl.blacklist, canonical_bl, "the full walk must match the memoized blacklist");
 
     // Phase 8: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
     // one survivor left).
@@ -2127,7 +2436,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
 
 /// The persisted `DBCol::ChunkProducers` row for one anchor, alongside the samples a caller
 /// needs to judge whether the anchor discriminates a broken blacklist.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 struct SeededRowWitness {
     chunk_height: u64,
     /// Plain height sample (what the seeder would store with no blacklist).
@@ -2138,7 +2447,7 @@ struct SeededRowWitness {
     stored: ValidatorId,
 }
 
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 impl ForkFixture {
     /// Reads the persisted `DBCol::ChunkProducers` row for `tip` and asserts it is the
     /// blacklist-aware sample and not blacklisted. The anchor height comes from `tip`'s own
@@ -2229,12 +2538,12 @@ impl ForkFixture {
     }
 }
 
-// v152+ protocol, seeded-row companion to the fork isolation test: consensus reads the
+// Seeded-row companion to the fork isolation test: consensus reads the
 // stored `DBCol::ChunkProducers` row, not the live recompute, so pin that the stored row on
 // each fork reflects that fork's own blacklist. Two branches fork at genesis and starve
 // different producers; each ends with its own single-producer blacklist, and its seeded row
 // excludes that producer at a height where the plain sampler would have picked it.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 #[test]
 fn fork_seeded_rows_reflect_each_branch_blacklist() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));

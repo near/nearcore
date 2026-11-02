@@ -57,6 +57,13 @@ impl VerifiedPeerHeights {
         self.get(peer_id).filter(|height| *height > head_height)
     }
 
+    /// Highest height any peer is verified to have reached. Each recorded height
+    /// is backed by a header approved by >2/3 of a known epoch's stake, so it
+    /// holds as evidence of chain progress even after that peer leaves.
+    pub fn max_height_across_peers(&self) -> Option<BlockHeight> {
+        self.by_peer.values().copied().max()
+    }
+
     /// Bounds the map as the head advances and peers churn.
     pub fn prune_at_or_below(&mut self, height: BlockHeight) {
         self.by_peer.retain(|_, recorded| *recorded > height);

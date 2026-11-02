@@ -28,8 +28,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives_core::code::ContractCode;
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::ContractCode;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
@@ -154,6 +154,7 @@ impl<'a> AccessOptions<'a> {
     }
 }
 
+// MIN_MEMORY_USAGE_PER_PART_ENTRY in near-primitives mirrors node_cost; a test keeps them equal.
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Copy, Hash)]
@@ -1897,6 +1898,15 @@ mod tests {
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     const SHARD_VERSION: u32 = 1;
+
+    #[test]
+    fn state_part_entry_limit_uses_the_real_node_cost() {
+        assert_eq!(
+            TRIE_COSTS.node_cost,
+            near_primitives::state_part::MIN_MEMORY_USAGE_PER_PART_ENTRY,
+            "near-primitives bounds state part entries by this cost and cannot see TRIE_COSTS"
+        );
+    }
 
     fn test_clear_trie(
         tries: &ShardTries,

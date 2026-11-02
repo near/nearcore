@@ -7,12 +7,10 @@ use crate::universal_state_init::RawStateInit;
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
-use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::account::id::AccountId;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::universal_account_id::{
-    encode_universal_account_id, is_universal_account_id,
-};
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -467,29 +465,6 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
-/// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-///
-/// `0u` universal ids are handled separately: `AccountType` has no variant for
-/// them, so they parse as `NamedAccount` and are recognized by their prefix.
-pub fn account_is_implicit(
-    account_id: &AccountId,
-    eth_implicit_accounts_enabled: bool,
-    universal_accounts_enabled: bool,
-) -> bool {
-    // TODO(universal-accounts): replace with an `AccountType::Universal` check
-    // once `near-account-id` supports 0u accounts.
-    if universal_accounts_enabled && is_universal_account_id(account_id.as_str()) {
-        return true;
-    }
-    if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
-    } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
-    }
-}
-
 /// Returns hex-encoded copy of the public key.
 /// This is a NEAR-implicit account ID which can be controlled by the corresponding ED25519 private key.
 pub fn derive_near_implicit_account_id(public_key: &ED25519PublicKey) -> AccountId {
@@ -521,9 +496,10 @@ pub fn derive_near_deterministic_account_id(
 /// (FIPS-202) over exactly those bytes, encoded with the UAID address codec.
 ///
 /// **Note:** This function deliberately does not take `UniversalStateInit`, but
-/// `RawStateInit`, because account ID is committed to the exact user-supplied bytes.
-/// Re-serializing could yield a different ID, if `state_init` contained non-canonical
-/// borsh representation.
+/// `RawStateInit`, because the account ID is committed to the exact bytes. It does
+/// not check them: from `CanonicalUniversalStateInit` on only the canonical encoding
+/// is accepted (see `UniversalStateInit::from_raw_strict`), so a non-canonical encoding can
+/// derive an ID but can never create the account.
 pub fn derive_universal_account_id(state_init: &RawStateInit) -> AccountId {
     use sha3::Digest;
     let hash = sha3::Sha3_256::digest(&state_init.0).into();
@@ -581,8 +557,6 @@ mod tests {
         use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
         use near_crypto::{MlDsa65PublicKeyHandle, PublicKeyHandle};
         use near_primitives_core::global_contract::GlobalContractIdentifier;
-        use near_primitives_core::universal_account_id::decode_universal_account_id;
-        use sha3::{Digest, Sha3_256};
         use std::collections::{BTreeMap, BTreeSet};
 
         let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
@@ -598,8 +572,10 @@ mod tests {
             access_keys: BTreeSet::new(),
         });
 
-        // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
-        // on-chain `raw_state_init_to_account_id` host fn's cross-check.
+        // Canonical known-answer vectors. Keep stable: they seed the NEP, and
+        // `test_universal_state_init_to_account_id_matches_receiver_check` pins the
+        // `universal_state_init_to_account_id` host function against the first of
+        // them, so what a contract derives on-chain is what this function derives.
         for (state_init, expected) in [
             (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"), // cspell:disable-line
             (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"), // cspell:disable-line
@@ -609,18 +585,17 @@ mod tests {
             assert_eq!(id.as_str(), expected);
             // The producer-side shorthand agrees with hashing the bytes it wrote.
             assert_eq!(state_init.derive_account_id(), id);
-            // The id decodes back to SHA3-256 of those bytes.
-            let hash: [u8; 32] = Sha3_256::digest(&raw.0).into();
-            assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
         }
     }
 
-    /// Two encodings of the same logical state init are two different accounts:
-    /// the id commits to the bytes, and nothing re-serializes a decoded value to
-    /// derive one.
+    /// The derivation commits to the bytes it is given, and nothing re-serializes a
+    /// decoded value to derive one. From `CanonicalUniversalStateInit` on, non-canonical
+    /// bytes are rejected before they get here (see `UniversalStateInit::from_raw_strict`), but
+    /// the hash itself is blind.
     #[test]
     fn test_derive_universal_account_id_is_over_raw_bytes() {
         use crate::universal_state_init::{RawStateInit, UniversalStateInit};
+        use borsh::BorshDeserialize;
 
         // V1, code: None, data {"b": "", "a": ""} written out of order, no keys.
         // Borsh accepts it and re-sorts on decode, so the typed form's own encoding
@@ -635,7 +610,7 @@ mod tests {
         bytes.extend_from_slice(&0u32.to_le_bytes());
         let raw = RawStateInit(bytes);
 
-        let decoded = UniversalStateInit::from_raw(&raw).unwrap();
+        let decoded = UniversalStateInit::try_from_slice(&raw.0).unwrap();
         assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
         assert_ne!(
             derive_universal_account_id(&raw),

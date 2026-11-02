@@ -88,8 +88,14 @@ class ShadowTrackingTest(unittest.TestCase):
         nodes[3].kill()
         wait_for_blocks(nodes[4], count=3 * EPOCH_LENGTH)
         nodes[3].start(boot_node=nodes[4])
-        # Give it some time to catch up.
-        wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
+        # Wait until the failover node actually catches up with the chain. It
+        # goes through epoch sync node restart so it may be offline temporarily.
+        wait_for_blocks(
+            nodes[3],
+            target=nodes[4].get_latest_block().height,
+            timeout=60,
+            tolerate_connection_errors=True,
+        )
 
         round = 0
         epoch_ids = set()

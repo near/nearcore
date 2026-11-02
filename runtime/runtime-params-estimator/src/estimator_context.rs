@@ -17,6 +17,11 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Balance, Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime::config::tx_cost;
+use near_runtime::{
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_access_key_tx_ephemeral,
+};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -26,11 +31,6 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
-use node_runtime::config::tx_cost;
-use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
-};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
 use std::sync::Arc;
@@ -58,6 +58,7 @@ pub(crate) struct CachedCosts {
     pub(crate) ed25519_verify_base: Option<GasCost>,
     pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) ml_dsa_verify_base: Option<GasCost>,
+    pub(crate) universal_state_init_to_account_id_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
     pub(crate) yield_create_base: Option<GasCost>,
     pub(crate) yield_create_with_id_base: Option<GasCost>,
@@ -151,7 +152,7 @@ impl<'c> EstimatorContext<'c> {
 
     fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
-            RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+            RuntimeConfigStore::new().get_config(PROTOCOL_VERSION).as_ref().clone();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         wasm_config.enable_all_features();
         wasm_config.make_free();
@@ -160,6 +161,7 @@ impl<'c> EstimatorContext<'c> {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: Gas::MAX,
+            max_gas_burnt_external: Gas::MAX,
             max_register_size: u64::MAX,
             max_number_logs: u64::MAX,
 
@@ -168,6 +170,11 @@ impl<'c> EstimatorContext<'c> {
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
+            // `deterministic_state_init_entry_send` measures a 100_000-entry
+            // payload, which is the point: the per-entry cost is only visible in
+            // bulk. Its transaction goes through `validate_transaction`, which
+            // would otherwise refuse it.
+            max_state_init_entries: u64::MAX,
 
             max_total_prepaid_gas: Gas::MAX,
 
@@ -323,7 +330,7 @@ impl Testbed<'_> {
         let mut res = Vec::with_capacity(blocks.len());
 
         for (block_index, block) in blocks.into_iter().enumerate() {
-            node_runtime::with_ext_cost_counter(|cc| cc.clear());
+            near_runtime::with_ext_cost_counter(|cc| cc.clear());
             let extra_blocks;
             let gas_cost = {
                 self.clear_caches();
@@ -339,7 +346,7 @@ impl Testbed<'_> {
             );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-            node_runtime::with_ext_cost_counter(|cc| {
+            near_runtime::with_ext_cost_counter(|cc| {
                 for (c, v) in cc.drain() {
                     ext_costs.insert(c, v);
                 }
@@ -510,17 +517,23 @@ impl Testbed<'_> {
         let block_height = None;
 
         let clock = GasCost::measure(metric);
-        let validated_tx = node_runtime::validate_transaction(
+        let validated_tx = near_runtime::validate_transaction(
             &self.apply_state.config,
             signed_tx,
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
         let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
-            .expect("getting signer and access key should not fail in estimator");
+        let (mut signer, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx)
+                .expect("getting signer and access key should not fail in estimator");
 
-        let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
+        // The estimator never measures a self-signed state init, which has no
+        // access key by construction.
+        let mut access_key = authorization
+            .into_access_key()
+            .expect("estimator expects a transaction with an access key");
+        let TxVerdict::Success(result) = verify_and_charge_access_key_tx_ephemeral(
             &self.apply_state.config,
             &signer,
             &access_key,
@@ -531,8 +544,8 @@ impl Testbed<'_> {
         ) else {
             panic!("tx verification should not fail in estimator");
         };
-        result.apply(&mut signer, &mut access_key);
-        set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
+        result.apply(&mut signer, Some(&mut access_key)).expect("tx must apply in estimator");
+        set_tx_state_changes(&mut state_update, &validated_tx, &signer, Some(&access_key));
         clock.elapsed()
     }
 
@@ -549,7 +562,7 @@ impl Testbed<'_> {
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
-        let exec_result = node_runtime::estimator::apply_action_receipt(
+        let exec_result = near_runtime::estimator::apply_action_receipt(
             &mut state_update,
             &self.apply_state,
             receipt,

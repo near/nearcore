@@ -196,16 +196,14 @@ fn test_next_light_client_block_epoch_boundary() {
     // Use the first block of an epoch as the fixed last-known block, so it sits well below the
     // head's final block once we cross into the next epoch.
     env.rpc_runner().run_until_head_height(2 * epoch_length);
-    let epoch_before = env.rpc_node().head().epoch_id;
-    env.rpc_runner().run_until(|node| node.head().epoch_id != epoch_before, Duration::seconds(20));
+    env.rpc_runner().run_until_new_epoch();
     let last_known_head = env.rpc_node().head();
     let last_known_hash = last_known_head.last_block_hash;
     let last_known_epoch = last_known_head.epoch_id;
 
     // Advance until the head enters the next epoch; the head's final block still lags behind in the
     // previous epoch.
-    env.rpc_runner()
-        .run_until(|node| node.head().epoch_id != last_known_epoch, Duration::seconds(20));
+    env.rpc_runner().run_until_new_epoch();
     let next_epoch = env.rpc_node().head().epoch_id;
 
     let in_previous_epoch = env

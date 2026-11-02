@@ -42,14 +42,6 @@ pub enum Parameter {
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
-    /// The standard size limit for outgoing receipts aimed at a single shard.
-    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
-    /// It limits the total sum of outgoing receipts, not individual receipts.
-    OutgoingReceiptsUsualSizeLimit,
-    /// Large size limit for outgoing receipts to a shard, used when it's safe
-    /// to send a lot of receipts without making the state witness too large.
-    /// It limits the total sum of outgoing receipts, not individual receipts.
-    OutgoingReceiptsBigSizeLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -138,6 +130,8 @@ pub enum Parameter {
     WasmP256VerifyByte,
     WasmMlDsaVerifyBase,
     WasmMlDsaVerifyByte,
+    WasmUniversalStateInitToAccountIdBase,
+    WasmUniversalStateInitToAccountIdByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -201,6 +195,7 @@ pub enum Parameter {
 
     // Smart contract limits
     MaxGasBurnt,
+    MaxGasBurntExternal,
     MaxGasBurntView,
     MaxStackHeight,
     InitialMemoryPages,
@@ -225,9 +220,13 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxReceiptTotalInputSize,
+    /// Max number of access keys the state-init actions in one receipt may commit to, in total.
+    MaxUniversalStateInitKeys,
+    /// Max number of storage entries the state-init actions in one receipt may carry, in total.
+    MaxStateInitEntries,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
-    AccountIdValidityRulesVersion,
+    MinContractSizePerLocal,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
     MaxTablesPerContract,
@@ -243,15 +242,15 @@ pub enum Parameter {
     MaxGlobalsPerContract,
 
     // Contract runtime features
-    FlatStorageReads,
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
-    EthImplicitAccounts,
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 88, where the feature is enabled.
     UniversalAccounts,
+    // Flag for the `CanonicalUniversalStateInit` protocol feature.
+    CanonicalUniversalStateInit,
     FixMlDsaCostCharging,
-    DiscardCustomSections,
-    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -265,9 +264,6 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
-
-    // Use the StateStoredReceipt structure when storing receipts in State.
-    UseStateStoredReceipt,
 
     // Bandwidth scheduler
     MaxShardBandwidth,
@@ -298,16 +294,6 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    GlobalContractHostFns,
-
-    // Flag to enable gas key host functions
-    GasKeyHostFns,
-
-    // Flag to allow 1 yoctoNEAR on promise function calls without balance
-    OneYoctoOnPromise,
-
-    // Flag to enable the P-256 verification host function
-    P256VerifyHostFn,
 
     // Flag to enable the ML-DSA-65 verification host function
     MlDsaVerifyHostFn,
@@ -315,12 +301,6 @@ pub enum Parameter {
     // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
     #[strum(serialize = "sha3_host_fns")]
     Sha3HostFns,
-
-    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
-    YieldWithIdHostFns,
-
-    // Flag to enable chain_id host function (NEP-638)
-    ChainIdHostFn,
 
     // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
     // functions (NEP-488). These points lie on the curve but outside the G1/G2
@@ -381,6 +361,7 @@ impl Parameter {
     pub fn vm_limits() -> slice::Iter<'static, Parameter> {
         [
             Parameter::MaxGasBurnt,
+            Parameter::MaxGasBurntExternal,
             Parameter::MaxStackHeight,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
@@ -404,9 +385,11 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxReceiptTotalInputSize,
+            Parameter::MaxUniversalStateInitKeys,
+            Parameter::MaxStateInitEntries,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
-            Parameter::AccountIdValidityRulesVersion,
+            Parameter::MinContractSizePerLocal,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
             Parameter::PerReceiptStorageProofSizeLimit,

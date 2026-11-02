@@ -26,7 +26,9 @@ To establish a new connections between pair of nodes, they will follow the follo
 When a node receives a handshake from other node it will decline this connection if one of the following situations happens:
 
 1. Other node has different genesis.
-2. Edge nonce is too low
+2. The edge nonce is even, or it is 20 minutes or more away from the current time on the node's clock.
+
+If the edge nonce is not greater than the nonce of the latest edge between the two nodes, the node does not decline the connection. It replies with a `LastEdge` message, and the other node retries with a higher nonce. See [Edge](#edge).
 
 #### Edge
 
@@ -38,10 +40,15 @@ When two nodes successfully connect to each other, they broadcast the new edge t
 
 A removed connection will be valid, if it contains valid information from the added edge it is invalidating. This prevents peers bump nonce by more than one when deleting an edge.
 
-When node A proposes an edge to B with nonce X, it will only accept it and sign it iff:
+When a node opens a connection, it picks the nonce of the new edge from the current Unix time in seconds. If that number is even, the node adds 1, so the nonce is odd. If the node already knows an edge with the other peer, it uses the larger of this value and the next odd number after that edge's nonce.
 
-- X = 1 and B doesn't know about any previous edge between A and B
-- X is odd and X > Y where Y is the nonce of the edge with the highest nonce between A and B known to B.
+When node A proposes an edge to B with nonce X in a handshake, B accepts it and signs it only if all of the following hold:
+
+- X is odd.
+- X, read as a Unix time in seconds, is less than 20 minutes away from the current time on B's clock.
+- If B knows an edge between A and B, X is greater than Y, the highest nonce among the edges between A and B that B knows.
+
+If X is not greater than Y, B does not sign the edge. B replies with a `LastEdge` message that holds its edge with nonce Y. A then proposes a new nonce: the larger of the next odd number after Y and a fresh nonce from the current time.
 
 <!-- TODO: What is a valid edge: pseudo code -->
 
@@ -51,8 +58,6 @@ Every node maintains a routing table with all existing connections and relevant 
 
 ```rust
 struct RoutingTable {
-    /// PeerId associated for every known account id.
-    account_peers: HashMap<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
@@ -64,8 +69,6 @@ struct RoutingTable {
 }
 
 ```
-
-- `account_peers` is a mapping from each known account to the correspondent [announcement](Messages.md#announceaccount). Given that validators are known by its [AccountId](Messages.md#accountid) when a node needs to send a message to a validator it finds the [PeerId](Messages.md#peerid) associated with the [AccountId](Messages.md#accountid) in this table.
 
 - `peer_forwarding`: For node `S`, `peer_forwarding` constitutes a mapping from each [PeerId](Messages.md#peerid) `T`, to the set of peers that are directly connected to `S` and belong to the shortest route, in terms of number of edges, between `S` and `T`. When node `S` needs to send a message to node `T` and they are not directly connected, `S` choose one peer among the set `peer_forwarding[S]` and sends a routed message to it with destination `T`.
 
@@ -101,29 +104,13 @@ def on_edges_received(self, edges):
                 self.routing_table.edges_info[(peer0, peer1)] = edge
 ```
 
-- Announce account: `account_peers` map is updated with announcements from more recent epochs.
-
-```python
-def on_announce_accounts_received(self, announcements):
-    for announce_account in announcements:
-        # Check the announcement is valid
-        if announce_account.is_valid():
-            account_id = announce_account.account_id
-
-            # Find most recent announcement for account_id being announced
-            current_announce_account = self.routing_table.account_peers.get(account_id)
-
-            # If new epoch is happens after current epoch.
-            if announce_account.epoch > current_announce_account.epoch:
-                # Update with the new announcement
-                self.routing_table.account_peers[announce_id] = announce_account
-```
-
 - Route back messages: Read about it on [Routing back section](#routing-back)
 
 ### Routing
 
 When a node needs to send a message to another peer, it checks in the routing table if it is connected to that peer, possibly not directly but through several hops. Then it select one of the shortest path to the target peer and sends a [`RoutedMessage`](Messages.md#routedmessage) to the first peer in the path.
+
+Validators are known by their [AccountId](Messages.md#accountid). To send a message to a validator, a node first finds the [PeerId](Messages.md#peerid) of the node running it. Each validator regularly broadcasts an `AccountData` signed with its validator key, which maps that key to its [PeerId](Messages.md#peerid). Nodes learn the validator keys of the current and next epochs from the chain.
 
 When it receives a [`RoutedMessage`](Messages.md#routedmessage), it check if it is the target, in that case consume the body of the message, otherwise it finds a route to the target following described approach and sends the message again. It is important that before routing a message each peer check signature from original author of the message, passing a message with invalid signature can result in ban for the sender. It is not required however checking the content of the message itself.
 
@@ -185,7 +172,7 @@ def on_routed_message_received(self, routed_message, sender):
 
 ### Synchronization
 
-When two node connect to each other they exchange all known edges (from `RoutingTable::edges_info`) and account announcements (from `RoutingTable::account_peers`). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new `AnnounceAccount` or a new `Edge` they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.
+When two node connect to each other they exchange all known edges (from `RoutingTable::edges_info`). Also they broadcast the newly created edge to all nodes directly connected to them. After a node learns about a new `Edge` they automatically broadcast this information to the rest of the nodes, so everyone is kept up to date.
 
 ## Security
 

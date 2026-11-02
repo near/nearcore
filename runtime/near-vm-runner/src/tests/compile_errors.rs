@@ -1,7 +1,7 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
 
-const FIX_CONTRACT_LOADING_COST: u32 = 129;
+const FIX_CONTRACT_LOADING_COST: u32 = 89;
 
 #[test]
 fn test_initializer_wrong_signature_contract() {
@@ -209,6 +209,7 @@ fn slow_test_limit_contract_functions_number() {
 #[test]
 fn test_limit_locals() {
     test_builder()
+        .min_contract_size_per_local(None)
         .wasm(
             &near_test_contracts::LargeContract {
                 functions: 1,
@@ -225,6 +226,7 @@ fn test_limit_locals() {
         ]);
 
     test_builder()
+        .min_contract_size_per_local(None)
         .wasm(
             &near_test_contracts::LargeContract {
                 functions: 1,
@@ -244,7 +246,9 @@ fn test_limit_locals() {
 
 #[test]
 fn slow_test_limit_locals_global() {
-    test_builder().wasm(&near_test_contracts::LargeContract {
+    test_builder()
+        .min_contract_size_per_local(None)
+        .wasm(&near_test_contracts::LargeContract {
         functions: 101,
         locals_per_function: 9901,
         ..Default::default()
@@ -258,6 +262,7 @@ fn slow_test_limit_locals_global() {
     ]);
 
     test_builder()
+        .min_contract_size_per_local(None)
         .wasm(
             &near_test_contracts::LargeContract {
                 functions: 64,
