@@ -270,13 +270,12 @@ Mainnet uses 10.
 
 This field is optional. If it is omitted, the layout has one shard.
 Defines the shards at genesis and how accounts map to them.
-The node uses it to split the genesis records into shards.
-The epoch config can override it for the genesis epoch.
-If the epoch config that the node loads for the genesis protocol version has a fixed shard layout, the genesis epoch uses that layout instead.
+The epoch config can override it.
+If the epoch config that the node loads for the genesis protocol version has a fixed shard layout, the node uses that layout instead.
 This applies to mainnet, testnet and any chain whose node home has an `epoch_configs` folder.
-Keep the two layouts the same, because the genesis records are still split with this field.
+The node splits the genesis records into shards with the layout that it uses for the genesis epoch.
 On mainnet and testnet, the later shard layouts come from the built-in epoch configs and from resharding.
-The mainnet genesis file does not set this field, so mainnet starts with one shard.
+Mainnet starts with one shard, which its built-in epoch config for protocol version 29 sets.
 
 ## minimum_validators_per_shard
 
