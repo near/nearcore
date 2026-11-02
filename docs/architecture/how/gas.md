@@ -231,9 +231,7 @@ the next gas price, account for the work. This holds even for a call rejected
 before any contract code runs, for example because the contract's account
 doesn't exist: validators still check it, so its fees count. An honest chunk
 producer runs each call before including it and leaves out the ones that
-would be rejected. An accepted call's fees and gas are burnt; the
-contract gets no reward for them (see [Contract Reward](#contract-reward)),
-since it would only be paying itself.
+would be rejected. An accepted call's fees and gas are burnt.
 
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
