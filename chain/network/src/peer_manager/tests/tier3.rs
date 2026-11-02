@@ -24,7 +24,7 @@ use crate::types::{
     StateRequestSenderForNetwork,
 };
 use futures::future::join_all;
-use near_async::messaging::{AsyncSender, CanSendAsync};
+use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender, noop};
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -344,9 +344,22 @@ async fn requests_answered_over_tier3() {
     }
 }
 
-// Verify that a host acks over the Tier3 connection a request which it fails to answer.
+/// A client which answers all state requests with `response`.
+fn client_answering(response: StateRequestResponse) -> StateRequestSenderForNetwork {
+    let header_response = response.clone();
+    StateRequestSenderForNetwork {
+        state_request_header: AsyncSender::from_fn(move |_: StateRequestHeader| {
+            header_response.clone()
+        }),
+        state_request_part: AsyncSender::from_fn(move |_: StateRequestPart| response.clone()),
+    }
+}
+
+// Verify that a host acks over the Tier3 connection the state header and part requests which it
+// doesn't answer: with Busy if the client is busy, and with Error if the client can't serve the
+// request or fails to respond. No response follows the acks.
 #[tokio::test]
-async fn failed_request_acknowledged_over_tier3() {
+async fn unanswered_requests_acknowledged_over_tier3() {
     init_test_logger();
     let mut rng = make_rng(921853243);
     let rng = &mut rng;
@@ -354,26 +367,40 @@ async fn failed_request_acknowledged_over_tier3() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
 
-    // Without a state request handler, the host fails all requests.
-    let pm = peer_manager::testonly::start(
-        clock.clone(),
-        TestDB::new(),
-        chain.make_config(rng),
-        chain.clone(),
-    )
-    .await;
-    let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng).await;
-
     let shard_id = ShardId::new(0);
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
-    stream.write(&PeerMessage::StateRequestHeader(shard_id, sync_hash)).await;
-    let ack = StateRequestAck {
-        shard_id,
-        sync_hash,
-        part_or_header: PartOrHeader::Header,
-        body: StateRequestAckBody::Error,
-    };
-    assert_eq!(stream.read().await.unwrap(), PeerMessage::StateRequestAck(ack));
+    let part_idx = 7;
+    let header = (PeerMessage::StateRequestHeader(shard_id, sync_hash), PartOrHeader::Header);
+    let part = (
+        PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx),
+        PartOrHeader::Part { part_idx },
+    );
+    for (client, body) in [
+        (client_answering(StateRequestResponse::Busy), StateRequestAckBody::Busy),
+        (client_answering(StateRequestResponse::Error), StateRequestAckBody::Error),
+        // The client fails to respond.
+        (noop().into_multi_sender(), StateRequestAckBody::Error),
+    ] {
+        let pm = peer_manager::testonly::start_with_state_request_sender(
+            clock.clone(),
+            TestDB::new(),
+            chain.make_config(rng),
+            chain.clone(),
+            client,
+        )
+        .await;
+        let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng).await;
+
+        // The host would send a response right after the ack, so receiving the next request's
+        // ack instead shows that it sent none. The header request is sent again at the end to
+        // check the part request.
+        for (request, part_or_header) in [&header, &part, &header] {
+            stream.write(request).await;
+            let ack =
+                StateRequestAck { shard_id, sync_hash, part_or_header: *part_or_header, body };
+            assert_eq!(stream.read().await.unwrap(), PeerMessage::StateRequestAck(ack));
+        }
+    }
 }
 
 // Verify that a node accepts an ack for its state request over a Tier3 connection.
