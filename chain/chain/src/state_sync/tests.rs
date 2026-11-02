@@ -267,3 +267,26 @@ fn test_is_final_descendant_of_sync_block_not_final() {
             .unwrap()
     );
 }
+
+#[test]
+fn test_is_final_descendant_of_sync_block_on_fork() {
+    const EPOCH_LENGTH: usize = 10;
+    let mut chain = HeaderChain::non_spice();
+    let epoch = chain.push_full(EPOCH_ID_2, EPOCH_LENGTH);
+    chain.set_header_head();
+    let sync_hash = epoch[0];
+
+    // A sibling of a final block: same height, but not the block the chain holds there.
+    let mut fork_header =
+        BlockHeader::clone(&chain.chain_store.get_block_header(&epoch[1]).unwrap());
+    fork_header.set_chunk_mask(vec![false; NUM_SHARDS]);
+    fork_header.init();
+
+    assert!(
+        !chain
+            .chain
+            .state_sync_adapter
+            .is_final_descendant_of_sync_block(&fork_header, &sync_hash)
+            .unwrap()
+    );
+}
