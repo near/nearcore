@@ -179,7 +179,7 @@ fn new_header_response(
     sync_hash: CryptoHash,
     header: ShardStateSyncResponseHeader,
 ) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(Some(header));
+    let state_response = ShardStateSyncResponse::new_from_header(header);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -189,10 +189,9 @@ fn new_part_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     part_idx: StatePartIndex,
-    part: Option<StatePart>,
+    part: StatePart,
 ) -> StatePartOrHeader {
-    let part = part.map(|part| (part_idx, part));
-    let state_response = ShardStateSyncResponse::new_from_part(part);
+    let state_response = ShardStateSyncResponse::new_from_part(part_idx, part);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -266,7 +265,7 @@ impl Handler<StateRequestPart, StateRequestResponse> for StateRequestActor {
         tracing::trace!(target: "sync", "finished computation for state request part");
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
-        let response = new_part_response(shard_id, sync_hash, part_idx, Some(part));
+        let response = new_part_response(shard_id, sync_hash, part_idx, part);
         StateRequestResponse::Respond(response)
     }
 }
