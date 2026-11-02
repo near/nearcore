@@ -227,8 +227,11 @@ it.
 A rejected call pays nothing, but it isn't free for the chunk. The gas it
 burnt, fees included, counts toward the chunk's gas limit, and its outcome
 reports that gas with no tokens burnt, so the chunk's gas used, and through it
-the next gas price, account for the work. A call rejected before any contract
-code runs burns nothing. An accepted call's fees and gas are burnt; the
+the next gas price, account for the work. This holds even for a call rejected
+before any contract code runs, for example because the contract's account
+doesn't exist: validators still check it, so its fees count. An honest chunk
+producer runs each call before including it and leaves out the ones that
+would be rejected. An accepted call's fees and gas are burnt; the
 contract gets no reward for them (see [Contract Reward](#contract-reward)),
 since it would only be paying itself.
 

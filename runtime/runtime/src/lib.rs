@@ -3010,11 +3010,12 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>)
 
 /// Runs an external contract call and records its outcome.
 ///
-/// A call that fails `verify_ecc` is refused without running. Otherwise the contract's reserved
-/// method runs. If the contract accepts the call, the run's writes are committed and the
-/// contract's account (both in the chunk's working copy `accounts` and in the trie) is charged.
-/// If it refuses, the writes are rolled back and nobody pays. Either way the run counts toward
-/// the chunk's gas and compute.
+/// A call that fails `verify_ecc` is refused without running, and only its fees count toward the
+/// chunk's gas and compute. Otherwise the contract's reserved method runs. If the contract
+/// accepts the call, the run's writes are committed and the contract's account (both in the
+/// chunk's working copy `accounts` and in the trie) is charged. If it refuses, the writes are
+/// rolled back and nobody pays. Either way the fees and the run count toward the chunk's gas and
+/// compute.
 fn process_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
     accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
@@ -3023,16 +3024,27 @@ fn process_external_call(
 ) -> Result<(), RuntimeError> {
     let apply_state = processing_state.apply_state;
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
-    let cost = match verify_ecc(apply_state, accounts, ecc, validation_error) {
+    let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
         Ok(cost) => cost,
+        // Without fees there is nothing to count toward the chunk's limits.
+        Err(err) => {
+            let err = validation_error.unwrap_or_else(|| err.into());
+            refuse_ecc_before_run(processing_state, outcome_id, ecc, err, Gas::ZERO, 0);
+            return Ok(());
+        }
+    };
+    match verify_ecc(accounts, ecc, &cost, validation_error) {
+        Ok(()) => {}
         Err(RuntimeError::InvalidTxError(err)) => {
-            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-            let outcome = ExecutionOutcomeWithId::failed_ecc(outcome_id, ecc, err);
-            processing_state.outcomes.push(outcome);
+            // Nobody pays for a refused call, but validators still check it, so its fees count
+            // toward the chunk's limits.
+            processing_state.total.add(cost.gas_burnt.as_gas(), cost.compute_burnt)?;
+            let (gas_burnt, compute_usage) = (cost.gas_burnt, cost.compute_burnt);
+            refuse_ecc_before_run(processing_state, outcome_id, ecc, err, gas_burnt, compute_usage);
             return Ok(());
         }
         Err(err) => return Err(err),
-    };
+    }
     // TODO(ecc): enforce the per-chunk limits on external calls: refuse a call, without running
     // it, once the chunk's calls exceed the allowed count or the state they read together
     // exceeds its budget.
@@ -3081,26 +3093,39 @@ fn process_external_call(
     Ok(())
 }
 
+/// Records the outcome of an external contract call refused before its method runs.
+fn refuse_ecc_before_run(
+    processing_state: &mut ApplyProcessingReceiptState,
+    outcome_id: CryptoHash,
+    ecc: &EccTransaction,
+    err: InvalidTxError,
+    gas_burnt: Gas,
+    compute_usage: Compute,
+) {
+    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+    let outcome =
+        ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, err.into(), gas_burnt, compute_usage);
+    processing_state.outcomes.push(outcome);
+}
+
 /// Checks an external contract call before it runs: it passed validation, and its contract
-/// exists and can pay for the fees of the call. Returns the fees.
+/// exists and can pay for the fees of the call, `cost`.
 ///
 /// `RuntimeError::InvalidTxError` rejects the call. Any other error, such as a storage error
 /// while reading the contract account, stops applying the chunk.
 fn verify_ecc(
-    apply_state: &ApplyState,
     accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
     ecc: &EccTransaction,
+    cost: &EccCost,
     validation_error: Option<InvalidTxError>,
-) -> Result<EccCost, RuntimeError> {
+) -> Result<(), RuntimeError> {
     if let Some(err) = validation_error {
         return Err(err.into());
     }
-    let cost =
-        ecc_cost(&apply_state.config, ecc, apply_state.gas_price).map_err(InvalidTxError::from)?;
     let contract = accounts.get(ecc.contract_id()).expect("accounts should've been prefetched");
     let contract = contract.value().as_ref().map_err(Clone::clone)?;
-    verify_ecc_ephemeral(contract.as_ref(), ecc, &cost)?;
-    Ok(cost)
+    verify_ecc_ephemeral(contract.as_ref(), ecc, cost)?;
+    Ok(())
 }
 
 fn action_transfer_or_implicit_account_creation(

@@ -720,8 +720,8 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
 }
 
 /// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
-/// ECC fails without burning anything and leaves `bob`'s balance as it was, and returns the
-/// error it fails with.
+/// ECC fails, burns no tokens and leaves `bob`'s balance as it was, but that its fees count
+/// toward the chunk's gas and compute. Returns the error it fails with.
 fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
@@ -750,8 +750,11 @@ fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
         panic!("expected one outcome, got {:?}", apply_result.outcomes);
     };
     assert_eq!(ecc_outcome.id, create_ecc_outcome_id(ecc.hash(), apply_state.block_height));
-    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
+    let fee = ecc_cost(&apply_state.config, &ecc, GAS_PRICE).unwrap();
+    assert_eq!(ecc_outcome.outcome.gas_burnt, fee.gas_burnt);
+    assert_eq!(ecc_outcome.outcome.compute_usage, Some(fee.compute_burnt));
     assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
+    assert_eq!(apply_result.stats.balance.tx_burnt_amount, Balance::ZERO);
     let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
         ecc_outcome.outcome.status.clone()
     else {
@@ -1382,31 +1385,36 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
 }
 
-/// An ECC refused before its method runs burns nothing, not even its fees, so it doesn't count
-/// toward the chunk's gas limit: with a limit of one gas, the receipt after it runs.
+/// An ECC refused before its method runs, here for a missing contract, still counts its fees
+/// toward the chunk's gas limit: the limit is the compute of the fees, so the fees alone fill it,
+/// and the receipt after the ECC is delayed. Its outcome reports the gas of the fees, but burns
+/// no tokens.
 #[test]
-fn test_apply_ecc_refused_before_run_does_not_count_toward_chunk_limit() {
+fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
         return;
     }
     let missing: AccountId = "missing.near".parse().unwrap();
     let ecc = EccTransaction::new(missing, ECC_PAYLOAD.to_vec());
+    let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
+    let gas_limit = Gas::from_gas(fee.compute_burnt);
     let (receipt, apply_result) =
-        apply_ecc_before_receipt(ecc_accepting_contract(), ecc, Gas::from_gas(1));
+        apply_ecc_before_receipt(ecc_accepting_contract(), ecc, gas_limit);
 
-    let [ecc_outcome, receipt_outcome] = apply_result.outcomes.as_slice() else {
-        panic!("expected two outcomes, got {:?}", apply_result.outcomes);
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected only the ECC's outcome, got {:?}", apply_result.outcomes);
     };
     assert_matches!(
-        &ecc_outcome.outcome.status,
+        &outcome.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
             InvalidTxError::SignerDoesNotExist { .. }
         ))
     );
-    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
-    assert_eq!(&receipt_outcome.id, receipt.receipt_id());
-    assert_matches!(receipt_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
-    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(outcome.outcome.gas_burnt, fee.gas_burnt);
+    assert_eq!(outcome.outcome.compute_usage, Some(fee.compute_burnt));
+    assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
+    assert_eq!(apply_result.delayed_receipts_count, 1);
+    assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
 }
 
 /// A chunk with ECCs, applied again from its storage proof alone as a chunk validator does,
