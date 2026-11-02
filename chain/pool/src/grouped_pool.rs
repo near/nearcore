@@ -181,7 +181,7 @@ impl<T: PoolItem> GroupedPool<T> {
                     if !hashes.contains(&item.hash()) {
                         return true;
                     }
-                    // See the comment in `insert_with` where we increase the size for reasoning
+                    // See the comment in `admit` where we increase the size for reasoning
                     // why panicking here catches a logic error.
                     self.total_size = self
                         .total_size
@@ -234,7 +234,7 @@ impl<T: PoolItem> GroupedPool<T> {
         group.removed_hashes.iter().for_each(|hash| {
             self.unique_items.remove(hash);
         });
-        // See the comment in `insert_with` where we increase the size for reasoning
+        // See the comment in `admit` where we increase the size for reasoning
         // why panicking here catches a logic error.
         self.total_size = self
             .total_size
