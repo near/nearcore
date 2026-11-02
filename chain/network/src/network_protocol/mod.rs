@@ -180,9 +180,9 @@ pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
     time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
 }
 
-/// Converts `t` to nanoseconds since the unix epoch. An `i64` holds them until 2262.
+/// Converts `t` to nanoseconds since the unix epoch. Saturates before 1677 and after 2262.
 pub(crate) fn to_unix_nanos_i64(t: time::Utc) -> i64 {
-    t.unix_timestamp_nanos() as i64
+    t.unix_timestamp_nanos().clamp(i64::MIN.into(), i64::MAX.into()) as i64
 }
 
 /// Converts nanoseconds since the unix epoch to UTC time.
