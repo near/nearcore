@@ -93,10 +93,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
         );
 
         // Another node accepts the served header.
-        syncing_node
-            .client()
-            .chain
-            .state_sync_adapter
+        verifier
             .set_state_header(shard_id, sync_hash, ShardStateSyncResponseHeader::V3(header.clone()))
             .expect("valid header should pass the validation");
 
@@ -107,7 +104,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
         let allowed_shard = congestion_info.allowed_shard();
         congestion_info.set_allowed_shard(allowed_shard.wrapping_add(1));
         assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
+            verifier.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(tampered),
@@ -124,7 +121,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
             panic!("spice must serve a V3 state sync header");
         };
         assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
+            verifier.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
@@ -140,7 +137,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
         // A certifying block that is not final yet is rejected
         assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
+            verifier.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
@@ -164,7 +161,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
             })
             .unwrap();
         assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
+            verifier.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
@@ -179,7 +176,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 
         // A state root node that is not the root of the synced state is rejected
         assert_matches!(
-            syncing_node.client().chain.state_sync_adapter.set_state_header(
+            verifier.set_state_header(
                 shard_id,
                 sync_hash,
                 ShardStateSyncResponseHeader::V3(
