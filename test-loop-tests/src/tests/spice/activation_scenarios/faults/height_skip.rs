@@ -21,7 +21,7 @@ const DEFAULT_AT: Range<i64> = -1..0;
 /// offsets, measured against the estimate: the skip is what moves the boundary, so it
 /// cannot be keyed on the boundary. Only the dropped block's producer has it as head, so
 /// the other producers time out, send skip approvals, and the next block builds on the
-/// one below the gap; the dropper also swallows the requests for the dropped block that
+/// one below the gap; the network rules swallow the requests for the dropped block that
 /// the producer's own child would otherwise trigger. The default skip at `-1` moves the
 /// real boundary three heights up, see the design's trace.
 pub struct HeightSkip {
@@ -145,8 +145,8 @@ impl Fault for HeightSkip {
         }]
     }
 
-    /// No block exists at the injected heights on the driver node; the requests the
-    /// dropper swallowed are reported.
+    /// No block exists at the injected heights on the driver node; the requests the rules
+    /// swallowed are reported.
     fn assert_fired(&self, env: &TestLoopEnv, _timeline: &Timeline) {
         assert!(!self.heights.is_empty(), "the offsets were never resolved");
         let chain = &env.rpc_node().client().chain;
@@ -156,12 +156,13 @@ impl Fault for HeightSkip {
                 "a block exists at height {height}, which the fault skipped",
             );
         }
-        let dropped_blocks = env.shared_state.dropped_blocks.lock();
+        let kept = env.shared_state.network_rules.kept_blocks();
         tracing::info!(
             target: "test",
             heights = ?self.heights,
-            dropped = dropped_blocks.hashes.len(),
-            requests_swallowed = dropped_blocks.requests_swallowed,
+            dropped = kept.hashes.len(),
+            requests_swallowed = kept.requests_swallowed,
+            header_requests_swallowed = kept.header_requests_swallowed,
             "height_skip dropped the blocks at the injected heights",
         );
     }

@@ -10,9 +10,11 @@
 use crate::setup::task_delays::task_names;
 use driver::run_scenario;
 use faults::{
-    Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, Fallback, GcTight,
-    HeightSkip, Kind, LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers,
-    ShardSkip, Shards, SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
+    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadFirstSpiceBlock, ChurnKind,
+    DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, Fallback, ForkAtBoundary,
+    ForkKind, GcTight, HeightSkip, How, Kind, LateChunk, LateTracker, MissingChunk, NodeCrash,
+    Only, Outcome, PartialDataFault, Producers, ShardSkip, Shards, SlowNode, TrackAll,
+    ValidatorChurn, What, WindowEnd, WindowStart,
 };
 use near_o11y::testonly::init_test_logger;
 use random::RandomSpec;
@@ -258,6 +260,47 @@ fn ultra_slow_test_spice_activation_matrix_boundary() {
     run_scenarios(boundary_presets());
 }
 
+/// The network fault layer: chunks kept out by their parts on either side of the boundary
+/// and delayed instead, boundary data ahead of its block, a wrong boundary endorsement, a
+/// rewritten boundary block and a fork at the boundary, alone and with the faults they are
+/// most likely to meet.
+fn network_presets() -> Vec<Scenario> {
+    vec![
+        Scenario::new().fault(MissingChunk::new().at(0..1)),
+        Scenario::new().fault(MissingChunk::new().shards(Shards::Index(1)).at(1..2)),
+        Scenario::new().fault(MissingChunk::new().at(-1..1)),
+        Scenario::new().fault(MissingChunk::new().how(How::Parts)),
+        Scenario::new()
+            .fault(MissingChunk::new().shards(Shards::Index(0)).at(-3..-1).how(How::Parts)),
+        Scenario::new().fault(LateChunk::new()),
+        Scenario::new().fault(LateChunk::new().shard(0).at(0)),
+        Scenario::new().fault(LateChunk::new().at(1)),
+        Scenario::new().fault(LateChunk::new().outcome(Outcome::Included)),
+        Scenario::new().fault(DataBeforeBlock::new()),
+        Scenario::new().fault(DataBeforeBlock::new().what(What::FirstSpice)),
+        Scenario::new().fault(DataBeforeBlock::new().node(6).hold(5)),
+        Scenario::new().fault(BadBoundaryEndorsement::new()),
+        Scenario::new().fault(BadBoundaryEndorsement::new().validator(1).shard(1)),
+        Scenario::new().fault(BadFirstSpiceBlock::new()),
+        Scenario::new().fault(BadFirstSpiceBlock::new().mode(BadBlockMode::SpiceHeaderPreSpice)),
+        Scenario::new().fault(ForkAtBoundary::new()),
+        Scenario::new().fault(ForkAtBoundary::new().kind(ForkKind::FirstSpice)),
+        Scenario::new().fault(ForkAtBoundary::new()).fault(MissingChunk::new()),
+        Scenario::new().fault(DataBeforeBlock::new()).fault(EndorsementDelay::new()),
+        Scenario::new()
+            .fault(LateChunk::new())
+            .fault(MissingChunk::new().shards(Shards::Index(0)).at(-2..-1)),
+        Scenario::new().fault(BadBoundaryEndorsement::new()).fault(PartialDataFault::new()),
+    ]
+}
+
+/// Preset group, run on request.
+#[test]
+#[ignore]
+fn ultra_slow_test_spice_activation_matrix_network() {
+    run_scenarios(network_presets());
+}
+
 /// Every fault of the catalog at its defaults, in the catalog's order, for the group built
 /// from pairs. `shard_rotation` is left out: it cannot fire on profile A, see the fault.
 const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
@@ -273,6 +316,11 @@ const DEFAULT_FAULTS: &[fn() -> Box<dyn Fault>] = &[
     || Box::new(TrackAll::new()),
     || Box::new(GcTight::new()),
     || Box::new(Archival::new()),
+    || Box::new(LateChunk::new()),
+    || Box::new(DataBeforeBlock::new()),
+    || Box::new(BadBoundaryEndorsement::new()),
+    || Box::new(BadFirstSpiceBlock::new()),
+    || Box::new(ForkAtBoundary::new()),
 ];
 
 /// Every pair of distinct default faults that the resolver accepts, in the catalog's
@@ -351,6 +399,7 @@ fn test_presets_are_accepted_by_the_resolver() {
     let mut presets = core_presets();
     presets.extend(nodes_presets());
     presets.extend(storage_presets());
+    presets.extend(network_presets());
     presets.extend(fallback_presets());
     presets.extend(boundary_presets());
     presets.extend(pairwise_presets());
@@ -384,10 +433,20 @@ fn test_pairwise_presets_cover_the_allowed_pairs() {
     let printed: Vec<String> = presets.iter().map(|scenario| format!("{scenario:?}")).collect();
     let tags = DEFAULT_FAULTS.len();
     let all_pairs = tags * (tags - 1) / 2;
-    assert_eq!(printed.len(), all_pairs - 2, "{printed:?}");
-    assert!(!printed.contains(&"\"node_crash,gc_tight\"".to_string()));
-    assert!(!printed.contains(&"\"late_tracker,track_all\"".to_string()));
+    let conflicts = [
+        "\"node_crash,gc_tight\"",
+        "\"late_tracker,track_all\"",
+        "\"missing_chunk,late_chunk\"",
+        "\"data_before_block,bad_first_spice_block\"",
+        "\"data_before_block,fork_at_boundary\"",
+        "\"bad_first_spice_block,fork_at_boundary\"",
+    ];
+    assert_eq!(printed.len(), all_pairs - conflicts.len(), "{printed:?}");
+    for conflict in conflicts {
+        assert!(!printed.contains(&conflict.to_string()), "{conflict} is a conflict");
+    }
     assert!(printed.contains(&"\"missing_chunk,shard_skip\"".to_string()));
+    assert!(printed.contains(&"\"late_chunk,fork_at_boundary\"".to_string()));
     let parts: usize = (0..3).map(|part| pairwise_part(part).len()).sum();
     assert_eq!(parts, printed.len());
 }

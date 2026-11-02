@@ -273,6 +273,10 @@ pub enum OracleId {
     CertifiedThroughDesignated,
     JoinerSkipsBoundaryStep,
     CertifiedViaFallback,
+    LateChunkTransactionsReincluded,
+    HeldNodeEndorsesAfterRelease,
+    BothForksBootstrapped,
+    InvalidBlockRejected,
 }
 
 impl OracleId {
@@ -300,6 +304,10 @@ impl OracleId {
             OracleId::CertifiedThroughDesignated => "certified_through_designated",
             OracleId::JoinerSkipsBoundaryStep => "joiner_skips_boundary_step",
             OracleId::CertifiedViaFallback => "certified_via_fallback",
+            OracleId::LateChunkTransactionsReincluded => "late_chunk_transactions_reincluded",
+            OracleId::HeldNodeEndorsesAfterRelease => "held_node_endorses_after_release",
+            OracleId::BothForksBootstrapped => "both_forks_bootstrapped",
+            OracleId::InvalidBlockRejected => "invalid_block_rejected",
         }
     }
 
@@ -327,7 +335,11 @@ impl OracleId {
             | OracleId::EndorsedBeforeCatchup
             | OracleId::CertifiedThroughDesignated
             | OracleId::JoinerSkipsBoundaryStep
-            | OracleId::CertifiedViaFallback => false,
+            | OracleId::CertifiedViaFallback
+            | OracleId::LateChunkTransactionsReincluded
+            | OracleId::HeldNodeEndorsesAfterRelease
+            | OracleId::BothForksBootstrapped
+            | OracleId::InvalidBlockRejected => false,
         }
     }
 }

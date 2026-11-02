@@ -495,6 +495,14 @@ impl TestLoopNetworkSharedState {
         withheld.len()
     }
 
+    /// The hashes of the blocks withheld from `account_id` so far and not yet delivered.
+    pub fn withheld_block_hashes(&self, account_id: &AccountId) -> HashSet<CryptoHash> {
+        let guard = self.0.lock();
+        guard.suppressed_block_recipients.get(account_id).map_or_else(HashSet::new, |s| {
+            s.withheld.iter().map(|(_, block)| *block.hash()).collect()
+        })
+    }
+
     /// How many broadcast blocks were withheld from `account_id`. Lets a test check that its
     /// height window actually covered the behaviour under test.
     pub fn suppressed_block_count(&self, account_id: &AccountId) -> usize {
@@ -581,25 +589,6 @@ impl TestLoopNetworkSharedState {
             return guard.drop_events_senders.clone();
         }
         guard.senders.get(peer_id).unwrap().clone()
-    }
-
-    /// The recipients a message from `origin` reaches, dropping the ones behind a severed link. For
-    /// handlers that deliver messages themselves instead of going through `senders_for_account`.
-    pub(crate) fn reachable_from(
-        &self,
-        origin: &AccountId,
-        recipients: &HashSet<AccountId>,
-    ) -> Vec<AccountId> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        recipients
-            .iter()
-            .filter(|recipient| {
-                let peer_id = &guard.account_to_peer_id[*recipient];
-                !Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id)
-            })
-            .cloned()
-            .collect()
     }
 
     pub(crate) fn senders_for_peer(

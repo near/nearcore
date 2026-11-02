@@ -1,6 +1,6 @@
 //! Profile choice and the conflict list: turns a scenario into the setup it runs on.
 
-use super::faults::{NodeCrash, SlowNode};
+use super::faults::{DataBeforeBlock, LateChunk, MissingChunk, NodeCrash, SlowNode};
 use super::loads;
 use super::scenario::Scenario;
 use crate::setup::builder::{MIN_BLOCK_PROD_TIME, TestLoopBuilder};
@@ -46,6 +46,11 @@ const B_MANDATES_PER_SHARD: NumSeats = 2;
 const B_EPOCH_LENGTH: BlockHeightDelta = 27;
 
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 20;
+
+/// The `(shard index, offset)` pairs on profile A whose chunk is its block producer's own,
+/// see [`Profile::chunk_is_block_producers_own`].
+const A_BLOCK_PRODUCERS_OWN_CHUNKS: &[(usize, i64)] =
+    &[(0, -3), (0, -1), (1, 0), (0, 1), (1, 2), (0, 3)];
 
 /// The epoch height spice activates at on every profile. The last pre-spice epoch is the
 /// one below it and has an epoch height of its own: the epoch before that is the one
@@ -161,6 +166,21 @@ impl Profile {
     /// one, since the layout's boundary accounts `test1..` sort below `upper_`.
     pub fn contract_shard_index(self) -> usize {
         self.num_shards() - 1
+    }
+
+    /// Whether the chunk of `shard_index` at `offset` against the boundary is produced by
+    /// the block producer of its height, who has it without the network, so that keeping
+    /// its parts from the others cannot keep it out of its block and delaying them delays
+    /// nothing. `None` where it was not measured: the table is the seeded assignment of
+    /// profile A over offsets `-3..=3` with the boundary where the estimate puts it,
+    /// read off a run that dropped the parts of every chunk there.
+    pub fn chunk_is_block_producers_own(self, shard_index: usize, offset: i64) -> Option<bool> {
+        match self {
+            Profile::A => (-3..=3)
+                .contains(&offset)
+                .then(|| A_BLOCK_PRODUCERS_OWN_CHUNKS.contains(&(shard_index, offset))),
+            Profile::B => None,
+        }
     }
 
     /// The letter of the profile, as `setup:profile=` names it.
@@ -379,6 +399,66 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
     }
     if has("track_all") && has("late_tracker") {
         errors.push("track_all with late_tracker: nothing is tracked late".to_string());
+    }
+
+    // The faults that skip a height at the boundary, by holding, dropping or rewriting a
+    // block there: two of them leave two of the four producers on their own forks and
+    // stall Doomslug, as two consecutive height skips do.
+    let skippers: Vec<&str> = ["height_skip", "fork_at_boundary", "bad_first_spice_block"]
+        .into_iter()
+        .filter(|tag| has(tag))
+        .collect();
+    if skippers.len() >= 2 {
+        errors.push(format!(
+            "{}: each skips a height at the boundary, and two skips there stall the chain",
+            skippers.join(" with "),
+        ));
+    }
+    // The withheld block is keyed by height against the estimate, so the boundary must sit
+    // where the estimate puts it; the faults that hold or rewrite a boundary block also
+    // compete for the same block.
+    for held in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<DataBeforeBlock>()) {
+        let movers: Vec<&str> = faults
+            .iter()
+            .filter(|fault| fault.moves_boundary(resolved))
+            .map(|fault| fault.tag())
+            .collect();
+        if !movers.is_empty() {
+            errors.push(format!(
+                "data_before_block with {}: the withheld block is keyed by height against \
+                 the estimate, which the other fault moves the boundary away from",
+                movers.join(" and "),
+            ));
+        }
+        for tag in ["fork_at_boundary", "bad_first_spice_block"] {
+            if has(tag) {
+                errors.push(format!(
+                    "data_before_block with {tag}: both act on the same boundary block, one \
+                     holding it back from node {} and the other keeping or rewriting it for \
+                     everyone",
+                    held.target(),
+                ));
+            }
+        }
+    }
+    // A chunk cannot be both dropped and delayed.
+    let delayed: Vec<(usize, i64)> = faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<LateChunk>())
+        .map(LateChunk::delayed_offset)
+        .collect();
+    let dropped: Vec<(usize, i64)> = faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
+        .flat_map(|fault| fault.dropped_offsets(profile.num_shards()))
+        .collect();
+    for (shard, offset) in &delayed {
+        if dropped.contains(&(*shard, *offset)) {
+            errors.push(format!(
+                "late_chunk with missing_chunk: both name shard {shard}'s chunk at offset \
+                 {offset}, which cannot be dropped and delayed"
+            ));
+        }
     }
     errors
 }

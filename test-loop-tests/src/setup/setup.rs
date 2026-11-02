@@ -1,4 +1,4 @@
-use super::drop_condition::ClientToShardsManagerSender;
+use super::drop_condition::{ClientToShardsManagerSender, RuleInstall};
 use super::peer_manager_actor::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -73,7 +73,6 @@ pub fn setup_client(
         network_rules,
         upgrade_schedule,
         chunks_storage,
-        dropped_blocks,
         drop_conditions,
         load_memtries_for_tracked_shards,
         disable_compiled_contract_cache,
@@ -603,7 +602,7 @@ pub fn setup_client(
 
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
-    network_rules.register_peer_manager(&account_id, peer_manager_sender.clone());
+    network_rules.register_peer_manager(&account_id, peer_manager_sender.clone(), peer_id.clone());
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
         shared_state.rpc_config.clone(),
@@ -658,8 +657,9 @@ pub fn setup_client(
         node_data.register_drop_condition(
             &mut test_loop.data,
             chunks_storage.clone(),
-            dropped_blocks.clone(),
+            network_rules,
             condition,
+            RuleInstall::IfMissing,
         );
     }
 

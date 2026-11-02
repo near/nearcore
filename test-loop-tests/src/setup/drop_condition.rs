@@ -1,7 +1,8 @@
+use super::network_rules::{Action, NetworkRules};
 use super::state::NodeExecutionData;
 use crate::utils::network::{
-    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-    spice_data_request_dropper, spice_designated_endorsement_dropper,
+    blocks_at_heights_matcher, chunk_endorsement_dropper_by_hash,
+    designated_spice_endorsement_matcher, endorsements_from_matcher, spice_data_request_matcher,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -9,6 +10,9 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::types::NetworkRequests;
+use near_primitives::block_header::BlockHeader;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
@@ -34,11 +38,11 @@ pub enum DropCondition {
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
-    /// Drops the broadcast of every block at a height in the set, and swallows the requests
-    /// other nodes make for a block it dropped, so the skip holds even when the dropped
-    /// block's producer builds the next block on it: the child would otherwise make its
-    /// receivers fetch the parent. What was dropped and swallowed is in
-    /// `SharedState::dropped_blocks`.
+    /// Drops the broadcast of every block at a height in the set, through a network rule
+    /// on every node. The rules swallow the requests other nodes make for a block it
+    /// dropped, so the skip holds even when the dropped block's producer builds the next
+    /// block on it: the child would otherwise make its receivers fetch the parent. What was
+    /// dropped and swallowed is reported by `NetworkRules::kept_blocks`.
     BlocksByHeight(HashSet<BlockHeight>),
     /// Drops the pre-spice endorsements of the given shards' chunks of whichever block
     /// turns out to be the last pre-spice block, decided per chunk from its parent before
@@ -52,21 +56,51 @@ pub enum DropCondition {
     ChunksForShardsInEpochs { shards: HashSet<ShardId>, epoch_heights: HashSet<u64> },
     /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk,
     /// disabling the designated certification path so chunks can certify only via the all-stake
-    /// fallback.
+    /// fallback. A network rule on every node.
     DesignatedSpiceEndorsements,
     /// Drops every request for spice data, so a node can only get data that was pushed to
-    /// it.
+    /// it. A network rule on every node.
     SpiceDataRequests,
 }
 
-/// What [`DropCondition::BlocksByHeight`] dropped and swallowed, shared by every node's
-/// handler.
-#[derive(Default)]
-pub struct DroppedBlocks {
-    /// The hashes of the blocks whose broadcast was dropped.
-    pub hashes: HashSet<CryptoHash>,
-    /// How many requests for a dropped block were swallowed.
-    pub requests_swallowed: u64,
+/// The tags of the network rules the conditions install, by which a node's account shows
+/// whether it has them.
+mod rule_tags {
+    pub const ENDORSEMENTS_FROM: &str = "drop_condition:endorsements_from";
+    pub const BLOCKS_BY_HEIGHT: &str = "drop_condition:blocks_by_height";
+    pub const DESIGNATED_SPICE_ENDORSEMENTS: &str = "drop_condition:designated_spice_endorsements";
+    pub const SPICE_DATA_REQUESTS: &str = "drop_condition:spice_data_requests";
+}
+
+/// Whether a condition that is a network rule is installed for a node's account
+/// unconditionally, as when the condition is added, or only if the account has no rule of
+/// the condition's kind yet, as when a node is set up: a restarted node's account already
+/// has the rules of every condition added before, which are keyed by account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuleInstall {
+    Always,
+    IfMissing,
+}
+
+/// Whether `header` is a last pre-spice block, decided from the header alone before the
+/// block is processed, as when its producer broadcasts it: the block starts no epoch
+/// itself, its last final block, which the header names, plus three reaches the epoch's
+/// estimated end, and the next epoch is spice. The epoch manager has processed the parent
+/// and the last final block, since the producer built on them.
+pub fn is_last_pre_spice_header(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+) -> bool {
+    let Ok(parent) = epoch_manager.get_block_info(header.prev_hash()) else {
+        return false;
+    };
+    if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap_or(true) {
+        return false;
+    }
+    let Ok(last_final) = epoch_manager.get_block_info(header.last_final_block()) else {
+        return false;
+    };
+    ends_pre_spice_epoch_from(epoch_manager, &parent, last_final.height())
 }
 
 /// Whether the block built on `parent_hash` will end a pre-spice epoch into a spice one,
@@ -96,7 +130,17 @@ pub fn ends_pre_spice_epoch(
             Err(_) => return false,
         }
     };
-    let Ok(estimated_next_epoch_start) = epoch_manager.get_estimated_next_epoch_start(&parent)
+    ends_pre_spice_epoch_from(epoch_manager, &parent, last_final_height)
+}
+
+/// Whether a block built on `parent` whose last final height is `last_final_height` ends a
+/// pre-spice epoch into a spice one.
+fn ends_pre_spice_epoch_from(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent: &BlockInfo,
+    last_final_height: BlockHeight,
+) -> bool {
+    let Ok(estimated_next_epoch_start) = epoch_manager.get_estimated_next_epoch_start(parent)
     else {
         return false;
     };
@@ -107,7 +151,7 @@ pub fn ends_pre_spice_epoch(
         return false;
     };
     let Ok(next_version) =
-        epoch_manager.get_next_epoch_protocol_version_from_prev_block(parent_hash)
+        epoch_manager.get_next_epoch_protocol_version_from_prev_block(parent.hash())
     else {
         return false;
     };
@@ -139,6 +183,11 @@ impl TestLoopChunksStorage {
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {
         self.storage.get(chunk_hash)
+    }
+
+    /// The headers of every chunk produced so far that `selects`, in no particular order.
+    pub fn find(&self, selects: impl Fn(&ShardChunkHeader) -> bool) -> Vec<ShardChunkHeader> {
+        self.storage.values().filter(|header| selects(header)).cloned().collect()
     }
 
     /// If chunk height is too low, don't drop chunk, allow the chain to warm
@@ -173,19 +222,35 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
 }
 
 impl NodeExecutionData {
+    /// Installs `drop_condition` for this node: as a handler on its peer manager, or as a
+    /// network rule on its account for the conditions that are rules, which `install` says
+    /// whether to add when the account has one of the kind already.
     pub fn register_drop_condition(
         &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        dropped_blocks: Arc<Mutex<DroppedBlocks>>,
+        network_rules: &NetworkRules,
         drop_condition: &DropCondition,
+        install: RuleInstall,
     ) {
+        let rule =
+            |tag: &'static str, matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>| {
+                if install == RuleInstall::IfMissing
+                    && !network_rules.tagged(&self.account_id, tag).is_empty()
+                {
+                    return;
+                }
+                network_rules.add_tagged(self.account_id.clone(), tag, matches, Action::Drop);
+            };
         match drop_condition {
             DropCondition::ChunksValidatedBy(account_id) => {
                 self.register_drop_chunks_validated_by(test_loop_data, chunks_storage, account_id)
             }
             DropCondition::EndorsementsFrom(account_id) => {
-                self.register_drop_endorsements_from(test_loop_data, account_id);
+                rule(
+                    rule_tags::ENDORSEMENTS_FROM,
+                    Box::new(endorsements_from_matcher(account_id.clone())),
+                );
             }
             DropCondition::ProtocolUpgradeChunkRange(protocol_version, chunk_ranges) => {
                 self.register_drop_protocol_upgrade_chunks(
@@ -203,7 +268,10 @@ impl NodeExecutionData {
                 );
             }
             DropCondition::BlocksByHeight(heights) => {
-                self.register_drop_blocks_by_height(test_loop_data, heights, dropped_blocks);
+                rule(
+                    rule_tags::BLOCKS_BY_HEIGHT,
+                    Box::new(blocks_at_heights_matcher(heights.clone())),
+                );
             }
             DropCondition::LastPreSpiceChunks { shards } => {
                 self.register_drop_last_pre_spice_chunks(
@@ -221,10 +289,15 @@ impl NodeExecutionData {
                 );
             }
             DropCondition::DesignatedSpiceEndorsements => {
-                self.register_drop_designated_spice_endorsements(test_loop_data);
+                let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+                let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+                rule(
+                    rule_tags::DESIGNATED_SPICE_ENDORSEMENTS,
+                    Box::new(designated_spice_endorsement_matcher(epoch_manager)),
+                );
             }
             DropCondition::SpiceDataRequests => {
-                self.register_override_handler(test_loop_data, spice_data_request_dropper());
+                rule(rule_tags::SPICE_DATA_REQUESTS, Box::new(spice_data_request_matcher()));
             }
         }
     }
@@ -256,15 +329,6 @@ impl NodeExecutionData {
         );
     }
 
-    fn register_drop_designated_spice_endorsements(&self, test_loop_data: &mut TestLoopData) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-        self.register_override_handler(
-            test_loop_data,
-            spice_designated_endorsement_dropper(epoch_manager),
-        );
-    }
-
     fn register_drop_chunks_validated_by(
         &self,
         test_loop_data: &mut TestLoopData,
@@ -283,17 +347,6 @@ impl NodeExecutionData {
         self.register_override_handler(
             test_loop_data,
             chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
-    }
-
-    fn register_drop_endorsements_from(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        account_id: &AccountId,
-    ) {
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper(account_id.clone()),
         );
     }
 
@@ -348,18 +401,6 @@ impl NodeExecutionData {
                 epoch_manager.clone(),
                 drop_chunks_condition.clone(),
             ),
-        );
-    }
-
-    fn register_drop_blocks_by_height(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        heights: &HashSet<BlockHeight>,
-        dropped_blocks: Arc<Mutex<DroppedBlocks>>,
-    ) {
-        self.register_override_handler(
-            test_loop_data,
-            block_dropper_by_height(heights.clone(), dropped_blocks),
         );
     }
 

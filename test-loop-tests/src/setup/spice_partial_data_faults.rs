@@ -1,17 +1,10 @@
-//! Fault injection for spice partial data: the knobs a test arms, what the handler saw, and the
-//! network handler that applies them.
+//! Fault injection for spice partial data: the knobs a test arms, what the rules saw, and the
+//! network rules that apply them.
 
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::{HandlerResult, TestLoopNetworkSharedState};
-use crate::setup::state::{NETWORK_DELAY, NodeExecutionData};
-use near_async::messaging::CanSend as _;
-use near_async::test_loop::data::TestLoopData;
-use near_async::test_loop::sender::TestLoopSender;
+use crate::setup::network_rules::Action;
 use near_async::time::Duration;
-use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
-use near_network::recv_permit::RecvMessagePermit;
-use near_network::spice::data_distribution::SpiceIncomingPartialData;
-use near_network::types::{NetworkRequests, NetworkResponses};
+use near_network::types::NetworkRequests;
 use near_primitives::hash::hash;
 use near_primitives::merkle::compute_root_from_path_and_item;
 use near_primitives::spice::partial_data::{
@@ -23,19 +16,22 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Shared state for the spice partial data fault handler installed by
+/// The tag of the rules `TestLoopEnv::install_spice_partial_data_faults` installs on each
+/// account.
+const SPICE_PARTIAL_DATA_RULES: &str = "spice_partial_data_faults";
+
+/// Shared state for the spice partial data fault rules installed by
 /// `TestLoopEnv::install_spice_partial_data_faults`. Locked separately so a test can read what the
-/// handler saw without touching the faults it armed.
+/// rules saw without touching the faults it armed.
 #[derive(Clone, Default)]
 pub struct SpicePartialDataFaultState {
     pub faults: Arc<Mutex<SpicePartialDataFaults>>,
     pub observed: Arc<Mutex<SpicePartialDataObserved>>,
-    wiring: Arc<Mutex<SpicePartialDataFaultWiring>>,
 }
 
 /// Faults applied to spice partial data on its way out of a node, keyed by the account sending it,
 /// so a test names producers rather than nodes. Every set starts empty, and arming one mid-run
-/// takes effect on the next message.
+/// takes effect on the next message: the rules read the sets when a message is sent.
 ///
 /// Keying by sender covers every way partial data leaves a node: the push, the all-stake fallback
 /// push, and the response to a data request. Contract accesses travel as their own message and
@@ -59,6 +55,15 @@ pub struct SpicePartialDataFaults {
     pub drop_contract_accesses_from: HashSet<AccountId>,
 }
 
+impl SpicePartialDataFaults {
+    /// Whether the faults apply to `partial_data` at all: its sender is faulted somehow and its
+    /// kind is not excluded.
+    fn applies_to(&self, partial_data: &SpicePartialData) -> bool {
+        let kind = SpiceDataKind::of(partial_data.id());
+        !self.only_kind.is_some_and(|only| only != kind)
+    }
+}
+
 /// Which kind of partial data a fault applies to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SpiceDataKind {
@@ -75,14 +80,7 @@ impl SpiceDataKind {
     }
 }
 
-/// Where the handler delivers the faulty copies it makes, and which nodes already have it.
-#[derive(Default)]
-struct SpicePartialDataFaultWiring {
-    installed_for: HashSet<String>,
-    senders: HashMap<AccountId, TestLoopSender<SpiceDataDistributorActor>>,
-}
-
-/// What the spice partial data fault handler saw. Counted per fault kind, so a test arming several
+/// What the spice partial data fault rules saw. Counted per fault kind, so a test arming several
 /// can still tell which of them fired.
 #[derive(Default)]
 pub struct SpicePartialDataObserved {
@@ -109,149 +107,159 @@ pub struct SpicePartialDataObserved {
 
 impl TestLoopEnv {
     /// Installs spice partial data fault injection on every node and returns the shared knobs
-    /// alongside what the handler sees. Call again after `add_node` / `restart_node` to instrument
-    /// nodes added since.
+    /// alongside what the rules see. The rules are keyed by account, so a restarted node keeps
+    /// them; call again after `add_node` to cover an account added since.
     pub fn install_spice_partial_data_faults(
-        &mut self,
+        &self,
     ) -> (Arc<Mutex<SpicePartialDataFaults>>, Arc<Mutex<SpicePartialDataObserved>>) {
         let state = self.shared_state.spice_partial_data_faults.clone();
-        {
-            let mut wiring = state.wiring.lock();
-            wiring.senders = self
-                .node_datas
-                .iter()
-                .map(|n| (n.account_id.clone(), n.spice_data_distributor_sender.clone()))
-                .collect();
-        }
-        let network = self.shared_state.network_shared_state.clone();
+        let rules = &self.shared_state.network_rules;
         for node in &self.node_datas {
-            if !state.wiring.lock().installed_for.insert(node.identifier.clone()) {
+            if !rules.tagged(&node.account_id, SPICE_PARTIAL_DATA_RULES).is_empty() {
                 continue;
             }
-            install_spice_partial_data_fault_handler(
-                &mut self.test_loop.data,
-                node,
-                state.clone(),
-                network.clone(),
-            );
+            install_spice_partial_data_fault_rules(self, &node.account_id, &state);
         }
         (state.faults.clone(), state.observed)
     }
 }
 
-fn install_spice_partial_data_fault_handler(
-    data: &mut TestLoopData,
-    node: &NodeExecutionData,
-    state: SpicePartialDataFaultState,
-    network: TestLoopNetworkSharedState,
+/// The rules of `me`, in the order a message goes through them: the observer, the contract
+/// accesses drop, then on partial data the drop, the rewrites and the delay, so a message that
+/// is dropped is counted as nothing else and a rewritten one is delayed as rewritten.
+fn install_spice_partial_data_fault_rules(
+    env: &TestLoopEnv,
+    me: &AccountId,
+    state: &SpicePartialDataFaultState,
 ) {
-    let me = node.account_id.clone();
-    let peer_actor = data.get_mut(&node.peer_manager_sender.actor_handle());
+    let rules = &env.shared_state.network_rules;
+    let add = |matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>, action| {
+        rules.add_tagged(me.clone(), SPICE_PARTIAL_DATA_RULES, matches, action)
+    };
 
-    // Counting is an observer, not a handler: another handler claiming endorsements would otherwise
-    // decide whether any of this is seen, depending on which was registered last.
+    // Counting is an observer, not a drop or a rewrite: another rule claiming endorsements
+    // would otherwise decide whether any of this is seen.
     let observed = state.observed.clone();
     let requester = me.clone();
-    peer_actor.register_observer(Box::new(move |request| match request {
-        NetworkRequests::SpiceDataRequest { .. } => {
-            *observed.lock().data_requests.entry(requester.clone()).or_default() += 1;
-        }
-        NetworkRequests::SpiceChunkEndorsement(_target, endorsement) => {
-            let chunk_id = SpiceChunkId {
-                block_hash: *endorsement.block_hash(),
-                shard_id: endorsement.shard_id(),
-            };
-            observed
-                .lock()
-                .endorsements
-                .entry(endorsement.account_id().clone())
-                .or_default()
-                .insert(chunk_id);
-        }
-        _ => {}
-    }));
-
-    let accesses_state = state.clone();
-    let accesses_sender = me.clone();
-    peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-        let NetworkRequests::SpiceChunkContractAccesses(_, _) = &request else {
-            return HandlerResult::Unhandled(request);
-        };
-        if !accesses_state.faults.lock().drop_contract_accesses_from.contains(&accesses_sender) {
-            return HandlerResult::Unhandled(request);
-        }
-        accesses_state.observed.lock().dropped_contract_accesses += 1;
-        HandlerResult::Handled(NetworkResponses::NoResponse)
-    }));
-
-    peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-        let NetworkRequests::SpicePartialData { partial_data, recipients } = &request else {
-            return HandlerResult::Unhandled(request);
-        };
-        let sender = partial_data.sender().clone();
-        let kind = SpiceDataKind::of(partial_data.id());
-        let (drop_it, delay, corrupt, equivocate) = {
-            let faults = state.faults.lock();
-            if faults.only_kind.is_some_and(|only| only != kind) {
-                return HandlerResult::Unhandled(request);
-            }
-            (
-                faults.drop_from.contains(&sender),
-                faults.delay_from.get(&sender).copied(),
-                faults.corrupt_from.contains(&sender),
-                faults.equivocate_from.contains(&sender),
+    add(
+        Box::new(|request| {
+            matches!(
+                request,
+                NetworkRequests::SpiceDataRequest { .. }
+                    | NetworkRequests::SpiceChunkEndorsement(..)
             )
-        };
-        if drop_it {
-            state.observed.lock().dropped += 1;
-            return HandlerResult::Handled(NetworkResponses::NoResponse);
-        }
-        if delay.is_none() && !corrupt && !equivocate {
-            return HandlerResult::Unhandled(request);
-        }
-        {
-            let mut observed = state.observed.lock();
-            observed.delayed += delay.is_some() as usize;
-            observed.corrupted += corrupt as usize;
-            observed.equivocated += equivocate as usize;
-        }
-
-        let mut to_send = Vec::new();
-        if equivocate {
-            to_send.push(with_conflicting_commitment(partial_data));
-        }
-        to_send.push(if corrupt {
-            with_corrupted_part(partial_data)
-        } else {
-            partial_data.clone()
-        });
-
-        // The peer manager would deliver a rewritten request, but it cannot delay one or turn one
-        // request into two, which is what the delay and equivocate faults need. So these messages
-        // go out from here, which skips the routing — including its severed-link check, redone
-        // below.
-        // TODO(spice-data-distribution): count what each recipient is handed, so a test can assert
-        // on delivery directly instead of inferring it from whether the recipient endorsed.
-        let delay = NETWORK_DELAY + delay.unwrap_or(Duration::ZERO);
-        let reachable = network.reachable_from(&me, recipients);
-        let recipient_actors: Vec<_> = {
-            let wiring = state.wiring.lock();
-            reachable
-                .iter()
-                .filter_map(|recipient| wiring.senders.get(recipient))
-                .map(|actor| actor.clone().with_delay(delay))
-                .collect()
-        };
-        for recipient_actor in recipient_actors {
-            for data in &to_send {
-                recipient_actor.send(SpiceIncomingPartialData {
-                    data: data.clone(),
-                    recv_permit: RecvMessagePermit::none(),
-                });
+        }),
+        Action::Observe(Box::new(move |request| match request {
+            NetworkRequests::SpiceDataRequest { .. } => {
+                *observed.lock().data_requests.entry(requester.clone()).or_default() += 1;
             }
-        }
-        HandlerResult::Handled(NetworkResponses::NoResponse)
-    }));
+            NetworkRequests::SpiceChunkEndorsement(_target, endorsement) => {
+                let chunk_id = SpiceChunkId {
+                    block_hash: *endorsement.block_hash(),
+                    shard_id: endorsement.shard_id(),
+                };
+                observed
+                    .lock()
+                    .endorsements
+                    .entry(endorsement.account_id().clone())
+                    .or_default()
+                    .insert(chunk_id);
+            }
+            _ => {}
+        })),
+    );
+
+    let faults = state.faults.clone();
+    let observed = state.observed.clone();
+    let sender = me.clone();
+    add(
+        Box::new(move |request| {
+            matches!(request, NetworkRequests::SpiceChunkContractAccesses(_, _))
+                && faults.lock().drop_contract_accesses_from.contains(&sender)
+        }),
+        Action::Replace(Box::new(move |_request| {
+            observed.lock().dropped_contract_accesses += 1;
+            Vec::new()
+        })),
+    );
+
+    let faults = state.faults.clone();
+    let observed = state.observed.clone();
+    add(
+        Box::new(move |request| {
+            let NetworkRequests::SpicePartialData { partial_data, .. } = request else {
+                return false;
+            };
+            let faults = faults.lock();
+            faults.applies_to(partial_data) && faults.drop_from.contains(partial_data.sender())
+        }),
+        Action::Replace(Box::new(move |_request| {
+            observed.lock().dropped += 1;
+            Vec::new()
+        })),
+    );
+
+    let faults = state.faults.clone();
+    let rewrite_faults = state.faults.clone();
+    let observed = state.observed.clone();
+    add(
+        Box::new(move |request| {
+            let NetworkRequests::SpicePartialData { partial_data, .. } = request else {
+                return false;
+            };
+            let faults = faults.lock();
+            let sender = partial_data.sender();
+            faults.applies_to(partial_data)
+                && (faults.corrupt_from.contains(sender) || faults.equivocate_from.contains(sender))
+        }),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::SpicePartialData { partial_data, recipients } = request else {
+                unreachable!("the rule matches partial data only");
+            };
+            let (corrupt, equivocate) = {
+                let faults = rewrite_faults.lock();
+                let sender = partial_data.sender();
+                (faults.corrupt_from.contains(sender), faults.equivocate_from.contains(sender))
+            };
+            {
+                let mut observed = observed.lock();
+                observed.corrupted += corrupt as usize;
+                observed.equivocated += equivocate as usize;
+            }
+            let mut to_send = Vec::new();
+            if equivocate {
+                to_send.push(with_conflicting_commitment(&partial_data));
+            }
+            to_send.push(if corrupt { with_corrupted_part(&partial_data) } else { partial_data });
+            to_send
+                .into_iter()
+                .map(|partial_data| NetworkRequests::SpicePartialData {
+                    partial_data,
+                    recipients: recipients.clone(),
+                })
+                .collect()
+        })),
+    );
+
+    let faults = state.faults.clone();
+    let delay_faults = state.faults.clone();
+    let observed = state.observed.clone();
+    add(
+        Box::new(move |request| {
+            let NetworkRequests::SpicePartialData { partial_data, .. } = request else {
+                return false;
+            };
+            let faults = faults.lock();
+            faults.applies_to(partial_data) && faults.delay_from.contains_key(partial_data.sender())
+        }),
+        Action::DelayBy(Box::new(move |request| {
+            let NetworkRequests::SpicePartialData { partial_data, .. } = request else {
+                unreachable!("the rule matches partial data only");
+            };
+            observed.lock().delayed += 1;
+            delay_faults.lock().delay_from[partial_data.sender()]
+        })),
+    );
 }
 
 /// Builds a `SpicePartialData` whose first part has a flipped byte, keeping the commitment, so the

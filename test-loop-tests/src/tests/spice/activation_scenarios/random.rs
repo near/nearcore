@@ -5,9 +5,11 @@
 //! run.
 
 use super::faults::{
-    Archival, At, ChurnKind, DropContractAccesses, EndorsementDelay, Epochs, GcTight, Kind,
-    LateTracker, MissingChunk, NodeCrash, Only, PartialDataFault, Producers, ShardSkip, Shards,
-    SlowNode, TrackAll, ValidatorChurn, WindowEnd, WindowStart,
+    Archival, At, BadBlockMode, BadBoundaryEndorsement, BadFirstSpiceBlock, ChurnKind,
+    DataBeforeBlock, DropContractAccesses, EndorsementDelay, Epochs, ForkAtBoundary, ForkKind,
+    GcTight, How, Kind, LateChunk, LateTracker, MissingChunk, NodeCrash, Only, Outcome,
+    PartialDataFault, Producers, ShardSkip, Shards, SlowNode, TrackAll, ValidatorChurn, What,
+    WindowEnd, WindowStart,
 };
 use super::resolve::{Profile, conflicts_of};
 use super::scenario::{Fault, Scenario};
@@ -39,6 +41,11 @@ const SAMPLERS: &[Sampler] = &[
     track_all,
     gc_tight,
     archival,
+    late_chunk,
+    data_before_block,
+    bad_boundary_endorsement,
+    bad_first_spice_block,
+    fork_at_boundary,
 ];
 
 /// How many scenarios to sample from which seed, and how many faults each may have.
@@ -116,11 +123,57 @@ fn missing_chunk(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
             0 => fault.shards(Shards::All),
             _ => fault.shards(Shards::Index(rng.gen_range(0..Profile::A.num_shards()))),
         };
-        let start = rng.gen_range(-4..0);
-        let end = rng.gen_range(start + 1..=0);
+        // Up to two heights on either side of the boundary; the spice side goes by parts.
+        let start = rng.gen_range(-4..2);
+        let end = rng.gen_range(start + 1..=2);
         fault = fault.at(start..end);
+        if rng.gen_bool(0.3) {
+            fault = fault.how(How::Parts);
+        }
     }
     Box::new(fault)
+}
+
+fn late_chunk(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    let outcome = *[Outcome::Missing, Outcome::Included].choose(rng).unwrap();
+    Box::new(
+        LateChunk::new()
+            .shard(rng.gen_range(0..Profile::A.num_shards()))
+            .at(rng.gen_range(-2..2))
+            .outcome(outcome),
+    )
+}
+
+fn data_before_block(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    let profile = Profile::A;
+    let chunk_validators =
+        profile.num_producers()..profile.num_producers() + profile.num_chunk_validators();
+    let what = *[What::LastPreSpice, What::FirstSpice].choose(rng).unwrap();
+    Box::new(
+        DataBeforeBlock::new()
+            .node(rng.gen_range(chunk_validators))
+            .what(what)
+            .hold(rng.gen_range(1..=4)),
+    )
+}
+
+fn bad_boundary_endorsement(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    Box::new(
+        BadBoundaryEndorsement::new()
+            .validator(rng.gen_range(0..Profile::A.num_validators()))
+            .shard(rng.gen_range(0..Profile::A.num_shards())),
+    )
+}
+
+fn bad_first_spice_block(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    let mode =
+        *[BadBlockMode::FakeBoundaryResult, BadBlockMode::SpiceHeaderPreSpice].choose(rng).unwrap();
+    Box::new(BadFirstSpiceBlock::new().mode(mode))
+}
+
+fn fork_at_boundary(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
+    let kind = *[ForkKind::LastPreSpice, ForkKind::FirstSpice].choose(rng).unwrap();
+    Box::new(ForkAtBoundary::new().kind(kind))
 }
 
 /// Four pre-spice heights with at least one chunk missing.

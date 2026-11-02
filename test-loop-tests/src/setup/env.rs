@@ -1,15 +1,17 @@
 use super::builder::NodeStateBuilder;
-use super::drop_condition::DropCondition;
+use super::drop_condition::{DropCondition, RuleInstall};
 use super::network_rules::{Action, RuleHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use super::task_delays::TaskDelayHandle;
 use crate::utils::account::{archival_account_id, rpc_account_id};
+use crate::utils::network::chunk_parts_matcher;
 use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::AccountId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -45,8 +47,9 @@ impl TestLoopEnv {
             data.register_drop_condition(
                 &mut self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
-                self.shared_state.dropped_blocks.clone(),
+                &self.shared_state.network_rules,
                 &drop_condition,
+                RuleInstall::Always,
             );
         }
         self.shared_state.drop_conditions.push(drop_condition);
@@ -99,6 +102,23 @@ impl TestLoopEnv {
     pub fn delay_task_on_all_nodes(&self, task_name: &str, delay: Duration) -> TaskDelayHandle {
         let task_name = task_name.to_string();
         self.shared_state.task_delays.add_for_all(move |name| name == task_name, delay)
+    }
+
+    /// [`Self::network_rule`] on the messages that carry the parts of the chunks `selects`,
+    /// which is what makes a chunk missing at one exact height under spice, where inclusion
+    /// checks no endorsements: the parts never reach the block producer, so the chunk's
+    /// header does not either. Covers the parts a producer pushes, the parts owners forward,
+    /// and the request and response pair a node falls back to, keyed by the chunk's header
+    /// through the shared chunks storage, which holds every chunk produced. See
+    /// [`crate::utils::network::chunk_parts_matcher`].
+    pub fn chunk_parts_rule(
+        &self,
+        index: usize,
+        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        let matches = chunk_parts_matcher(self.shared_state.chunks_storage.clone(), selects);
+        self.network_rule(index, matches, action)
     }
 
     /// From now on node `index` drops every request it sends that `matches`.

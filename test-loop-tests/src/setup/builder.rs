@@ -578,7 +578,6 @@ impl TestLoopBuilder {
             network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             upgrade_schedule,
             chunks_storage: Default::default(),
-            dropped_blocks: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             disable_compiled_contract_cache: self.disable_compiled_contract_cache,

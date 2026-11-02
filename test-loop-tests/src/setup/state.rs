@@ -1,4 +1,4 @@
-use super::drop_condition::{DropCondition, DroppedBlocks, TestLoopChunksStorage};
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::network_rules::NetworkRules;
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork, HandlerResult,
@@ -67,8 +67,6 @@ pub struct SharedState {
     pub upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// What `DropCondition::BlocksByHeight` dropped and swallowed.
-    pub dropped_blocks: Arc<Mutex<DroppedBlocks>>,
     /// List of drop conditions that apply to all nodes in the network.
     pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,

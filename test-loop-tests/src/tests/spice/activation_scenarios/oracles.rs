@@ -130,6 +130,17 @@ impl Relaxations {
         })
     }
 
+    /// The nodes, by index in `node_datas`, whose checks under `oracle` are switched off.
+    pub fn relaxed_nodes(&self, oracle: OracleId) -> HashSet<usize> {
+        self.narrowings(oracle)
+            .iter()
+            .filter_map(|narrowing| match narrowing {
+                Narrowing::Node(index) => Some(*index),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Whether the check of `oracle` for `shard_id` at `height` is switched off.
     pub fn chunk_relaxed(&self, oracle: OracleId, shard_id: ShardId, height: BlockHeight) -> bool {
         self.narrowings(oracle).iter().any(|narrowing| match narrowing {
@@ -416,7 +427,8 @@ fn stateless_endorser(
     if relaxations.is_whole(OracleId::StatelessEndorser) {
         return Ok(());
     }
-    check_stateless_endorsers(env, run.last_pre_spice())
+    let excluded = relaxations.relaxed_nodes(OracleId::StatelessEndorser);
+    check_stateless_endorsers(env, run.last_pre_spice(), &excluded)
 }
 
 /// The certified execution results of the last pre-spice block must be exactly what its
@@ -427,7 +439,7 @@ fn stateless_endorser(
 pub fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Block) {
     panic_on_error(
         check_boundary_results(env, last_pre_spice)
-            .and_then(|()| check_stateless_endorsers(env, last_pre_spice)),
+            .and_then(|()| check_stateless_endorsers(env, last_pre_spice, &HashSet::new())),
     );
 }
 
@@ -473,7 +485,13 @@ fn check_boundary_results(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(
 
 /// For every shard some endorser of the boundary chunk never ran the pre-spice apply, and
 /// endorsed the certified result. Only the live nodes are asked.
-fn check_stateless_endorsers(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
+/// `excluded` are the nodes, by index, whose endorsements say nothing here: a fault that
+/// makes a node endorse a wrong result names it.
+fn check_stateless_endorsers(
+    env: &TestLoopEnv,
+    last_pre_spice: &Block,
+    excluded: &HashSet<usize>,
+) -> Result<(), String> {
     let rpc_node = env.rpc_node();
     let client = rpc_node.client();
     let core_reader = &client.chain.spice_core_reader;
@@ -492,7 +510,7 @@ fn check_stateless_endorsers(env: &TestLoopEnv, last_pre_spice: &Block) -> Resul
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let mut stateless_endorsers = Vec::new();
         for (index, data) in env.node_datas.iter().enumerate() {
-            if !env.is_alive(index) {
+            if !env.is_alive(index) || excluded.contains(&index) {
                 continue;
             }
             let applied_locally = env
