@@ -6,9 +6,11 @@ use crate::test_utils::{
     get_chain_with_num_shards,
 };
 use crate::types::Tip;
+use itertools::Itertools;
 use near_async::time::Clock;
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
@@ -17,6 +19,7 @@ use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::gen_changes;
 use near_store::trie::AccessOptions;
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
@@ -930,4 +933,68 @@ fn test_state_sync_tail_update_clears_skipped_heights() {
     assert!(!chain.mut_chain_store().get_all_header_hashes_by_height(new_chunk_tail).is_empty());
     assert_eq!(chain.tail(), new_tail);
     assert_eq!(chain.chain_store().chunk_tail(), new_chunk_tail);
+}
+
+/// Blocks stored below the state-sync tail (e.g. from an earlier sync attempt in a previous
+/// epoch) can include the last block of epoch S-1. The epoch sync proof update at the start of
+/// epoch S+1 reads that block's header and `BlockInfo`, so the state-sync cleanup must keep them.
+#[test]
+fn test_state_sync_tail_update_keeps_epoch_sync_proof_inputs() {
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut chain = get_chain(Clock::real());
+    let epoch_manager = chain.epoch_manager.clone();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = chain.get_block_by_height(0).unwrap();
+    let mut blocks = vec![prev_block.clone()];
+    for height in 1..=45 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            height,
+        );
+    }
+
+    // Epoch ids in chain order; the head's epoch plays the role of S+1.
+    let epoch_ids = blocks.iter().map(|block| *block.header().epoch_id()).dedup().collect_vec();
+    let [.., proof_seed_epoch_id, synced_epoch_id, proof_epoch_id] = epoch_ids[..] else {
+        panic!("expected at least three epochs, got {epoch_ids:?}");
+    };
+    // `proof_epoch_id` is the hash of the last block of epoch S-1.
+    let last_block_hash_in_ppe = proof_epoch_id.0;
+    let last_block_height_in_ppe =
+        chain.get_block_header(&last_block_hash_in_ppe).unwrap().height();
+
+    // Seed the proof as block processing would at the start of epoch S, so the update for S+1
+    // only needs epoch S-1 data.
+    let epoch_store = chain.chain_store().store().epoch_store();
+    update_epoch_sync_proof(&epoch_store, &proof_seed_epoch_id).unwrap().commit();
+    // Before the cleanup, the update at the start of epoch S+1 succeeds.
+    update_epoch_sync_proof(&epoch_store, &proof_epoch_id).unwrap();
+
+    // State sync into epoch S puts the new tail a few blocks after the S-1/S boundary.
+    let new_tail = last_block_height_in_ppe + 3;
+    assert_eq!(blocks[new_tail as usize].header().epoch_id(), &synced_epoch_id);
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update
+        .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), new_tail, new_tail)
+        .unwrap();
+    store_update.update_tail(new_tail);
+    store_update.update_chunk_tail(new_tail);
+    store_update.commit().unwrap();
+
+    assert!(
+        chain.get_block_header(&last_block_hash_in_ppe).is_ok(),
+        "state-sync cleanup deleted the header of the last block of epoch S-1"
+    );
+    assert!(
+        epoch_store.get_block_info(&last_block_hash_in_ppe).is_ok(),
+        "state-sync cleanup deleted the BlockInfo of the last block of epoch S-1"
+    );
+    update_epoch_sync_proof(&epoch_store, &proof_epoch_id)
+        .expect("epoch sync proof update at the start of epoch S+1 must succeed");
 }
