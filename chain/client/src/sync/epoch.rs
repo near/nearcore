@@ -214,19 +214,23 @@ impl EpochSync {
 
         chain_store_update.commit()?;
 
+        // `init_after_epoch_sync` writes the epoch infos into `store_update`, and the
+        // store returns them only after the commit below. Read the current epoch's
+        // info from the proof before that commit.
+        let current_epoch_info = &proof.last_epoch.next_epoch_info;
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
             &mut store_update.epoch_store_update(),
-            proof.last_epoch.first_block_in_epoch,
-            proof.last_epoch.second_last_block_in_epoch,
-            proof.last_epoch.last_block_in_epoch.clone(),
+            &proof.last_epoch.first_block_in_epoch,
+            &proof.last_epoch.second_last_block_in_epoch,
+            &proof.last_epoch.last_block_in_epoch,
             proof.last_epoch.last_block_in_epoch.epoch_id(),
-            proof.last_epoch.epoch_info,
+            &proof.last_epoch.epoch_info,
             last_header.epoch_id(),
-            proof.last_epoch.next_epoch_info,
+            current_epoch_info,
             last_header.next_epoch_id(),
-            proof.last_epoch.next_next_epoch_info,
-        )?;
+            &proof.last_epoch.next_next_epoch_info,
+        );
 
         // At this point store contains headers of 3 last blocks of last past epoch
         // and header of the first block of current epoch.
@@ -234,8 +238,7 @@ impl EpochSync {
         // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
             store.chain_store().get_block_header(last_header.last_final_block())?.height();
-        let current_protocol_version =
-            epoch_manager.get_epoch_protocol_version(last_header.epoch_id())?;
+        let current_protocol_version = current_epoch_info.protocol_version();
         let mut first_block_info_in_epoch = BlockInfo::from_header(
             &last_header,
             last_header_last_finalized_height,
@@ -253,6 +256,7 @@ impl EpochSync {
         epoch_manager.seed_chunk_producers_after_epoch_sync(
             &mut store_update.epoch_store_update(),
             &first_block_info_in_epoch,
+            current_epoch_info,
         )?;
         // `record_block_info`, which epoch sync bypasses, is otherwise the only
         // block-processing writer of `EpochStart`. The early-kickout grace check no longer

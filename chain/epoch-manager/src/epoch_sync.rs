@@ -231,9 +231,9 @@ fn get_epoch_sync_proof_last_epoch_data(
     let next_next_epoch_info = store.get_epoch_info(&next_next_epoch_id)?;
 
     Ok(EpochSyncProofLastEpochData {
-        epoch_info,
-        next_epoch_info,
-        next_next_epoch_info,
+        epoch_info: Arc::unwrap_or_clone(epoch_info),
+        next_epoch_info: Arc::unwrap_or_clone(next_epoch_info),
+        next_next_epoch_info: Arc::unwrap_or_clone(next_next_epoch_info),
         first_block_in_epoch: Arc::unwrap_or_clone(first_block_in_epoch),
         last_block_in_epoch: Arc::unwrap_or_clone(last_block_in_epoch),
         second_last_block_in_epoch: Arc::unwrap_or_clone(second_last_block_in_epoch),
