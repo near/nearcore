@@ -9,7 +9,7 @@ use crate::network_protocol::state_sync::{
 use crate::network_protocol::{
     Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
     RoutedMessageV1, RoutedMessageV3, RoutingTableUpdate, StateRequestAck, SyncAccountsData,
-    TieredMessageBody,
+    TieredMessageBody, from_unix_nanos_i64, to_unix_nanos_i64,
 };
 use crate::types::StateResponseInfo;
 use borsh::{BorshDeserialize as _, to_vec};
@@ -336,10 +336,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         })
                         .unwrap(),
                         created_at: MF::from_option(
-                            r.created_at()
-                                .and_then(|t| ::time::OffsetDateTime::from_unix_timestamp(t).ok())
-                                .as_ref()
-                                .map(utc_to_proto),
+                            r.created_at().map(from_unix_nanos_i64).as_ref().map(utc_to_proto),
                         ),
                         num_hops: r.num_hops(),
                         ..Default::default()
@@ -545,7 +542,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                             .map(utc_from_proto)
                             .transpose()
                             .map_err(Self::Error::RoutedCreatedAtTimestamp)?
-                            .map(|t| t.unix_timestamp()),
+                            .map(to_unix_nanos_i64),
                         num_hops: r.num_hops,
                     }
                     .into(),
@@ -719,6 +716,31 @@ mod tests {
         assert_eq!(msg.num_hops, 3);
         assert!(msg.signature.is_some());
         assert!(matches!(msg.body, TieredMessageBody::T2(_)));
+    }
+
+    #[test]
+    fn routed_message_created_at_round_trips_exactly() {
+        use crate::network_protocol::{RawRoutedMessage, T2MessageBody};
+        use near_async::time;
+
+        let mut rng = make_rng(89028037453);
+        let created_at = time::Utc::UNIX_EPOCH
+            + time::Duration::seconds(1_700_000_000)
+            + time::Duration::nanoseconds(250_000_123);
+        let body = T2MessageBody::ForwardTx(data::make_signed_transaction(&mut rng)).into();
+        let target = PeerIdOrHash::PeerId(data::make_peer_id(&mut rng));
+        let msg = RawRoutedMessage { target, body }.sign(
+            &data::make_secret_key(&mut rng),
+            /*ttl=*/ 5,
+            Some(created_at),
+        );
+        assert_eq!(msg.created_at(), Some(1_700_000_000_250_000_123));
+
+        let proto = proto::PeerMessage::from(&PeerMessage::Routed(Box::new(msg)));
+        let PeerMessage::Routed(decoded) = PeerMessage::try_from(&proto).unwrap() else {
+            panic!("expected routed message")
+        };
+        assert_eq!(decoded.created_at(), Some(1_700_000_000_250_000_123));
     }
 
     #[test]

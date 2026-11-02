@@ -180,6 +180,16 @@ pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
     time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
 }
 
+/// Converts `t` to nanoseconds since the unix epoch. An `i64` holds them until 2262.
+pub(crate) fn to_unix_nanos_i64(t: time::Utc) -> i64 {
+    t.unix_timestamp_nanos() as i64
+}
+
+/// Converts nanoseconds since the unix epoch to UTC time.
+pub(crate) fn from_unix_nanos_i64(nanos: i64) -> time::Utc {
+    time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("i64 nanoseconds are in range")
+}
+
 /// Limit on the size of the serialized AccountData message.
 /// It is important to have such a constraint on the serialized proto,
 /// because it may contain many unknown fields (which are dropped during parsing).
@@ -1247,7 +1257,7 @@ pub struct RoutedMessageV3 {
     pub body: TieredMessageBody,
     /// Signature only for T2 messages.
     pub signature: Option<Signature>,
-    /// The time the Routed message was created by `author`.
+    /// The time the Routed message was created by `author`, in nanoseconds since the unix epoch.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
@@ -1599,7 +1609,7 @@ impl RawRoutedMessage {
             signature,
             ttl: routed_message_ttl,
             body: self.body,
-            created_at: now.map(|t| t.unix_timestamp()),
+            created_at: now.map(to_unix_nanos_i64),
             num_hops: 0,
         })
     }
