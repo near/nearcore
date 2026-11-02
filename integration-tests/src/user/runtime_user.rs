@@ -350,7 +350,8 @@ impl User for RuntimeUser {
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
-            block_height: apply_state.block_height,
+            // The view reads the state of the last applied chunk.
+            block_height: client.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
