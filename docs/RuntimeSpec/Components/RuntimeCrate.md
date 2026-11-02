@@ -13,7 +13,8 @@ If the validator accounts update is provided, updates validators accounts.
 All new signed transactions should be valid and already verified by the chunk producer.
 If a transaction in the chunk is invalid, the runtime records a failed execution outcome for it and skips it.
 A gas key transaction that fails its deposit check also gets a failed outcome, but it is not skipped completely.
-The gas key still pays for converting the transaction, and the nonce of the key is updated.
+The gas key still pays the gas burnt for the conversion step, and the nonce of the key is updated.
+No receipt is created.
 The rest of the chunk is still applied.
 The method returns a `RuntimeError` for problems such as a storage error or an invalid incoming receipt.
 In case of success, the method returns `ApplyResult` that contains the new state root, trie changes,
@@ -73,13 +74,13 @@ Receipts are processed one by one in the following order:
 1. New incoming receipts.
 
 Before each receipt, the runtime checks whether a limit is reached.
-Instant receipts are the exception. These are `PromiseYield` receipts, and action receipts that hold only a
-`DeleteAccount` action and no input data. The runtime processes an instant receipt right after the receipt that created
-it, without checking the limits.
 A limit is reached when the total compute usage so far reaches the chunk gas limit, or when the storage proof recorded so far exceeds its size limit.
 Compute usage is usually equal to burnt gas. Some operations, such as storage reads and writes and contract deployment, have their own compute cost, which can differ from their gas cost.
 When a limit is reached, the processing stops.
 The remaining receipts are considered delayed and stored into the state.
+Instant receipts are the exception to the limit check. These are `PromiseYield` receipts, and action receipts that hold
+only a `DeleteAccount` action and no input data. The runtime processes an instant receipt right after the receipt that
+created it, without checking the limits.
 
 Then, while no limit is reached, the runtime handles yields that have timed out.
 For each timed-out yield that has not been resumed, it creates a promise resume receipt with no data for the same account.
