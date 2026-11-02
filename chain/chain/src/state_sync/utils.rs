@@ -410,7 +410,10 @@ impl Chain {
     /// by a final block.
     ///
     /// Always `true` without spice.
-    pub fn is_sync_block_certified(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+    pub fn is_sync_block_certified_by_final_block(
+        &self,
+        sync_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
         let sync_header = self.get_block_header(sync_hash)?;
         if !sync_header.is_spice() {
             return Ok(true);
