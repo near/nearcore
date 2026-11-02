@@ -65,6 +65,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
     let node = env.node(0);
     let chain = &node.client().chain;
     let syncing_node = env.node(1);
+    let verifier = &syncing_node.client().chain.state_sync_adapter;
     let head = chain.head().unwrap();
     let sync_hash = chain
         .get_sync_hash(&head.last_block_hash)
