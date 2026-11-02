@@ -29,6 +29,7 @@ use near_primitives::views::{
     FinalExecutionStatus,
 };
 use near_primitives_core::types::Balance;
+use near_runtime::initial_nonce_value;
 use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
@@ -547,7 +548,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
                 .get_outcome_height(&transaction_result.receipts_outcome[0])
                 .expect("receipt outcome must have an execution height");
             let mut access_key = AccessKey::full_access();
-            access_key.nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            access_key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
             assert_eq!(view_access_key.unwrap(), access_key.into());
         }
         AccountType::NearDeterministicAccount => {
@@ -1214,7 +1215,7 @@ fn assert_access_key(
         .get_outcome_height(&result.receipts_outcome[0])
         .expect("receipt outcome must have an execution height");
     let mut key = access_key.clone();
-    key.nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
     assert_eq!(access_key_view, key.into());
 }
 
