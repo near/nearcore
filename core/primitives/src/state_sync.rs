@@ -4,7 +4,7 @@ use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::state_part::{StatePart, StatePartIndex, StatePartV0};
-use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
+use crate::types::{BlockHeight, ChunkExecutionResult, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
 use near_schema_checker_lib::ProtocolSchema;
@@ -121,6 +121,32 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub state_root_node: StateRootNode,
 }
 
+/// The spice state sync header. `sync_hash` is the epoch's first block and the state being
+/// synced is the one left behind by that block's chunk, so unlike V1/V2 there is no chunk to
+/// apply afterwards and hence no chunk, receipts or receipt proofs to carry.
+///
+/// A spice chunk header commits no state root of its own - the chunk executes after the block
+/// that carries it - so the root comes from the chunk's certified execution result. The header
+/// of the block that certifies it commits that result through `chunk_execution_root`, a merkle
+/// root over one `ChunkExecutionRoots` leaf per certified chunk, and the leaf carries the chunk
+/// id and the hash of the whole result. Header sync precedes state sync, so the syncing node
+/// already holds that header and needs only the result and the merkle path from the result's
+/// leaf.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ShardStateSyncResponseHeaderV3 {
+    /// The root node of the trie the parts rebuild: the state after the sync block's chunk ran.
+    pub state_root_node: StateRootNode,
+    /// The chunk's certified execution result. Its `chunk_extra` becomes the sync block's
+    /// `ChunkExtra`, so every field matters, and the leaf commits to the hash of all of them.
+    pub execution_result: ChunkExecutionResult,
+    /// The block that certifies `execution_result`. The syncing node must already hold its
+    /// header, and checks that the block is final and descends from the sync block.
+    pub certifying_block_hash: CryptoHash,
+    /// Merkle path from the result's `ChunkExecutionRoots` leaf to that header's
+    /// `chunk_execution_root`.
+    pub execution_result_proof: MerklePath,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -154,22 +180,27 @@ impl BitArray {
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1) = 0,
     V2(ShardStateSyncResponseHeaderV2) = 1,
+    V3(ShardStateSyncResponseHeaderV3) = 2,
 }
 
 impl ShardStateSyncResponseHeader {
+    /// The chunk to apply after downloading the state. `None` under spice, where the
+    /// downloaded state already includes the sync block's chunk.
     #[inline]
-    pub fn take_chunk(self) -> ShardChunk {
+    pub fn take_chunk(self) -> Option<ShardChunk> {
         match self {
-            Self::V1(header) => ShardChunk::V1(header.chunk),
-            Self::V2(header) => header.chunk,
+            Self::V1(header) => Some(ShardChunk::V1(header.chunk)),
+            Self::V2(header) => Some(header.chunk),
+            Self::V3(_) => None,
         }
     }
 
     #[inline]
-    pub fn cloned_chunk(&self) -> ShardChunk {
+    pub fn cloned_chunk(&self) -> Option<ShardChunk> {
         match self {
-            Self::V1(header) => ShardChunk::V1(header.chunk.clone()),
-            Self::V2(header) => header.chunk.clone(),
+            Self::V1(header) => Some(ShardChunk::V1(header.chunk.clone())),
+            Self::V2(header) => Some(header.chunk.clone()),
+            Self::V3(_) => None,
         }
     }
 
@@ -178,14 +209,16 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.prev_chunk_header.clone().map(ShardChunkHeader::V1),
             Self::V2(header) => header.prev_chunk_header.clone(),
+            Self::V3(_) => None,
         }
     }
 
     #[inline]
-    pub fn chunk_height_included(&self) -> BlockHeight {
+    pub fn chunk_height_included(&self) -> Option<BlockHeight> {
         match self {
-            Self::V1(header) => header.chunk.header.height_included,
-            Self::V2(header) => header.chunk.height_included(),
+            Self::V1(header) => Some(header.chunk.header.height_included),
+            Self::V2(header) => Some(header.chunk.height_included()),
+            Self::V3(_) => None,
         }
     }
 
@@ -194,22 +227,26 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),
+            Self::V3(header) => *header.execution_result.chunk_extra.state_root(),
         }
     }
 
     #[inline]
-    pub fn chunk_proof(&self) -> &MerklePath {
+    pub fn chunk_proof(&self) -> Option<&MerklePath> {
         match self {
-            Self::V1(header) => &header.chunk_proof,
-            Self::V2(header) => &header.chunk_proof,
+            Self::V1(header) => Some(&header.chunk_proof),
+            Self::V2(header) => Some(&header.chunk_proof),
+            Self::V3(_) => None,
         }
     }
 
     #[inline]
     pub fn prev_chunk_proof(&self) -> &Option<MerklePath> {
+        const NONE: &Option<MerklePath> = &None;
         match self {
             Self::V1(header) => &header.prev_chunk_proof,
             Self::V2(header) => &header.prev_chunk_proof,
+            Self::V3(_) => NONE,
         }
     }
 
@@ -218,6 +255,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.incoming_receipts_proofs,
             Self::V2(header) => &header.incoming_receipts_proofs,
+            Self::V3(_) => &[],
         }
     }
 
@@ -226,6 +264,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.root_proofs,
             Self::V2(header) => &header.root_proofs,
+            Self::V3(_) => &[],
         }
     }
 
@@ -234,6 +273,18 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.state_root_node,
             Self::V2(header) => &header.state_root_node,
+            Self::V3(header) => &header.state_root_node,
+        }
+    }
+
+    /// The execution result a spice (V3) header carries, `None` for V1 and V2. It is only
+    /// trustworthy once `set_state_header` has checked it against the certifying block's
+    /// `chunk_execution_root`.
+    #[inline]
+    pub fn spice_execution_result(&self) -> Option<&ChunkExecutionResult> {
+        match self {
+            Self::V1(_) | Self::V2(_) => None,
+            Self::V3(header) => Some(&header.execution_result),
         }
     }
 
@@ -279,6 +330,13 @@ pub struct ShardStateSyncResponseV4 {
     pub part: Option<(StatePartIndex, StatePart)>,
 }
 
+/// V4 to V5: the header is a `ShardStateSyncResponseHeaderV3`, which is what spice serves.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ShardStateSyncResponseV5 {
+    pub header: Option<ShardStateSyncResponseHeaderV3>,
+    pub part: Option<(StatePartIndex, StatePart)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -287,22 +345,29 @@ pub enum ShardStateSyncResponse {
     V2(ShardStateSyncResponseV2) = 1,
     V3(ShardStateSyncResponseV3) = 2,
     V4(ShardStateSyncResponseV4) = 3,
+    V5(ShardStateSyncResponseV5) = 4,
 }
 
 impl ShardStateSyncResponse {
-    pub fn new_from_header(header: Option<ShardStateSyncResponseHeaderV2>) -> Self {
-        Self::new_from_header_or_part(header, None)
+    /// Each response version pins one header version, so the response version follows from
+    /// the header being served.
+    pub fn new_from_header(header: Option<ShardStateSyncResponseHeader>) -> Self {
+        match header {
+            Some(ShardStateSyncResponseHeader::V1(header)) => {
+                Self::V1(ShardStateSyncResponseV1 { header: Some(header), part: None })
+            }
+            Some(ShardStateSyncResponseHeader::V2(header)) => {
+                Self::V4(ShardStateSyncResponseV4 { header: Some(header), part: None })
+            }
+            Some(ShardStateSyncResponseHeader::V3(header)) => {
+                Self::V5(ShardStateSyncResponseV5 { header: Some(header), part: None })
+            }
+            None => Self::V4(ShardStateSyncResponseV4 { header: None, part: None }),
+        }
     }
 
     pub fn new_from_part(part: Option<(StatePartIndex, StatePart)>) -> Self {
-        Self::new_from_header_or_part(None, part)
-    }
-
-    fn new_from_header_or_part(
-        header: Option<ShardStateSyncResponseHeaderV2>,
-        part: Option<(StatePartIndex, StatePart)>,
-    ) -> Self {
-        Self::V4(ShardStateSyncResponseV4 { header, part })
+        Self::V4(ShardStateSyncResponseV4 { header: None, part })
     }
 
     pub fn take_header(self) -> Option<ShardStateSyncResponseHeader> {
@@ -311,6 +376,7 @@ impl ShardStateSyncResponse {
             Self::V2(response) => response.header.map(ShardStateSyncResponseHeader::V2),
             Self::V3(response) => response.header.map(ShardStateSyncResponseHeader::V2),
             Self::V4(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V5(response) => response.header.map(ShardStateSyncResponseHeader::V3),
         }
     }
 
@@ -320,6 +386,7 @@ impl ShardStateSyncResponse {
             Self::V2(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
             Self::V3(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
             Self::V4(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
+            Self::V5(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
         }
     }
 
@@ -335,6 +402,7 @@ impl ShardStateSyncResponse {
                 response.part.map(|(part_idx, part)| (part_idx, StatePart::V0(StatePartV0(part))))
             }
             Self::V4(response) => response.part,
+            Self::V5(response) => response.part,
         }
     }
 
@@ -344,6 +412,7 @@ impl ShardStateSyncResponse {
             Self::V2(response) => response.part.as_ref().map(|(_, part)| part.len()),
             Self::V3(response) => response.part.as_ref().map(|(_, part)| part.len()),
             Self::V4(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
+            Self::V5(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
         }
     }
 }
