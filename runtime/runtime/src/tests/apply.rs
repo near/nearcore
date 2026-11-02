@@ -1325,15 +1325,16 @@ fn test_apply_ecc_refused_lack_balance_for_storage() {
 }
 
 /// Applies a chunk with `ecc`, followed by an incoming receipt that transfers to alice, to a
-/// contract with `code`. The chunk's gas limit is one gas, so the receipt runs only if the ECC
-/// burnt nothing. Returns the apply state, the receipt and the result.
+/// contract with `code`. The chunk's gas limit is `gas_limit`, so the receipt runs only if the
+/// ECC used less compute than that. Returns the receipt and the result.
 fn apply_ecc_before_receipt(
     code: Vec<u8>,
     ecc: EccTransaction,
-) -> (ApplyState, Receipt, ApplyResult) {
+    gas_limit: Gas,
+) -> (Receipt, ApplyResult) {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
-    apply_state.gas_limit = Some(Gas::from_gas(1));
+    apply_state.gas_limit = Some(gas_limit);
     let receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
@@ -1350,20 +1351,22 @@ fn apply_ecc_before_receipt(
             Default::default(),
         )
         .unwrap();
-    (apply_state, receipt, apply_result)
+    (receipt, apply_result)
 }
 
-/// A refused ECC's run counts toward the chunk's gas limit: here it fills the limit, so the
-/// receipt after it is delayed. Its outcome reports the gas of the fees and the run, but burns
-/// no tokens.
+/// A refused ECC's run counts toward the chunk's gas limit: the limit is one more than the
+/// compute of the fees, so only the run can fill it, and the receipt after it is delayed. Its
+/// outcome reports the gas of the fees and the run, but burns no tokens.
 #[test]
 fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
         return;
     }
     let ecc = ecc_to_bob();
+    let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
+    let gas_limit = Gas::from_gas(fee.compute_burnt + 1);
     let code = ecc_contract("(call $write_payload) unreachable");
-    let (apply_state, receipt, apply_result) = apply_ecc_before_receipt(code, ecc.clone());
+    let (receipt, apply_result) = apply_ecc_before_receipt(code, ecc, gas_limit);
 
     let [outcome] = apply_result.outcomes.as_slice() else {
         panic!("expected only the ECC's outcome, got {:?}", apply_result.outcomes);
@@ -1372,7 +1375,6 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
         &outcome.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::ActionError(_))
     );
-    let fee = ecc_cost(&apply_state.config, &ecc, GAS_PRICE).unwrap();
     assert!(outcome.outcome.gas_burnt > fee.gas_burnt);
     assert!(outcome.outcome.compute_usage.unwrap() > fee.compute_burnt);
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
@@ -1380,8 +1382,8 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
 }
 
-/// An ECC refused before its method runs burns nothing, so it doesn't count toward the chunk's
-/// gas limit and the receipt after it runs.
+/// An ECC refused before its method runs burns nothing, not even its fees, so it doesn't count
+/// toward the chunk's gas limit: with a limit of one gas, the receipt after it runs.
 #[test]
 fn test_apply_ecc_refused_before_run_does_not_count_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1389,7 +1391,8 @@ fn test_apply_ecc_refused_before_run_does_not_count_toward_chunk_limit() {
     }
     let missing: AccountId = "missing.near".parse().unwrap();
     let ecc = EccTransaction::new(missing, ECC_PAYLOAD.to_vec());
-    let (_, receipt, apply_result) = apply_ecc_before_receipt(ecc_accepting_contract(), ecc);
+    let (receipt, apply_result) =
+        apply_ecc_before_receipt(ecc_accepting_contract(), ecc, Gas::from_gas(1));
 
     let [ecc_outcome, receipt_outcome] = apply_result.outcomes.as_slice() else {
         panic!("expected two outcomes, got {:?}", apply_result.outcomes);
