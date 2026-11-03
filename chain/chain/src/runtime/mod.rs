@@ -290,16 +290,16 @@ impl NightshadeRuntime {
 
         let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
+        let prev_block_epoch_info = self.epoch_manager.get_epoch_info(&prev_block_epoch_id)?;
         let prev_block = PrevBlockContext {
             hash: *prev_block_hash,
             height: prev_block_height,
             epoch_id: prev_block_epoch_id,
-            epoch_height: self.epoch_manager.get_epoch_info(&prev_block_epoch_id)?.epoch_height(),
+            epoch_height: prev_block_epoch_info.epoch_height(),
             timestamp: prev_block_timestamp,
         };
         let current_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let prev_block_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        let prev_block_protocol_version = prev_block_epoch_info.protocol_version();
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
