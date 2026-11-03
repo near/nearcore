@@ -556,7 +556,6 @@ impl<'a> ChainStoreUpdate<'a> {
         new_chunk_tail: BlockHeight,
     ) -> Result<(), Error> {
         let first_block_height = self.tail().max(self.get_genesis_height().saturating_add(1));
-        let mut cleared_block_hashes = HashSet::new();
         for height in self.indexed_heights(DBCol::BlockPerHeight, first_block_height, new_tail) {
             let block_hashes = self
                 .chain_store()
@@ -567,7 +566,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 .collect_vec();
             for block_hash in block_hashes {
                 self.clear_block_data(epoch_manager, block_hash, GCMode::StateSync)?;
-                cleared_block_hashes.insert(block_hash);
             }
 
             let key = index_to_bytes(height);
@@ -601,12 +599,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for height in
             self.indexed_heights(DBCol::HeaderHashesByHeight, first_chunk_height, new_chunk_tail)
         {
-            for header_hash in self.chain_store().get_all_header_hashes_by_height(height) {
-                // clear_block_data already deleted the rows of blocks cleared above.
-                if !cleared_block_hashes.contains(&header_hash) {
-                    self.gc_chunk_producers_for_block(&header_hash);
-                }
-            }
+            // ChunkProducers rows are kept: they are keyed by the chunk anchor, and the first
+            // blocks after the sync point are anchored at heights just below the new tail.
             self.gc_col(DBCol::HeaderHashesByHeight, &index_to_bytes(height));
         }
 
@@ -834,7 +828,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // ChunkProducers is keyed by ShardId, not ShardUId; the get_shard_uids_to_gc union can
         // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the same
         // delete twice. Prefix-scan by block hash deletes each row once, next-layout rows too.
-        self.gc_chunk_producers_for_block(&block_hash);
+        // State sync cleanup keeps them; blocks above the new tail may still be anchored here.
+        if !matches!(&gc_mode, GCMode::StateSync) {
+            self.gc_chunk_producers_for_block(&block_hash);
+        }
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());

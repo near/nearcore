@@ -198,8 +198,7 @@ When state sync completes, the node deletes indexed block and chunk data below
 the new storage tails in the same database transaction that advances those
 tails. The garbage collection loops start at the tails, so skipped heights have
 to be collected before the tails advance past them; afterwards nothing would
-ever visit them again. This step deletes their indexed block and chunk data in
-the same transaction that advances the tails.
+ever visit them again.
 
 This step never runs on archival nodes — they need the complete history and
 cannot have gaps.
