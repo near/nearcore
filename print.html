@@ -1206,6 +1206,9 @@ block_merkle_root = compute_root(block_hash, block_proof)
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="selecting-chunk-and-block-producers"><a class="header" href="#selecting-chunk-and-block-producers">Selecting Chunk and Block Producers</a></h1>
 <h2 id="background"><a class="header" href="#background">Background</a></h2>
+<p>Note: this section describes the Simple Nightshade design as of March 2021. Since stateless validation
+(protocol version 69), block producers no longer track all shards. See
+<a href="ChainSpec/SelectingBlockProducers.html#algorithm-for-assigning-chunk-producers-to-shards">Algorithm for assigning chunk producers to shards</a>.</p>
 <p>Near is intended to be a sharded blockchain. At the time of writing (March 2021), challenges (an
 important security feature for a sharded network) are not fully implemented. As a stepping stone
 towards the full sharded solution, Near will go through a phase called &quot;Simple Nightshade&quot;. In this
@@ -1335,10 +1338,11 @@ them in a way that the total stake in each shard is distributed as evenly as pos
 So the total stake in each shard will be roughly be <code>total_stake_all_chunk_producers / num_shards</code>.</p>
 <h2 id="algorithm-for-assigning-chunk-producers-to-shards"><a class="header" href="#algorithm-for-assigning-chunk-producers-to-shards">Algorithm for assigning chunk producers to shards</a></h2>
 <p>Note that block producers are a subset of chunk producers, so this algorithm will also assign block producers
-to shards. This also means that a block producer may only be assigned to a subset of shards. For the security of
-the protocol, all block producers must track all shards, even if they are not assigned to produce chunks for all shards.
-We enforce that in the implementation level, not the protocol level. A validator node will panic if it doesn't track all
-shards.</p>
+to shards. This also means that a block producer may only be assigned to a subset of shards. Since stateless
+validation (protocol version 69), validators do not need to track all shards. A validator tracks the shards that it
+produces chunks for in the current or the next epoch. Chunk validators check chunks with state witnesses and do not
+need the shard state. On mainnet and testnet, a node whose account is a validator in the current epoch panics at
+startup if its config tracks all shards. Validator nodes should set <code>tracked_shards_config</code> to <code>&quot;NoShards&quot;</code>.</p>
 <h3 id="input-3"><a class="header" href="#input-3">Input</a></h3>
 <ul>
 <li><code>chunk_producers: Vec&lt;ValidatorStake&gt;</code></li>
