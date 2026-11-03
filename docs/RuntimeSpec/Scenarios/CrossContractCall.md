@@ -50,7 +50,7 @@ where
 
 ```
 FunctionCallPermission {
-    allowance: Some(3000),
+    allowance: Some(250000000000000000000000),
     receiver_id: "travel_agency",
     method_names: [ "reserve_trip", "cancel_trip" ]
 }
@@ -58,16 +58,21 @@ FunctionCallPermission {
 
 This scenario might arise when someone Alice's parent has given them a restricted access to `alice_near` account by
 creating an access key that can be used strictly for trip management.
-This access key allows up to `3000` tokens to be spent (which includes token transfers and payments for gas), it can
-be only used to call `travel_agency` and it can be only used with the `reserve_trip` and `cancel_trip` methods.
-The way runtime treats this case is almost exactly the same as the previous one, with the only difference on how it verifies
-the signature of on the signed transaction, and that it also checks for allowance to not be exceeded.
+This access key allows up to 0.25 NEAR (`250000000000000000000000` yoctoNEAR) to be spent on gas. It cannot be used to
+transfer tokens or to attach a deposit. It can be only used to call `travel_agency` and it can be only used with the
+`reserve_trip` and `cancel_trip` methods. A transaction signed with this key must have exactly one `FunctionCall` action
+with zero deposit. The transaction above attaches 100 yoctoNEAR (`tokens: 100`), so with this key it would be rejected
+with `DepositWithFunctionCall`.
+The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
+that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
+allowance does not cover it, the transaction fails with `NotEnoughAllowance`. Then the runtime checks the zero deposit,
+the receiver and the method name.
 
 Finally, in the last scenario, Alice does not have an account (or the existence of `alice_near` is irrelevant). However,
 alice has full or restricted access key directly on `travel_agency` account. In that case `signer_id == receiver_id` in the
 `Transaction` object and runtime will convert transaction to the first receipt and apply that receipt in the same block.
 
-This section will focus on the first scenario, since the other two are the same with some minor differences.
+This section will focus on the first scenario. The third one differs only in minor ways. The second one works the same way for a call that attaches no deposit.
 
 ## Transaction to receipt
 

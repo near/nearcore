@@ -666,6 +666,8 @@ pub enum GlobalContractDeployMode {
 - First, the provided code is made available as global contract on the current shard.
 - The same code propagates globally, shard by shard.
 - Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.
+- The account balance is reduced by `global_contract_storage_amount_per_byte` (currently 0.0001 NEAR) times the size of
+  the code in bytes. These tokens are burnt and are not returned. For a 4 MiB contract, this is about 419 NEAR.
 
 ### Errors
 
@@ -675,7 +677,8 @@ pub enum GlobalContractDeployMode {
 
 **Execution Error**:
 
-- `LackBalanceForState` if the account does not hold enough NEAR to cover the added storage.
+- `LackBalanceForState` if the account balance is less than this cost, or if the balance left after paying it does not
+  cover the account's storage staking.
 
 ## UseGlobalContractAction
 
@@ -723,8 +726,11 @@ pub struct DeterministicStateInitAction {
 **Validation Error**:
 
 - `InvalidDeterministicStateInitReceiver` if the receiver id is not derived from the provided `DeterministicAccountStateInit`
-- `DeterministicStateInitKeyLengthExceeded` if any data key is longer than `max_length_storage_key` (4MiB)
+- `DeterministicStateInitKeyLengthExceeded` if any data key is longer than `max_length_storage_key` (2048 bytes)
 - `DeterministicStateInitValueLengthExceeded` if any data value is longer than `max_length_storage_value` (4MiB)
+- From protocol version 87 (nearcore 2.14.0), `TotalNumberOfStateInitEntriesExceeded` if all state init actions in one
+  receipt together carry more than `max_state_init_entries` (1500) data entries. State init actions inside a delegate
+  action count too. The runtime checks this when the receipt is created.
 
 **Execution Error**:
 
