@@ -1840,3 +1840,45 @@ enum PeerStatus {
     /// Ready to go.
     Ready(Arc<connection::Connection>),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The parsed header must match the decoded body.
+    #[test]
+    fn check_borsh_frames_matches_header_and_body() {
+        let msg =
+            PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
+        let frames = msg.serialize_with_encoding(Encoding::Borsh);
+        let (header, decoded) = PeerMessage::deserialize_frames(&frames).unwrap();
+        assert_eq!(decoded, msg);
+        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded).is_ok());
+
+        let other = PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false });
+        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &other).is_err());
+
+        // Make a bad message with PeersRequest header and Disconnect body.
+        // A header and body of different kinds parse fine, but the check rejects them.
+        let mut mismatched_frames = msg.serialize_with_encoding(Encoding::Borsh);
+        mismatched_frames.header = other.serialize_with_encoding(Encoding::Borsh).header;
+        let (header, decoded) = PeerMessage::deserialize_frames(&mismatched_frames).unwrap();
+        assert_eq!(decoded, msg);
+        assert!(matches!(
+            check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded),
+            Err(stream::NetworkProtocolViolation::KindMismatch { .. })
+        ));
+
+        let mut frames_without_header = frames.clone();
+        frames_without_header.header = None;
+        let (header, decoded) = PeerMessage::deserialize_frames(&frames_without_header).unwrap();
+        assert!(header.is_none());
+        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded).is_err());
+
+        // Protobuf messages have no header and are not checked.
+        let proto = msg.serialize_with_encoding(Encoding::Proto);
+        let (header, decoded) = PeerMessage::deserialize_frames(&proto).unwrap();
+        assert!(header.is_none());
+        assert!(check_borsh_frames(Encoding::Proto, header.as_ref(), &decoded).is_ok());
+    }
+}

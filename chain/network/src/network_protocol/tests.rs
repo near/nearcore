@@ -106,7 +106,30 @@ fn serialize_deserialize_protobuf_only() {
         }),
     ];
     for m in msgs {
-        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string()).unwrap();
+        let frames = m.serialize_with_encoding(Encoding::Proto);
+        let (_, m2) =
+            PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string()).unwrap();
+        assert_eq!(m, m2);
+    }
+}
+
+#[test]
+fn serialize_deserialize_borsh() {
+    let mut rng = make_rng(39521947542);
+    let mut clock = time::FakeClock::default();
+    let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    let msgs = [
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None }),
+        PeerMessage::PeersResponse(PeersResponse { peers: vec![], direct_peers: vec![] }),
+        PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
+    ];
+    for m in msgs {
+        // Every borsh-encoded message has a header, including handshakes.
+        let frames = m.serialize_with_encoding(Encoding::Borsh);
+        assert!(frames.header.is_some(), "{m}");
+        let (_, m2) =
+            PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string()).unwrap();
         assert_eq!(m, m2);
     }
 }
@@ -175,7 +198,8 @@ fn serialize_deserialize() -> anyhow::Result<()> {
 
     // Check that serialize;deserialize = 1
     for m in &msgs {
-        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string())?;
+        let frames = m.serialize_with_encoding(Encoding::Proto);
+        let (_, m2) = PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string())?;
         if *m != m2 {
             bail!("deserialize(serialize({m}) = {m2}");
         }
@@ -184,7 +208,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     // Test the unambiguous parsing argument described in
     // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit#heading=h.x1awbr2acslb
     for m in &msgs {
-        let x = m.serialize();
+        let x = m.serialize_with_encoding(Encoding::Proto).body;
         assert!(x[0] >= 32, "serialize({})[0] = {:?}, want >= 32", m, x.get(0));
     }
 
@@ -205,7 +229,8 @@ fn deserialize_sync_routing_table_with_legacy_accounts() {
     };
     // Encoding of a legacy AnnounceAccount wrapper, whose field 1 held the borsh bytes.
     rtu.special_fields.mut_unknown_fields().add_length_delimited(2, vec![0x0a, 0x03, 1, 2, 3]);
-    let got = PeerMessage::deserialize(&proto_msg.write_to_bytes().unwrap()).unwrap();
+    let frames = PeerMessageFrames::proto(proto_msg.write_to_bytes().unwrap());
+    let (_, got) = PeerMessage::deserialize_frames(&frames).unwrap();
     assert_eq!(got, msg);
 }
 
