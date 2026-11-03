@@ -8,6 +8,7 @@
 * Limit the number of allowed globals per WASM contract to 65,536. [#16422](https://github.com/near/nearcore/pull/16422)
 * Fixed a bandwidth request over-reservation for shards that were not split in the most recent resharding. Such shards requested roughly double the bandwidth they needed, and the scheduler reserved sender bandwidth for receipts that did not exist. ([#16432](https://github.com/near/nearcore/pull/16432))
 * Stabilized early contract-loading gas charging. A `FunctionCall` now charges `contract_loading_base` before resolving and loading contract code, then charges `contract_loading_bytes` before compilation. Calls that cannot afford loading abort before the work is performed, and calls to a missing contract burn the base cost. No gas cost changes for successful calls. [#16632](https://github.com/near/nearcore/pull/16632)
+* Raised `per_receipt_storage_proof_size_limit` from 4,000,000 to 4,500,000 bytes. Reading, writing or removing a key records the whole value in the storage proof. With a 4 MB limit, a receipt can't touch a value of `max_length_storage_value` (4 MiB) and its trie path within the budget. 4.5 MB leaves room for both. The worst-case state witness grows by 0.5 MB. ([#16704](https://github.com/near/nearcore/pull/16704))
 
 ### Non-protocol Changes
 

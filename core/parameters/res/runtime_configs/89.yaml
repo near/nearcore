@@ -1,2 +1,3 @@
 max_globals_per_contract: { new: 65_536 }
 fix_contract_loading_cost: { old: false, new: true }
+per_receipt_storage_proof_size_limit: { old: 4_000_000, new: 4_500_000 }
