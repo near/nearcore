@@ -1,7 +1,7 @@
 # NEAR protocol model (implementation-derived)
 
-> **Protocol version: 87** (stable; min supported 84, nightly 157)
-> **Release: 2.14.0-rc.1** · **Derived from commit:** `233252e3835d0e317843f4d2a96f21edbeae897d` (2026-09-10)
+> **Protocol version: 88** (stable; min supported 84, nightly 157)
+> **Release: 2.14.0** · **Derived from commit:** `bc4e9e8cfb03d9e82f027883055624e18576993e` (2026-10-26)
 > **Status:** complete — scaffolding + all 16 component specs written and cite-verified. See "Status" below.
 
 This is a **descriptive behavioral model** of the NEAR protocol as actually
@@ -46,18 +46,30 @@ plans in [`plans/`](plans/) against the new code and re-verifies every claim.
 
 ## Status
 
-Complete for the 2.14.0 release (protocol version 87):
+Complete for the 2.14.0 release (protocol version 88):
 - All scaffolding (this file, `INDEX.md`, `CONVENTIONS.md`, `REGENERATION.md`,
   `GLOSSARY.md`) and all 16 generation plans under `plans/`.
 - All 16 component specs under `spec/` updated against the new code and cite-verified
   (every non-trivial behavioral claim cited to `file:line`/symbol; an independent
   verification pass re-read every citation and folded corrections in). See `INDEX.md`.
 
-Regenerated from the 2.13.0 (version 86) edition. The largest deltas this round were
-the smart-contract VM (the NearVM engine crates were deleted; wasmtime is the only
-backend), sync (centralized external-storage state sync was removed), networking
-(a release of memory, rate and size limits), and the eleven protocol features that
-became stable at version 87 — most consequentially early chunk-producer kickout,
-universal accounts, and the removal of gas rewards.
+Re-pinned from the 2.14.0-rc.1 edition (version 87, commit `233252e`) to the final
+2.14.0 release. The protocol moved during the release-candidate cycle, so the delta is
+small in files but material in rules:
+
+- `STABLE_PROTOCOL_VERSION` 87 → **88**; min supported 84 and nightly 157 unchanged.
+- Four new features — `RejectUniversalAccountTransfers` and `RejectBlockHeaderV7BeforeSpice`
+  at 87, `RefundRepeatedUniversalStateInitDeposit` and `CanonicalUniversalStateInit` at 88.
+- `UniversalAccounts` **moved from 87 to 88**, giving a deliberate two-step activation.
+- `ReceiptPromiseInputSizeLimit` and `FixMlDsaCostCharging` were **de-stabilized** back to
+  nightly (157) before release, so neither is active on the stable path.
+- Ungated: `BlockHeaderV8` (reverting an rc-only change to `BlockHeaderV7`), state-sync
+  block-body validation, contract-code responses grouped by size, an early-kickout
+  cache-eviction fix, and cold-store RocksDB tuning for archival nodes.
+
+The earlier 2.13.0 → 2.14.0-rc.1 round rebuilt the model wholesale: the NearVM engine
+crates were deleted (wasmtime is the only backend), centralized external-storage state
+sync was removed, and the networking layer gained a release of memory, rate and size
+limits.
 
 To refresh for a new release, follow [`REGENERATION.md`](REGENERATION.md).

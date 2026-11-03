@@ -11,6 +11,10 @@ redefining inline.
   DelegateAction, …). See [runtime-execution](spec/runtime-execution.md).
 - **Approval** — A validator's signed message endorsing a block (or a skip), used by
   Doomslug for finality. See [consensus-finality](spec/consensus-finality.md).
+- **Canonical state init** — The rule (version 88) that a `UniversalStateInit` is accepted
+  only in the one borsh encoding its decoded value re-encodes to, so each logical state init
+  has exactly one valid encoding and one account id.
+  See [accounts-keys](spec/accounts-keys.md).
 - **Catchup** — The process by which a node builds state for shards it will track in
   the next epoch but does not track now. See [sync](spec/sync.md).
 - **Chunk** — The per-shard portion of a block: the shard's transactions, receipts,
@@ -20,6 +24,10 @@ redefining inline.
   See [state-storage](spec/state-storage.md).
 - **Congestion control** — Mechanism (NEP-539) limiting how much cross-shard work a
   shard accepts when downstream shards are congested.
+- **Destabilization** — Moving a `ProtocolFeature` back to a nightly version after it was
+  stable. Because a version's runtime config is compiled into the binary and not committed
+  on-chain, re-cutting a config diff for an already-activated version changes that version's
+  rules retroactively. See [protocol-versioning](spec/protocol-versioning.md).
 - **Deterministic account ID** — An account whose ID is derived from the contract state
   it is created with, rather than chosen. Superseded for new work by the universal
   account (`0u`) scheme. See [accounts-keys](spec/accounts-keys.md).
@@ -47,20 +55,24 @@ redefining inline.
 - **Protocol feature** — A behavior change gated on a protocol version, enumerated in
   `ProtocolFeature` (`core/primitives-core/src/version.rs`).
 - **Protocol version** — Monotonic `u32` identifying the active rule set; agreed via
-  epoch-boundary voting. Pinned version for this model: **87**.
+  epoch-boundary voting. Pinned version for this model: **88**.
 - **Receipt** — An asynchronous unit of execution produced from a transaction or
   another receipt. Kinds: action, data, delayed, postponed, buffered, yielded.
   See [runtime-execution](spec/runtime-execution.md) and
   [cross-shard-congestion](spec/cross-shard-congestion.md).
 - **Receipt promise input** — The resolved data a receipt awaits from its promise
-  dependencies. Its combined size is bounded by `max_receipt_total_input_size` from
-  version 87. See [runtime-execution](spec/runtime-execution.md).
+  dependencies. A `max_receipt_total_input_size` bound was stabilized at version 87 during
+  the 2.14 release candidates and then **de-stabilized to nightly (157)** before release,
+  to avoid regressing deployed contracts — so on the stable path the combined size is
+  still unbounded. See [runtime-execution](spec/runtime-execution.md).
 - **Resharding** — Changing the shard layout (splitting shards) at an epoch boundary,
   migrating state. Dynamic resharding is NEP-508 + later work.
 - **Shard** — A partition of state and execution. Each shard has its own trie/state
   root within a block.
-- **SPICE** — An in-development execution redesign. Gated at protocol version 180 and
-  **not** reachable at version 87 or in nightly (157); every spec marks it as not stable.
+- **SPICE** — An in-development execution redesign. Gated at protocol version 180, so it is
+  reachable only in a `protocol_feature_spice` build (where `PROTOCOL_VERSION` is 200) — not
+  at version 88 and **not** on nightly either, whose ceiling is 157. Every spec marks it as
+  not stable.
 - **State part** — One slice of a shard's state, the unit peers exchange during state
   sync. See [sync](spec/sync.md).
 - **State root** — Merkle root of a shard's trie; commits the shard's state.
@@ -74,6 +86,8 @@ redefining inline.
 - **Trie** — Merkle-Patricia trie storing all shard state; root is the state root.
 - **Universal account** — An account under the `0u` scheme whose ID (a *UAID*) is derived
   by hashing its canonical state init — contract code, storage entries and access keys.
-  Stable at version 87; unifies implicit and contract-created account creation.
+  Stable at version **88**; unifies implicit and contract-created account creation. Version 87
+  first bans transfers to `0u` ids (`RejectUniversalAccountTransfers`) so none can be funded
+  before the account-creation fee applies.
   See [accounts-keys](spec/accounts-keys.md).
 - **Validator** — A staked participant that produces and/or validates blocks/chunks.

@@ -1,6 +1,6 @@
 # Sync (header / block / state / epoch + catchup)
 
-> Protocol version: 87 (stable) · Release: 2.14.0-rc.1 · Derived from commit: 233252e · Generated: 2026-09-14
+> Protocol version: 88 (stable) · Release: 2.14.0 · Derived from commit: bc4e9e8 · Generated: 2026-11-03
 > Primary crates/files: `chain/client/src/sync/{handler,header,block,epoch}.rs`, `chain/client/src/sync/state/{mod,shard,downloader,network,chain_requests,util,task_tracker}.rs`, `chain/client/src/verified_peer_heights.rs`, `chain/client/src/client_actor.rs`, `chain/client/src/state_request_actor.rs`, `chain/client/src/sync_jobs_actor.rs`, `chain/chain/src/state_sync/{adapter,utils}.rs`, `nearcore/src/state_sync.rs`
 
 ## Role
@@ -8,7 +8,7 @@
 Sync is how a node that is behind (crashed, newly joined, or slow) catches its
 block head up to the network tip, and catchup is how a node that will track new
 shards next epoch builds their state while staying live on its current shards.
-`ClientActor::run_sync_step` (`chain/client/src/client_actor.rs:1943`) decides
+`ClientActor::run_sync_step` (`chain/client/src/client_actor.rs:1964`) decides
 whether sync is needed and what height to aim for; `SyncHandler`
 (`chain/client/src/sync/handler.rs:17`) then drives a single linear pipeline —
 EpochSync → HeaderSync → StateSync → BlockSync → NoSync — each client tick. It
@@ -49,10 +49,18 @@ any more.
   `AwaitingPeers`, `NoSync`, `EpochSync(EpochSyncStatus)`, `HeaderSync{..}`,
   `StateSync(StateSyncStatus)`, `BlockSync{..}`) — the phase state machine.
   `HeaderSync`/`BlockSync` carry `start_height/current_height/highest_height`.
-- **`SyncRequirement`** — `chain/client/src/client_actor.rs:1004` —
+- **`SyncRequirement`** — `chain/client/src/client_actor.rs:1005` —
   `SyncNeeded{source, highest_height, head} | AlreadyCaughtUp{..} | NoPeers |
   AdvHeaderSyncDisabled`. `HighestHeightSource`
-  (`client_actor.rs:989`) is `Peer(PeerId)` or `OwnHeaderHead`.
+  (`client_actor.rs:990`) is `Peer(PeerId)` or `OwnHeaderHead`.
+- **`StateSyncBlockVerdict`** — `chain/client/src/client_actor.rs:1056` —
+  `Save | Drop`; the result of validating a block that arrived while the node is
+  in `StateSync`. New in 2.14.0 (#16418).
+- **`StateSyncBlockDestination`** — `chain/client/src/client_actor.rs:1064` —
+  `OrphanPool` (the sync-hash block) `| Storage` (the sync-hash block's prev)
+  `| StorageWithRefcount` (an extra block needed for incoming receipts). New in
+  2.14.0 (#16418); it names the three storage treatments that were previously
+  three copy-pasted branches.
 - **`VerifiedPeerHeights`** — `chain/client/src/verified_peer_heights.rs:11` —
   highest block height each peer is *proved* to have reached, plus a 32-entry
   LRU of already-verified header hashes so one header costs one approval pass
@@ -81,7 +89,7 @@ any more.
 - **`StateSyncResult`** — `mod.rs:417` — `NeedBlocks | InProgress | Completed |
   StaleSyncHash`; **`StateSyncShardResult`** — `mod.rs:431` — `InProgress |
   Completed` (shard-download-only, used by catchup).
-- **`ShardSyncStatus`** — `chain/client-primitives/src/types.rs:42` — per-shard
+- **`ShardSyncStatus`** — `chain/client-primitives/src/types.rs:43` — per-shard
   phase: `StateDownloadHeader → StateDownloadParts{done,total} →
   StateApplyInProgress{done,total} → StateApplyFinalizing → StateSyncDone`.
   A sixth variant `StateApplyScheduling` (`types.rs:46`, metric repr `2`) is
@@ -110,59 +118,60 @@ any more.
 
 ## Behavior
 
-### 0. Is sync needed, and to what height? (`syncing_info`, `client_actor.rs:1714`)
+### 0. Is sync needed, and to what height? (`syncing_info`, `client_actor.rs:1735`)
 
 New in 2.14: a peer's *claimed* height is no longer trusted on its own
 (`feat(sync): verify target height block approvals when node is not lagging
 (#16133)`).
 
-1. `head_is_stale` (`client_actor.rs:1755`): true when
+1. `head_is_stale` (`client_actor.rs:1776`): true when
    `now - head_header.timestamp() >= min_block_production_delay *
    epoch_length` — i.e. the head has not advanced in ~1 epoch of wall clock.
    The timestamp is producer-signed, so a peer cannot forge this condition.
 2. **Stale head** → `sync_requirement_from_claimed_peers`
-   (`client_actor.rs:1769`): pick a random `highest_height_peers` entry whose
+   (`client_actor.rs:1790`): pick a random `highest_height_peers` entry whose
    `highest_block_hash` is not known-invalid and take its claimed height,
    clamped by `expected_shutdown`. This is the pre-2.14 behavior, kept because
    the node's known validator sets no longer cover the tip.
 3. **Fresh head** → `sync_requirement_from_verified_peers`
-   (`client_actor.rs:1793`): over `connected_peers`, each peer's height is
+   (`client_actor.rs:1814`): over `connected_peers`, each peer's height is
    `min(last_block.height, verified_height)`, where `verified_height` is
    `VerifiedPeerHeights::get_above(peer, head.height)`
-   (`verified_peer_heights.rs:56`). A peer with nothing proved above our head
-   reads as *level with our head* (`client_actor.rs:1826`) — still a download
-   candidate, never a sync target. The max by `(height, claimed_height)` wins.
-4. **Own header head fallback** (`client_actor.rs:1735`, from `fix(sync):
+   (`verified_peer_heights.rs:56`, used at `client_actor.rs:1844`). A peer with
+   nothing proved above our head reads as *level with our head*
+   (`client_actor.rs:1847`) — still a download candidate, never a sync target.
+   The max by `(height, claimed_height)` wins.
+4. **Own header head fallback** (`client_actor.rs:1756`, from `fix(sync):
    continue syncing on our own header head (#16256)`): if the peer-derived
    answer is not `SyncNeeded` **and** the status is `BlockSync`, the node takes
    `min(header_head.height, expected_shutdown)` and, only if that exceeds
-   `head.height` (`client_actor.rs:1742`), returns it as the target with source
+   `head.height` (`client_actor.rs:1763`), returns it as the target with source
    `OwnHeaderHead`. This path bypasses `peer_height_requires_sync`, so
    `sync_height_threshold` does not apply to it. Without this fallback, the head
    jump at the end of state sync leaves every verified height at or below the
    new head and block sync stalls.
-5. `sync_requirement` (`client_actor.rs:1840`) calls
+5. `sync_requirement` (`client_actor.rs:1861`) calls
    `Client::peer_height_requires_sync` (`chain/client/src/client.rs:1209`):
    `peer_height > head_height + threshold`, where `threshold` is
    `sync_height_threshold` when not syncing and `0` while syncing.
-6. `run_sync_step` (`client_actor.rs:1943`) maps the verdict: `AlreadyCaughtUp |
+6. `run_sync_step` (`client_actor.rs:1964`) maps the verdict: `AlreadyCaughtUp |
    NoPeers | AdvHeaderSyncDisabled` → set `SyncStatus::NoSync` (and announce the
    account) if we were syncing; `SyncNeeded` → `handle_sync_needed`. **This is
    the `NoSync` exit** for the whole pipeline, including `BlockSync`.
 
 **Recording a verified height** (`perf(sync): verify peer heights only when they
 can trigger sync (#16266)`): `Handler<BlockResponse>`
-(`client_actor.rs:627`) calls `Client::note_verified_peer_height`
-(`client.rs:1225`) only when `!was_requested` (`client_actor.rs:634`) — a block
+(`client_actor.rs:628`) calls `Client::note_verified_peer_height`
+(`client.rs:1225`) only when `!was_requested` (`client_actor.rs:635`) — a block
 we asked for proves nothing new. `note_verified_peer_height` prunes entries at
 or below the head, skips heights that cannot trigger sync
 (`peer_height_requires_sync`, `client.rs:1229`), and otherwise verifies via
 `Chain::verify_header_approvals_without_ancestry`
-(`chain/chain/src/chain.rs:4192`), which checks the **producer signature first**
+(`chain/chain/src/chain.rs:4204`), which checks the **producer signature first**
 (one signature, since the header hash covers the approvals) and only then runs
 `verify_approvals_and_threshold_orphan` over the ~100 approvals against the
-epoch's stake (`chain.rs:4210`). Headers lacking `prev_height` (V1/V2) are
-rejected outright (`chain.rs:4203`).
+epoch's stake (`chain.rs:4222`). Headers lacking `prev_height` (V1/V2) are
+rejected outright (`chain.rs:4215`).
 
 ### 1. Entry decision (once per sync start)
 
@@ -180,15 +189,16 @@ epoch_length` (`handler.rs:190`). Checks in order:
    parts in `DBCol::StateParts` are preserved).
 3. **Far horizon** (`handler.rs:226`): everything else → `EpochSync(NotStarted)`.
 
-The decision uses **block head** for the horizon check, not header head
-(`handler.rs:188-192`). It is not re-evaluated mid-pipeline.
+Step 1 tests the **block head** against the horizon (`head_within_horizon`,
+`handler.rs:191`); step 2 tests the **header head** (`header_head_within_horizon`,
+`handler.rs:192`). The decision is not re-evaluated mid-pipeline.
 
 ### 2. Phase transitions (`handle_sync_needed`, `handler.rs:89`)
 
 - `EpochSync(Done)` → `HeaderSync` seeded at the current header head
   (`handler.rs:90`).
 - `EpochSync(_)` still in progress → `epoch_sync.run(..)` requests/awaits the
-  proof (`handler.rs:100`).
+  proof (`handler.rs:103`).
 - `HeaderSync` → runs header sync with peer-banning enabled
   (`ban_stalling_peers=true`, `handler.rs:107`). Once `header_head.height >=
   highest_height - block_header_fetch_horizon` (`handler.rs:117`) it calls
@@ -241,7 +251,7 @@ blocks below the GC stop height an **archival** peer is preferred
 (`request_from_archival`, `block.rs:156`). Header sync runs alongside block sync
 each tick (`handler.rs:161`), extending the `NextBlockHashes` chain that block
 sync follows; when no headers exist ahead, `get_next_block_hash` returns
-`DBNotFoundErr` and block sync self-paces (`handler.rs:64` doc, `block.rs:134`).
+`DBNotFoundErr` and block sync self-paces (`handler.rs:69` doc, `block.rs:134`).
 
 ### 5. Epoch sync (`epoch.rs`)
 
@@ -313,17 +323,125 @@ anchor reached ~4 epochs back and crashed nodes running
 2. `request_sync_blocks` (`mod.rs:220`): the sync-hash block, its prev, and the
    `get_extra_sync_block_hashes` (`chain/chain/src/state_sync/utils.rs:374`)
    must all be present; missing ones are returned as `NeedBlocks`
-   (`mod.rs:297`). The sync hash block is stored as an orphan, so its presence
-   is checked via `is_orphan` (`sync_block_status`, `mod.rs:188`).
+   (`mod.rs:297`), which the handler turns into `NeedRequestBlocks` and the
+   client into `BlockRequest`s. The sync hash block is stored as an orphan, so
+   its presence is checked via `is_orphan` (`sync_block_status`, `mod.rs:188`).
+   How those blocks are ingested when they arrive is §7.
 3. `get_shards_cares_about_this_or_next_epoch` determines tracked shards
    (`mod.rs:301`), then `run_with_shards`.
 4. On all-shards-`Completed`: `reset_heads_post_state_sync`
-   (`chain/chain/src/chain.rs:1620`) sets body head to the sync-hash prev block,
+   (`chain/chain/src/chain.rs:1632`) sets body head to the sync-hash prev block,
    final head to genesis, adjusts tail/chunk-tail to the earliest downloaded
    sync block, tells `blocks_delay_tracker` about the head jump
-   (`chain.rs:1661`), and unlocks orphans. Returns `Completed(artifacts)`.
+   (`chain.rs:1673`), and unlocks orphans. Returns `Completed(artifacts)`.
 
-### 7. State sync — per-shard download (`run_with_shards`, `mod.rs:323`; `run_state_sync_for_shard`, `shard.rs:56`)
+### 7. Ingesting the sync blocks (`maybe_receive_state_sync_blocks`, `client_actor.rs:2104`)
+
+While `sync_status` is `StateSync`, `Handler<BlockResponse>` diverts every block
+into `maybe_receive_state_sync_blocks` *before* `Client::receive_block`
+(`client_actor.rs:642`); a `true` return means "the node is in state sync, stop
+here", **not** "the block was accepted". The ordinary block pipeline
+([chain-block-processing](chain-block-processing.md)) therefore never sees these
+blocks, so whatever this function checks is the only check they get.
+
+Rewritten in 2.14.0 by `fix(state-sync): validate sync body before reading
+(#16418)`. Order of operations:
+
+1. **Classify first, verify second** (`client_actor.rs:2121`). The block's hash
+   decides a `StateSyncBlockDestination`: `sync_hash` → `OrphanPool`;
+   `header.prev_hash()` → `Storage`; a member of
+   `get_extra_sync_block_hashes(header.prev_hash())` → `StorageWithRefcount`;
+   anything else returns early without verification. Classification is
+   deliberately before verification: a block the node is not looking for is
+   ignored exactly as it would be outside state sync, and there is nothing to
+   verify it against. Note the hash the node matches on is the *locally known*
+   `sync_hash`/`prev_hash`, which came from validated header sync, and
+   every `BlockHeaderVN` carries its `hash` as `#[borsh(skip)]` under
+   `#[borsh(init=init)]`, so the hash is recomputed from the header's contents
+   on deserialization and never read off the wire. The pair repeats on all
+   eight versions: V1 at `core/primitives/src/block_header.rs:606` /
+   `:619`, through V8 at `:806` / `:820`. A peer therefore cannot vary the
+   *header* of a block the node will accept here — only the body. Nor can it
+   vary which hashes the node is looking for: `get_extra_sync_block_hashes`
+   walks back over locally stored headers from the sync-prev block
+   (`chain/chain/src/state_sync/utils.rs:374`), so all three matched hashes
+   descend from the header chain that header sync already validated.
+2. **`validate_state_sync_block`** (`client_actor.rs:2060`), a `Save`/`Drop`
+   verdict:
+   - `Chain::verify_block_hash_and_signature` (`chain/chain/src/chain.rs:1083`)
+     first. It recomputes `Block::compute_block_body_hash` and compares it to
+     the header's `block_body_hash`, then verifies the producer signature over
+     the header hash. `Incorrect` fires `byzantine_assert!`, logs "block body
+     hash or signature does not match the header during state sync", **bans the
+     sender** with `ReasonForBan::BadBlockHeader` (`client_actor.rs:2071`) and
+     returns `Drop` — the same response `Client::receive_block_impl` already
+     gives for this failure outside state sync. `Err(..)` and the (currently
+     never built) `CannotVerifyBecauseBlockIsOrphan` variant return `Drop`
+     without a ban.
+   - `Chain::validate_block` (`chain.rs:765` → `validate_block_impl`,
+     `chain.rs:778`) second: `Block::check_validity` recomputes
+     `prev_state_root`, `prev_chunk_outgoing_receipts_root`,
+     `chunk_headers_root`, `chunk_tx_root`, `outcome_root` and the chunk mask
+     from the body (`core/primitives/src/block.rs:618`), and each chunk header's
+     producer signature is checked. Any error returns `Drop`;
+     `byzantine_assert!` fires only for `is_bad_data()` errors, so a transient
+     epoch-lookup failure is logged at debug and re-requested rather than
+     treated as an attack (`client_actor.rs:2084`).
+3. **Only then save** (`client_actor.rs:2137` is the `Drop` gate, `:2142` the
+   destination `match`), per the classification from step 1: `save_orphan` for
+   the sync-hash block (`chain/chain/src/orphan.rs:285`); `save_block` for the
+   prev block; `save_block` plus a manual `inc_block_refcount` for each extra
+   block (`save_block` does not refcount, the sync-hash block's own processing
+   later refcounts its prev).
+
+Because `Chain::validate_block` runs through `MaybeValidated::validate_with`
+(`core/primitives/src/utils.rs:98`), a successful validation sets the
+`validated` cell, and the sync-hash block is parked in the orphan pool already
+marked validated. When the orphan is processed after state sync completes, step
+11 of the normal pipeline skips `validate_block_impl` — so this site is the only
+place the sync-hash block's body is ever validated.
+
+**What this replaced.** Through 2.14.0-rc.1 all three branches called
+`validate_block`, logged the error, and saved the block regardless, so no check
+on this path had any effect, and `verify_block_hash_and_signature` was not
+called at all. Since `fix(state-sync): validate finalized chunk commitments
+(#16152)`, `Chain::validate_state_sync_chunk_extra` reads the sync block's body
+back out of the orphan pool during finalization and **panics** on a mismatch
+(§8). A peer that answered the node's `BlockRequest` for the sync hash with the
+honest header and a fabricated body — the body is unauthenticated on the wire,
+the header commits to it via `block_body_hash`, and nothing checked that — could
+therefore drive any state-syncing node into that panic, whose message tells the
+operator to restart with an empty data directory. The prev and extra blocks were
+written to `DBCol::Block` unvalidated by the same code path (`Chain::save_block`,
+`chain.rs:722`, writes without validating).
+
+**Scope of that exposure.** It was an availability bug, not a consensus or
+fund-safety one, and it is bounded on three sides:
+- *Reachability*: `maybe_receive_state_sync_blocks` returns `false` immediately
+  unless `sync_status` is `StateSync` (`client_actor.rs:2105-2109`), so a node
+  that is not state-syncing never enters this path at all. A state-syncing node
+  neither produces nor validates chunks, so nothing it signs is affected.
+- *Surface*: the header could never be forged (step 1), so the only
+  attacker-controlled bytes were the body of a block whose hash the node was
+  already waiting for.
+- *Outcome*: the forged body is not adopted as chain state — the divergence is
+  caught at finalization and the process aborts. The damage is the crash plus
+  the "restart with an empty data directory" instruction, i.e. a DoS that a
+  remote peer can trigger on nodes in state sync.
+
+*Evidence (test, not source of behavior):*
+`test-loop-tests/src/tests/sync/adversarial_sync_block.rs:53` —
+`test_forged_sync_block_body_is_rejected` runs a fresh node through the
+far-horizon pipeline and has one peer answer the first sync-hash `BlockRequest`
+with the honest header and every chunk header in the body replaced
+(`forge_block_body`, `:26`; `assert_eq!(forged.hash(), block.hash())` at `:147`
+pins that the forgery arrives under the hash the victim is waiting for). It
+asserts the forgery was delivered, that it never appeared in the orphan pool
+(`Chain::get_orphan`, `chain/chain/src/orphan.rs:458`, added by the same commit
+for this assertion), and that the victim still reaches the network head after
+banning that peer.
+
+### 8. State sync — per-shard download (`run_with_shards`, `mod.rs:323`; `run_state_sync_for_shard`, `shard.rs:56`)
 
 For each tracked shard `run_with_shards` polls or spawns a
 `StateSyncShardHandle`. A shard already marked `StateSyncDone` is skipped
@@ -350,7 +468,7 @@ For each tracked shard `run_with_shards` polls or spawns a
    Each part is validated against the state root (`validate_state_part_impl`,
    `chain/chain/src/runtime/mod.rs:541`; trait entry `validate_state_part`,
    `runtime/mod.rs:1517`) before being written to
-   `DBCol::StateParts` (`downloader.rs:183`).
+   `DBCol::StateParts` (`downloader.rs:186`).
 3. **Apply parts** (`shard.rs:145`): unload memtrie, then decide whether to keep
    the existing `StatePartsApplied` markers via `keep_applied_state_parts`
    (`shard.rs:256`) — markers are kept **only while an apply is unfinished**,
@@ -370,22 +488,30 @@ For each tracked shard `run_with_shards` polls or spawns a
    `StateSyncDone`.
 
 **Finalization on the Chain thread** (`Chain::set_state_finalize`,
-`chain/chain/src/chain.rs:2742`) replays heights from the header's
+`chain/chain/src/chain.rs:2754`) replays heights from the header's
 `chunk_height_included` up to the sync hash, then — new in 2.14 —
-`validate_state_sync_chunk_extra` (`chain.rs:2787`) compares the reconstructed
+`validate_state_sync_chunk_extra` (`chain.rs:2799`) compares the reconstructed
 `ChunkExtra` at the sync block's prev hash against the sync block's own new
-chunk header using `validate_chunk_with_chunk_extra` (`chain.rs:2839`). A
+chunk header using `validate_chunk_with_chunk_extra` (`chain.rs:2851`). A
 repeated (missing) chunk is skipped because it commits no boundary post-state
-(`chain.rs:2810`). A commitment mismatch (`InvalidStateRoot`,
+(`chain.rs:2822`). A commitment mismatch (`InvalidStateRoot`,
 `InvalidOutcomesProof`, `InvalidValidatorProposals`, `InvalidGasLimit`,
 `InvalidGasUsed`, `InvalidBalanceBurnt`, `InvalidReceiptsProof`,
 `InvalidCongestionInfo`, `InvalidBandwidthRequests`,
 `InvalidChunkHeaderShardSplit`) **panics** with an operator-facing message
-(`chain.rs:2860`) rather than letting the divergence surface later as a
+(`chain.rs:2872`) rather than letting the divergence surface later as a
 "bad canonical chunk" during block sync (`fix(state-sync): validate finalized
 chunk commitments (#16152)`).
 
-### 8. State-sync source — peers only (`downloader.rs`, `network.rs`)
+The sync block whose chunk header this reads is normally still in the **orphan
+pool**, not the store, so `validate_state_sync_chunk_extra` falls back to
+`self.orphans.get(&sync_hash)` on `DBNotFoundErr` (`chain.rs:2806-2817`). That
+read is what makes §7's body validation load-bearing: an unvalidated body here
+turns a peer-supplied value into the input of a `panic!`. Under `test_features`
+only, `adv_corrupt_state_sync_chunk_extra` perturbs `gas_used` to exercise the
+mismatch arm (`chain.rs:2827`).
+
+### 9. State-sync source — peers only (`downloader.rs`, `network.rs`)
 
 `StateSyncDownloader` (`downloader.rs:27`) holds a single
 `source: Arc<dyn StateSyncDownloadSource>`, constructed from
@@ -407,7 +533,7 @@ cycling any more — both were removed with #16009.
 - A `RemoveKeyUponDrop` guard (`network.rs:259`) clears the pending-request
   entry on any exit path.
 
-### 9. Serving state requests (`StateRequestActor`, `state_request_actor.rs`)
+### 10. Serving state requests (`StateRequestActor`, `state_request_actor.rs`)
 
 `Handler<StateRequestHeader>` (`state_request_actor.rs:215`) and
 `<StateRequestPart>` (`:260`): first `throttle_state_sync_request`
@@ -433,7 +559,7 @@ index* (`verify_path_with_index`, `:507-517`). No merkle root covers the
 chunk repeats an older root (`fix(state-sync): bind from_shard_id to receipt
 proof merkle index (#16379)`).
 
-### 10. State-part decoding limits
+### 11. State-part decoding limits
 
 `StatePart::to_partial_state` (`state_part.rs:120`) enforces, before any trie
 value is allocated:
@@ -451,7 +577,7 @@ value is allocated:
   (`state_part.rs:24`) mirrors `TRIE_COSTS.node_cost`
   (`core/store/src/trie/mod.rs:158`).
 
-### 11. State-sync dump (external storage upload, `nearcore/src/state_sync.rs`)
+### 12. State-sync dump (external storage upload, `nearcore/src/state_sync.rs`)
 
 A node configured with `state_sync.dump` runs `StateSyncDumper::start`
 (`state_sync.rs:56`), which spawns a loop (`state_sync_dump`, `:956`) that on
@@ -475,7 +601,7 @@ here are `StatePartIndex` (`state_sync.rs:21`), and the helper names were
 renamed accordingly (`get_missing_part_indices_for_epoch`, `:136`;
 `extract_part_idx_from_part_file_name`, `:131`).
 
-### 12. Catchup (`Client::run_catchup`, `chain/client/src/client.rs:2551`)
+### 13. Catchup (`Client::run_catchup`, `chain/client/src/client.rs:2551`)
 
 `run_catchup` iterates `iterate_state_sync_infos()` (`client.rs:2557`) — the
 shards a node must build state for before the next epoch (persisted in
@@ -508,6 +634,15 @@ the client alone writes to the chain store.
   `DBCol::StatePartsApplied` and flat storage / memtrie; head/tail updates via
   [state-storage](state-storage.md); `BlockProcessingArtifact`s handed to block
   processing ([chain-block-processing](chain-block-processing.md)).
+- **Division of labour with [chain-block-processing](chain-block-processing.md)**
+  for blocks received during state sync: *this* spec owns the sync-path ingest
+  — when `maybe_receive_state_sync_blocks` diverts a block away from the normal
+  pipeline, which checks run there, the ban, the three storage destinations, and
+  the read-back at finalization (§7, §8). That spec owns the primitives this
+  path reuses: the semantics of `Chain::verify_block_hash_and_signature` and
+  `Chain::validate_block`/`validate_block_impl`, `OrphanBlockPool` and
+  `save_orphan`/`check_orphans`, and the normal `start_process_block_impl`
+  ordering that the sync path bypasses. Neither re-documents the other.
 - **Serves**: state header/part requests to peers via `StateRequestActor`; epoch
   sync proofs via the `ClientActor` epoch-sync handlers; an optional
   external-storage dump used by **cloud archival**, not by state sync.
@@ -515,7 +650,7 @@ the client alone writes to the chain store.
   snapshots (#16120)` deleted `StoreConfig::state_snapshot_config` /
   `StateSnapshotType`; snapshots are always on for regular nodes because serving
   state parts to peers and cloud archival both need them
-  (`NightshadeRuntime::from_config`, `nearcore/src/config.rs:940`). Offline
+  (`NightshadeRuntime::from_config`, `nearcore/src/config.rs:921`). Offline
   tools opt out via `from_config_with_state_snapshot`
   (`nearcore/src/config.rs:953`). Old `config.json` files still load and the
   field is ignored — neither `StoreConfig` nor `Config` sets
@@ -524,8 +659,8 @@ the client alone writes to the chain store.
 ## Protocol-version-gated behavior
 
 Verified against `core/primitives-core/src/version.rs` in this tree
-(`STABLE_PROTOCOL_VERSION = 87`, `version.rs:680`;
-`MIN_SUPPORTED_PROTOCOL_VERSION = 84`, `version.rs:652`).
+(`STABLE_PROTOCOL_VERSION = 88`, `version.rs:698`;
+`MIN_SUPPORTED_PROTOCOL_VERSION = 84`, `version.rs:670`).
 
 **Almost nothing in this component is protocol-version gated.** Sync is
 `neard` node behavior: peers negotiate it out-of-band of block validity, so
@@ -533,33 +668,54 @@ changing it does not fork the chain. Every 2.14 change listed in this spec —
 external-storage removal, unordered part downloads, the state-part entry bound,
 the receipt-proof index binding, finalized chunk-commitment validation, part
 re-apply after a finished apply, verified peer heights, the own-header-head
-fallback, `EpochStart` on epoch sync — is **ungated** and takes effect as soon
-as the binary runs. The two gates below are the whole list.
+fallback, `EpochStart` on epoch sync, and the 2.14.0-final sync-block body
+validation (§7, #16418) — is **ungated** and takes effect as soon as the binary
+runs. In particular #16418 adds no `ProtocolFeature` check: both
+`validate_state_sync_block` and its callee `verify_block_hash_and_signature`
+branch only on data already in the block, so a node that upgrades starts
+rejecting forged sync bodies immediately and independently of the chain's
+protocol version. The three gates below are the whole list.
 
 | Feature | Activates | Effect on sync |
 | --- | --- | --- |
-| `ContinuousEpochSync` | PV **85** (`version.rs:355` decl, `:605` mapping) | Epoch sync proofs are maintained incrementally and stored compressed; the request handler returns the pre-computed proof directly (`epoch.rs:580`) instead of deriving it on demand. Checked with `PROTOCOL_VERSION` (the binary's max version), not per-block. |
-| `ValidateBlockOrdinalAndEpochSyncDataHash` | PV **85** (`version.rs:437` decl, `:611` mapping) | Received block headers have their `block_ordinal` and `epoch_sync_data_hash` recomputed against local chain state during header validation (`Chain::validate_header`, `chain/chain/src/chain.rs:1027`). Gated on the *epoch's* protocol version, unlike `ContinuousEpochSync`. Strengthens the trust in headers pulled during header sync. |
+| `ContinuousEpochSync` | PV **85** (`version.rs:355` decl, `:619` mapping) | Epoch sync proofs are maintained incrementally and stored compressed; the request handler returns the pre-computed proof directly (`epoch.rs:580`) instead of deriving it on demand. Checked with `PROTOCOL_VERSION` (the binary's max version), not per-block. |
+| `ValidateBlockOrdinalAndEpochSyncDataHash` | PV **85** (`version.rs:437` decl, `:625` mapping) | Received block headers have their `block_ordinal` and `epoch_sync_data_hash` recomputed against local chain state during header validation (`Chain::validate_header`, `chain/chain/src/chain.rs:1039`). Gated on the *epoch's* protocol version, unlike `ContinuousEpochSync`. Strengthens the trust in headers pulled during header sync. |
+| `RejectBlockHeaderV7BeforeSpice` | PV **87** (`version.rs:505` decl, `:642` mapping) | New in 2.14.0 final (#16621). `Chain::validate_header` (`chain.rs:941`) rejects a `BlockHeaderV7` with `Error::InvalidProtocolVersion` in any epoch at PV ≥ 87 that is not a Spice epoch; below 87 such a header is accepted and treated as a `BlockHeaderV6`. Header sync ingests headers through `validate_header`, so from the 87 activation a synced header chain can no longer contain a V7 header. Honest nodes never produce V7, so there is no effect in practice; the gate exists to keep agreement with un-upgraded nodes. See [chain-block-processing](chain-block-processing.md) and [data-structures-serialization](data-structures-serialization.md) for the header versions themselves. |
 
-Not gated at PV 87:
+Not gated at PV 88:
 - **State-sync source selection** was a *node configuration* (`SyncConfig`) and
   is now not even a choice — `SyncConfig::Peers` is the only variant
   (`core/chain-configs/src/client_config.rs:328`).
 - **Epoch-sync data-hash validation** *within the proof* is unconditional
   (`verify_epoch_sync_data_hash`, `epoch.rs:482`).
-- `_DeprecatedCurrentEpochStateSync` (PV 74, `version.rs:279`/`:577`) and
-  `_DeprecatedStatePartsCompression` (PV 82, `version.rs:337`/`:589`) are
+- `_DeprecatedCurrentEpochStateSync` (PV 74, `version.rs:279`/`:591`) and
+  `_DeprecatedStatePartsCompression` (PV 82, `version.rs:337`/`:603`) are
   deprecated: "sync to current epoch's state" and compressed state parts are
   baseline, below `MIN_SUPPORTED_PROTOCOL_VERSION = 84`, so no branch remains.
-- The PV-87 features (`FixContractLoadingError`, `RejectEmptyMethodName`,
-  `RejectDelegateV2`, `RemoveGasRewards`, `EnforceStorageProofLimitForAllActions`,
-  `UniversalAccounts`, `EarlyKickout`, …, `version.rs:619-630`) are runtime /
-  validator-selection features; none change sync. `EarlyKickout` touches epoch
-  sync only indirectly, via the `EpochStart`/`ChunkProducers` rows that
-  `apply_validated_proof` now seeds (§5).
+- The other PV-87 features (`FixContractLoadingError`, `RejectEmptyMethodName`,
+  `RejectDelegateV2`, `RejectWithdrawFromGasKeyInDelegate`, `RemoveGasRewards`,
+  `EnforceStorageProofLimitForAllActions`, `EarlyKickout`,
+  `GlobalContractSameChunkCallFix`, `RejectUniversalAccountTransfers`,
+  `version.rs:633-642`) are runtime / validator-selection features; none change
+  sync. `EarlyKickout` touches epoch sync only indirectly, via the
+  `EpochStart`/`ChunkProducers` rows that `apply_validated_proof` now seeds (§5).
+- The **PV-88** features — `UniversalAccounts` (moved from 87 to 88 in this
+  release), `RefundRepeatedUniversalStateInitDeposit`,
+  `CanonicalUniversalStateInit` (`version.rs:643-645`) — are all
+  universal-account runtime features. **None of them touch sync**: nothing in
+  `chain/client/src/sync/`, `chain/client/src/state_request_actor.rs` or
+  `chain/chain/src/state_sync/` reads them, and they change neither the state
+  parts downloaded nor the headers/blocks/proofs exchanged.
+- The two features **de-stabilized to nightly** in 2.14.0 final —
+  `FixMlDsaCostCharging` and `ReceiptPromiseInputSizeLimit`, both now mapped to
+  157 (`version.rs:652`, `:653`) — are likewise runtime-only and **do not touch
+  sync**. They are listed here only so a reader comparing against the 2.14.0-rc
+  specs can see they were checked; see
+  [runtime-execution](runtime-execution.md) and [contract-vm](contract-vm.md).
 - **Config rename**: `state_sync_external_timeout` → `block_request_timeout`
   (`chore(state-sync): rename config option (#16128)`), with the old name kept
-  as a serde alias. It is the state-sync *block* request timeout
+  as a serde alias (`#[serde(alias = "state_sync_external_timeout")]`,
+  `nearcore/src/config.rs:162`). It is the state-sync *block* request timeout
   (`mod.rs:79`), never an external-storage timeout.
 
 ## Invariants & failure modes
@@ -589,22 +745,47 @@ Not gated at PV 87:
   the target comes from `min(advertised, approval-verified)`
   (`client_actor.rs:1823`); only a head that has not advanced for ~1 epoch
   (producer-signed timestamps, which cannot be forged) re-admits raw claims
-  (`head_is_stale`, `client_actor.rs:1755`).
+  (`head_is_stale`, `client_actor.rs:1776`).
 - **Unsolicited / wrong-peer responses dropped** — epoch responses
   (`epoch.rs:633`), state responses (wrong sender → `Error::Other("Unexpected
   state response (wrong sender)")`, `network.rs:98`).
+- **A sync block's body is bound to its header before anything reads it**
+  (new in 2.14.0, #16418) — a block accepted while `sync_status` is `StateSync`
+  reaches the orphan pool or `DBCol::Block` only after
+  `verify_block_hash_and_signature` (body hash ≡ header's `block_body_hash`,
+  plus the producer signature) and `validate_block` have both succeeded
+  (`validate_state_sync_block`, `client_actor.rs:2060`). A body-hash/signature
+  mismatch additionally **bans the sender** (`ReasonForBan::BadBlockHeader`,
+  `client_actor.rs:2071`); every other failure drops the block silently and the
+  node re-requests it from another peer. The block's *header* needs no separate
+  check: only a block whose hash already equals a hash header sync established
+  is considered at all, and the header hash is recomputed from the header's
+  contents on deserialization (§7 step 1). Asserted by
+  `test_forged_sync_block_body_is_rejected`
+  (`test-loop-tests/src/tests/sync/adversarial_sync_block.rs:53`), which also
+  pins the recovery half: after the ban the node finishes syncing from an
+  honest peer.
+- **Nothing downstream re-validates these blocks** — `Chain::save_block`
+  (`chain.rs:722`) writes without validating, and a sync-hash block that passed
+  `validate_block` is stored in the orphan pool with its `MaybeValidated` flag
+  already set (`core/primitives/src/utils.rs:98`), so the normal pipeline's
+  body-validation step is a no-op when the orphan is later processed. §7 is
+  therefore the single enforcement point for these three blocks.
 - **State part validity** — a part failing `validate_state_part` is not
   persisted and the attempt errors ("Part data failed validation",
   `downloader.rs:190`); the index is retried in the next round.
 - **A state part cannot exhaust memory on decode** — byte limit and entry
-  limit are both enforced pre-allocation (§10).
+  limit are both enforced pre-allocation (§11).
 - **Receipt-proof indices are bound to the block's chunk mask** — a permuted
   `from_shard_id` label is rejected at header ingest
   (`adapter.rs:507-521`). No consensus effect (`collect_receipts` discards the
   `ShardProof`), but it corrupts a stored index.
 - **Reconstructed state must match the chain's commitment** — a mismatch at
   finalization stops the process rather than corrupting the node
-  (`validate_state_sync_chunk_extra`, `chain.rs:2860`).
+  (`validate_state_sync_chunk_extra`, `chain.rs:2872`). The commitment it
+  compares against comes from the sync block's body read back out of the orphan
+  pool, so this panic is only a *local-divergence* alarm as long as that body
+  was validated on ingest (previous bullet).
 - **Stale sync hash** — if the network advances more than
   `epoch_length + STALE_SYNC_HASH_THRESHOLD` past the sync hash, state sync
   returns `StaleSyncHash` → `EpochSyncDataReset` (`mod.rs:283`, `handler.rs:150`).
@@ -627,23 +808,34 @@ Not gated at PV 87:
 - **Known leak** — `reset_heads_post_state_sync` moves tail/chunk-tail forward,
   but the GC loops start at tail, so the skipped heights' blocks, chunks,
   partial chunks and receipt refcounts are never collected
-  (`chain.rs:1651`, TODO #16264).
+  (`chain.rs:1663`, TODO #16264).
 
 ## Code anchors
 
 | Location | Symbol | What happens here |
 | --- | --- | --- |
-| `chain/client/src/client_actor.rs:1714` | `syncing_info` | Decides whether sync is needed and picks the target height |
-| `chain/client/src/client_actor.rs:1755` | `head_is_stale` | ~1-epoch stale-head test using producer-signed timestamps |
-| `chain/client/src/client_actor.rs:1769` | `sync_requirement_from_claimed_peers` | Unverified claimed heights (stale-head path) |
-| `chain/client/src/client_actor.rs:1793` | `sync_requirement_from_verified_peers` | `min(advertised, approval-verified)` per peer |
-| `chain/client/src/client_actor.rs:1735` | own-header-head fallback | Keeps block sync alive after the state-sync head jump (#16256) |
-| `chain/client/src/client_actor.rs:1943` | `run_sync_step` | Enables/disables sync; the `NoSync` exit |
-| `chain/client/src/client_actor.rs:634` | `Handler<BlockResponse>` | Records a verified peer height for unrequested blocks only |
+| `chain/client/src/client_actor.rs:1735` | `syncing_info` | Decides whether sync is needed and picks the target height |
+| `chain/client/src/client_actor.rs:1776` | `head_is_stale` | ~1-epoch stale-head test using producer-signed timestamps |
+| `chain/client/src/client_actor.rs:1790` | `sync_requirement_from_claimed_peers` | Unverified claimed heights (stale-head path) |
+| `chain/client/src/client_actor.rs:1814` | `sync_requirement_from_verified_peers` | `min(advertised, approval-verified)` per peer |
+| `chain/client/src/client_actor.rs:1756` | own-header-head fallback | Keeps block sync alive after the state-sync head jump (#16256) |
+| `chain/client/src/client_actor.rs:1964` | `run_sync_step` | Enables/disables sync; the `NoSync` exit |
+| `chain/client/src/client_actor.rs:628` | `Handler<BlockResponse>` | Records a verified peer height for unrequested blocks only |
+| `chain/client/src/client_actor.rs:642` | `Handler<BlockResponse>` divert | Blocks go to `maybe_receive_state_sync_blocks` before `receive_block` while in `StateSync` |
+| `chain/client/src/client_actor.rs:2104` | `maybe_receive_state_sync_blocks` | Classifies the block, validates it, then saves it (#16418) |
+| `chain/client/src/client_actor.rs:2060` | `validate_state_sync_block` | Body-hash + signature, then `validate_block`; bans on `Incorrect` (#16418) |
+| `chain/client/src/client_actor.rs:1064` | `StateSyncBlockDestination` | OrphanPool / Storage / StorageWithRefcount |
+| `chain/chain/src/chain.rs:1083` | `verify_block_hash_and_signature` | Recomputes `block_body_hash`, verifies the producer signature |
+| `chain/chain/src/chain.rs:722` | `Chain::save_block` | Writes a block with no validation — the caller must have validated it |
+| `chain/chain/src/orphan.rs:458` | `Chain::get_orphan` | Orphan-pool body accessor added for the adversarial test (#16418) |
+| `core/primitives/src/block_header.rs:606`, `:619` | `#[borsh(init=init)]` + `#[borsh(skip)] hash` (V1; same pair on V2–V8 up to `:806`/`:820`) | Header hash is recomputed from the header's contents on deserialization, never read off the wire |
+| `core/primitives/src/utils.rs:98` | `MaybeValidated::validate_with` | Sets the `validated` cell, so a validated orphan is not re-validated later |
+| `core/primitives-core/src/version.rs:642` | `RejectBlockHeaderV7BeforeSpice` (PV 87) | V7 headers rejected outside Spice epochs; affects header-sync ingest |
+| `test-loop-tests/src/tests/sync/adversarial_sync_block.rs:53` | `test_forged_sync_block_body_is_rejected` | Evidence: forged sync-hash body never reaches the orphan pool; node bans and recovers |
 | `chain/client/src/client.rs:1209` | `peer_height_requires_sync` | Single definition of the sync-trigger bar |
 | `chain/client/src/client.rs:1225` | `note_verified_peer_height` | Prune, gate, then verify approvals |
 | `chain/client/src/verified_peer_heights.rs:31` | `record_if_verified` | Per-header LRU so approvals are checked once |
-| `chain/chain/src/chain.rs:4192` | `verify_header_approvals_without_ancestry` | Producer signature first, then >2/3 approval stake |
+| `chain/chain/src/chain.rs:4204` | `verify_header_approvals_without_ancestry` | Producer signature first, then >2/3 approval stake |
 | `chain/client/src/sync/handler.rs:77` | `SyncHandler::handle_sync_needed` | Drives the linear phase pipeline each tick |
 | `chain/client/src/sync/handler.rs:183` | `decide_initial_phase` | Chooses entry phase from archival/horizon/proof state |
 | `chain/client/src/sync/header.rs:109` | `HeaderSync::run` | One tick of header batch download / stall handling |
@@ -672,9 +864,9 @@ Not gated at PV 87:
 | `chain/client/src/state_request_actor.rs:140` | `validate_sync_hash` | Recent-epoch + own-computation match |
 | `chain/chain/src/state_sync/adapter.rs:367` | `get_state_header` | Ingest-side header/receipt-proof validation |
 | `chain/chain/src/state_sync/adapter.rs:507` | `from_shard_id` index binding | Binds the shard label to the merkle index (#16379) |
-| `chain/chain/src/chain.rs:2742` | `Chain::set_state_finalize` | Replays heights then validates the chunk commitment |
-| `chain/chain/src/chain.rs:2787` | `validate_state_sync_chunk_extra` | Panics on a commitment mismatch (#16152) |
-| `chain/chain/src/chain.rs:1620` | `reset_heads_post_state_sync` | Resets body/final head + tail after state sync |
+| `chain/chain/src/chain.rs:2754` | `Chain::set_state_finalize` | Replays heights then validates the chunk commitment |
+| `chain/chain/src/chain.rs:2799` | `validate_state_sync_chunk_extra` | Reads the sync block (store, else orphan pool) and panics on a commitment mismatch (#16152) |
+| `chain/chain/src/chain.rs:1632` | `reset_heads_post_state_sync` | Resets body/final head + tail after state sync |
 | `chain/chain/src/state_sync/utils.rs:348` | `Chain::find_sync_hash` | Chooses sync hash from header head |
 | `chain/chain/src/state_sync/utils.rs:374` | `get_extra_sync_block_hashes` | Extra blocks needed to finalize state sync |
 | `chain/chain/src/state_sync/utils.rs:262` | `update_sync_hashes` | Records the epoch's sync hash once final |
@@ -689,29 +881,31 @@ Not gated at PV 87:
 | `nearcore/src/state_sync.rs:956` | `state_sync_dump` | External-storage dump loop (cloud archival only) |
 | `core/chain-configs/src/client_config.rs:328` | `SyncConfig` | Single `Peers` variant; ExternalStorage removed |
 | `core/chain-configs/src/client_config.rs:343` | `SyncConcurrency` | apply / apply_during_catchup / peer_downloads / per_shard |
-| `core/primitives-core/src/version.rs:605` | `ContinuousEpochSync` (PV 85) | Precomputed epoch proof serving |
-| `core/primitives-core/src/version.rs:611` | `ValidateBlockOrdinalAndEpochSyncDataHash` (PV 85) | Header ordinal/data-hash revalidation |
-| `chain/chain/src/chain.rs:1027` | `validate_header` gate | Where that revalidation actually runs |
+| `core/primitives-core/src/version.rs:619` | `ContinuousEpochSync` (PV 85) | Precomputed epoch proof serving |
+| `core/primitives-core/src/version.rs:625` | `ValidateBlockOrdinalAndEpochSyncDataHash` (PV 85) | Header ordinal/data-hash revalidation |
+| `chain/chain/src/chain.rs:1039` | `validate_header` ordinal gate | Where that revalidation actually runs |
 | `chain/client/src/sync/external.rs:48` | `StateSyncConnection` | Bucket-layout helpers; dumper + state-viewer only, not a sync path |
-| `chain/network/src/peer_manager/peer_manager_actor.rs:901` | `StateRequestHeader` routing | Requires `my_public_addr`; returns `MyPublicAddrNotKnown` otherwise |
+| `chain/network/src/peer_manager/peer_manager_actor.rs:902` | `StateRequestHeader` routing | Requires `my_public_addr`; returns `MyPublicAddrNotKnown` otherwise |
 
 ## Open questions
 
-- `docs/architecture/how/sync.md` was refreshed this release (#16266 added the
+- `docs/architecture/how/sync.md` was refreshed in 2.14.0-rc.1 (#16266 added the
   "Picking the target height" section, #16009 removed the external-storage
-  prose) and now matches the code, including the linear-pipeline diagram. The
-  previously noted staleness is resolved. `docs/misc/state_sync_from_external_storage.md`
-  was deleted; `docs/misc/state_sync_dump.md` survives and should be read as
-  cloud-archival documentation, not state-sync documentation.
+  prose) and is **unchanged between rc.1 and 2.14.0 final**; it still matches
+  the code, including the linear-pipeline diagram. It does not describe
+  `maybe_receive_state_sync_blocks` at all, so #16418 did not make it stale.
+  `docs/misc/state_sync_from_external_storage.md` was deleted;
+  `docs/misc/state_sync_dump.md` survives and should be read as cloud-archival
+  documentation, not state-sync documentation.
 - **Resolved (was: NAT'd nodes have no fallback part source).** The code
   supports the first half and answers the second. Inbound Tier3 reachability is
   now a *hard requirement* for state sync: a state request carries the
   requester's own public address and the server dials back over Tier3
   (`NetworkRequests::StateRequestHeader`/`Part` handling,
-  `chain/network/src/peer_manager/peer_manager_actor.rs:901`, `:950`), and if
+  `chain/network/src/peer_manager/peer_manager_actor.rs:902`, `:946`), and if
   `my_public_addr` is unset the request is never even sent —
-  `NetworkResponses::MyPublicAddrNotKnown` (`peer_manager_actor.rs:902`,
-  `:951`), which the downloader counts as a distinct failure label
+  `NetworkResponses::MyPublicAddrNotKnown` (`peer_manager_actor.rs:906`,
+  `:955`), which the downloader counts as a distinct failure label
   (`network.rs:208`). With external storage gone there is no alternative
   source, so `ensure_shard_header` retries forever (`downloader.rs:44`). The
   recovery path *is* in the code, in the diagnostic itself
@@ -719,10 +913,12 @@ Not gated at PV 87:
   default backoff): open the listening port for inbound TCP, or set
   `network.experimental.tier3_public_addr` (`chain/network/src/config_json.rs:319`
   → `chain/network/src/config.rs:389` → `my_public_addr`,
-  `network_state/mod.rs:335`; logged at startup,
-  `peer_manager_actor.rs:385`). What remains genuinely unanswerable from code
-  is only the operational policy question — whether operators are *told* this is
-  a hard requirement anywhere outside that log line.
+  `chain/network/src/peer_manager/network_state/mod.rs:335`; logged at startup,
+  `peer_manager_actor.rs:385`). Re-checked at 2.14.0 final: unchanged except
+  for line drift (#16637 edited an unrelated part of `peer_manager_actor.rs`).
+  What remains genuinely unanswerable from code is only the operational policy
+  question — whether operators are *told* this is a hard requirement anywhere
+  outside that log line.
 - `run_sync_step` does not check `is_syncing()` before `handle_sync_needed`, and
   `handle_sync_needed`'s final `match` arm is `unreachable!`
   (`handler.rs:168`). Reaching `AwaitingPeers`/`NoSync` there is prevented by
@@ -730,4 +926,15 @@ Not gated at PV 87:
 - `validate_state_sync_chunk_extra` panics rather than erroring. The panic
   message tells the operator to restart with an empty data directory; there is
   no automated recovery path, and the underlying divergence (issue #15994) has
-  no established root cause.
+  no established root cause. #16418 removed the *remote* trigger for this panic
+  (a peer can no longer choose the chunk header it compares against), but did
+  not change the panic itself: a genuine local execution divergence still stops
+  the node and still tells the operator to wipe the data directory.
+- **Unenforced "epoch-sync horizon ≤ GC epochs"** — re-checked at 2.14.0 final
+  and **still unenforced**: `nearcore/src/config_validate.rs` compares
+  `gc_num_epochs_to_keep` only against its own clamped minimum (`:110`) and
+  never against `epoch_sync_horizon_num_epochs`. Nothing in the 2.14.0 window
+  touched either file. Raising the horizon in `config.json` above
+  `gc_num_epochs_to_keep` remains silently accepted; what the node actually does
+  in that configuration (whether epoch sync lands inside the GC'd range and how
+  it fails) is not determinable from the validation code alone.
