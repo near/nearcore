@@ -16,7 +16,7 @@ The topic is split into several sections.
     - [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
     - [Burning Gas](#burning-gas): Who receives burnt tokens?
     - [Gas in Contract Calls](#gas-in-contract-calls): How is gas attached to calls?
-    - [Contract Reward](#contract-reward): How smart contract earn a reward.
+    - [Contract Reward](#contract-reward): How smart contracts earned a reward up to protocol version 86.
 2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
@@ -25,22 +25,19 @@ The topic is split into several sections.
 
 ## Gas Flow
 
-On the highest level, gas is bought by the signer, burnt during execution, and
-contracts receive a part of the burnt gas as a reward. We will discuss each step
-in more details.
+On the highest level, gas is bought by the signer and burnt during execution. Up
+to protocol version 86, contracts also receive a part of the burnt gas as a
+reward. We will discuss each step in more details.
 
 ### Buying Gas for a Transaction
 
 A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
-tokens from the balance of the signer's account. The fee is calculated as `gas
-amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
+tokens from the balance of the signer's account. The fee is calculated from the
+`gas amount` and the `gas price`. The gas amount for actions included in a `SignedTransaction`
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
 (See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
-
-If the account has insufficient balance to pay for this, it will fail with a
-`NotEnoughBalance` error, with the required balance included in the error message.
 
 The `gas amount` is not a field of `SignedTransaction`, nor is it something the
 signer can choose. It is only a virtual field that is computed on-chain following
@@ -50,22 +47,69 @@ The `gas price` is a variable that may change during the execution of the
 transaction. The way it is implemented today, a single transaction can be
 charged a different gas price for different receipts.
 
-Already we can see a fundamental problem: Gas is bought once at the beginning
-but the gas price may change during execution. To solve this incompatibility,
-the protocol used to calculate a pessimistic gas price for the initial purchase.
-Later on, the delta between real and pessimistic gas prices would be refunded at
-the end of every receipt execution.
+From protocol version 85 (nearcore 2.13.0), with the adoption of
+[NEP-642](https://github.com/near/NEPs/pull/642), the gas of a transaction is
+priced in three steps:
+
+| Step | Gas | Price |
+| --- | --- | --- |
+| Convert the `SignedTransaction` into a receipt | The gas burnt for the conversion | The current `gas price` |
+| Buy gas for the receipt | All other gas, including the gas attached to function calls | The receipt gas price: the higher of the current `gas price` and `min_gas_purchase_price`, which is 1 NEAR per Pgas (10^9 yoctoNEAR per gas) |
+| Execute the receipt | The gas that the receipt burns | The burn price: the lower of the receipt gas price and the `gas price` of the block that executes the receipt |
+
+The signer pays for the first two steps upfront. After a receipt is executed,
+the signer gets a refund for the gas that the receipt did not use, at the
+receipt gas price. The refund also includes the price difference for the burnt
+gas, which is `gas_burnt * (receipt_gas_price - burn_price)`. If the receipt
+creates an account, the runtime keeps part of this price difference and burns
+it as the account creation charge. At the usual gas price, the execution fee
+for creating the account and this charge add up to `account_creation_charge`
+(0.007 NEAR).
+
+For example, a receipt with 100 Tgas bought at 1 NEAR per Pgas costs 0.1 NEAR
+upfront. Say it burns 20 Tgas at a burn price of 0.1 NEAR per Pgas, and it
+attaches no gas to new receipts. Then its execution costs 0.002 NEAR, and the
+refund is 0.098 NEAR. That is 0.08 NEAR for the 80 Tgas that the receipt did
+not use, plus 0.018 NEAR for the price difference of the 20 Tgas that it
+burnt. The example leaves out the conversion step and the gas refund fee,
+which is currently 0.
+
+If the account has insufficient balance to pay for the gas and the attached
+deposits, it will fail with a `NotEnoughBalance` error, with the required
+balance included in the error message.
+
+From protocol version 85 (nearcore 2.13.0), a transaction can also be signed
+with a gas key. Then the gas is paid from the balance stored on the gas key,
+and the deposits are paid from the account balance. If the gas key balance is
+too small, the transaction fails with a `NotEnoughGasKeyBalance` error. Gas
+refunds for such a transaction go back to the gas key balance. If the gas key
+no longer exists, they go to the account balance.
+
+#### Earlier gas pricing
+
+Gas is bought once at the beginning, but the gas price may change during
+execution. Before protocol version 78, the protocol solved this with a
+pessimistic gas price for the initial purchase. Later on, the delta between
+real and pessimistic gas prices would be refunded at the end of every receipt
+execution.
 
 Generating a refund receipts for every executed function call has become a
 non-trivial overhead, limiting total throughput. Therefore, with the adoption of
 [NEP-536](https://github.com/near/NEPs/pull/536) the model was changed.
 
-With version 78 and onward, the protocol simply ignores gas price changes
-between time of purchase and time of use. A transaction buys gas at one price
-and burns it at the same price. While this avoids the need for refunds due to
-price changes, it also means that transactions with deep receipt calls can end
+From protocol version 78 to 84, the protocol simply ignored gas price changes
+between time of purchase and time of use. A transaction bought gas at one price
+and burnt it at the same price. While this avoided the need for refunds due to
+price changes, it also meant that transactions with deep receipt calls could end
 up with a cheaper gas price competing for the same chunk space. The community
 took note of this trade-off and agreed to take it.
+
+Protocol version 85 changed this again, as described above. Compared with
+protocol versions 78 to 84, almost every receipt again produces a gas refund
+receipt when the gas price is below `min_gas_purchase_price`. A transaction
+that creates no account costs the same at the usual gas price. But the signer
+needs a larger balance upfront, because `min_gas_purchase_price` is 10 times
+the lowest block gas price of 0.1 NEAR per Pgas.
 
 ### Burning Gas
 
@@ -120,17 +164,19 @@ gas is left by subtracting the `used_gas()` from the `prepaid_gas()` host
 function results. But they cannot use all the available gas, since that would
 prevent the current function call from executing to the end.
 
-The gas attached to a function can be at most `max_total_prepaid_gas`, which is
-300 Tgas since the mainnet launch. Note that this limit is per
-`SignedTransaction`, not per function call. In other words, batched function
-calls share this limit.
+The gas attached to function calls can be at most `max_total_prepaid_gas`. It
+was 300 Tgas from the mainnet launch, and it is 1 Pgas (1000 Tgas) since
+protocol version 83 (nearcore 2.11.0). Note that this limit applies to the
+total gas attached to all function calls in one `SignedTransaction` or one
+receipt, not to each function call. In other words, batched function calls
+share this limit. Function calls inside a delegate action count toward it too.
 
 There is also a limit to how much single call can burn, `max_gas_burnt`, which
-used to be 200 Tgas but has been increased to 300 Tgas in protocol version 52.
-(Note: When attaching gas to an outgoing function call, this is not counted as
-gas burnt.) However, given a call can never burn more than was attached anyway,
-this second limit is obsolete with the current configuration where the two limits
-are equal.
+used to be 200 Tgas, was increased to 300 Tgas in protocol version 52, and to
+1 Pgas in protocol version 83. (Note: When attaching gas to an outgoing
+function call, this is not counted as gas burnt.) However, given a call can
+never burn more than was attached anyway, this second limit is obsolete with
+the current configuration where the two limits are equal.
 
 Since protocol version 53, with the stabilization of
 [NEP-264](https://github.com/near/NEPs/blob/master/neps/nep-0264.md), contract
@@ -187,6 +233,11 @@ opposite design choice from the "smart contract pays" model that for example
 Computer](https://internetcomputer.org/docs/current/developer-docs/gas-cost#details-cost-of-compute-and-storage-transactions-on-the-internet-computer)
 implement.
 
+From protocol version 87 (nearcore 2.14.0), this is no longer the case.
+Contracts receive no part of the gas fee, and all burnt gas is removed from the
+total supply. The rest of this section describes the contract reward up to
+protocol version 86.
+
 The idea is that it gives contract developers a source of income and hence an
 incentive to create useful contracts that are commonly used. But there are also
 downsides, such as when implementing a free meta-transaction relayer one has to
@@ -201,8 +252,9 @@ How much contracts receive from execution depends on two things.
    `action_function_call` fee, are burnt 100%.
 2. The remainder of the burnt gas is multiplied by the runtime configuration
    parameter
-   [`burnt_gas_reward`](../../../core/parameters/res/runtime_configs/parameters.snap#L5C5-L5C5)
-   which currently is at 30%.
+   [`burnt_gas_reward`](../../../core/parameters/res/runtime_configs/parameters.snap#L6)
+   which is 30% up to protocol version 86. From protocol version 87 (nearcore
+   2.14.0), it is 0%.
 
 During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`
 separately from other gas burning to enable this contract reward calculations.
@@ -259,7 +311,9 @@ After executing the transaction, there might be unspent gas left. For function
 calls, this is the normal case, since attaching exactly the right amount of gas
 is tricky. Additionally, in case of receipt failure, some actions that did not
 start execution will have the execution gas unspent. This gas is converted back
-to NEAR tokens and sent as a refund transfer to the original signer.
+to NEAR tokens and sent as a refund transfer to the original signer. If the
+transaction was signed with a gas key, the refund goes to the balance of that
+gas key.
 
 Before protocol version 78, the full gas amount would be refunded and the refund
 transfer action was executed for free. With [NEP-536](https://github.com/near/NEPs/pull/536)
@@ -283,8 +337,12 @@ is still executed for free, since the gas price is set to 0. This keeps it in
 line with balance refunds. However, when the gas refund is produced, at least 1
 Tgas has been burnt on receipt execution, which more than covers for a transfer.
 
-Finally, we can have a complete diagram, including the gas refund penalty.
+The following diagram is a historical illustration of the complete gas flow.
+It shows the contract reward, which was paid up to protocol version 86, and
+the proposed 5% gas refund fee, which is currently 0. It also buys and burns gas
+at one gas price, as from protocol version 78 to 84. The current rules are
+described above.
 
-![Complete Gas Flow
+![Historical Complete Gas Flow
 Diagram](https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-2867060321 -->
