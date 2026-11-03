@@ -142,28 +142,25 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtimeconfig"><a class="header" href="#runtimeconfig">RuntimeConfig</a></h1>
-<p>The structure that holds the parameters of the runtime, mostly economics.</p>
-<h2 id="storage_cost_byte_per_block"><a class="header" href="#storage_cost_byte_per_block">storage_cost_byte_per_block</a></h2>
+<p>The structure that holds the parameters of the runtime, mostly economics.
+It is not part of genesis.
+Each nearcore release contains the runtime config for every protocol version (<code>core/parameters/res/runtime_configs/</code>), and the node uses the config of the current protocol version.
+The <code>EXPERIMENTAL_protocol_config</code> RPC method returns it as <code>runtime_config</code>.
+This page describes only some of the fields.
+The others are <code>account_creation_config</code>, <code>congestion_control_config</code>, <code>witness_config</code>, <code>min_gas_purchase_price</code> and <code>account_creation_charge</code>.</p>
+<h2 id="storage_amount_per_byte"><a class="header" href="#storage_amount_per_byte">storage_amount_per_byte</a></h2>
 <p><code>type: Balance</code></p>
-<p>The cost to store one byte of storage per block.</p>
-<h3 id="storage_cost_byte_per_block-1"><a class="header" href="#storage_cost_byte_per_block-1">storage_cost_byte_per_block</a></h3>
-<p><code>type: Balance</code></p>
-<p>Costs of different actions that need to be performed when sending and processing transaction
-and receipts.</p>
-<h2 id="poke_threshold"><a class="header" href="#poke_threshold">poke_threshold</a></h2>
-<p><code>type: BlockIndex</code></p>
-<p>The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.</p>
+<p>The balance, in yoctoNEAR, that an account must hold for each byte of storage it uses.
+The value is 10^19 yoctoNEAR (1 NEAR per 100 kB).
+The balance stays on the account.
+A transaction or receipt that would leave the account balance (amount plus locked) below the required amount fails with <code>LackBalanceForState</code>.
+Accounts that use 770 bytes of storage or less are exempt (zero balance accounts, NEP-448).</p>
 <h2 id="transaction_costs"><a class="header" href="#transaction_costs">transaction_costs</a></h2>
 <p><code>type: RuntimeFeesConfig</code> <a href="RuntimeFeeConfig.html">RuntimeFeesConfig</a></p>
 <p>Costs of different actions that need to be performed when sending and processing transaction and receipts.</p>
 <h2 id="wasm_config"><a class="header" href="#wasm_config">wasm_config</a></h2>
 <p><code>type: VMConfig</code> <a href="VMConfig.html">VMConfig</a></p>
 <p>Config of wasm operations.</p>
-<h2 id="account_length_baseline_cost_per_block"><a class="header" href="#account_length_baseline_cost_per_block">account_length_baseline_cost_per_block</a></h2>
-<p><code>type: Balance</code></p>
-<p>The baseline cost to store account_id of short length per block.
-The original formula in NEP#0006 is <code>1,000 / (3 ^ (account_id.length - 2))</code> for cost per year.
-This value represents <code>1,000</code> above adjusted to use per block</p>
 
                     </main>
 

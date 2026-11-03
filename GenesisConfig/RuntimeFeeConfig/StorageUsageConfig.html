@@ -142,22 +142,17 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="storageusageconfig"><a class="header" href="#storageusageconfig">StorageUsageConfig</a></h1>
-<p>Describes cost of storage per block</p>
-<h2 id="account_cost"><a class="header" href="#account_cost">account_cost</a></h2>
-<p><em>type: Gas</em>
-Base storage usage for an account</p>
-<h2 id="data_record_cost"><a class="header" href="#data_record_cost">data_record_cost</a></h2>
-<p><em>type: Gas</em>
-Base cost for a k/v record</p>
-<h2 id="key_cost_per_byte"><a class="header" href="#key_cost_per_byte">key_cost_per_byte</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of key</p>
-<h2 id="value_cost_per_byte-gas"><a class="header" href="#value_cost_per_byte-gas">value_cost_per_byte: Gas</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of value</p>
-<h2 id="code_cost_per_byte-gas"><a class="header" href="#code_cost_per_byte-gas">code_cost_per_byte: Gas</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of contract code</p>
+<p>Describes how the storage that an account uses is counted for storage staking.</p>
+<h2 id="num_bytes_account"><a class="header" href="#num_bytes_account">num_bytes_account</a></h2>
+<p><em>type: u64</em>
+Number of bytes counted for the account record, including rounding up for the account ID.
+The value is 100.</p>
+<h2 id="num_extra_bytes_record"><a class="header" href="#num_extra_bytes_record">num_extra_bytes_record</a></h2>
+<p><em>type: u64</em>
+Number of bytes counted for each key/value record, such as a contract data entry or an access key, in addition to the bytes of its key and value.
+The value is 40.</p>
+<p>The balance that an account must hold for each byte of storage is <code>storage_amount_per_byte</code> in <a href="../RuntimeConfig.html">RuntimeConfig</a>.
+It is not part of this struct.</p>
 
                     </main>
 

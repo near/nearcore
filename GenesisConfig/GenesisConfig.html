@@ -142,9 +142,43 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="genesisconfig"><a class="header" href="#genesisconfig">GenesisConfig</a></h1>
+<p>The fields of <code>GenesisConfig</code> are the top-level keys of <code>genesis.json</code>.
+The first sections of this page explain the file format and where the node takes each setting from.
+The sections after them describe each field.</p>
+<h2 id="file-format"><a class="header" href="#file-format">File format</a></h2>
+<p>A field whose section below gives a default value is optional.
+All other fields are required, and a <code>genesis.json</code> file without one of them fails to parse.
+The <code>records</code> key is not part of <code>GenesisConfig</code>.
+It can be left out when the records come from a separate file set by <code>genesis_records_file</code> in the node <code>config.json</code>.
+The node still needs the records from one of these places.
+The node ignores keys that it does not know.
+A misspelled optional field is ignored without a warning, and the node uses its default value.</p>
+<h2 id="where-settings-come-from"><a class="header" href="#where-settings-come-from">Where settings come from</a></h2>
+<h3 id="epoch-settings"><a class="header" href="#epoch-settings">Epoch settings</a></h3>
+<p>The epoch settings are <code>num_block_producer_seats</code>, the kickout thresholds, <code>max_inflation_rate</code>, <code>fishermen_threshold</code> and the optional fields at the end of this page.
+The node does not use <code>use_production_config</code>. <code>shard_layout</code> has its own rules, described in <a href="#shard_layout">shard_layout</a>.
+The node takes the epoch settings from the first row of this table that matches the chain:</p>
+<div class="table-wrapper"><table><thead><tr><th>Chain</th><th>Source of the epoch settings</th></tr></thead><tbody>
+<tr><td>Mainnet and testnet</td><td>The epoch config that the node has built in for each protocol version (<code>core/primitives/res/epoch_configs/</code>)</td></tr>
+<tr><td>Any other chain whose node home has an <code>epoch_configs</code> folder</td><td>The files in that folder</td></tr>
+<tr><td>A chain whose ID starts with <code>test-chain-</code></td><td>The genesis fields</td></tr>
+<tr><td>Any other chain</td><td>Fixed test values, except <code>num_block_producer_seats</code> and <code>shard_layout</code>, which come from genesis</td></tr>
+</tbody></table>
+</div>
+<p>On every chain, the node reads <code>epoch_length</code> from genesis, and this value replaces the <code>epoch_length</code> of the epoch config.</p>
+<h3 id="runtime-parameters"><a class="header" href="#runtime-parameters">Runtime parameters</a></h3>
+<p>Runtime parameters, such as fees, gas costs and VM limits, are not part of genesis.
+Each nearcore release contains them for every protocol version (<code>core/parameters/res/runtime_configs/</code>), and the node uses the set for the current protocol version.
+The node ignores a <code>runtime_config</code> key in <code>genesis.json</code>, such as the one in the mainnet genesis file.
+The <code>EXPERIMENTAL_protocol_config</code> RPC method returns the active values.
+See <a href="RuntimeConfig.html">RuntimeConfig</a>.
+The share of burnt gas that a contract account receives as a reward is also a runtime parameter, <code>burnt_gas_reward</code> in <a href="RuntimeFeeConfig.html">RuntimeFeeConfig</a>.
+From protocol version 87 (nearcore 2.14.0), it is 0.
+Before that it was 3/10.</p>
 <h2 id="protocol_version"><a class="header" href="#protocol_version">protocol_version</a></h2>
 <p><code>type: u32</code></p>
-<p>Protocol version that this genesis works with.</p>
+<p>Protocol version that this genesis works with.
+Mainnet and testnet start at protocol version 29.</p>
 <h2 id="genesis_time"><a class="header" href="#genesis_time">genesis_time</a></h2>
 <p><code>type: DateTime</code></p>
 <p>Official time of blockchain start.</p>
@@ -156,39 +190,51 @@ For example, mainnet genesis height is <code>9820210</code>.</p>
 <p><code>type: String</code></p>
 <p>ID of the blockchain. This must be unique for every blockchain.
 If your testnet blockchains do not have unique chain IDs, you will have a bad time.</p>
-<h2 id="num_block_producers"><a class="header" href="#num_block_producers">num_block_producers</a></h2>
-<p><code>type: u32</code></p>
-<p>Number of block producer seats at genesis.</p>
-<h2 id="block_producers_per_shard"><a class="header" href="#block_producers_per_shard">block_producers_per_shard</a></h2>
-<p><code>type: [ValidatorId]</code></p>
-<p>Defines number of shards and number of validators per each shard at genesis.</p>
-<h2 id="avg_fisherman_per_shard"><a class="header" href="#avg_fisherman_per_shard">avg_fisherman_per_shard</a></h2>
-<p><code>type: [ValidatorId]</code></p>
-<p>Expected number of fisherman per shard.</p>
+<h2 id="num_block_producer_seats"><a class="header" href="#num_block_producer_seats">num_block_producer_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>Number of block producer seats at genesis.
+On mainnet and testnet the node uses the value from its built-in epoch config for the current protocol version instead.
+Mainnet uses 100.</p>
 <h2 id="dynamic_resharding"><a class="header" href="#dynamic_resharding">dynamic_resharding</a></h2>
 <p><code>type: bool</code></p>
-<p>Enable dynamic re-sharding.</p>
+<p>The node does not use this flag.
+It only copies the value into the <code>EXPERIMENTAL_protocol_config</code> RPC response.
+Dynamic resharding is set by the <code>dynamic_resharding_config</code> field of the epoch config.</p>
 <h2 id="epoch_length"><a class="header" href="#epoch_length">epoch_length</a></h2>
-<p><code>type: BlockIndex</code></p>
-<p>Epoch length counted in blocks.</p>
+<p><code>type: u64</code></p>
+<p>Epoch length counted in block heights.
+The node always reads this value from genesis, also on mainnet and testnet.
+It replaces the <code>epoch_length</code> of the epoch config.
+Mainnet uses 43200.</p>
 <h2 id="gas_limit"><a class="header" href="#gas_limit">gas_limit</a></h2>
 <p><code>type: Gas</code></p>
-<p>Initial gas limit for a block</p>
-<h2 id="gas_price"><a class="header" href="#gas_price">gas_price</a></h2>
+<p>Gas limit of a chunk.
+The chunks of the genesis block use this value, and every later chunk keeps the same limit.
+Mainnet uses <code>1000000000000000</code> (10^15).</p>
+<h2 id="min_gas_price"><a class="header" href="#min_gas_price">min_gas_price</a></h2>
 <p><code>type: Balance</code></p>
-<p>Initial gas price</p>
+<p>Minimum gas price in yoctoNEAR per gas. It is also the gas price of the genesis block.
+For chains whose genesis protocol version is 29 (mainnet and testnet), blocks after genesis use a fixed minimum of <code>100000000</code> (10^8) instead of this value.
+The mainnet genesis file holds <code>1000000000</code> (10^9).</p>
+<h2 id="max_gas_price"><a class="header" href="#max_gas_price">max_gas_price</a></h2>
+<p><code>type: Balance</code></p>
+<p>Maximum gas price in yoctoNEAR per gas.
+The node uses the smaller of this value and 20 times the minimum gas price.
+The mainnet genesis file holds <code>10000000000000000000000</code> (10^22).
+On mainnet the result is <code>2000000000</code> (2 x 10^9).</p>
 <h2 id="block_producer_kickout_threshold"><a class="header" href="#block_producer_kickout_threshold">block_producer_kickout_threshold</a></h2>
 <p><code>type: u8</code></p>
-<p>Criterion for kicking out block producers (this is a number between 0 and 100)</p>
+<p>Criterion for kicking out block producers (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 80.</p>
 <h2 id="chunk_producer_kickout_threshold"><a class="header" href="#chunk_producer_kickout_threshold">chunk_producer_kickout_threshold</a></h2>
 <p><code>type: u8</code></p>
-<p>Criterion for kicking out chunk producers (this is a number between 0 and 100)</p>
+<p>Criterion for kicking out chunk producers (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 80.</p>
 <h2 id="gas_price_adjustment_rate"><a class="header" href="#gas_price_adjustment_rate">gas_price_adjustment_rate</a></h2>
 <p><code>type: Fraction</code></p>
 <p>Gas price adjustment rate</p>
-<h2 id="runtime_config"><a class="header" href="#runtime_config">runtime_config</a></h2>
-<p><em>type: <a href="RuntimeConfig.html">RuntimeConfig</a></em></p>
-<p>Runtime configuration (mostly economics constants).</p>
 <h2 id="validators"><a class="header" href="#validators">validators</a></h2>
 <p><code>type: [AccountInfo]</code></p>
 <p>List of initial validators.</p>
@@ -197,25 +243,133 @@ If your testnet blockchains do not have unique chain IDs, you will have a bad ti
 <p>Records in storage at genesis (get split into shards at genesis creation).</p>
 <h2 id="transaction_validity_period"><a class="header" href="#transaction_validity_period">transaction_validity_period</a></h2>
 <p><code>type: u64</code></p>
-<p>Number of blocks for which a given transaction is valid</p>
-<h2 id="developer_reward_percentage"><a class="header" href="#developer_reward_percentage">developer_reward_percentage</a></h2>
+<p>Number of block heights for which a transaction is valid, counted from the height of the block named in its <code>block_hash</code>.
+The value must not be more than twice the <code>epoch_length</code> of any epoch config that the node loads, or the node does not start.
+On mainnet and testnet that <code>epoch_length</code> is 43200.
+Mainnet uses 86400.</p>
+<h2 id="protocol_reward_rate"><a class="header" href="#protocol_reward_rate">protocol_reward_rate</a></h2>
 <p><code>type: Fraction</code></p>
-<p>Developer reward percentage.</p>
-<h2 id="protocol_reward_percentage"><a class="header" href="#protocol_reward_percentage">protocol_reward_percentage</a></h2>
-<p><code>type: Fraction</code></p>
-<p>Protocol treasury percentage.</p>
+<p>Share of each epoch reward that goes to the protocol treasury account.
+For chains whose genesis protocol version is 29 (mainnet and testnet), the node uses 1/10 instead of this value.
+The mainnet genesis file holds <code>[0, 1]</code>.</p>
 <h2 id="max_inflation_rate"><a class="header" href="#max_inflation_rate">max_inflation_rate</a></h2>
 <p><code>type: Fraction</code></p>
-<p>Maximum inflation on the total supply every epoch.</p>
+<p>Maximum yearly inflation of the total supply.
+Each epoch mints at most <code>max_inflation_rate * total_supply * epoch_duration / one_year</code>.
+Here <code>epoch_duration</code> is the real time that the epoch took, and one year is 365 days.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+From protocol version 81 (nearcore 2.9.0), mainnet uses 1/40 (2.5% per year).
+Before that it used 1/20 (5% per year).
+The mainnet genesis file holds <code>[0, 1]</code>.</p>
 <h2 id="total_supply"><a class="header" href="#total_supply">total_supply</a></h2>
 <p><code>type: Balance</code></p>
 <p>Total supply of tokens at genesis.</p>
 <h2 id="num_blocks_per_year"><a class="header" href="#num_blocks_per_year">num_blocks_per_year</a></h2>
 <p><code>type: u64</code></p>
-<p>Expected number of blocks per year</p>
+<p>Expected number of blocks per year.
+The node does not use this value.
+The epoch reward depends on the real duration of the epoch instead (see <code>max_inflation_rate</code>).</p>
 <h2 id="protocol_treasury_account"><a class="header" href="#protocol_treasury_account">protocol_treasury_account</a></h2>
 <p><code>type: AccountId</code></p>
 <p>Protocol treasury account</p>
+<h2 id="fishermen_threshold"><a class="header" href="#fishermen_threshold">fishermen_threshold</a></h2>
+<p><code>type: Balance</code></p>
+<p>Fishermen stake threshold.
+The field is required, but the node does not use its value.
+The mainnet genesis file and the mainnet epoch configs set it to the largest <code>u128</code> value.</p>
+<h2 id="protocol_upgrade_stake_threshold"><a class="header" href="#protocol_upgrade_stake_threshold">protocol_upgrade_stake_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[8, 10]</code>.
+More than this share of the block producer stake must vote for a new protocol version before the network switches to it.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[4, 5]</code>.</p>
+<h2 id="chunk_validator_only_kickout_threshold"><a class="header" href="#chunk_validator_only_kickout_threshold">chunk_validator_only_kickout_threshold</a></h2>
+<p><code>type: u8</code></p>
+<p>This field is optional. The default is 80.
+Criterion for kicking out validators that are only chunk validators (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 70.</p>
+<h2 id="target_validator_mandates_per_shard"><a class="header" href="#target_validator_mandates_per_shard">target_validator_mandates_per_shard</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 68.
+Target number of chunk validator mandates for each shard.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 105.</p>
+<h2 id="online_min_threshold"><a class="header" href="#online_min_threshold">online_min_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[90, 100]</code>.
+A validator whose online ratio is below this value gets no reward.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[90, 100]</code>.</p>
+<h2 id="online_max_threshold"><a class="header" href="#online_max_threshold">online_max_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[99, 100]</code>.
+A validator whose online ratio is at or above this value gets the full reward.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[99, 100]</code>.</p>
+<h2 id="minimum_stake_divisor"><a class="header" href="#minimum_stake_divisor">minimum_stake_divisor</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 10.
+The minimum stake for a staking proposal is the seat price of the next epoch divided by this number.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 10.</p>
+<h2 id="shard_layout"><a class="header" href="#shard_layout">shard_layout</a></h2>
+<p><code>type: ShardLayout</code></p>
+<p>This field is optional. If it is omitted, the layout has one shard.
+Defines the shards at genesis and how accounts map to them.
+The epoch config can override it.
+If the epoch config that the node loads for the genesis protocol version has a fixed shard layout, the node uses that layout instead.
+This applies to mainnet, testnet and any chain whose node home has an <code>epoch_configs</code> folder.
+The node splits the genesis records into shards with the layout that it uses for the genesis epoch.
+On mainnet and testnet, the later shard layouts come from the built-in epoch configs and from resharding.
+Mainnet starts with one shard, which its built-in epoch config for protocol version 29 sets.</p>
+<h2 id="minimum_validators_per_shard"><a class="header" href="#minimum_validators_per_shard">minimum_validators_per_shard</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 1.
+Minimum number of chunk producers assigned to each shard.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 1.</p>
+<h2 id="max_kickout_stake_perc"><a class="header" href="#max_kickout_stake_perc">max_kickout_stake_perc</a></h2>
+<p><code>type: u8</code></p>
+<p>This field is optional. The default is 100.
+Maximum percentage of the total validator stake that can be kicked out in one epoch.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 30.</p>
+<h2 id="minimum_stake_ratio"><a class="header" href="#minimum_stake_ratio">minimum_stake_ratio</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[160, 1000000]</code>.
+The lowest ratio of stake to total stake that a validator can have to be selected as a block producer, chunk producer or chunk validator.
+See <a href="https://github.com/near/NEPs/pull/167">NEP-167</a> for details.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[1, 62500]</code>.</p>
+<h2 id="shuffle_shard_assignment_for_chunk_producers"><a class="header" href="#shuffle_shard_assignment_for_chunk_producers">shuffle_shard_assignment_for_chunk_producers</a></h2>
+<p><code>type: bool</code></p>
+<p>This field is optional. The default is <code>false</code>.
+If it is <code>true</code>, the node shuffles the sets of chunk producers across shards.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>false</code>.</p>
+<h2 id="use_production_config"><a class="header" href="#use_production_config">use_production_config</a></h2>
+<p><code>type: bool</code></p>
+<p>This field is optional. The default is <code>false</code>.
+The node does not use this field.</p>
+<h2 id="num_chunk_producer_seats"><a class="header" href="#num_chunk_producer_seats">num_chunk_producer_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 100.
+Number of chunk producer seats.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 100.</p>
+<h2 id="num_chunk_validator_seats"><a class="header" href="#num_chunk_validator_seats">num_chunk_validator_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 300.
+Number of chunk validator seats.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 500.</p>
+<h2 id="chunk_producer_assignment_changes_limit"><a class="header" href="#chunk_producer_assignment_changes_limit">chunk_producer_assignment_changes_limit</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 5.
+Maximum number of shard changes in chunk producer assignments when the node moves chunk producers to balance their number across shards.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 5.</p>
 <h2 id="protocol-economics"><a class="header" href="#protocol-economics">protocol economics</a></h2>
 <blockquote>
 <p>For the specific economic specs, refer to <a href="../Economics/Economics.html">Economics Section</a>.</p>

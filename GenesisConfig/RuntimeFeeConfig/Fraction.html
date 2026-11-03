@@ -142,10 +142,10 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="fraction"><a class="header" href="#fraction">Fraction</a></h1>
-<h2 id="numerator"><a class="header" href="#numerator">numerator</a></h2>
-<p><code>type: u64</code></p>
-<h2 id="denominator"><a class="header" href="#denominator">denominator</a></h2>
-<p><code>type: u64</code></p>
+<p>A rational number. In code it is a <code>Rational32</code>.</p>
+<p>In the genesis config and in RPC responses it is a JSON array of two signed 32-bit integers, <code>[numerator, denominator]</code>.
+For example, <code>[3, 10]</code> means 3/10.</p>
+<p>The parameter files in <code>core/parameters/res/runtime_configs/</code> write the same value as an object with <code>numerator</code> and <code>denominator</code> keys.</p>
 
                     </main>
 

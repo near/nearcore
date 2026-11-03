@@ -161,7 +161,7 @@ This cost consists of extra attached gas, attached deposits and the transaction 
 <li><code>execution</code> - the gas burned when the action is being executed on the receiver's account.</li>
 </ul>
 <h2 id="receipt-creation-cost"><a class="header" href="#receipt-creation-cost">Receipt creation cost</a></h2>
-<p>There are 2 types of receipts:</p>
+<p>Fees are charged for 2 types of receipts:</p>
 <ul>
 <li>Action receipts <a href="/RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a></li>
 <li>Data receipts <a href="/RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a></li>
@@ -173,52 +173,67 @@ Data receipts are used for data dependencies and will be discussed separately.</
 while the gas for <code>action_receipt_creation_config.execution</code> is only charged, but not burned. It'll be burned when
 the newly created receipt is executed on the receiver's account.</p>
 <h2 id="fees-for-actions"><a class="header" href="#fees-for-actions">Fees for actions</a></h2>
-<p>Every <a href="/RuntimeSpec/Actions"><code>Action</code></a> has a corresponding Fee(s) described in the config <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><code>action_creation_config</code></a>.
+<p>Every <a href="/RuntimeSpec/Actions"><code>Action</code></a> has a corresponding Fee(s).
+The fees of most actions are described in the config <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><code>action_creation_config</code></a>.
+The fees of the global contract, state init and gas key actions are not part of that config.
+This page names those fees by their runtime parameter names, such as <code>action_gas_key_transfer</code>.
 Similar to a receipt creation costs, the <code>send</code> gas is burned when an action is added to a receipt to be sent, and the <code>execution</code> gas is only charged, but not burned.</p>
-<p>Fees are either a base fee or a fee per byte of some data within the action.</p>
+<p>Fees are either a base fee or a fee per unit of some data within the action, such as a byte or a storage entry.</p>
 <p>Here is the list of actions and their corresponding fees:</p>
 <ul>
-<li><a href="/RuntimeSpec/Actions.html#createaccountaction">CreateAccount</a> uses
+<li>
+<p><a href="/RuntimeSpec/Actions.html#createaccountaction">CreateAccount</a> uses</p>
 <ul>
 <li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a> uses the sum of the following fees:
+<li>
+<p><a href="/RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a> uses the sum of the following fees:</p>
 <ul>
 <li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost"><code>deploy_contract_cost</code></a></li>
 <li>the fee per byte of the contract code to be deployed with the fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost_per_byte"><code>deploy_contract_cost_per_byte</code></a>
 To compute the number of bytes for a deploy contract action <code>deploy_contract_action</code> use <code>deploy_contract_action.code.len()</code></li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a> uses the sum of the following fees:
+<li>
+<p><a href="/RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a> uses the sum of the following fees:</p>
 <ul>
 <li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost"><code>function_call_cost</code></a></li>
 <li>the fee per byte of method name string and per byte of arguments with the fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost_per_byte"><code>function_call_cost_per_byte</code></a>.
 To compute the number of bytes for a function call action <code>function_call_action</code> use <code>function_call_action.method_name.as_bytes().len() + function_call_action.args.len()</code></li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#transferaction">Transfer</a> uses one of the following fees:
+<li>
+<p><a href="/RuntimeSpec/Actions.html#transferaction">Transfer</a> uses one of the following fees:</p>
 <ul>
-<li>if the <code>receiver_id</code> is an <a href="/DataStructures/Account#near-implicit-account-id">Implicit Account ID</a>, then a sum of base fees is used:
+<li>if the <code>receiver_id</code> is a <a href="/DataStructures/Account.html#near-implicit-account-id">NEAR-implicit account ID</a>, then a sum of base fees is used:
 <ul>
 <li>the create account base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
 <li>the transfer base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
 <li>the add full access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a></li>
 </ul>
 </li>
-<li>if the <code>receiver_id</code> is NOT an <a href="/DataStructures/Account.html#near-implicit-account-id">Implicit Account ID</a>, then only the base fee is used:
+<li>if the <code>receiver_id</code> is an <a href="/DataStructures/Account.html#eth-implicit-account-id">ETH-implicit account ID</a>, a <a href="/DataStructures/Account.html#deterministic-account-id">deterministic account ID</a>, or from protocol version 88 (nearcore 2.14.0) a universal (<code>0u</code>) account ID, then a sum of base fees is used:
+<ul>
+<li>the create account base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
+<li>the transfer base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
+</ul>
+</li>
+<li>for any other <code>receiver_id</code>, only the base fee is used:
 <ul>
 <li>the transfer base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#stakeaction">Stake</a> uses
+<li>
+<p><a href="/RuntimeSpec/Actions.html#stakeaction">Stake</a> uses</p>
 <ul>
 <li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#stake_cost"><code>stake_cost</code></a></li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#addkeyaction">AddKey</a> uses one of the following fees:
+<li>
+<p><a href="/RuntimeSpec/Actions.html#addkeyaction">AddKey</a> uses one of the following fees:</p>
 <ul>
 <li>if the access key is <a href="/DataStructures/AccessKey"><code>AccessKeyPermission::FullAccess</code></a> the base fee is used
 <ul>
@@ -227,32 +242,115 @@ To compute the number of bytes for a function call action <code>function_call_ac
 </li>
 <li>if the access key is <a href="/DataStructures/AccessKey.html#accesskeypermissionfunctioncall"><code>AccessKeyPermission::FunctionCall</code></a> the sum of the fees is used
 <ul>
-<li>the add function call permission access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.function_call_cost</code></a></li>
+<li>the add function call permission access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#function_call_cost"><code>add_key_cost.function_call_cost</code></a></li>
 <li>the fee per byte of method names with extra byte for every method with the fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#function_call_cost_per_byte"><code>add_key_cost.function_call_cost_per_byte</code></a>
 To compute the number of bytes for <code>function_call_permission</code> use <code>function_call_permission.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::&lt;u64&gt;()</code></li>
 </ul>
 </li>
+<li>if the access key is a gas key, with <code>AccessKeyPermission::GasKeyFullAccess</code> or <code>AccessKeyPermission::GasKeyFunctionCall</code>, the fees of the matching <code>FullAccess</code> or <code>FunctionCall</code> case above are used, plus the following fees:
+<ul>
+<li>the <code>send</code> part of the fee per byte <code>action_gas_key_byte</code>, for the bytes of the gas key information.
+To compute the number of bytes use <code>GasKeyInfo::borsh_len()</code></li>
+<li>the <code>execution</code> part of the base fee <code>action_gas_key_nonce_write_base</code>, once for each nonce of the gas key</li>
+<li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of each nonce.
+To compute the number of bytes use <code>gas_key_info.num_nonces * (receiver_id.len() + add_key_action.public_key.trie_id_len() + 2 + size_of::&lt;NonceIndex&gt;() + size_of::&lt;Nonce&gt;())</code>.
+The <code>2</code> counts the column byte and the separator byte of the trie key.</li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> uses
+</ul>
+</li>
+<li>
+<p><a href="/RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> uses</p>
 <ul>
 <li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_key_cost"><code>delete_key_cost</code></a></li>
 </ul>
 </li>
-<li><a href="/RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> uses
+<li>
+<p><a href="/RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> uses the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_account_cost"><code>delete_account_cost</code></a>.
+The remaining balance goes to <code>beneficiary_id</code> in a balance refund receipt, which has no fee.</p>
+</li>
+<li>
+<p><a href="/RuntimeSpec/Actions.html#delegate-actions">Delegate</a> uses the sum of the following fees. <code>DelegateV2</code> uses the same fees:</p>
 <ul>
-<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_account_cost"><code>delete_account_cost</code></a></li>
-<li>action receipt creation fee for creating Transfer to send remaining funds to <code>beneficiary_id</code></li>
-<li>full transfer fee described in the corresponding item</li>
+<li>the base fee <code>delegate_cost</code></li>
+<li>the <code>send</code> fees of the inner actions, which are burned when the transaction is converted into a receipt</li>
+<li>the <code>send</code> and <code>execution</code> fees of the inner actions and the <code>execution</code> fee of an action receipt.
+These fees are prepaid for the receipt that the delegate action creates. The prepaid <code>send</code> fees are burned when that receipt is created.</li>
+</ul>
+</li>
+<li>
+<p><a href="/RuntimeSpec/Actions.html#deployglobalcontractaction">DeployGlobalContract</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_deploy_global_contract</code></li>
+<li>the fee per byte of the contract code <code>action_deploy_global_contract_per_byte</code>.
+To compute the number of bytes use <code>deploy_global_contract_action.code.len()</code></li>
+</ul>
+<p>The action also burns tokens for the code storage, see <a href="/RuntimeSpec/Actions.html#deployglobalcontractaction">DeployGlobalContractAction</a>.</p>
+</li>
+<li>
+<p><a href="/RuntimeSpec/Actions.html#useglobalcontractaction">UseGlobalContract</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_use_global_contract</code></li>
+<li>the fee per byte of the contract identifier <code>action_use_global_contract_per_identifier_byte</code>.
+To compute the number of bytes use <code>use_global_contract_action.contract_identifier.len()</code>.
+It is 32 for a code hash and the length of the account ID for an account ID.</li>
+</ul>
+</li>
+<li>
+<p><a href="/RuntimeSpec/Actions.html#deterministicstateinitaction">DeterministicStateInit</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_deterministic_state_init</code></li>
+<li>the fee per byte of the storage keys and values <code>action_deterministic_state_init_per_byte</code>.
+To compute the number of bytes use <code>state_init_action.state_init.len_bytes()</code>, which is the total length of all keys and values in <code>state_init_action.state_init.data()</code></li>
+<li>the fee per storage entry <code>action_deterministic_state_init_per_entry</code>.
+To compute the number of entries use <code>state_init_action.state_init.data().len()</code></li>
+</ul>
+</li>
+<li>
+<p><code>TransferToGasKey</code> and <code>WithdrawFromGasKey</code> use the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_gas_key_transfer</code></li>
+<li>the <code>send</code> part of the fee per byte <code>action_gas_key_byte</code>, for the bytes of the public key.
+To compute the number of bytes use <code>action.public_key.trie_id_len()</code>.
+This is the length of the key as stored in the trie: 33 bytes for ED25519 and ML-DSA-65 keys, and 65 bytes for SECP256K1 keys.</li>
+<li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of the gas key.
+To compute the number of bytes use <code>receiver_id.len() + action.public_key.trie_id_len() + 2 + AccessKey::min_gas_key_borsh_len()</code>.
+<code>AccessKey::min_gas_key_borsh_len()</code> is the Borsh length of the smallest gas key record.</li>
+</ul>
+</li>
+<li>
+<p>From protocol version 88 (nearcore 2.14.0), <code>UniversalStateInit</code> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_universal_state_init</code></li>
+<li>the fee per byte of the serialized state init <code>action_universal_state_init_per_byte</code>.
+To compute the number of bytes use <code>universal_state_init_action.state_init.0.len()</code></li>
+<li>the fee per storage entry <code>action_universal_state_init_per_entry</code>, for each storage entry in the decoded state init</li>
+<li>the add full access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a>, for each access key in the decoded state init</li>
 </ul>
 </li>
 </ul>
+<h2 id="account-creation-charge"><a class="header" href="#account-creation-charge">Account creation charge</a></h2>
+<p>From protocol version 85 (nearcore 2.13.0), the runtime charges extra when a receipt creates an account.
+The aim is that creating an account costs <code>account_creation_charge</code>, which is 0.007 NEAR.
+The charge applies when a receipt succeeds and its receiver account exists after the receipt but not before it.
+This applies to <code>CreateAccount</code> and <code>DeterministicStateInit</code>. It also applies to a <code>Transfer</code> that is the only action of its receipt and goes to a new NEAR-implicit, ETH-implicit or deterministic account.
+From protocol version 88 (nearcore 2.14.0), it also happens with a <code>Transfer</code> to a new universal (<code>0u</code>) account and with <code>UniversalStateInit</code>.</p>
+<p>The receipt burns gas at <code>burn_price</code>, which is the lower of the receipt gas price and the gas price of the current block.
+The refund of the receipt includes the price difference for all the gas that the receipt burned, see <a href="../Refunds.html">Refunds</a>.
+The runtime takes the charge from this price difference refund and burns it:</p>
+<pre><code class="language-python">price_difference_refund = gas_burnt * (receipt_gas_price - burn_price)
+create_account_execution_cost = config.action_creation_config.create_account_cost.execution * burn_price
+charge = min(max(0, account_creation_charge - create_account_execution_cost), price_difference_refund)
+</code></pre>
+<p>At a burn price of 10^8 yoctoNEAR per gas, the <code>execution</code> fee of <code>create_account_cost</code> is 0.00072 NEAR, and the charge is 0.00628 NEAR.
+Together they cost 0.007 NEAR.
+If the burn price is so high that the <code>execution</code> fee alone reaches 0.007 NEAR, there is no extra charge.</p>
 <h2 id="gas-tracking"><a class="header" href="#gas-tracking">Gas tracking</a></h2>
 <p>In <code>Runtime</code>, gas is tracked in the following fields of <code>ActionResult</code> struct:</p>
 <ul>
 <li><code>gas_burnt</code> - irreversible amount of gas spent on computations.</li>
 <li><code>gas_used</code> - includes burnt gas and gas attached to the new <code>ActionReceipt</code>s created during the method execution.</li>
-<li><code>gas_burnt_for_function_call</code> - stores gas burnt during function call execution. Later, contract account gets 30% of it as a reward for a possibility to invoke the function.</li>
+<li><code>gas_burnt_for_function_call</code> - stores gas burnt during function call execution. Up to protocol version 86, the contract account gets 30% of it as a reward for a possibility to invoke the function. From protocol version 87 (nearcore 2.14.0), the reward parameter <code>burnt_gas_reward</code> is 0, so the contract account gets no reward.</li>
 </ul>
 <p>Initially runtime charges <code>gas_used</code> from the account. Some gas may be refunded later, see <a href="../Refunds.html">Refunds</a>.</p>
 <p>At first, we charge fees related to conversion from <code>SignedTransaction</code> to <code>ActionReceipt</code> and future execution of this receipt:</p>
@@ -260,26 +358,35 @@ To compute the number of bytes for <code>function_call_permission</code> use <co
 <li>costs of all <code>SignedTransaction</code>s passed to <code>Runtime::apply</code> are computed in <code>tx_cost</code> function during validation;</li>
 <li><code>total_cost</code> is deducted from signer, which is a sum of:
 <ul>
-<li><code>gas_to_balance(gas_burnt)</code> where <code>gas_burnt</code> is action receipt send fee + <code>total_send_fees(transaction.actions)</code>);</li>
-<li><code>gas_to_balance(gas_remaining)</code> where <code>gas_remaining</code> is action receipt exec fee + <code>total_prepaid_exec_fees(transaction.actions)</code> to pay all remaining fees caused by transaction;</li>
+<li><code>gas_burnt * gas_price</code> where <code>gas_burnt</code> is action receipt send fee + <code>total_send_fees(transaction.actions)</code> + the signature verification cost, and <code>gas_price</code> is the gas price of the current block;</li>
+<li><code>gas_remaining * receipt_gas_price</code> where <code>gas_remaining</code> is <code>total_prepaid_gas(transaction.actions)</code> + <code>total_prepaid_send_fees(transaction.actions)</code> + action receipt exec fee + <code>total_prepaid_exec_fees(transaction.actions)</code> to pay the attached gas and all remaining fees caused by transaction;</li>
 <li><code>total_deposit(transaction.actions)</code>;</li>
 </ul>
 </li>
 <li>each transaction is converted to receipt and passed to <code>Runtime::process_receipt</code>.</li>
 </ul>
+<p><code>total_prepaid_gas</code> is the gas attached to function calls, including the function calls inside delegate actions.
+<code>total_prepaid_send_fees</code> is the sum of the <code>send</code> fees of the actions inside delegate actions.
+The signature verification cost is charged for the key that signed the transaction and for the key of each delegate action.
+It is <code>ml_dsa_65_verification_cost</code> (100 Ggas) for an ML-DSA-65 key and 0 for ED25519 and SECP256K1 keys.
+ML-DSA-65 keys are supported from protocol version 85 (nearcore 2.13.0).</p>
+<p><code>receipt_gas_price</code> is <code>max(gas_price, min_gas_purchase_price)</code>, and it becomes the <a href="../Receipts.html#gas_price"><code>gas_price</code></a> of the new receipt.
+From protocol version 85 (nearcore 2.13.0), <code>min_gas_purchase_price</code> is 10^9 yoctoNEAR per gas. Before that, it was 0.
+The receipt later burns gas at the lower of <code>receipt_gas_price</code> and the gas price of the block where it is executed.
+Unused gas and the price difference for burned gas are refunded, see <a href="../Refunds.html">Refunds</a>.</p>
 <p>Then each <code>ActionReceipt</code> is passed to <code>Runtime::apply_action_receipt</code> where gas is tracked as follows:</p>
 <ul>
 <li><code>ActionResult</code> is created with <code>ActionReceipt</code> execution fee;</li>
 <li>all actions inside <code>ActionReceipt</code> are passed to <code>Runtime::apply_action</code>;</li>
 <li><code>ActionResult</code> with charged base execution fees is created there;</li>
-<li>if action execution leads to new <code>ActionReceipt</code>s creation, corresponding <code>action_[action_name]</code> function adds new fees to the <code>ActionResult</code>. E.g. <code>action_delete_account</code> also charges the following fees:
+<li>if action execution creates new <code>ActionReceipt</code>s, their fees are added to the <code>ActionResult</code>. For example, when a function call creates a promise, it pays:
 <ul>
-<li><code>gas_burnt</code>: <strong>send</strong> fee for <strong>new</strong> <code>ActionReceipt</code> creation + complex <strong>send</strong> fee for <code>Transfer</code> to beneficiary account</li>
-<li><code>gas_used</code>: <code>gas_burnt</code> + <strong>exec</strong> fee for created <code>ActionReceipt</code> + complex <strong>exec</strong> fee for <code>Transfer</code></li>
+<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions</li>
+<li><code>gas_used</code>: <code>gas_burnt</code> + the <strong>exec</strong> fees for the new <code>ActionReceipt</code> and its actions + the gas attached to the function calls in the new <code>ActionReceipt</code></li>
 </ul>
 </li>
 <li>all computed <code>ActionResult</code>s are merged into one, where all gas values are summed up;</li>
-<li>unused gas is refunded in <code>generate_refund_receipts</code>, after subtracting the gas refund fee, see <a href="../Refunds.html">Refunds</a>.</li>
+<li>unused gas is refunded in <code>refund_unspent_gas_and_deposits</code>, after subtracting the gas refund fee, see <a href="../Refunds.html">Refunds</a>.</li>
 </ul>
 <p>Inside <code>VMLogic</code>, the fees are tracked in the <code>GasCounter</code> struct.
 The VM itself is called in the <code>action_function_call</code> inside <code>Runtime</code>. When all actions are processed, the result is returned as a <code>VMOutcome</code>, which is later merged with <code>ActionResult</code>.</p>

@@ -142,7 +142,9 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="vmconfig"><a class="header" href="#vmconfig">VMConfig</a></h1>
-<p>Config of wasm operations.</p>
+<p>Config of wasm operations.
+The fields from <code>max_gas_burnt</code> to <code>max_total_log_length</code> belong to the limit config.
+In the JSON view they are nested under the <code>limit_config</code> key of <code>wasm_config</code>.</p>
 <h2 id="ext_costs"><a class="header" href="#ext_costs">ext_costs</a></h2>
 <p><code>type: [ExtCostsConfig]</code> <a href="ExtCostsConfig.html">ExtCostsConfig</a></p>
 <p>Costs for runtime externals</p>
@@ -183,9 +185,10 @@ a contract.</p>
 <h2 id="max_number_logs"><a class="header" href="#max_number_logs">max_number_logs</a></h2>
 <p>`type: u64</p>
 <p>Maximum number of log entries.</p>
-<h2 id="max_log_len"><a class="header" href="#max_log_len">max_log_len</a></h2>
-<p>`type: u64</p>
-<p>Maximum length of a single log, in bytes.</p>
+<h2 id="max_total_log_length"><a class="header" href="#max_total_log_length">max_total_log_length</a></h2>
+<p><code>type: u64</code></p>
+<p>Maximum total length, in bytes, of all log messages emitted by one function call execution.
+The value is 16384.</p>
 
                     </main>
 

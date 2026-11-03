@@ -4511,7 +4511,7 @@ This cost consists of extra attached gas, attached deposits and the transaction 
 <li><code>execution</code> - the gas burned when the action is being executed on the receiver's account.</li>
 </ul>
 <h2 id="receipt-creation-cost"><a class="header" href="#receipt-creation-cost">Receipt creation cost</a></h2>
-<p>There are 2 types of receipts:</p>
+<p>Fees are charged for 2 types of receipts:</p>
 <ul>
 <li>Action receipts <a href="RuntimeSpec/Fees//RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a></li>
 <li>Data receipts <a href="RuntimeSpec/Fees//RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a></li>
@@ -4523,52 +4523,67 @@ Data receipts are used for data dependencies and will be discussed separately.</
 while the gas for <code>action_receipt_creation_config.execution</code> is only charged, but not burned. It'll be burned when
 the newly created receipt is executed on the receiver's account.</p>
 <h2 id="fees-for-actions"><a class="header" href="#fees-for-actions">Fees for actions</a></h2>
-<p>Every <a href="RuntimeSpec/Fees//RuntimeSpec/Actions"><code>Action</code></a> has a corresponding Fee(s) described in the config <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><code>action_creation_config</code></a>.
+<p>Every <a href="RuntimeSpec/Fees//RuntimeSpec/Actions"><code>Action</code></a> has a corresponding Fee(s).
+The fees of most actions are described in the config <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><code>action_creation_config</code></a>.
+The fees of the global contract, state init and gas key actions are not part of that config.
+This page names those fees by their runtime parameter names, such as <code>action_gas_key_transfer</code>.
 Similar to a receipt creation costs, the <code>send</code> gas is burned when an action is added to a receipt to be sent, and the <code>execution</code> gas is only charged, but not burned.</p>
-<p>Fees are either a base fee or a fee per byte of some data within the action.</p>
+<p>Fees are either a base fee or a fee per unit of some data within the action, such as a byte or a storage entry.</p>
 <p>Here is the list of actions and their corresponding fees:</p>
 <ul>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#createaccountaction">CreateAccount</a> uses
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#createaccountaction">CreateAccount</a> uses</p>
 <ul>
 <li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a> uses the sum of the following fees:
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a> uses the sum of the following fees:</p>
 <ul>
 <li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost"><code>deploy_contract_cost</code></a></li>
 <li>the fee per byte of the contract code to be deployed with the fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost_per_byte"><code>deploy_contract_cost_per_byte</code></a>
 To compute the number of bytes for a deploy contract action <code>deploy_contract_action</code> use <code>deploy_contract_action.code.len()</code></li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a> uses the sum of the following fees:
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a> uses the sum of the following fees:</p>
 <ul>
 <li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost"><code>function_call_cost</code></a></li>
 <li>the fee per byte of method name string and per byte of arguments with the fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost_per_byte"><code>function_call_cost_per_byte</code></a>.
 To compute the number of bytes for a function call action <code>function_call_action</code> use <code>function_call_action.method_name.as_bytes().len() + function_call_action.args.len()</code></li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#transferaction">Transfer</a> uses one of the following fees:
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#transferaction">Transfer</a> uses one of the following fees:</p>
 <ul>
-<li>if the <code>receiver_id</code> is an <a href="RuntimeSpec/Fees//DataStructures/Account#near-implicit-account-id">Implicit Account ID</a>, then a sum of base fees is used:
+<li>if the <code>receiver_id</code> is a <a href="RuntimeSpec/Fees//DataStructures/Account.html#near-implicit-account-id">NEAR-implicit account ID</a>, then a sum of base fees is used:
 <ul>
 <li>the create account base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
 <li>the transfer base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
 <li>the add full access key base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a></li>
 </ul>
 </li>
-<li>if the <code>receiver_id</code> is NOT an <a href="RuntimeSpec/Fees//DataStructures/Account.html#near-implicit-account-id">Implicit Account ID</a>, then only the base fee is used:
+<li>if the <code>receiver_id</code> is an <a href="RuntimeSpec/Fees//DataStructures/Account.html#eth-implicit-account-id">ETH-implicit account ID</a>, a <a href="RuntimeSpec/Fees//DataStructures/Account.html#deterministic-account-id">deterministic account ID</a>, or from protocol version 88 (nearcore 2.14.0) a universal (<code>0u</code>) account ID, then a sum of base fees is used:
+<ul>
+<li>the create account base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
+<li>the transfer base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
+</ul>
+</li>
+<li>for any other <code>receiver_id</code>, only the base fee is used:
 <ul>
 <li>the transfer base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#stakeaction">Stake</a> uses
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#stakeaction">Stake</a> uses</p>
 <ul>
 <li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#stake_cost"><code>stake_cost</code></a></li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#addkeyaction">AddKey</a> uses one of the following fees:
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#addkeyaction">AddKey</a> uses one of the following fees:</p>
 <ul>
 <li>if the access key is <a href="RuntimeSpec/Fees//DataStructures/AccessKey"><code>AccessKeyPermission::FullAccess</code></a> the base fee is used
 <ul>
@@ -4577,32 +4592,115 @@ To compute the number of bytes for a function call action <code>function_call_ac
 </li>
 <li>if the access key is <a href="RuntimeSpec/Fees//DataStructures/AccessKey.html#accesskeypermissionfunctioncall"><code>AccessKeyPermission::FunctionCall</code></a> the sum of the fees is used
 <ul>
-<li>the add function call permission access key base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.function_call_cost</code></a></li>
+<li>the add function call permission access key base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#function_call_cost"><code>add_key_cost.function_call_cost</code></a></li>
 <li>the fee per byte of method names with extra byte for every method with the fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#function_call_cost_per_byte"><code>add_key_cost.function_call_cost_per_byte</code></a>
 To compute the number of bytes for <code>function_call_permission</code> use <code>function_call_permission.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::&lt;u64&gt;()</code></li>
 </ul>
 </li>
+<li>if the access key is a gas key, with <code>AccessKeyPermission::GasKeyFullAccess</code> or <code>AccessKeyPermission::GasKeyFunctionCall</code>, the fees of the matching <code>FullAccess</code> or <code>FunctionCall</code> case above are used, plus the following fees:
+<ul>
+<li>the <code>send</code> part of the fee per byte <code>action_gas_key_byte</code>, for the bytes of the gas key information.
+To compute the number of bytes use <code>GasKeyInfo::borsh_len()</code></li>
+<li>the <code>execution</code> part of the base fee <code>action_gas_key_nonce_write_base</code>, once for each nonce of the gas key</li>
+<li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of each nonce.
+To compute the number of bytes use <code>gas_key_info.num_nonces * (receiver_id.len() + add_key_action.public_key.trie_id_len() + 2 + size_of::&lt;NonceIndex&gt;() + size_of::&lt;Nonce&gt;())</code>.
+The <code>2</code> counts the column byte and the separator byte of the trie key.</li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> uses
+</ul>
+</li>
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> uses</p>
 <ul>
 <li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_key_cost"><code>delete_key_cost</code></a></li>
 </ul>
 </li>
-<li><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> uses
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> uses the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_account_cost"><code>delete_account_cost</code></a>.
+The remaining balance goes to <code>beneficiary_id</code> in a balance refund receipt, which has no fee.</p>
+</li>
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#delegate-actions">Delegate</a> uses the sum of the following fees. <code>DelegateV2</code> uses the same fees:</p>
 <ul>
-<li>the base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_account_cost"><code>delete_account_cost</code></a></li>
-<li>action receipt creation fee for creating Transfer to send remaining funds to <code>beneficiary_id</code></li>
-<li>full transfer fee described in the corresponding item</li>
+<li>the base fee <code>delegate_cost</code></li>
+<li>the <code>send</code> fees of the inner actions, which are burned when the transaction is converted into a receipt</li>
+<li>the <code>send</code> and <code>execution</code> fees of the inner actions and the <code>execution</code> fee of an action receipt.
+These fees are prepaid for the receipt that the delegate action creates. The prepaid <code>send</code> fees are burned when that receipt is created.</li>
+</ul>
+</li>
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deployglobalcontractaction">DeployGlobalContract</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_deploy_global_contract</code></li>
+<li>the fee per byte of the contract code <code>action_deploy_global_contract_per_byte</code>.
+To compute the number of bytes use <code>deploy_global_contract_action.code.len()</code></li>
+</ul>
+<p>The action also burns tokens for the code storage, see <a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deployglobalcontractaction">DeployGlobalContractAction</a>.</p>
+</li>
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#useglobalcontractaction">UseGlobalContract</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_use_global_contract</code></li>
+<li>the fee per byte of the contract identifier <code>action_use_global_contract_per_identifier_byte</code>.
+To compute the number of bytes use <code>use_global_contract_action.contract_identifier.len()</code>.
+It is 32 for a code hash and the length of the account ID for an account ID.</li>
+</ul>
+</li>
+<li>
+<p><a href="RuntimeSpec/Fees//RuntimeSpec/Actions.html#deterministicstateinitaction">DeterministicStateInit</a> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_deterministic_state_init</code></li>
+<li>the fee per byte of the storage keys and values <code>action_deterministic_state_init_per_byte</code>.
+To compute the number of bytes use <code>state_init_action.state_init.len_bytes()</code>, which is the total length of all keys and values in <code>state_init_action.state_init.data()</code></li>
+<li>the fee per storage entry <code>action_deterministic_state_init_per_entry</code>.
+To compute the number of entries use <code>state_init_action.state_init.data().len()</code></li>
+</ul>
+</li>
+<li>
+<p><code>TransferToGasKey</code> and <code>WithdrawFromGasKey</code> use the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_gas_key_transfer</code></li>
+<li>the <code>send</code> part of the fee per byte <code>action_gas_key_byte</code>, for the bytes of the public key.
+To compute the number of bytes use <code>action.public_key.trie_id_len()</code>.
+This is the length of the key as stored in the trie: 33 bytes for ED25519 and ML-DSA-65 keys, and 65 bytes for SECP256K1 keys.</li>
+<li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of the gas key.
+To compute the number of bytes use <code>receiver_id.len() + action.public_key.trie_id_len() + 2 + AccessKey::min_gas_key_borsh_len()</code>.
+<code>AccessKey::min_gas_key_borsh_len()</code> is the Borsh length of the smallest gas key record.</li>
+</ul>
+</li>
+<li>
+<p>From protocol version 88 (nearcore 2.14.0), <code>UniversalStateInit</code> uses the sum of the following fees:</p>
+<ul>
+<li>the base fee <code>action_universal_state_init</code></li>
+<li>the fee per byte of the serialized state init <code>action_universal_state_init_per_byte</code>.
+To compute the number of bytes use <code>universal_state_init_action.state_init.0.len()</code></li>
+<li>the fee per storage entry <code>action_universal_state_init_per_entry</code>, for each storage entry in the decoded state init</li>
+<li>the add full access key base fee <a href="RuntimeSpec/Fees//GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a>, for each access key in the decoded state init</li>
 </ul>
 </li>
 </ul>
+<h2 id="account-creation-charge"><a class="header" href="#account-creation-charge">Account creation charge</a></h2>
+<p>From protocol version 85 (nearcore 2.13.0), the runtime charges extra when a receipt creates an account.
+The aim is that creating an account costs <code>account_creation_charge</code>, which is 0.007 NEAR.
+The charge applies when a receipt succeeds and its receiver account exists after the receipt but not before it.
+This applies to <code>CreateAccount</code> and <code>DeterministicStateInit</code>. It also applies to a <code>Transfer</code> that is the only action of its receipt and goes to a new NEAR-implicit, ETH-implicit or deterministic account.
+From protocol version 88 (nearcore 2.14.0), it also happens with a <code>Transfer</code> to a new universal (<code>0u</code>) account and with <code>UniversalStateInit</code>.</p>
+<p>The receipt burns gas at <code>burn_price</code>, which is the lower of the receipt gas price and the gas price of the current block.
+The refund of the receipt includes the price difference for all the gas that the receipt burned, see <a href="RuntimeSpec/Fees/../Refunds.html">Refunds</a>.
+The runtime takes the charge from this price difference refund and burns it:</p>
+<pre><code class="language-python">price_difference_refund = gas_burnt * (receipt_gas_price - burn_price)
+create_account_execution_cost = config.action_creation_config.create_account_cost.execution * burn_price
+charge = min(max(0, account_creation_charge - create_account_execution_cost), price_difference_refund)
+</code></pre>
+<p>At a burn price of 10^8 yoctoNEAR per gas, the <code>execution</code> fee of <code>create_account_cost</code> is 0.00072 NEAR, and the charge is 0.00628 NEAR.
+Together they cost 0.007 NEAR.
+If the burn price is so high that the <code>execution</code> fee alone reaches 0.007 NEAR, there is no extra charge.</p>
 <h2 id="gas-tracking"><a class="header" href="#gas-tracking">Gas tracking</a></h2>
 <p>In <code>Runtime</code>, gas is tracked in the following fields of <code>ActionResult</code> struct:</p>
 <ul>
 <li><code>gas_burnt</code> - irreversible amount of gas spent on computations.</li>
 <li><code>gas_used</code> - includes burnt gas and gas attached to the new <code>ActionReceipt</code>s created during the method execution.</li>
-<li><code>gas_burnt_for_function_call</code> - stores gas burnt during function call execution. Later, contract account gets 30% of it as a reward for a possibility to invoke the function.</li>
+<li><code>gas_burnt_for_function_call</code> - stores gas burnt during function call execution. Up to protocol version 86, the contract account gets 30% of it as a reward for a possibility to invoke the function. From protocol version 87 (nearcore 2.14.0), the reward parameter <code>burnt_gas_reward</code> is 0, so the contract account gets no reward.</li>
 </ul>
 <p>Initially runtime charges <code>gas_used</code> from the account. Some gas may be refunded later, see <a href="RuntimeSpec/Fees/../Refunds.html">Refunds</a>.</p>
 <p>At first, we charge fees related to conversion from <code>SignedTransaction</code> to <code>ActionReceipt</code> and future execution of this receipt:</p>
@@ -4610,26 +4708,35 @@ To compute the number of bytes for <code>function_call_permission</code> use <co
 <li>costs of all <code>SignedTransaction</code>s passed to <code>Runtime::apply</code> are computed in <code>tx_cost</code> function during validation;</li>
 <li><code>total_cost</code> is deducted from signer, which is a sum of:
 <ul>
-<li><code>gas_to_balance(gas_burnt)</code> where <code>gas_burnt</code> is action receipt send fee + <code>total_send_fees(transaction.actions)</code>);</li>
-<li><code>gas_to_balance(gas_remaining)</code> where <code>gas_remaining</code> is action receipt exec fee + <code>total_prepaid_exec_fees(transaction.actions)</code> to pay all remaining fees caused by transaction;</li>
+<li><code>gas_burnt * gas_price</code> where <code>gas_burnt</code> is action receipt send fee + <code>total_send_fees(transaction.actions)</code> + the signature verification cost, and <code>gas_price</code> is the gas price of the current block;</li>
+<li><code>gas_remaining * receipt_gas_price</code> where <code>gas_remaining</code> is <code>total_prepaid_gas(transaction.actions)</code> + <code>total_prepaid_send_fees(transaction.actions)</code> + action receipt exec fee + <code>total_prepaid_exec_fees(transaction.actions)</code> to pay the attached gas and all remaining fees caused by transaction;</li>
 <li><code>total_deposit(transaction.actions)</code>;</li>
 </ul>
 </li>
 <li>each transaction is converted to receipt and passed to <code>Runtime::process_receipt</code>.</li>
 </ul>
+<p><code>total_prepaid_gas</code> is the gas attached to function calls, including the function calls inside delegate actions.
+<code>total_prepaid_send_fees</code> is the sum of the <code>send</code> fees of the actions inside delegate actions.
+The signature verification cost is charged for the key that signed the transaction and for the key of each delegate action.
+It is <code>ml_dsa_65_verification_cost</code> (100 Ggas) for an ML-DSA-65 key and 0 for ED25519 and SECP256K1 keys.
+ML-DSA-65 keys are supported from protocol version 85 (nearcore 2.13.0).</p>
+<p><code>receipt_gas_price</code> is <code>max(gas_price, min_gas_purchase_price)</code>, and it becomes the <a href="RuntimeSpec/Fees/../Receipts.html#gas_price"><code>gas_price</code></a> of the new receipt.
+From protocol version 85 (nearcore 2.13.0), <code>min_gas_purchase_price</code> is 10^9 yoctoNEAR per gas. Before that, it was 0.
+The receipt later burns gas at the lower of <code>receipt_gas_price</code> and the gas price of the block where it is executed.
+Unused gas and the price difference for burned gas are refunded, see <a href="RuntimeSpec/Fees/../Refunds.html">Refunds</a>.</p>
 <p>Then each <code>ActionReceipt</code> is passed to <code>Runtime::apply_action_receipt</code> where gas is tracked as follows:</p>
 <ul>
 <li><code>ActionResult</code> is created with <code>ActionReceipt</code> execution fee;</li>
 <li>all actions inside <code>ActionReceipt</code> are passed to <code>Runtime::apply_action</code>;</li>
 <li><code>ActionResult</code> with charged base execution fees is created there;</li>
-<li>if action execution leads to new <code>ActionReceipt</code>s creation, corresponding <code>action_[action_name]</code> function adds new fees to the <code>ActionResult</code>. E.g. <code>action_delete_account</code> also charges the following fees:
+<li>if action execution creates new <code>ActionReceipt</code>s, their fees are added to the <code>ActionResult</code>. For example, when a function call creates a promise, it pays:
 <ul>
-<li><code>gas_burnt</code>: <strong>send</strong> fee for <strong>new</strong> <code>ActionReceipt</code> creation + complex <strong>send</strong> fee for <code>Transfer</code> to beneficiary account</li>
-<li><code>gas_used</code>: <code>gas_burnt</code> + <strong>exec</strong> fee for created <code>ActionReceipt</code> + complex <strong>exec</strong> fee for <code>Transfer</code></li>
+<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions</li>
+<li><code>gas_used</code>: <code>gas_burnt</code> + the <strong>exec</strong> fees for the new <code>ActionReceipt</code> and its actions + the gas attached to the function calls in the new <code>ActionReceipt</code></li>
 </ul>
 </li>
 <li>all computed <code>ActionResult</code>s are merged into one, where all gas values are summed up;</li>
-<li>unused gas is refunded in <code>generate_refund_receipts</code>, after subtracting the gas refund fee, see <a href="RuntimeSpec/Fees/../Refunds.html">Refunds</a>.</li>
+<li>unused gas is refunded in <code>refund_unspent_gas_and_deposits</code>, after subtracting the gas refund fee, see <a href="RuntimeSpec/Fees/../Refunds.html">Refunds</a>.</li>
 </ul>
 <p>Inside <code>VMLogic</code>, the fees are tracked in the <code>GasCounter</code> struct.
 The VM itself is called in the <code>action_function_call</code> inside <code>Runtime</code>. When all actions are processed, the result is returned as a <code>VMOutcome</code>, which is later merged with <code>ActionResult</code>.</p>
@@ -5285,7 +5392,13 @@ In case of a deposit refund, the public key is empty (all bytes are 0).</p>
 <ul>
 <li><strong><code>type</code></strong>: <code>u128</code></li>
 </ul>
-<p>Gas price which was set in a block where the original <a href="RuntimeSpec/Transactions.html">transaction</a> has been applied.</p>
+<p>The price per unit of gas at which the gas attached to this receipt was bought.
+For a receipt created from a <a href="RuntimeSpec/Transactions.html">transaction</a>, it is the higher of the gas price of the block where the transaction was converted into the receipt and the <code>min_gas_purchase_price</code> runtime parameter.
+From protocol version 85 (nearcore 2.13.0), <code>min_gas_purchase_price</code> is 10^9 yoctoNEAR per gas. Before that, it was 0.
+From protocol version 85 (nearcore 2.13.0), the receipt burns gas at the lower of this price and the gas price of the block where it is executed.
+The price difference is refunded, except for the account creation charge when the receipt creates an account (see <a href="RuntimeSpec/Refunds.html">Refunds</a>).
+A receipt created while another receipt is executed, for example by a contract call or a delegate action, has the same gas price as that receipt.
+Refund receipts have a gas price of 0.</p>
 <h4 id="output_data_receivers"><a class="header" href="#output_data_receivers">output_data_receivers</a></h4>
 <ul>
 <li><strong><code>type</code></strong>: <code>[DataReceiver{ data_id: CryptoHash, receiver_id: AccountId }]</code></li>
@@ -5477,12 +5590,16 @@ LackBalanceForState {
 <li>Refunds for the failed receipt for attached deposits. Let's call them <strong>deposit refunds</strong>.</li>
 <li>Refunds for the unused gas and fees. Let's call them <strong>gas refunds</strong>.</li>
 </ul>
-<p>Refund receipts are identified by having <code>predecessor_id == &quot;system&quot;</code>. They are also special because they don't cost any gas to generate or execute. As a result, they also do not contribute to the block gas limit.</p>
+<p>Refund receipts are identified by having <code>predecessor_id == &quot;system&quot;</code>. They are also special because they are free for the user. The runtime does not charge or burn any tokens to generate or execute them.
+Their execution outcome still reports <code>gas_burnt</code>, which is the <code>execution</code> fee of an action receipt plus the <code>execution</code> fee of one <code>Transfer</code> action. This is about 0.22 Tgas when the receiver is a named account. The <code>Transfer</code> fee depends on the type of the receiver account, as described in <a href="RuntimeSpec/Fees/Fees.html#fees-for-actions">Runtime Fees</a>. For a NEAR-implicit, ETH-implicit, deterministic or universal (from protocol version 88) receiver, the fee includes the account creation fees. This applies even when the account already exists. This gas counts toward the chunk gas limit like the gas of any other receipt.</p>
 <p>If the execution of a refund fails, the refund amount is burnt.
 The refund receipt is an <code>ActionReceipt</code> that consists of a single action <code>Transfer</code> with the <code>deposit</code> amount of the refund.</p>
 <h2 id="deposit-refunds"><a class="header" href="#deposit-refunds">Deposit Refunds</a></h2>
 <p>Deposit refunds are generated when an action receipt fails to execute. All attached deposit amounts are summed together and
-sent as a refund to a <code>predecessor_id</code> (because only the predecessor can attach deposits).</p>
+sent as a refund to the refund receiver of the receipt. The refund receiver is the <code>predecessor_id</code> by default.
+From protocol version 82 (nearcore 2.10.0), a contract can set a different refund receiver with the <code>promise_set_refund_to</code>
+host function when it creates the receipt. A contract can read the refund receiver of the current receipt with the
+<code>refund_to_account_id</code> host function.</p>
 <p>Deposit refunds have the following fields in the <code>ActionReceipt</code>:</p>
 <ul>
 <li><code>signer_id</code> is <code>system</code></li>
@@ -5490,14 +5607,16 @@ sent as a refund to a <code>predecessor_id</code> (because only the predecessor 
 </ul>
 <p>Deposit refunds are free for the user and incur no refund fee.</p>
 <h2 id="gas-refunds"><a class="header" href="#gas-refunds">Gas Refunds</a></h2>
-<p>Gas refunds are generated when a receipt used the amount of gas lower than the attached amount of gas.</p>
+<p>Gas refunds are generated when a receipt used the amount of gas lower than the attached amount of gas.
+From protocol version 85 (nearcore 2.13.0), they are also generated when a receipt burns gas at a lower price than the price at which the gas was bought.</p>
 <p>If the receipt execution succeeded, the gas amount is equal to <code>prepaid_gas + execution_gas - used_gas</code>.</p>
 <p>If the receipt execution failed, the gas amount is equal to <code>prepaid_gas + execution_gas - burnt_gas</code>.</p>
 <p>The difference between <code>burnt_gas</code> and <code>used_gas</code> is the <code>used_gas</code> also includes the fees and the prepaid gas of
 newly generated receipts, e.g. from cross-contract calls in function calls actions.</p>
 <p>From this unspent gas amount, the network charges a gas refund fee, starting with protocol version 78. The exact fee is calculated as <code>max(gas_refund_penalty * unspent_gas, min_gas_refund_penalty)</code>. As of version 78, <code>gas_refund_penalty</code> is 0% and <code>min_gas_refund_penalty</code> 0 Tgas, always resulting in a zero-cost fee. This is only a stepping stone to give projects time to adapt before the fee is taking effect. The plan is to increase this to 5% and 1 Tgas, as specified in <a href="https://github.com/near/NEPs/blob/master/neps/nep-0536.md">NEP-536</a>. There is no fixed timeline available for this.</p>
-<p>Should the gas refund fee be equal or larger than the unspent gas, no refund will be produced.</p>
-<p>If there is gas to refund left, the gas amount is converted to tokens by multiplying by the gas price at which the original transaction was generated.</p>
+<p>The refund for the unspent gas is the unspent gas multiplied by the <a href="RuntimeSpec/Receipts.html#gas_price"><code>gas_price</code></a> of the receipt, minus the gas refund fee converted to tokens. The <code>gas_price</code> of the receipt is the price at which the gas was bought. The refund is never less than 0. Before protocol version 85, the fee is converted at the same <code>gas_price</code>. So when the fee is equal to or larger than the unspent gas, nothing is refunded for the unspent gas.</p>
+<p>From protocol version 85 (nearcore 2.13.0), the gas attached to a receipt is bought at the higher of the block gas price and <code>min_gas_purchase_price</code>, which is 10^9 yoctoNEAR per gas. The receipt burns gas at the lower of this purchase price and the gas price of the block where it is executed. This is the burn price. The gas refund then also includes the price difference for the burnt gas, which is <code>burnt_gas * (purchase_price - burn_price)</code>. The gas refund fee is converted to tokens at the burn price.</p>
+<p>If the receipt succeeds and creates its receiver account, the runtime keeps an account creation charge from this price difference refund and burns it. The charge is <code>account_creation_charge</code> (0.007 NEAR) minus the <code>create_account</code> execution fee at the burn price. It is never less than 0 and never more than the price difference refund. See <a href="RuntimeSpec/Fees/Fees.html#account-creation-charge">Account creation charge</a>.</p>
 <p>Gas refunds have the following fields in the <code>ActionReceipt</code>:</p>
 <ul>
 <li><code>signer_id</code> is the actual <code>signer_id</code> from the receipt that generates this refund.</li>
@@ -6023,7 +6142,10 @@ with several key points to note:</p>
 <li>Since Alice attaches 100 tokens to the function call, we subtract them from <code>alice_near</code> upon converting transaction to receipt,
 similar to the regular financial transaction;</li>
 <li>Since we are attaching 1000000 prepaid gas, we will not only subtract the gas costs of processing the receipt from <code>alice_near</code>, but
-will also purchase 1000000 gas using the current gas price.</li>
+will also purchase 1000000 gas. The gas burnt for converting the transaction is charged at the current gas price. The prepaid gas
+and the execution fees of the receipt are bought at the receipt gas price. From protocol version 85 (nearcore 2.13.0), this is the
+higher of the current gas price and <code>min_gas_purchase_price</code>, which is 10^9 yoctoNEAR per gas. Unused gas is refunded later. The price difference for gas
+that is burnt at a lower price is refunded too.</li>
 </ul>
 <h2 id="processing-the-reserve_trip-receipt"><a class="header" href="#processing-the-reserve_trip-receipt">Processing the <code>reserve_trip</code> receipt</a></h2>
 <p>The receipt created on the shard that hosts <code>alice_near</code> will eventually arrive to the shard hosting <code>travel_agency</code> account.
@@ -6250,9 +6372,43 @@ The reward is credited to the contract account after applying the corresponding 
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="genesisconfig"><a class="header" href="#genesisconfig">GenesisConfig</a></h1>
+<p>The fields of <code>GenesisConfig</code> are the top-level keys of <code>genesis.json</code>.
+The first sections of this page explain the file format and where the node takes each setting from.
+The sections after them describe each field.</p>
+<h2 id="file-format"><a class="header" href="#file-format">File format</a></h2>
+<p>A field whose section below gives a default value is optional.
+All other fields are required, and a <code>genesis.json</code> file without one of them fails to parse.
+The <code>records</code> key is not part of <code>GenesisConfig</code>.
+It can be left out when the records come from a separate file set by <code>genesis_records_file</code> in the node <code>config.json</code>.
+The node still needs the records from one of these places.
+The node ignores keys that it does not know.
+A misspelled optional field is ignored without a warning, and the node uses its default value.</p>
+<h2 id="where-settings-come-from"><a class="header" href="#where-settings-come-from">Where settings come from</a></h2>
+<h3 id="epoch-settings"><a class="header" href="#epoch-settings">Epoch settings</a></h3>
+<p>The epoch settings are <code>num_block_producer_seats</code>, the kickout thresholds, <code>max_inflation_rate</code>, <code>fishermen_threshold</code> and the optional fields at the end of this page.
+The node does not use <code>use_production_config</code>. <code>shard_layout</code> has its own rules, described in <a href="GenesisConfig/GenesisConfig.html#shard_layout">shard_layout</a>.
+The node takes the epoch settings from the first row of this table that matches the chain:</p>
+<div class="table-wrapper"><table><thead><tr><th>Chain</th><th>Source of the epoch settings</th></tr></thead><tbody>
+<tr><td>Mainnet and testnet</td><td>The epoch config that the node has built in for each protocol version (<code>core/primitives/res/epoch_configs/</code>)</td></tr>
+<tr><td>Any other chain whose node home has an <code>epoch_configs</code> folder</td><td>The files in that folder</td></tr>
+<tr><td>A chain whose ID starts with <code>test-chain-</code></td><td>The genesis fields</td></tr>
+<tr><td>Any other chain</td><td>Fixed test values, except <code>num_block_producer_seats</code> and <code>shard_layout</code>, which come from genesis</td></tr>
+</tbody></table>
+</div>
+<p>On every chain, the node reads <code>epoch_length</code> from genesis, and this value replaces the <code>epoch_length</code> of the epoch config.</p>
+<h3 id="runtime-parameters"><a class="header" href="#runtime-parameters">Runtime parameters</a></h3>
+<p>Runtime parameters, such as fees, gas costs and VM limits, are not part of genesis.
+Each nearcore release contains them for every protocol version (<code>core/parameters/res/runtime_configs/</code>), and the node uses the set for the current protocol version.
+The node ignores a <code>runtime_config</code> key in <code>genesis.json</code>, such as the one in the mainnet genesis file.
+The <code>EXPERIMENTAL_protocol_config</code> RPC method returns the active values.
+See <a href="GenesisConfig/RuntimeConfig.html">RuntimeConfig</a>.
+The share of burnt gas that a contract account receives as a reward is also a runtime parameter, <code>burnt_gas_reward</code> in <a href="GenesisConfig/RuntimeFeeConfig.html">RuntimeFeeConfig</a>.
+From protocol version 87 (nearcore 2.14.0), it is 0.
+Before that it was 3/10.</p>
 <h2 id="protocol_version"><a class="header" href="#protocol_version">protocol_version</a></h2>
 <p><code>type: u32</code></p>
-<p>Protocol version that this genesis works with.</p>
+<p>Protocol version that this genesis works with.
+Mainnet and testnet start at protocol version 29.</p>
 <h2 id="genesis_time"><a class="header" href="#genesis_time">genesis_time</a></h2>
 <p><code>type: DateTime</code></p>
 <p>Official time of blockchain start.</p>
@@ -6264,39 +6420,51 @@ For example, mainnet genesis height is <code>9820210</code>.</p>
 <p><code>type: String</code></p>
 <p>ID of the blockchain. This must be unique for every blockchain.
 If your testnet blockchains do not have unique chain IDs, you will have a bad time.</p>
-<h2 id="num_block_producers"><a class="header" href="#num_block_producers">num_block_producers</a></h2>
-<p><code>type: u32</code></p>
-<p>Number of block producer seats at genesis.</p>
-<h2 id="block_producers_per_shard"><a class="header" href="#block_producers_per_shard">block_producers_per_shard</a></h2>
-<p><code>type: [ValidatorId]</code></p>
-<p>Defines number of shards and number of validators per each shard at genesis.</p>
-<h2 id="avg_fisherman_per_shard"><a class="header" href="#avg_fisherman_per_shard">avg_fisherman_per_shard</a></h2>
-<p><code>type: [ValidatorId]</code></p>
-<p>Expected number of fisherman per shard.</p>
+<h2 id="num_block_producer_seats"><a class="header" href="#num_block_producer_seats">num_block_producer_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>Number of block producer seats at genesis.
+On mainnet and testnet the node uses the value from its built-in epoch config for the current protocol version instead.
+Mainnet uses 100.</p>
 <h2 id="dynamic_resharding"><a class="header" href="#dynamic_resharding">dynamic_resharding</a></h2>
 <p><code>type: bool</code></p>
-<p>Enable dynamic re-sharding.</p>
+<p>The node does not use this flag.
+It only copies the value into the <code>EXPERIMENTAL_protocol_config</code> RPC response.
+Dynamic resharding is set by the <code>dynamic_resharding_config</code> field of the epoch config.</p>
 <h2 id="epoch_length"><a class="header" href="#epoch_length">epoch_length</a></h2>
-<p><code>type: BlockIndex</code></p>
-<p>Epoch length counted in blocks.</p>
+<p><code>type: u64</code></p>
+<p>Epoch length counted in block heights.
+The node always reads this value from genesis, also on mainnet and testnet.
+It replaces the <code>epoch_length</code> of the epoch config.
+Mainnet uses 43200.</p>
 <h2 id="gas_limit"><a class="header" href="#gas_limit">gas_limit</a></h2>
 <p><code>type: Gas</code></p>
-<p>Initial gas limit for a block</p>
-<h2 id="gas_price-1"><a class="header" href="#gas_price-1">gas_price</a></h2>
+<p>Gas limit of a chunk.
+The chunks of the genesis block use this value, and every later chunk keeps the same limit.
+Mainnet uses <code>1000000000000000</code> (10^15).</p>
+<h2 id="min_gas_price"><a class="header" href="#min_gas_price">min_gas_price</a></h2>
 <p><code>type: Balance</code></p>
-<p>Initial gas price</p>
+<p>Minimum gas price in yoctoNEAR per gas. It is also the gas price of the genesis block.
+For chains whose genesis protocol version is 29 (mainnet and testnet), blocks after genesis use a fixed minimum of <code>100000000</code> (10^8) instead of this value.
+The mainnet genesis file holds <code>1000000000</code> (10^9).</p>
+<h2 id="max_gas_price"><a class="header" href="#max_gas_price">max_gas_price</a></h2>
+<p><code>type: Balance</code></p>
+<p>Maximum gas price in yoctoNEAR per gas.
+The node uses the smaller of this value and 20 times the minimum gas price.
+The mainnet genesis file holds <code>10000000000000000000000</code> (10^22).
+On mainnet the result is <code>2000000000</code> (2 x 10^9).</p>
 <h2 id="block_producer_kickout_threshold"><a class="header" href="#block_producer_kickout_threshold">block_producer_kickout_threshold</a></h2>
 <p><code>type: u8</code></p>
-<p>Criterion for kicking out block producers (this is a number between 0 and 100)</p>
+<p>Criterion for kicking out block producers (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 80.</p>
 <h2 id="chunk_producer_kickout_threshold"><a class="header" href="#chunk_producer_kickout_threshold">chunk_producer_kickout_threshold</a></h2>
 <p><code>type: u8</code></p>
-<p>Criterion for kicking out chunk producers (this is a number between 0 and 100)</p>
+<p>Criterion for kicking out chunk producers (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 80.</p>
 <h2 id="gas_price_adjustment_rate"><a class="header" href="#gas_price_adjustment_rate">gas_price_adjustment_rate</a></h2>
 <p><code>type: Fraction</code></p>
 <p>Gas price adjustment rate</p>
-<h2 id="runtime_config"><a class="header" href="#runtime_config">runtime_config</a></h2>
-<p><em>type: <a href="GenesisConfig/RuntimeConfig.html">RuntimeConfig</a></em></p>
-<p>Runtime configuration (mostly economics constants).</p>
 <h2 id="validators-1"><a class="header" href="#validators-1">validators</a></h2>
 <p><code>type: [AccountInfo]</code></p>
 <p>List of initial validators.</p>
@@ -6305,25 +6473,133 @@ If your testnet blockchains do not have unique chain IDs, you will have a bad ti
 <p>Records in storage at genesis (get split into shards at genesis creation).</p>
 <h2 id="transaction_validity_period"><a class="header" href="#transaction_validity_period">transaction_validity_period</a></h2>
 <p><code>type: u64</code></p>
-<p>Number of blocks for which a given transaction is valid</p>
-<h2 id="developer_reward_percentage"><a class="header" href="#developer_reward_percentage">developer_reward_percentage</a></h2>
+<p>Number of block heights for which a transaction is valid, counted from the height of the block named in its <code>block_hash</code>.
+The value must not be more than twice the <code>epoch_length</code> of any epoch config that the node loads, or the node does not start.
+On mainnet and testnet that <code>epoch_length</code> is 43200.
+Mainnet uses 86400.</p>
+<h2 id="protocol_reward_rate"><a class="header" href="#protocol_reward_rate">protocol_reward_rate</a></h2>
 <p><code>type: Fraction</code></p>
-<p>Developer reward percentage.</p>
-<h2 id="protocol_reward_percentage"><a class="header" href="#protocol_reward_percentage">protocol_reward_percentage</a></h2>
-<p><code>type: Fraction</code></p>
-<p>Protocol treasury percentage.</p>
+<p>Share of each epoch reward that goes to the protocol treasury account.
+For chains whose genesis protocol version is 29 (mainnet and testnet), the node uses 1/10 instead of this value.
+The mainnet genesis file holds <code>[0, 1]</code>.</p>
 <h2 id="max_inflation_rate"><a class="header" href="#max_inflation_rate">max_inflation_rate</a></h2>
 <p><code>type: Fraction</code></p>
-<p>Maximum inflation on the total supply every epoch.</p>
+<p>Maximum yearly inflation of the total supply.
+Each epoch mints at most <code>max_inflation_rate * total_supply * epoch_duration / one_year</code>.
+Here <code>epoch_duration</code> is the real time that the epoch took, and one year is 365 days.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+From protocol version 81 (nearcore 2.9.0), mainnet uses 1/40 (2.5% per year).
+Before that it used 1/20 (5% per year).
+The mainnet genesis file holds <code>[0, 1]</code>.</p>
 <h2 id="total_supply"><a class="header" href="#total_supply">total_supply</a></h2>
 <p><code>type: Balance</code></p>
 <p>Total supply of tokens at genesis.</p>
 <h2 id="num_blocks_per_year"><a class="header" href="#num_blocks_per_year">num_blocks_per_year</a></h2>
 <p><code>type: u64</code></p>
-<p>Expected number of blocks per year</p>
+<p>Expected number of blocks per year.
+The node does not use this value.
+The epoch reward depends on the real duration of the epoch instead (see <code>max_inflation_rate</code>).</p>
 <h2 id="protocol_treasury_account"><a class="header" href="#protocol_treasury_account">protocol_treasury_account</a></h2>
 <p><code>type: AccountId</code></p>
 <p>Protocol treasury account</p>
+<h2 id="fishermen_threshold"><a class="header" href="#fishermen_threshold">fishermen_threshold</a></h2>
+<p><code>type: Balance</code></p>
+<p>Fishermen stake threshold.
+The field is required, but the node does not use its value.
+The mainnet genesis file and the mainnet epoch configs set it to the largest <code>u128</code> value.</p>
+<h2 id="protocol_upgrade_stake_threshold"><a class="header" href="#protocol_upgrade_stake_threshold">protocol_upgrade_stake_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[8, 10]</code>.
+More than this share of the block producer stake must vote for a new protocol version before the network switches to it.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[4, 5]</code>.</p>
+<h2 id="chunk_validator_only_kickout_threshold"><a class="header" href="#chunk_validator_only_kickout_threshold">chunk_validator_only_kickout_threshold</a></h2>
+<p><code>type: u8</code></p>
+<p>This field is optional. The default is 80.
+Criterion for kicking out validators that are only chunk validators (this is a number between 0 and 100).
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 70.</p>
+<h2 id="target_validator_mandates_per_shard"><a class="header" href="#target_validator_mandates_per_shard">target_validator_mandates_per_shard</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 68.
+Target number of chunk validator mandates for each shard.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 105.</p>
+<h2 id="online_min_threshold"><a class="header" href="#online_min_threshold">online_min_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[90, 100]</code>.
+A validator whose online ratio is below this value gets no reward.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[90, 100]</code>.</p>
+<h2 id="online_max_threshold"><a class="header" href="#online_max_threshold">online_max_threshold</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[99, 100]</code>.
+A validator whose online ratio is at or above this value gets the full reward.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[99, 100]</code>.</p>
+<h2 id="minimum_stake_divisor"><a class="header" href="#minimum_stake_divisor">minimum_stake_divisor</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 10.
+The minimum stake for a staking proposal is the seat price of the next epoch divided by this number.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 10.</p>
+<h2 id="shard_layout"><a class="header" href="#shard_layout">shard_layout</a></h2>
+<p><code>type: ShardLayout</code></p>
+<p>This field is optional. If it is omitted, the layout has one shard.
+Defines the shards at genesis and how accounts map to them.
+The epoch config can override it.
+If the epoch config that the node loads for the genesis protocol version has a fixed shard layout, the node uses that layout instead.
+This applies to mainnet, testnet and any chain whose node home has an <code>epoch_configs</code> folder.
+The node splits the genesis records into shards with the layout that it uses for the genesis epoch.
+On mainnet and testnet, the later shard layouts come from the built-in epoch configs and from resharding.
+Mainnet starts with one shard, which its built-in epoch config for protocol version 29 sets.</p>
+<h2 id="minimum_validators_per_shard"><a class="header" href="#minimum_validators_per_shard">minimum_validators_per_shard</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 1.
+Minimum number of chunk producers assigned to each shard.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 1.</p>
+<h2 id="max_kickout_stake_perc"><a class="header" href="#max_kickout_stake_perc">max_kickout_stake_perc</a></h2>
+<p><code>type: u8</code></p>
+<p>This field is optional. The default is 100.
+Maximum percentage of the total validator stake that can be kicked out in one epoch.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 30.</p>
+<h2 id="minimum_stake_ratio"><a class="header" href="#minimum_stake_ratio">minimum_stake_ratio</a></h2>
+<p><code>type: Fraction</code></p>
+<p>This field is optional. The default is <code>[160, 1000000]</code>.
+The lowest ratio of stake to total stake that a validator can have to be selected as a block producer, chunk producer or chunk validator.
+See <a href="https://github.com/near/NEPs/pull/167">NEP-167</a> for details.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>[1, 62500]</code>.</p>
+<h2 id="shuffle_shard_assignment_for_chunk_producers"><a class="header" href="#shuffle_shard_assignment_for_chunk_producers">shuffle_shard_assignment_for_chunk_producers</a></h2>
+<p><code>type: bool</code></p>
+<p>This field is optional. The default is <code>false</code>.
+If it is <code>true</code>, the node shuffles the sets of chunk producers across shards.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses <code>false</code>.</p>
+<h2 id="use_production_config"><a class="header" href="#use_production_config">use_production_config</a></h2>
+<p><code>type: bool</code></p>
+<p>This field is optional. The default is <code>false</code>.
+The node does not use this field.</p>
+<h2 id="num_chunk_producer_seats"><a class="header" href="#num_chunk_producer_seats">num_chunk_producer_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 100.
+Number of chunk producer seats.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 100.</p>
+<h2 id="num_chunk_validator_seats"><a class="header" href="#num_chunk_validator_seats">num_chunk_validator_seats</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 300.
+Number of chunk validator seats.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 500.</p>
+<h2 id="chunk_producer_assignment_changes_limit"><a class="header" href="#chunk_producer_assignment_changes_limit">chunk_producer_assignment_changes_limit</a></h2>
+<p><code>type: u64</code></p>
+<p>This field is optional. The default is 5.
+Maximum number of shard changes in chunk producer assignments when the node moves chunk producers to balance their number across shards.
+On mainnet and testnet the node uses the value from its built-in epoch config instead.
+Mainnet uses 5.</p>
 <h2 id="protocol-economics"><a class="header" href="#protocol-economics">protocol economics</a></h2>
 <blockquote>
 <p>For the specific economic specs, refer to <a href="GenesisConfig/../Economics/Economics.html">Economics Section</a>.</p>
@@ -6469,7 +6745,9 @@ If your testnet blockchains do not have unique chain IDs, you will have a bad ti
 <p>Cost for calling promise_return</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="vmconfig"><a class="header" href="#vmconfig">VMConfig</a></h1>
-<p>Config of wasm operations.</p>
+<p>Config of wasm operations.
+The fields from <code>max_gas_burnt</code> to <code>max_total_log_length</code> belong to the limit config.
+In the JSON view they are nested under the <code>limit_config</code> key of <code>wasm_config</code>.</p>
 <h2 id="ext_costs"><a class="header" href="#ext_costs">ext_costs</a></h2>
 <p><code>type: [ExtCostsConfig]</code> <a href="GenesisConfig/ExtCostsConfig.html">ExtCostsConfig</a></p>
 <p>Costs for runtime externals</p>
@@ -6510,9 +6788,10 @@ a contract.</p>
 <h2 id="max_number_logs"><a class="header" href="#max_number_logs">max_number_logs</a></h2>
 <p>`type: u64</p>
 <p>Maximum number of log entries.</p>
-<h2 id="max_log_len"><a class="header" href="#max_log_len">max_log_len</a></h2>
-<p>`type: u64</p>
-<p>Maximum length of a single log, in bytes.</p>
+<h2 id="max_total_log_length"><a class="header" href="#max_total_log_length">max_total_log_length</a></h2>
+<p><code>type: u64</code></p>
+<p>Maximum total length, in bytes, of all log messages emitted by one function call execution.
+The value is 16384.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="staterecord"><a class="header" href="#staterecord">StateRecord</a></h1>
 <p><code>type: Enum</code></p>
@@ -6585,28 +6864,25 @@ The receipt is in JSON-friendly format.  See <a href="GenesisConfig/../RuntimeSp
 <p>NOTE: Box is used to decrease fixed size of the entire enum.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtimeconfig"><a class="header" href="#runtimeconfig">RuntimeConfig</a></h1>
-<p>The structure that holds the parameters of the runtime, mostly economics.</p>
-<h2 id="storage_cost_byte_per_block"><a class="header" href="#storage_cost_byte_per_block">storage_cost_byte_per_block</a></h2>
+<p>The structure that holds the parameters of the runtime, mostly economics.
+It is not part of genesis.
+Each nearcore release contains the runtime config for every protocol version (<code>core/parameters/res/runtime_configs/</code>), and the node uses the config of the current protocol version.
+The <code>EXPERIMENTAL_protocol_config</code> RPC method returns it as <code>runtime_config</code>.
+This page describes only some of the fields.
+The others are <code>account_creation_config</code>, <code>congestion_control_config</code>, <code>witness_config</code>, <code>min_gas_purchase_price</code> and <code>account_creation_charge</code>.</p>
+<h2 id="storage_amount_per_byte"><a class="header" href="#storage_amount_per_byte">storage_amount_per_byte</a></h2>
 <p><code>type: Balance</code></p>
-<p>The cost to store one byte of storage per block.</p>
-<h3 id="storage_cost_byte_per_block-1"><a class="header" href="#storage_cost_byte_per_block-1">storage_cost_byte_per_block</a></h3>
-<p><code>type: Balance</code></p>
-<p>Costs of different actions that need to be performed when sending and processing transaction
-and receipts.</p>
-<h2 id="poke_threshold"><a class="header" href="#poke_threshold">poke_threshold</a></h2>
-<p><code>type: BlockIndex</code></p>
-<p>The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.</p>
+<p>The balance, in yoctoNEAR, that an account must hold for each byte of storage it uses.
+The value is 10^19 yoctoNEAR (1 NEAR per 100 kB).
+The balance stays on the account.
+A transaction or receipt that would leave the account balance (amount plus locked) below the required amount fails with <code>LackBalanceForState</code>.
+Accounts that use 770 bytes of storage or less are exempt (zero balance accounts, NEP-448).</p>
 <h2 id="transaction_costs"><a class="header" href="#transaction_costs">transaction_costs</a></h2>
 <p><code>type: RuntimeFeesConfig</code> <a href="GenesisConfig/RuntimeFeeConfig.html">RuntimeFeesConfig</a></p>
 <p>Costs of different actions that need to be performed when sending and processing transaction and receipts.</p>
 <h2 id="wasm_config"><a class="header" href="#wasm_config">wasm_config</a></h2>
 <p><code>type: VMConfig</code> <a href="GenesisConfig/VMConfig.html">VMConfig</a></p>
 <p>Config of wasm operations.</p>
-<h2 id="account_length_baseline_cost_per_block"><a class="header" href="#account_length_baseline_cost_per_block">account_length_baseline_cost_per_block</a></h2>
-<p><code>type: Balance</code></p>
-<p>The baseline cost to store account_id of short length per block.
-The original formula in NEP#0006 is <code>1,000 / (3 ^ (account_id.length - 2))</code> for cost per year.
-This value represents <code>1,000</code> above adjusted to use per block</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtimefeesconfig"><a class="header" href="#runtimefeesconfig">RuntimeFeesConfig</a></h1>
 <p>Economic parameters for runtime</p>
@@ -6622,7 +6898,7 @@ of actions.</p>
 <p>Describes the cost of creating a certain action, <code>Action</code>. Includes all variants.</p>
 <h2 id="storage_usage_config"><a class="header" href="#storage_usage_config">storage_usage_config</a></h2>
 <p><code>type:</code> <a href="GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html">StorageUsageConfig</a></p>
-<p>Describes fees for storage rent</p>
+<p>Describes how the storage that an account uses is counted for storage staking.</p>
 <h2 id="burnt_gas_reward"><a class="header" href="#burnt_gas_reward">burnt_gas_reward</a></h2>
 <p><code>type:</code> <a href="GenesisConfig/RuntimeFeeConfig/Fraction.html">Fraction</a></p>
 <p>Fraction of the burnt gas to reward to the contract account for execution.</p>
@@ -6640,7 +6916,7 @@ Base cost of creating an access-key restricted to specific functions.</p>
 Cost per byte of method_names of creating a restricted access-key.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="action_creation_config-1"><a class="header" href="#action_creation_config-1">action_creation_config</a></h1>
-<p>Describes the cost of creating a specific action, <code>Action</code>. Includes all variants.</p>
+<p>Describes the cost of creating a specific action, <code>Action</code>. It covers the actions up to <code>delegate_cost</code>. The fees of newer actions, such as global contract, state init and gas key actions, are separate runtime parameters.</p>
 <h2 id="create_account_cost"><a class="header" href="#create_account_cost">create_account_cost</a></h2>
 <p><code>type: Fee</code></p>
 <p>Base cost of creating an account.</p>
@@ -6694,28 +6970,23 @@ Additional cost per byte sent.</p>
 <p>Fee for executing the object.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="fraction"><a class="header" href="#fraction">Fraction</a></h1>
-<h2 id="numerator"><a class="header" href="#numerator">numerator</a></h2>
-<p><code>type: u64</code></p>
-<h2 id="denominator"><a class="header" href="#denominator">denominator</a></h2>
-<p><code>type: u64</code></p>
+<p>A rational number. In code it is a <code>Rational32</code>.</p>
+<p>In the genesis config and in RPC responses it is a JSON array of two signed 32-bit integers, <code>[numerator, denominator]</code>.
+For example, <code>[3, 10]</code> means 3/10.</p>
+<p>The parameter files in <code>core/parameters/res/runtime_configs/</code> write the same value as an object with <code>numerator</code> and <code>denominator</code> keys.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="storageusageconfig"><a class="header" href="#storageusageconfig">StorageUsageConfig</a></h1>
-<p>Describes cost of storage per block</p>
-<h2 id="account_cost"><a class="header" href="#account_cost">account_cost</a></h2>
-<p><em>type: Gas</em>
-Base storage usage for an account</p>
-<h2 id="data_record_cost"><a class="header" href="#data_record_cost">data_record_cost</a></h2>
-<p><em>type: Gas</em>
-Base cost for a k/v record</p>
-<h2 id="key_cost_per_byte"><a class="header" href="#key_cost_per_byte">key_cost_per_byte</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of key</p>
-<h2 id="value_cost_per_byte-gas"><a class="header" href="#value_cost_per_byte-gas">value_cost_per_byte: Gas</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of value</p>
-<h2 id="code_cost_per_byte-gas"><a class="header" href="#code_cost_per_byte-gas">code_cost_per_byte: Gas</a></h2>
-<p><em>type: Gas</em>
-Cost per byte of contract code</p>
+<p>Describes how the storage that an account uses is counted for storage staking.</p>
+<h2 id="num_bytes_account"><a class="header" href="#num_bytes_account">num_bytes_account</a></h2>
+<p><em>type: u64</em>
+Number of bytes counted for the account record, including rounding up for the account ID.
+The value is 100.</p>
+<h2 id="num_extra_bytes_record"><a class="header" href="#num_extra_bytes_record">num_extra_bytes_record</a></h2>
+<p><em>type: u64</em>
+Number of bytes counted for each key/value record, such as a contract data entry or an access key, in addition to the bytes of its key and value.
+The value is 40.</p>
+<p>The balance that an account must hold for each byte of storage is <code>storage_amount_per_byte</code> in <a href="GenesisConfig/RuntimeFeeConfig/../RuntimeConfig.html">RuntimeConfig</a>.
+It is not part of this struct.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="overview-3"><a class="header" href="#overview-3">Overview</a></h1>
 <p>This document describes the high-level architecture of nearcore. The focus here
@@ -8145,7 +8416,7 @@ transaction object, we write <code>SignedTransaction</code>.</em></p>
 <li><a href="architecture/how/gas.html#buying-gas-for-a-transaction">Buying Gas</a>: How are NEAR tokens converted to gas?</li>
 <li><a href="architecture/how/gas.html#burning-gas">Burning Gas</a>: Who receives burnt tokens?</li>
 <li><a href="architecture/how/gas.html#gas-in-contract-calls">Gas in Contract Calls</a>: How is gas attached to calls?</li>
-<li><a href="architecture/how/gas.html#contract-reward">Contract Reward</a>: How smart contract earn a reward.</li>
+<li><a href="architecture/how/gas.html#contract-reward">Contract Reward</a>: How smart contracts earned a reward up to protocol version 86.</li>
 </ul>
 </li>
 <li><a href="architecture/how/gas.html#gas-price">Gas Price</a>:
@@ -8158,38 +8429,77 @@ transaction object, we write <code>SignedTransaction</code>.</em></p>
 <li><a href="architecture/how/gas.html#tracking-gas-in-receipts">Tracking Gas</a>: How the system keeps track of purchased gas during the transaction execution.</li>
 </ol>
 <h2 id="gas-flow"><a class="header" href="#gas-flow">Gas Flow</a></h2>
-<p>On the highest level, gas is bought by the signer, burnt during execution, and
-contracts receive a part of the burnt gas as a reward. We will discuss each step
-in more details.</p>
+<p>On the highest level, gas is bought by the signer and burnt during execution. Up
+to protocol version 86, contracts also receive a part of the burnt gas as a
+reward. We will discuss each step in more details.</p>
 <h3 id="buying-gas-for-a-transaction"><a class="header" href="#buying-gas-for-a-transaction">Buying Gas for a Transaction</a></h3>
 <p>A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
-tokens from the balance of the signer's account. The fee is calculated as <code>gas amount</code> * <code>gas price</code>. The gas amount for actions included in a <code>SignedTransaction</code>
+tokens from the balance of the signer's account. The fee is calculated from the
+<code>gas amount</code> and the <code>gas price</code>. The gas amount for actions included in a <code>SignedTransaction</code>
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
 (See <a href="https://docs.near.org/protocol/transactions/gas#cost-for-common-actions">here</a> for more details.)</p>
-<p>If the account has insufficient balance to pay for this, it will fail with a
-<code>NotEnoughBalance</code> error, with the required balance included in the error message.</p>
 <p>The <code>gas amount</code> is not a field of <code>SignedTransaction</code>, nor is it something the
 signer can choose. It is only a virtual field that is computed on-chain following
 the protocol's rules.</p>
 <p>The <code>gas price</code> is a variable that may change during the execution of the
 transaction. The way it is implemented today, a single transaction can be
 charged a different gas price for different receipts.</p>
-<p>Already we can see a fundamental problem: Gas is bought once at the beginning
-but the gas price may change during execution. To solve this incompatibility,
-the protocol used to calculate a pessimistic gas price for the initial purchase.
-Later on, the delta between real and pessimistic gas prices would be refunded at
-the end of every receipt execution.</p>
+<p>From protocol version 85 (nearcore 2.13.0), with the adoption of
+<a href="https://github.com/near/NEPs/pull/642">NEP-642</a>, the gas of a transaction is
+priced in three steps:</p>
+<div class="table-wrapper"><table><thead><tr><th>Step</th><th>Gas</th><th>Price</th></tr></thead><tbody>
+<tr><td>Convert the <code>SignedTransaction</code> into a receipt</td><td>The gas burnt for the conversion</td><td>The current <code>gas price</code></td></tr>
+<tr><td>Buy gas for the receipt</td><td>All other gas, including the gas attached to function calls</td><td>The receipt gas price: the higher of the current <code>gas price</code> and <code>min_gas_purchase_price</code>, which is 1 NEAR per Pgas (10^9 yoctoNEAR per gas)</td></tr>
+<tr><td>Execute the receipt</td><td>The gas that the receipt burns</td><td>The burn price: the lower of the receipt gas price and the <code>gas price</code> of the block that executes the receipt</td></tr>
+</tbody></table>
+</div>
+<p>The signer pays for the first two steps upfront. After a receipt is executed,
+the signer gets a refund for the gas that the receipt did not use, at the
+receipt gas price. The refund also includes the price difference for the burnt
+gas, which is <code>gas_burnt * (receipt_gas_price - burn_price)</code>. If the receipt
+creates an account, the runtime keeps part of this price difference and burns
+it as the account creation charge. At the usual gas price, the execution fee
+for creating the account and this charge add up to <code>account_creation_charge</code>
+(0.007 NEAR).</p>
+<p>For example, a receipt with 100 Tgas bought at 1 NEAR per Pgas costs 0.1 NEAR
+upfront. Say it burns 20 Tgas at a burn price of 0.1 NEAR per Pgas, and it
+attaches no gas to new receipts. Then its execution costs 0.002 NEAR, and the
+refund is 0.098 NEAR. That is 0.08 NEAR for the 80 Tgas that the receipt did
+not use, plus 0.018 NEAR for the price difference of the 20 Tgas that it
+burnt. The example leaves out the conversion step and the gas refund fee,
+which is currently 0.</p>
+<p>If the account has insufficient balance to pay for the gas and the attached
+deposits, it will fail with a <code>NotEnoughBalance</code> error, with the required
+balance included in the error message.</p>
+<p>From protocol version 85 (nearcore 2.13.0), a transaction can also be signed
+with a gas key. Then the gas is paid from the balance stored on the gas key,
+and the deposits are paid from the account balance. If the gas key balance is
+too small, the transaction fails with a <code>NotEnoughGasKeyBalance</code> error. Gas
+refunds for such a transaction go back to the gas key balance. If the gas key
+no longer exists, they go to the account balance.</p>
+<h4 id="earlier-gas-pricing"><a class="header" href="#earlier-gas-pricing">Earlier gas pricing</a></h4>
+<p>Gas is bought once at the beginning, but the gas price may change during
+execution. Before protocol version 78, the protocol solved this with a
+pessimistic gas price for the initial purchase. Later on, the delta between
+real and pessimistic gas prices would be refunded at the end of every receipt
+execution.</p>
 <p>Generating a refund receipts for every executed function call has become a
 non-trivial overhead, limiting total throughput. Therefore, with the adoption of
 <a href="https://github.com/near/NEPs/pull/536">NEP-536</a> the model was changed.</p>
-<p>With version 78 and onward, the protocol simply ignores gas price changes
-between time of purchase and time of use. A transaction buys gas at one price
-and burns it at the same price. While this avoids the need for refunds due to
-price changes, it also means that transactions with deep receipt calls can end
+<p>From protocol version 78 to 84, the protocol simply ignored gas price changes
+between time of purchase and time of use. A transaction bought gas at one price
+and burnt it at the same price. While this avoided the need for refunds due to
+price changes, it also meant that transactions with deep receipt calls could end
 up with a cheaper gas price competing for the same chunk space. The community
 took note of this trade-off and agreed to take it.</p>
+<p>Protocol version 85 changed this again, as described above. Compared with
+protocol versions 78 to 84, almost every receipt again produces a gas refund
+receipt when the gas price is below <code>min_gas_purchase_price</code>. A transaction
+that creates no account costs the same at the usual gas price. But the signer
+needs a larger balance upfront, because <code>min_gas_purchase_price</code> is 10 times
+the lowest block gas price of 0.1 NEAR per Pgas.</p>
 <h3 id="burning-gas"><a class="header" href="#burning-gas">Burning Gas</a></h3>
 <p>Buying gas immediately removes a part of the signer's tokens from the total
 supply. However, the equivalent value in gas still exists in the form of the
@@ -8232,16 +8542,18 @@ work with the unspent gas attached to the current call. They can check how much
 gas is left by subtracting the <code>used_gas()</code> from the <code>prepaid_gas()</code> host
 function results. But they cannot use all the available gas, since that would
 prevent the current function call from executing to the end.</p>
-<p>The gas attached to a function can be at most <code>max_total_prepaid_gas</code>, which is
-300 Tgas since the mainnet launch. Note that this limit is per
-<code>SignedTransaction</code>, not per function call. In other words, batched function
-calls share this limit.</p>
+<p>The gas attached to function calls can be at most <code>max_total_prepaid_gas</code>. It
+was 300 Tgas from the mainnet launch, and it is 1 Pgas (1000 Tgas) since
+protocol version 83 (nearcore 2.11.0). Note that this limit applies to the
+total gas attached to all function calls in one <code>SignedTransaction</code> or one
+receipt, not to each function call. In other words, batched function calls
+share this limit. Function calls inside a delegate action count toward it too.</p>
 <p>There is also a limit to how much single call can burn, <code>max_gas_burnt</code>, which
-used to be 200 Tgas but has been increased to 300 Tgas in protocol version 52.
-(Note: When attaching gas to an outgoing function call, this is not counted as
-gas burnt.) However, given a call can never burn more than was attached anyway,
-this second limit is obsolete with the current configuration where the two limits
-are equal.</p>
+used to be 200 Tgas, was increased to 300 Tgas in protocol version 52, and to
+1 Pgas in protocol version 83. (Note: When attaching gas to an outgoing
+function call, this is not counted as gas burnt.) However, given a call can
+never burn more than was attached anyway, this second limit is obsolete with
+the current configuration where the two limits are equal.</p>
 <p>Since protocol version 53, with the stabilization of
 <a href="https://github.com/near/NEPs/blob/master/neps/nep-0264.md">NEP-264</a>, contract
 developers do not have to specify the absolute amount of gas to attach to calls.
@@ -8291,6 +8603,10 @@ opposite design choice from the &quot;smart contract pays&quot; model that for e
 <a href="https://internetcomputer.org/docs/current/developer-docs/gas-cost#details-cost-of-compute-and-storage-transactions-on-the-internet-computer">Cycles in the Internet
 Computer</a>
 implement.</p>
+<p>From protocol version 87 (nearcore 2.14.0), this is no longer the case.
+Contracts receive no part of the gas fee, and all burnt gas is removed from the
+total supply. The rest of this section describes the contract reward up to
+protocol version 86.</p>
 <p>The idea is that it gives contract developers a source of income and hence an
 incentive to create useful contracts that are commonly used. But there are also
 downsides, such as when implementing a free meta-transaction relayer one has to
@@ -8304,8 +8620,9 @@ contract rewards. The base fees paid for creating the receipt, including the
 <code>action_function_call</code> fee, are burnt 100%.</li>
 <li>The remainder of the burnt gas is multiplied by the runtime configuration
 parameter
-<a href="architecture/how/../../../core/parameters/res/runtime_configs/parameters.snap#L5C5-L5C5"><code>burnt_gas_reward</code></a>
-which currently is at 30%.</li>
+<a href="architecture/how/../../../core/parameters/res/runtime_configs/parameters.snap#L6"><code>burnt_gas_reward</code></a>
+which is 30% up to protocol version 86. From protocol version 87 (nearcore
+2.14.0), it is 0%.</li>
 </ol>
 <p>During receipt execution, nearcore code tracks the <code>gas_burnt_for_function_call</code>
 separately from other gas burning to enable this contract reward calculations.</p>
@@ -8347,7 +8664,9 @@ incorrect block header validation.</p>
 calls, this is the normal case, since attaching exactly the right amount of gas
 is tricky. Additionally, in case of receipt failure, some actions that did not
 start execution will have the execution gas unspent. This gas is converted back
-to NEAR tokens and sent as a refund transfer to the original signer.</p>
+to NEAR tokens and sent as a refund transfer to the original signer. If the
+transaction was signed with a gas key, the refund goes to the balance of that
+gas key.</p>
 <p>Before protocol version 78, the full gas amount would be refunded and the refund
 transfer action was executed for free. With <a href="https://github.com/near/NEPs/pull/536">NEP-536</a>
 which was implemented in version 78, the plan was to have the network charge a
@@ -8367,8 +8686,12 @@ problems are resolved, the plan is to try and introduce the 5% / 1 Tgas paramete
 is still executed for free, since the gas price is set to 0. This keeps it in
 line with balance refunds. However, when the gas refund is produced, at least 1
 Tgas has been burnt on receipt execution, which more than covers for a transfer.</p>
-<p>Finally, we can have a complete diagram, including the gas refund penalty.</p>
-<p><img src="https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca" alt="Complete Gas Flow Diagram" /></p>
+<p>The following diagram is a historical illustration of the complete gas flow.
+It shows the contract reward, which was paid up to protocol version 86, and
+the proposed 5% gas refund fee, which is currently 0. It also buys and burns gas
+at one gas price, as from protocol version 78 to 84. The current rules are
+described above.</p>
+<p><img src="https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca" alt="Historical Complete Gas Flow Diagram" /></p>
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-2867060321 -->
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="receipt-congestion"><a class="header" href="#receipt-congestion">Receipt Congestion</a></h1>
