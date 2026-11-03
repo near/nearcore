@@ -1,13 +1,18 @@
-use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::{
     ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
-use crate::spice::data_distributor_actor::DataVerification;
+use crate::spice::chunk_executor_actor::{
+    ExecutorIncomingUnverifiedReceipts, receipt_proof_exists,
+};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use crate::spice::data_manager::DataId;
+use crate::spice::tests::{
+    build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
+    pre_spice_boundary_genesis, save_and_record_block,
+};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -17,6 +22,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
+use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -45,13 +51,23 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::test_utils::{
+    TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
+};
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
-use near_store::ShardUId;
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+};
+use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::{PartialStorage, ShardUId};
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
@@ -94,7 +110,6 @@ enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
-    DataVerification(DataVerification),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -120,9 +135,6 @@ impl Clone for OutgoingMessage {
                 state_witness: state_witness.clone(),
                 contract_accesses: contract_accesses.clone(),
             }),
-            OutgoingMessage::DataVerification(verification) => {
-                OutgoingMessage::DataVerification(verification.clone())
-            }
         }
     }
 }
@@ -184,22 +196,17 @@ impl TestActor {
                 }
             }),
             witness: Sender::from_fn({
-                let outgoing_sc = outgoing_sc.clone();
                 move |message| {
                     outgoing_sc
                         .unbounded_send(OutgoingMessage::SpiceDistributorStateWitness(message))
                         .unwrap();
                 }
             }),
-            data_verification: Sender::from_fn({
-                move |message| {
-                    outgoing_sc.unbounded_send(OutgoingMessage::DataVerification(message)).unwrap();
-                }
-            }),
         };
         let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
             validator_signer.clone(),
             core_reader(&chain),
             noop().into_sender(),
@@ -221,6 +228,7 @@ impl TestActor {
             core_writer_sender,
             data_distributor_adapter,
             ChunkPersistenceConfig::default(),
+            None,
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
@@ -369,7 +377,6 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
             }
         }
         OutgoingMessage::SpiceDistributorStateWitness(_) => {}
-        OutgoingMessage::DataVerification(_) => {}
     }
 }
 
@@ -911,7 +918,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_verifying_a_network_receipt_reports_verified() {
+fn test_a_valid_network_receipt_is_saved() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
@@ -921,24 +928,24 @@ fn test_verifying_a_network_receipt_reports_verified() {
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
-    let receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
-    let data_id = DataId::receipt_proof(
-        *block.hash(),
-        receipt_proof.1.from_shard_id,
-        receipt_proof.1.to_shard_id,
-    );
+    // A proof another actor produced for the shard this one tracks: only the network
+    // path can put it in this actor's store.
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let store = actors[0].chain.chain_store.store();
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 
-    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-        data_id: data_id.clone(),
-        receipt_proof,
-    });
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
 
-    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Ok(data_id)]);
+    assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_verifying_an_invalid_network_receipt_reports_failed() {
+fn test_an_invalid_network_receipt_is_dropped() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
@@ -948,51 +955,140 @@ fn test_verifying_an_invalid_network_receipt_reports_failed() {
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
-    let mut receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let mut receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     receipt_proof.0.push(Receipt::new_balance_refund(
         &AccountId::from_str("test1").unwrap(),
         Balance::from_near(1),
     ));
-    let data_id = DataId::receipt_proof(
-        *block.hash(),
-        receipt_proof.1.from_shard_id,
-        receipt_proof.1.to_shard_id,
-    );
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
 
-    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-        data_id: data_id.clone(),
-        receipt_proof,
-    });
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
 
-    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Failed(data_id)]);
+    let store = actors[0].chain.chain_store.store();
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
+    // Nothing is buffered for a later retry either.
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 }
 
-/// First receipt proof the actors sent out; drops every other queued message.
-fn outgoing_receipt_proof(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> ReceiptProof {
+/// A receipt for a tracked shard that arrives before anything created that shard's
+/// executor is buffered, not dropped, and saved once the source block's execution results
+/// are endorsed.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_receipt_arriving_before_its_executor_exists_is_buffered_until_execution_results_are_endorsed()
+ {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    // Only the other actor executes, so this one never reconciles its tracked shards.
+    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[1], &block));
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let store = actors[0].chain.chain_store.store();
+
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+
+    // Buffered, not dropped: the source block's execution results are not in yet.
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
+    assert_eq!(actors[0].actor.pending_receipts_count(), 1);
+
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[0], &block));
+    record_endorsements(&mut actors, &block);
+    actors[0].handle_with_internal_events(ExecutionResultEndorsed { block_hash: *block.hash() });
+
+    assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
+}
+
+/// A receipt for a shard this node does not track is dropped, not buffered: an early
+/// receipt must not create an executor for a shard the node has no business executing.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_for_an_untracked_shard_is_dropped() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    // No endorsements are recorded, so a buffered receipt would stay buffered.
+    for actor in &mut actors {
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        assert!(block_executed(&actor, &block));
+    }
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+
+    let to_shard_id = untracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+}
+
+/// A shard `actor` tracks neither this nor next epoch as of `block`.
+fn untracked_shard(actor: &TestActor, block: &Block) -> ShardId {
+    let tracked =
+        actor.actor.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.hash()).unwrap();
+    actor
+        .actor
+        .epoch_manager
+        .shard_uids(block.header().epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_uid| shard_uid.shard_id())
+        .find(|shard_id| !tracked.iter().any(|shard_uid| shard_uid.shard_id() == *shard_id))
+        .expect("actor does not track every shard")
+}
+
+/// The shard `actor` tracks in `block`'s epoch.
+fn tracked_shard(actor: &TestActor, block: &Block) -> ShardId {
+    actor
+        .actor
+        .epoch_manager
+        .shard_uids(block.header().epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_uid| shard_uid.shard_id())
+        .find(|shard_id| actor.actor.shard_tracker.cares_about_shard(block.hash(), *shard_id))
+        .expect("actor tracks a shard")
+}
+
+/// First receipt proof the actors sent out from another shard into `to_shard_id`; drops
+/// every other queued message.
+fn outgoing_receipt_proof_to(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    to_shard_id: ShardId,
+) -> ReceiptProof {
     let mut proof = None;
     while let Ok(Some(message)) = outgoing_rc.try_next() {
+        let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
+            receipt_proofs,
+            ..
+        }) = &message
+        else {
+            continue;
+        };
         if proof.is_none() {
-            if let OutgoingMessage::SpiceDistributorOutgoingReceipts(
-                SpiceDistributorOutgoingReceipts { receipt_proofs, .. },
-            ) = &message
-            {
-                proof = Some(receipt_proofs[0].clone());
-            }
+            proof = receipt_proofs
+                .iter()
+                .find(|proof| {
+                    proof.1.to_shard_id == to_shard_id && proof.1.from_shard_id != to_shard_id
+                })
+                .cloned();
         }
     }
-    proof.expect("executing a block should send receipt proofs")
-}
-
-fn drain_verifications(
-    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
-) -> Vec<DataVerification> {
-    let mut verifications = Vec::new();
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
-        if let OutgoingMessage::DataVerification(verification) = message {
-            verifications.push(verification);
-        }
-    }
-    verifications
+    proof.expect("executing a block should send receipt proofs into the tracked shard")
 }
 
 #[test]
@@ -1353,4 +1449,629 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     spice_head_update.commit();
 
     assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
+}
+
+fn build_saved_block(
+    chain: &mut Chain,
+    prev_block: &Block,
+    height: u64,
+    protocol_version: ProtocolVersion,
+    signer: &Arc<ValidatorSigner>,
+) -> Arc<Block> {
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer.clone())
+        .height(height)
+        .protocol_version(protocol_version)
+        .build();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_block(block.clone());
+    store_update.save_block_header(block.header().clone()).unwrap();
+    store_update.commit().unwrap();
+    block
+}
+
+fn seed_execution_heads(chain: &Chain, last_pre_spice: &Block, block: &Block) {
+    let mut store_update = chain.chain_store.store().store_update();
+    seed_execution_heads_at_activation(&mut store_update, block, last_pre_spice.header()).unwrap();
+    store_update.commit();
+}
+
+/// Height of the last pre-spice block of [`pre_spice_boundary_chain`].
+const LAST_PRE_SPICE_HEIGHT: u64 = 3;
+
+/// A pre-spice chain genesis..`LAST_PRE_SPICE_HEIGHT` at consecutive heights, so
+/// `Block::produce` resolves real last-final blocks: a first spice block built on the
+/// last pre-spice block finalizes that block's parent. `blocks[h]` is the block at
+/// height `h`.
+fn pre_spice_boundary_chain() -> (Chain, Arc<ValidatorSigner>, Vec<Arc<Block>>) {
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut chain = {
+        let genesis = TestGenesisBuilder::new()
+            .protocol_version(pre_spice_protocol_version())
+            .validators_spec(ValidatorsSpec::desired_roles(&[signer.validator_id().as_str()], &[]))
+            .build();
+        get_chain_with_genesis(Clock::real(), genesis)
+    };
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=LAST_PRE_SPICE_HEIGHT {
+        let block = build_saved_block(
+            &mut chain,
+            blocks[height as usize - 1].clone().as_ref(),
+            height,
+            pre_spice_protocol_version(),
+            &signer,
+        );
+        blocks.push(block);
+    }
+    (chain, signer, blocks)
+}
+
+/// Re-seeding the execution heads from sibling boundary forks changes nothing:
+/// both setters are forward-only, and every first spice block on a same-height
+/// fork resolves the same last final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let first_spice_height = LAST_PRE_SPICE_HEIGHT + 1;
+    let last_pre_spice = blocks[LAST_PRE_SPICE_HEIGHT as usize].clone();
+    let last_final = blocks[LAST_PRE_SPICE_HEIGHT as usize - 1].clone();
+    let first_spice = build_saved_block(
+        &mut chain,
+        last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    assert_eq!(first_spice.header().last_final_block(), last_final.hash());
+
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
+    let chain_store = chain.chain_store.store().chain_store();
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        last_final.hash()
+    );
+
+    // A sibling first spice block on the same prev block re-seeds to the same heads.
+    let sibling_first_spice = build_saved_block(
+        &mut chain,
+        last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), sibling_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        last_final.hash()
+    );
+
+    // A same-height sibling last pre-spice block on a fork re-seeds without moving
+    // the heads either: the forward-only execution head setter skips equal heights.
+    let sibling_last_pre_spice = build_saved_block(
+        &mut chain,
+        last_final.as_ref(),
+        LAST_PRE_SPICE_HEIGHT,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let fork_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    seed_execution_heads(&chain, sibling_last_pre_spice.as_ref(), fork_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        last_final.hash()
+    );
+}
+
+/// At the boundary the final execution head is seeded to the first spice block's
+/// last final block. `is_descendant_of_final_execution_head` gates execution on it
+/// by walking a block's ancestry down to the head's height and comparing heights
+/// only, never hashes. Consequences:
+/// - a fork whose blocks sit at the same heights as the canonical chain passes,
+///   even though its ancestor at the head's height is a different block;
+/// - a fork that branched below the seeded head and skipped its height has no
+///   ancestor at that height, fails the check, and so never executes — only a
+///   losing fork can have that shape, since the seeded head is a final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let first_spice_height = LAST_PRE_SPICE_HEIGHT + 1;
+    let seeded_head_height = LAST_PRE_SPICE_HEIGHT - 1;
+    let last_pre_spice = blocks[LAST_PRE_SPICE_HEIGHT as usize].clone();
+    let first_spice = build_saved_block(
+        &mut chain,
+        last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
+    assert_eq!(chain.chain_store.spice_final_execution_head().unwrap().height, seeded_head_height);
+
+    // A fork branching below the seeded head with a block at every height passes:
+    // its ancestor at the head's height is a different block, but the check only
+    // compares heights.
+    let below_seeded_head = blocks[seeded_head_height as usize - 1].clone();
+    let sibling_seeded_head = build_saved_block(
+        &mut chain,
+        below_seeded_head.as_ref(),
+        seeded_head_height,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    assert_ne!(sibling_seeded_head.hash(), blocks[seeded_head_height as usize].hash());
+    let sibling_last_pre_spice = build_saved_block(
+        &mut chain,
+        sibling_seeded_head.as_ref(),
+        LAST_PRE_SPICE_HEIGHT,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let sibling_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    assert!(is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        sibling_first_spice.header()
+    ));
+
+    // A fork branching below the seeded head and skipping its height has no
+    // ancestor at that height and is rejected.
+    let skipping_last_pre_spice = build_saved_block(
+        &mut chain,
+        below_seeded_head.as_ref(),
+        LAST_PRE_SPICE_HEIGHT,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let skipping_first_spice = build_saved_block(
+        &mut chain,
+        skipping_last_pre_spice.as_ref(),
+        first_spice_height,
+        spice_protocol_version,
+        &signer,
+    );
+    assert!(!is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        skipping_first_spice.header()
+    ));
+}
+
+/// A node tracking every shard, with a fabricated chain whose tip is a last pre-spice
+/// block. `outgoing_rc` collects the actor's outgoing messages.
+struct BoundaryActor {
+    test_actor: TestActor,
+    last_pre_spice: Arc<Block>,
+    shard_layout: ShardLayout,
+    /// Produces the fabricated blocks; always an epoch validator.
+    signer: Arc<ValidatorSigner>,
+    outgoing_rc: UnboundedReceiver<OutgoingMessage>,
+}
+
+fn setup_boundary_actor() -> BoundaryActor {
+    setup_boundary_actor_with(&["test0"], &[], Some("test0"))
+}
+
+/// `producers` and `chunk_validators_only` are the epoch validators; the node runs
+/// as `node_account`, which need not be one of them, or without a validator signer when
+/// `None`.
+fn setup_boundary_actor_with(
+    producers: &[&str],
+    chunk_validators_only: &[&str],
+    node_account: Option<&str>,
+) -> BoundaryActor {
+    const BOUNDARY_NUM_SHARDS: NumShards = 3;
+
+    init_test_logger();
+    let (outgoing_sc, outgoing_rc) = unbounded();
+    let signer = Arc::new(create_test_signer(producers[0]));
+    let shard_layout = ShardLayout::multi_shard(BOUNDARY_NUM_SHARDS, 0);
+    let genesis =
+        pre_spice_boundary_genesis(producers, chunk_validators_only, shard_layout.clone());
+    let node_signer = node_account.map(|account| Arc::new(create_test_signer(account)));
+    let mut test_actor = TestActor::new(
+        genesis,
+        MutableConfigValue::new(node_signer, "validator_signer"),
+        shard_layout.shard_uids().collect(),
+        outgoing_sc,
+    );
+    let last_pre_spice = build_to_last_pre_spice_block(&mut test_actor.chain, &signer);
+    BoundaryActor { test_actor, last_pre_spice, shard_layout, signer, outgoing_rc }
+}
+
+/// What the boundary bootstrap sent for one shard's chunk of the last pre-spice block.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct BoundarySends {
+    receipts: bool,
+    witness: bool,
+    endorsement_broadcast: bool,
+}
+
+impl BoundaryActor {
+    /// Writes what this node's pre-spice apply of the last pre-spice block `block_hash`
+    /// left behind for each of `shard_uids`: outgoing receipts and a chunk extra. A shard
+    /// left out cannot be synthesized.
+    fn seed_pre_spice_apply_artifacts(&mut self, block_hash: CryptoHash, shard_uids: &[ShardUId]) {
+        let mut store_update = self.test_actor.chain.chain_store.store_update();
+        for shard_uid in shard_uids {
+            store_update.save_outgoing_receipt(
+                &block_hash,
+                shard_uid.shard_id(),
+                vec![Receipt::new_balance_refund(
+                    &self.signer.validator_id().clone(),
+                    Balance::from_near(1),
+                )],
+            );
+            store_update.save_chunk_extra(
+                &block_hash,
+                shard_uid,
+                ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(
+                    shard_uid.shard_id().to_string().as_bytes(),
+                ))
+                .into(),
+            );
+        }
+        store_update.commit().unwrap();
+    }
+
+    /// Records the state transition of each shard's chunk of the last pre-spice block,
+    /// as a node producing witnesses does while applying it.
+    fn record_pre_spice_state_transitions(&mut self) {
+        let block_hash = *self.last_pre_spice.hash();
+        let prev_hash = *self.last_pre_spice.header().prev_hash();
+        let source_proofs: Vec<ReceiptProof> = self
+            .shard_layout
+            .shard_ids()
+            .flat_map(|from_shard_id| {
+                empty_outgoing_receipt_proofs(&self.test_actor.chain, &prev_hash, from_shard_id).1
+            })
+            .collect();
+        let applied_receipts_hash = CryptoHash::hash_borsh(Vec::<Receipt>::new());
+        let mut store_update = self.test_actor.chain.chain_store.store_update();
+        for shard_id in self.shard_layout.shard_ids() {
+            let incoming_proofs = source_proofs
+                .iter()
+                .filter(|proof| proof.1.to_shard_id == shard_id)
+                .cloned()
+                .collect();
+            store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(incoming_proofs));
+            store_update.save_state_transition_data(
+                block_hash,
+                shard_id,
+                Some(PartialStorage { nodes: PartialState::TrieValues(vec![]) }),
+                applied_receipts_hash,
+                ContractUpdates::default(),
+            );
+        }
+        store_update.commit().unwrap();
+    }
+
+    /// Builds, saves and records in the epoch manager a first spice block on top of
+    /// the last pre-spice block.
+    fn build_first_spice_block(&mut self) -> Arc<Block> {
+        let chain = &mut self.test_actor.chain;
+        let epoch_manager = chain.epoch_manager.clone();
+        let prev_hash = self.last_pre_spice.hash();
+        let mut block = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            &self.last_pre_spice,
+            self.signer.clone(),
+        )
+        .chunks(get_fake_next_block_chunk_headers(&self.last_pre_spice, epoch_manager.as_ref()))
+        .epoch_id(epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap())
+        .next_epoch_id(epoch_manager.get_next_epoch_id_from_prev_block(prev_hash).unwrap())
+        .protocol_version(ProtocolFeature::Spice.protocol_version())
+        .build_owned();
+        block.mut_header().resign(self.signer.as_ref());
+        let block = Arc::new(block);
+        save_and_record_block(chain, &block);
+        block
+    }
+
+    /// Drains the outgoing messages into what was sent per shard.
+    fn drain_sends(&mut self) -> HashMap<ShardId, BoundarySends> {
+        let block_hash = *self.last_pre_spice.hash();
+        let mut sends: HashMap<ShardId, BoundarySends> = HashMap::new();
+        while let Ok(Some(message)) = self.outgoing_rc.try_next() {
+            match message {
+                OutgoingMessage::SpiceDistributorOutgoingReceipts(
+                    SpiceDistributorOutgoingReceipts { block_hash: sent_hash, receipt_proofs },
+                ) => {
+                    assert_eq!(sent_hash, block_hash);
+                    for proof in receipt_proofs {
+                        sends.entry(proof.1.from_shard_id).or_default().receipts = true;
+                    }
+                }
+                OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
+                    state_witness,
+                    ..
+                }) => {
+                    let chunk_id = state_witness.chunk_id();
+                    assert_eq!(chunk_id.block_hash, block_hash);
+                    sends.entry(chunk_id.shard_id).or_default().witness = true;
+                }
+                OutgoingMessage::NetworkRequests(NetworkRequests::SpiceChunkEndorsement(
+                    _,
+                    endorsement,
+                )) => {
+                    assert_eq!(endorsement.block_hash(), &block_hash);
+                    sends.entry(endorsement.shard_id()).or_default().endorsement_broadcast = true;
+                }
+                OutgoingMessage::NetworkRequests(request) => {
+                    panic!("unexpected network request {request:?}")
+                }
+            }
+        }
+        sends
+    }
+
+    /// What `node_account`'s roles at the last pre-spice block say the bootstrap sends
+    /// for `shard_id`: receipts and, when recorded, a witness as a chunk producer; an
+    /// endorsement broadcast as a designated chunk validator.
+    fn expected_sends(
+        &self,
+        node_account: &AccountId,
+        shard_id: ShardId,
+        witness_recorded: bool,
+    ) -> BoundarySends {
+        let epoch_manager = self.test_actor.chain.epoch_manager.as_ref();
+        let header = self.last_pre_spice.header();
+        let is_producer = epoch_manager
+            .get_epoch_chunk_producers_for_shard(header.epoch_id(), shard_id)
+            .unwrap()
+            .contains(node_account);
+        let is_designated = epoch_manager
+            .get_chunk_validator_assignments(header.epoch_id(), shard_id, header.height())
+            .unwrap()
+            .contains(node_account);
+        BoundarySends {
+            receipts: is_producer,
+            witness: is_producer && witness_recorded,
+            endorsement_broadcast: is_designated,
+        }
+    }
+
+    /// Runs the bootstrap as `node_account` and asserts each shard's sends match its
+    /// roles, and that its own endorsement is recorded locally for every shard iff it
+    /// is an epoch validator.
+    fn bootstrap_and_assert_sends(&mut self, node_account: &AccountId, witness_recorded: bool) {
+        let shard_uids: Vec<ShardUId> = self.shard_layout.shard_uids().collect();
+        self.seed_pre_spice_apply_artifacts(*self.last_pre_spice.hash(), &shard_uids);
+        self.test_actor.actor.handle_processed_block(self.last_pre_spice.hash()).unwrap();
+
+        let mut sends = self.drain_sends();
+        let epoch_manager = self.test_actor.chain.epoch_manager.clone();
+        let epoch_id = self.last_pre_spice.header().epoch_id();
+        let is_validator =
+            epoch_manager.get_validator_by_account_id(epoch_id, node_account).is_ok();
+        let core_reader = core_reader(&self.test_actor.chain);
+        for shard_id in self.shard_layout.shard_ids() {
+            assert_eq!(
+                sends.remove(&shard_id).unwrap_or_default(),
+                self.expected_sends(node_account, shard_id, witness_recorded),
+                "sends of shard {shard_id}",
+            );
+            assert_eq!(
+                core_reader.endorsement_exists(self.last_pre_spice.hash(), shard_id, node_account),
+                is_validator,
+                "local endorsement of shard {shard_id}",
+            );
+        }
+        assert!(sends.is_empty(), "sends for unknown shards: {sends:?}");
+        self.assert_receipt_proofs(*self.last_pre_spice.hash(), |_| true);
+    }
+
+    /// Asserts that exactly the shards `produced` accepts persisted their receipt
+    /// proofs at the last pre-spice block `block_hash`.
+    fn assert_receipt_proofs(&self, block_hash: CryptoHash, produced: impl Fn(ShardUId) -> bool) {
+        let store = self.test_actor.actor.chain_store.store();
+        for shard_uid in self.shard_layout.shard_uids() {
+            let from_shard_id = shard_uid.shard_id();
+            let expected = produced(shard_uid);
+            for to_shard_id in self.shard_layout.shard_ids() {
+                assert_eq!(
+                    receipt_proof_exists(&store, &block_hash, to_shard_id, from_shard_id),
+                    expected,
+                    "receipt proof {from_shard_id} -> {to_shard_id} at last pre-spice block {block_hash}",
+                );
+            }
+        }
+    }
+}
+
+/// The boundary bootstrap has to survive a shard it cannot synthesize. That
+/// shard's bootstrap must fail on its own without taking the other shards' work
+/// with it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    let broken_shard_uid = shard_uids[1];
+    let synthesizable: Vec<ShardUId> =
+        shard_uids.iter().copied().filter(|shard_uid| *shard_uid != broken_shard_uid).collect();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &synthesizable);
+
+    let result = boundary.test_actor.actor.handle_processed_block(boundary.last_pre_spice.hash());
+    assert!(
+        result.is_ok(),
+        "one unsynthesizable shard must not fail the whole boundary bootstrap: {:?}",
+        result.unwrap_err(),
+    );
+
+    // Each synthesizable shard still produced and persisted its receipt proofs,
+    // whichever order the coordinator visited the executors in.
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |shard_uid| {
+        shard_uid != broken_shard_uid
+    });
+}
+
+/// The bootstrap's sends are not persisted, so a restart that finds the last
+/// pre-spice block at the head re-runs it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_reruns_on_startup_from_head() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
+    let mut store_update = boundary.test_actor.chain.chain_store.store_update();
+    store_update.save_head(&Tip::from_header(boundary.last_pre_spice.header())).unwrap();
+    store_update.commit().unwrap();
+
+    boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
+}
+
+/// With a pre-spice head on startup, the bootstrap re-runs for every last pre-spice block
+/// past the final head, not only the head's. Here the head is a height-skipping sibling of
+/// another last pre-spice block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_reruns_on_startup_from_forks() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    let chain = &mut boundary.test_actor.chain;
+    let fork_point = chain.get_block(boundary.last_pre_spice.header().prev_hash()).unwrap();
+    let sibling = build_pre_spice_block(
+        chain,
+        &fork_point,
+        boundary.last_pre_spice.header().height().checked_add(1).unwrap(),
+        &boundary.signer,
+    );
+    assert!(is_last_pre_spice_block(chain.epoch_manager.as_ref(), sibling.hash()).unwrap());
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_head(&Tip::from_header(sibling.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(fork_point.header())).unwrap();
+    store_update.commit().unwrap();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
+    boundary.seed_pre_spice_apply_artifacts(*sibling.hash(), &shard_uids);
+
+    boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
+    boundary.assert_receipt_proofs(*sibling.hash(), |_| true);
+}
+
+/// Once the first spice block is processed the head moves on, but the spice execution
+/// heads still point at pre-spice blocks until it is executed. A restart in that window
+/// re-runs the bootstrap and applies the first spice block, although `all_next_block_hashes`
+/// has no entry from the pre-spice final execution head to the last pre-spice block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_reruns_on_startup_after_first_spice_block() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
+    let first_spice = boundary.build_first_spice_block();
+    seed_execution_heads(&boundary.test_actor.chain, &boundary.last_pre_spice, &first_spice);
+    let mut store_update = boundary.test_actor.chain.chain_store.store_update();
+    store_update.save_head(&Tip::from_header(first_spice.header())).unwrap();
+    store_update.commit().unwrap();
+
+    boundary.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+
+    boundary.assert_receipt_proofs(*boundary.last_pre_spice.hash(), |_| true);
+    assert_eq!(boundary.test_actor.drain_tasks().len(), shard_uids.len());
+}
+
+/// A first spice block parked on the last pre-spice block's receipt proofs, as
+/// after a restart, is applied once the bootstrap persists them: nothing else
+/// re-drives the parked queue for the receipts produced locally.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_wakes_parked_first_spice_block() {
+    let mut boundary = setup_boundary_actor();
+    let shard_uids: Vec<ShardUId> = boundary.shard_layout.shard_uids().collect();
+    boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
+    let first_spice = boundary.build_first_spice_block();
+    seed_execution_heads(&boundary.test_actor.chain, &boundary.last_pre_spice, &first_spice);
+
+    boundary.test_actor.actor.handle_processed_block(first_spice.hash()).unwrap();
+    assert!(
+        boundary.test_actor.drain_tasks().is_empty(),
+        "the first spice block must wait for the boundary receipt proofs",
+    );
+
+    boundary.test_actor.actor.handle_processed_block(boundary.last_pre_spice.hash()).unwrap();
+    assert_eq!(boundary.test_actor.drain_tasks().len(), shard_uids.len());
+}
+
+/// A chunk producer that recorded the boundary block's transitions sends its receipts
+/// and witness, and a designated validator broadcasts its endorsement.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_sends_by_role() {
+    let mut boundary = setup_boundary_actor_with(&["test0", "test1"], &[], Some("test0"));
+    boundary.record_pre_spice_state_transitions();
+    let node_account = AccountId::from_str("test0").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, true);
+}
+
+/// Without recorded transitions a chunk producer has no witness to send; its receipts
+/// and endorsement still go out.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_without_recorded_transitions_sends_no_witness() {
+    let mut boundary = setup_boundary_actor_with(&["test0", "test1"], &[], Some("test0"));
+    let node_account = AccountId::from_str("test0").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, false);
+}
+
+/// An epoch validator outside a chunk's designated set records its endorsement only
+/// locally, since peers reject it before the chunk is fallback-eligible.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_non_designated_validator_endorses_locally() {
+    // More validators than mandates per shard, so each chunk's designated set leaves
+    // some out. A single block producer keeps the spice upgrade vote reachable.
+    let chunk_validators: Vec<String> = (1..100).map(|i| format!("test{i}")).collect();
+    let chunk_validators: Vec<&str> = chunk_validators.iter().map(String::as_str).collect();
+    let probe = setup_boundary_actor_with(&["test0"], &chunk_validators, None);
+    let header = probe.last_pre_spice.header();
+    let non_designated = chunk_validators
+        .iter()
+        .map(|account| AccountId::from_str(account).unwrap())
+        .find(|account| {
+            probe.shard_layout.shard_ids().any(|shard_id| {
+                !probe
+                    .test_actor
+                    .chain
+                    .epoch_manager
+                    .get_chunk_validator_assignments(header.epoch_id(), shard_id, header.height())
+                    .unwrap()
+                    .contains(account)
+            })
+        })
+        .expect("no non-designated validator; increase the validator count");
+
+    let mut boundary =
+        setup_boundary_actor_with(&["test0"], &chunk_validators, Some(non_designated.as_str()));
+    boundary.bootstrap_and_assert_sends(&non_designated, false);
+}
+
+/// A node whose signer is not an epoch validator neither produces nor endorses:
+/// it only persists the receipt proofs for its own use.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_non_validator_sends_nothing() {
+    let mut boundary = setup_boundary_actor_with(&["test0"], &[], Some("test1"));
+    boundary.record_pre_spice_state_transitions();
+    let node_account = AccountId::from_str("test1").unwrap();
+    boundary.bootstrap_and_assert_sends(&node_account, true);
 }

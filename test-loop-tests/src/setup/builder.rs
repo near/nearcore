@@ -42,6 +42,7 @@ pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     setup_config: SetupConfig,
     epoch_config_store: Option<EpochConfigStore>,
+    shuffle_shard_assignment_for_chunk_producers: bool,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -93,6 +94,7 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
+            shuffle_shard_assignment_for_chunk_producers: false,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -271,6 +273,16 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, gas_price_adjustment_rate: Rational32) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(
+            auto.gas_price_adjustment_rate.is_none(),
+            "gas_price_adjustment_rate is already set"
+        );
+        auto.gas_price_adjustment_rate = Some(gas_price_adjustment_rate);
+        self
+    }
+
     pub fn add_user_account(mut self, account_id: &AccountId, initial_balance: Balance) -> Self {
         let auto = self.setup_config.ensure_auto();
         auto.user_accounts.push((account_id.clone(), initial_balance));
@@ -342,8 +354,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
-        // noop, this is a default behavior now, to be removed
+    pub(crate) fn shuffle_shard_assignment_for_chunk_producers(mut self, shuffle: bool) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = shuffle;
         self
     }
 
@@ -456,10 +468,20 @@ impl TestLoopBuilder {
     }
 
     fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
-        if self.epoch_config_store.is_none() {
-            self.epoch_config_store =
-                Some(TestEpochConfigBuilder::build_store_from_genesis(genesis));
+        if self.epoch_config_store.is_some() {
+            assert!(
+                !self.shuffle_shard_assignment_for_chunk_producers,
+                "shuffle_shard_assignment_for_chunk_producers cannot be used with epoch_config_store"
+            );
+            return;
         }
+        self.epoch_config_store = Some(
+            TestEpochConfigBuilder::from_genesis(genesis)
+                .shuffle_shard_assignment_for_chunk_producers(
+                    self.shuffle_shard_assignment_for_chunk_producers,
+                )
+                .build_store_for_genesis_protocol_version(),
+        );
     }
 
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {
@@ -742,6 +764,7 @@ struct AutoSetupConfig {
     max_inflation_rate: Option<Rational32>,
     minimum_stake_ratio: Option<Rational32>,
     gas_prices: Option<(Balance, Balance)>,
+    gas_price_adjustment_rate: Option<Rational32>,
 }
 
 impl SetupConfig {
@@ -804,6 +827,7 @@ impl AutoSetupConfig {
             max_inflation_rate: None,
             minimum_stake_ratio: None,
             gas_prices: None,
+            gas_price_adjustment_rate: None,
         }
     }
 
@@ -838,6 +862,9 @@ impl AutoSetupConfig {
         }
         if let Some((min, max)) = self.gas_prices {
             genesis_builder = genesis_builder.gas_prices(min, max);
+        }
+        if let Some(gas_price_adjustment_rate) = self.gas_price_adjustment_rate {
+            genesis_builder = genesis_builder.gas_price_adjustment_rate(gas_price_adjustment_rate);
         }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);

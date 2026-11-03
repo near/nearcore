@@ -226,17 +226,18 @@ Current implementation on Runtime only allows your account's contract to read fr
 NOTE: Accounts must maintain a minimum amount of value at a rate of 1 NEAR per 100kb of total storage in order to remain responsive.
 This includes the storage of the account itself, contract code, contract storage, and all access keys.
 Any account with less than this minimum amount will not be able to maintain a responsive contract and will, instead, return an error related to this mismatch in storage vs. minimum account balance.
-See [Storage Staking](https://docs.near.org/concepts/storage/storage-staking) in the docs.
+See [Storage Staking](https://docs.near.org/protocol/storage/storage-staking) in the docs.
 
 #### Access Keys
 
 An access key grants an access to a account. Each access key on the account is identified by a unique public key.
 This public key is used to validate signature of transactions.
-Each access key contains a unique nonce to differentiate or order transactions signed with this access key.
+Each access key contains a unique nonce to differentiate or order transactions signed with this access key. A gas key has several nonces instead of one.
 
-An access key has a permission associated with it. The permission can be one of two types:
+An access key has a permission associated with it. The permission can be one of four types:
 
 - `FullAccess` permission. It grants full access to the account.
 - `FunctionCall` permission. It grants access to only issued function call transactions.
+- `GasKeyFullAccess` and `GasKeyFunctionCall` permissions. They grant the same access as `FullAccess` and `FunctionCall`, and they pay for gas from a prepaid balance. See [Gas Keys](AccessKey.md#gas-keys).
 
 See [Access Keys](AccessKey.md) for more details.

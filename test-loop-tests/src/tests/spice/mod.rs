@@ -1,11 +1,16 @@
+mod activation_boundary;
+mod activation_tracking;
 mod all_stake_fallback;
 mod basic;
 mod congestion;
 mod core_statement_limit;
 mod data_faults;
 mod garbage_collection;
+mod key_rotation;
 mod light_client;
 mod malicious_chunk_producer;
 mod pre_activation;
+mod receipt_proof_push;
 mod resharding;
+mod state_sync;
 mod utils;

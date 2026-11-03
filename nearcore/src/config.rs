@@ -102,9 +102,6 @@ const CHUNK_REQUEST_RETRY_PERIOD: i64 = 400;
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: i64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: i64 = 500;
 
-/// The minimum stake required for staking is last seat price divided by this number.
-pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
@@ -161,6 +158,8 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     #[serde(alias = "state_sync_external_timeout")]
     pub block_request_timeout: Duration,
+    /// How long to wait for a response from p2p state sync. Values above 15s don't help, because
+    /// a connection is closed once nothing has been sent or received on it for 15s.
     #[serde(default = "default_state_sync_p2p_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_p2p_timeout: Duration,
@@ -429,6 +428,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
+    /// Whether to use the isolated compiler-daemon subprocesses.
+    ///
+    /// Disabled by default.
+    pub enable_compiler_daemon: bool,
+
     /// Location where to store a cache of compiled contracts.
     ///
     /// This cache can be manually emptied occasionally to keep storage usage down and does not
@@ -451,9 +455,9 @@ pub struct Config {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
-    /// constraints during chunk production and RPC validation. Disabled by
-    /// default; only meaningful when SPICE is active.
+    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
+    /// during chunk production and RPC validation. Disabled by default; only
+    /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
 }
@@ -525,6 +529,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
+            enable_compiler_daemon: false,
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
@@ -768,7 +773,6 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
-                ttl_account_id_router: config.network.ttl_account_id_router,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,

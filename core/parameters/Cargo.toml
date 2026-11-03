@@ -36,7 +36,6 @@ insta.workspace = true
 nightly = [
   "near-primitives-core/nightly",
 ]
-calimero_zero_storage = []
 
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",

@@ -5,11 +5,10 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
-use crate::utils::get_node_head_height;
 use crate::utils::transactions::{make_account, make_accounts};
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
@@ -38,7 +37,7 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     let method_name = "main";
     let args = vec![];
 
-    let start_height = get_node_head_height(&mut env, &accounts[0]);
+    let start_height = env.node_for_account(&accounts[0]).head().height;
 
     let tx = env.rpc_node().tx_deploy_contract(&contract_id, contract.code().to_vec());
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
@@ -73,7 +72,7 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     let tx = env.rpc_node().tx_delete_account(&contract_id, &beneficiary);
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
 
-    let end_height = get_node_head_height(&env, &accounts[0]);
+    let end_height = env.node_for_account(&accounts[0]).head().height;
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 }
 
@@ -120,7 +119,7 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     let method_name = "main";
     let args = vec![];
 
-    let start_height = get_node_head_height(&env, &accounts[0]);
+    let start_height = env.node_for_account(&accounts[0]).head().height;
 
     let tx = env.rpc_node().tx_deploy_contract(&contract_id1, contract.code().to_vec());
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
@@ -159,7 +158,7 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     let tx = env.rpc_node().tx_delete_account(&contract_id2, &beneficiary);
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
 
-    let end_height = get_node_head_height(&env, &accounts[0]);
+    let end_height = env.node_for_account(&accounts[0]).head().height;
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 }
 
@@ -210,7 +209,7 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     let method_name = "main";
     let args = vec![];
 
-    let start_height = get_node_head_height(&env, &accounts[0]);
+    let start_height = env.node_for_account(&accounts[0]).head().height;
 
     for contract in &contracts {
         let tx = env.rpc_node().tx_deploy_contract(&contract_id, contract.code().to_vec());
@@ -241,13 +240,11 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     let tx = env.rpc_node().tx_delete_account(&contract_id, &beneficiary);
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
 
-    let end_height = get_node_head_height(&env, &accounts[0]);
+    let end_height = env.node_for_account(&accounts[0]).head().height;
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
-    let builder = TestLoopBuilder::new();
-
     // All block_and_chunk_producers will be both block and chunk validators.
     let block_and_chunk_producers =
         (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect_vec();
@@ -256,23 +253,17 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .map(|idx| accounts[idx].as_str())
         .collect_vec();
 
-    let mut clients = accounts.iter().take(NUM_VALIDATORS).cloned().collect_vec();
-    clients.push(rpc_account_id());
-
     let shard_layout = ShardLayout::single_shard();
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .add_user_account_simple(rpc_account_id(), Balance::from_near(1_000_000))
+        .add_user_accounts(accounts, Balance::from_near(1_000_000))
+        .add_user_account(&rpc_account_id(), Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .enable_rpc()
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build()
+        .build()
 }

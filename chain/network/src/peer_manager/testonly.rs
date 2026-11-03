@@ -2,14 +2,10 @@ use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
-use crate::client::AnnounceAccountRequest;
 use crate::client::ClientSenderForNetwork;
-use crate::client::StatePartOrHeader;
-use crate::client::StateRequestPart;
+use crate::client::StateRequestUpdateMessage;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::StateResponseInfo;
-use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -25,19 +21,14 @@ use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
 use crate::types::StateRequestSenderForNetwork;
-use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
-    ReasonForBan,
-};
+use crate::types::{AccountKeys, ChainInfo, KnownPeerStatus, ReasonForBan};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
-    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
+    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::ShardStateSyncResponse;
-use near_primitives::state_sync::ShardStateSyncResponseV2;
-use near_primitives::types::AccountId;
+use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_primitives::network::PeerId;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
@@ -98,6 +89,7 @@ impl Handler<WithStateAndTransport> for PeerManagerActor {
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
+    pub state_request_updates: broadcast::Receiver<StateRequestUpdateMessage>,
     pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
     pub tcp: Arc<TcpTransport>,
@@ -446,11 +438,6 @@ impl ActorHandler {
         .await;
     }
 
-    pub async fn announce_account(&self, aa: AnnounceAccount) {
-        let msg = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa));
-        let _: () = self.actor.send_async(msg).await.unwrap();
-    }
-
     // Awaits until the accounts_data state satisfies predicate `pred`.
     pub async fn wait_for_accounts_data_pred(
         &self,
@@ -535,25 +522,6 @@ impl ActorHandler {
         }
     }
 
-    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
-        let mut events = self.events.from_now();
-        loop {
-            let account = account.clone();
-            let got = self
-                .with_state(|s| async move { s.account_announcements.get_account_owner(&account) })
-                .await;
-            if let Some(got) = got {
-                return got;
-            }
-            events
-                .recv_until(|ev| match ev {
-                    Event::AccountsAdded(_) => Some(()),
-                    _ => None,
-                })
-                .await;
-        }
-    }
-
     pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
         let mut events = self.events.from_now();
         loop {
@@ -592,8 +560,19 @@ impl ActorHandler {
 pub(crate) async fn start(
     clock: time::Clock,
     store: Arc<dyn near_store::db::Database>,
+    cfg: config::NetworkConfig,
+    chain: Arc<data::Chain>,
+) -> ActorHandler {
+    start_with_state_request_sender(clock, store, cfg, chain, noop().into_multi_sender()).await
+}
+
+/// Like `start`, but passes state requests from peers to `state_request_sender`.
+pub(crate) async fn start_with_state_request_sender(
+    clock: time::Clock,
+    store: Arc<dyn near_store::db::Database>,
     mut cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
+    state_request_sender: StateRequestSenderForNetwork,
 ) -> ActorHandler {
     let (send, mut recv) = broadcast::unbounded_channel::<Event>();
     let chain = chain.clone();
@@ -601,28 +580,15 @@ pub(crate) async fn start(
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
-    client_sender.announce_account = AsyncSender::from_fn(move |msg: AnnounceAccountRequest| {
-        // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-        // of the test code.
-        // For some specific events we craft a response and send it back, while for
-        // most other events we send it to the sink (for what? I have no idea).
-        Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
-    });
-
-    let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
-    state_request_sender.state_request_part =
-        AsyncSender::from_fn(move |msg: StateRequestPart| {
-            // NOTE: See above comment for explanation about this code.
-            let StateRequestPart { part_idx, shard_id, sync_hash } = msg;
-            let part = Some((part_idx, vec![]));
-            let state_response =
-                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-            Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
-                StateResponseInfoV2 { shard_id, sync_hash, state_response },
-            )))))
+    let (update_send, state_request_updates) = broadcast::unbounded_channel();
+    client_sender.state_request_update =
+        AsyncSender::from_fn(move |msg: SpanWrapped<StateRequestUpdateMessage>| {
+            update_send.send(msg.span_unwrap())
         });
 
     let actor_system = ActorSystem::new();
+    // Requests which PeerManagerActor sends to itself, such as Tier3Request.
+    let peer_manager_sender = LateBoundSender::new();
     let (actor, tcp) = PeerManagerActor::spawn(
         clock,
         actor_system.clone(),
@@ -630,7 +596,7 @@ pub(crate) async fn start(
         cfg.clone(),
         client_sender,
         state_request_sender,
-        noop().into_multi_sender(),
+        peer_manager_sender.as_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
@@ -638,8 +604,10 @@ pub(crate) async fn start(
         genesis_id,
     )
     .unwrap();
+    peer_manager_sender.bind(actor.clone());
     let actor = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
+    let h =
+        ActorHandler { cfg, actor, events: recv.clone(), state_request_updates, actor_system, tcp };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::ServerStarted => Some(()),

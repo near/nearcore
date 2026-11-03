@@ -588,7 +588,7 @@ pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+// Kept in sync with `near_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
 pub fn default_view_access_keys_limit() -> u32 {
     100
 }
@@ -736,9 +736,6 @@ pub struct ClientConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
-    /// Time to persist Accounts Id in the router without removing them.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub ttl_account_id_router: Duration,
     /// Time between check to perform catchup.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub catchup_step_period: Duration,
@@ -886,9 +883,9 @@ pub struct ClientConfig {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
-    /// constraints during chunk production and RPC validation. Disabled by
-    /// default; only meaningful when SPICE is active.
+    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
+    /// during chunk production and RPC validation. Disabled by default; only
+    /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
 }

@@ -150,7 +150,9 @@ pub struct PeerId(PublicKey);
 Each `edge` is represented by the `Edge` structure. It contains the following:
 
 * pair of nodes represented by their public keys.
-* `nonce` - a unique number representing the state of an edge. Starting with `1`.
+* `nonce` - a number representing the state of an edge. A new edge gets an odd
+  nonce based on the current Unix time in seconds. See
+  [Edge](../NetworkSpec/NetworkSpec.md#edge) for the exact rules.
   Odd numbers represent an active edge. Even numbers represent an edge in which
   one of the nodes, confirmed that the edge is removed.
 * Signatures from both peers for active edges.
@@ -301,8 +303,8 @@ struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
 
 At the end of the `register_peer` method node `B` will perform a
 `RoutingTableSync` sync. Sending the list of known `edges` representing a
-full graph, and a list of known `AnnounceAccount`. Those will be
-covered later, in their dedicated sections see sections (to be added). <!-- TODO: TODO1, TODO2 -->
+full graph. Those will be covered later, in their dedicated sections see
+sections (to be added). <!-- TODO: TODO1, TODO2 -->
 
 ```rust, ignore
 message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
@@ -313,9 +315,6 @@ message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
 pub struct RoutingTableSync { // also known as `SyncData` (#5489)
     /// List of known edges from `RoutingTableActor::edges_info`.
     pub(crate) edges: Vec<Edge>,
-    /// List of known `account_id` to `PeerId` mappings.
-    /// Useful for `send_message_to_account` method, to route message to particular account.
-    pub(crate) accounts: Vec<AnnounceAccount>,
 }
 ```
 
@@ -465,11 +464,12 @@ example types that appear in `Handler<...>` implementations or multi-sender defi
 
 ## 10.2 Messages sent through TCP
 
-Near is using `borsh` serialization to exchange messages between nodes (See
-[borsh.io](https://borsh.io/)). We should be careful when making changes to
-them. We have to maintain backward compatibility. Only messages implementing
-`BorshSerialize`, `BorshDeserialize` can be sent. We also use `borsh` for
-database storage.
+Nodes exchange messages as protobuf `PeerMessage` messages, defined in
+`chain/network/src/network_protocol/network.proto`. Some fields of these
+messages hold `borsh`-encoded bytes (see [borsh.io](https://borsh.io/)), for
+example signatures, edges, blocks, transactions and routed messages. We should
+be careful when making changes to them. We have to maintain backward
+compatibility. We also use `borsh` for database storage.
 
 ## 10.3 Messages sent/received through `chain/jsonrpc`
 
@@ -530,8 +530,3 @@ To store components, we have the following columns in the DB.
   used nonce.
 * `DBCol::ComponentEdges` Mapping from `component_nonce` to a list of edges.
 * `DBCol::PeerComponent` Mapping from `peer_id` to the last component `nonce` it belongs to.
-
-### 12.2 Storage of `account_id` to `peer_id` mapping
-
-`ColAccountAnnouncements` -> Stores a mapping from `account_id` to a tuple
-(`account_id`, `peer_id`, `epoch_id`, `signature`).

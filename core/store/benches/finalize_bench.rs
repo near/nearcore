@@ -25,12 +25,10 @@ use near_primitives::sharding::{
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
     ShardChunkV2, ShardChunkWithEncoding, ShardProof,
 };
-use near_primitives::transaction::{
-    Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
-};
+use near_primitives::transaction::{Action, TransactionEnvelope, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -94,12 +92,12 @@ fn validator_signer() -> ValidatorSigner {
 fn create_benchmark_receipts() -> Vec<Receipt> {
     let account_id: AccountId = "test".parse().unwrap();
     let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
-    let action = Action::FunctionCall(Box::new(FunctionCallAction {
-        args: vec![42u8; 2_000_000],
-        method_name: "foo".to_owned(),
-        gas: Gas::from_teragas(10),
-        deposit: Balance::from_yoctonear(1),
-    }));
+    let action = Action::function_call_with_deposit(
+        "foo",
+        vec![42u8; 2_000_000],
+        Gas::from_teragas(10),
+        Balance::from_yoctonear(1),
+    );
 
     vec![
         create_action_receipt(&account_id, &signer, vec![action.clone()], vec![]),
@@ -145,7 +143,6 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
             BandwidthRequests::empty(),
             None,
             &validator_signer(),
-            PROTOCOL_VERSION,
         ))
     }
 }
@@ -182,7 +179,7 @@ fn create_data_receipt(account_id: &AccountId, data_id: CryptoHash, data_size: u
 
 fn create_shard_chunk(
     chunk_hash: &ChunkHash,
-    transactions: Vec<SignedTransaction>,
+    transactions: Vec<TransactionEnvelope>,
     receipts: Vec<Receipt>,
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {
@@ -231,7 +228,6 @@ fn create_encoded_shard_chunk(
             None,
             &validator_signer(),
             &rs,
-            PROTOCOL_VERSION,
         )
     }
 }
@@ -246,7 +242,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
 
     // Use mainnet epoch config for the last protocol version before introducing dynamic resharding
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let protocol_version = ProtocolFeature::DynamicResharding.protocol_version() - 1;
+    let protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION - 1;
     let shard_layout = epoch_config_store
         .get_config(protocol_version)
         .static_shard_layout()

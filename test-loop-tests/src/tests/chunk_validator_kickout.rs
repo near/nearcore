@@ -100,8 +100,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
 
     // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let initial_validators =
-        get_epoch_all_validators(&env.test_loop.data.get(&client_handle).client);
+    let initial_validators = get_epoch_all_validators(env.node(0).client());
     assert_eq!(initial_validators.len(), NUM_ACCOUNTS);
     assert!(initial_validators.contains(&test_case.selected_account().to_string()));
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {

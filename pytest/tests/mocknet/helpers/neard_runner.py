@@ -405,6 +405,7 @@ class NeardRunner:
             config = json.load(f)
         config['rpc']['addr'] = f'0.0.0.0:{rpc_port}'
         config['network']['addr'] = f'0.0.0.0:{protocol_port}'
+        config['network']['allow_private_ip_in_public_addrs'] = True
         self.data['neard_addr'] = config['rpc']['addr']
         config['tracked_shards_config'] = 'AllShards'
         config['log_summary_style'] = 'plain'

@@ -27,9 +27,9 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{AccountId, NumSeats};
+use near_runtime::config::total_prepaid_gas;
 use near_store::test_utils::create_test_store;
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use node_runtime::config::total_prepaid_gas;
+use near_test_contracts::wallet_contract::legacy_localnet;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -396,17 +396,15 @@ fn test_eth_implicit_accounts() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let chain_id = &genesis.config.chain_id;
     let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
 
     // Deploy the wallet contract as a global contract for ETH implicit accounts.
     let mut next_nonce = 1;
-    let magic_bytes = wallet_contract_magic_bytes(chain_id);
-    let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+    let wallet_code = legacy_localnet();
     let deploy_tx = SignedTransaction::deploy_global_contract(
         next_nonce,
         signer.get_account_id(),
-        wallet_code.code().to_vec(),
+        wallet_code.to_vec(),
         &signer.clone().into(),
         *genesis_block.hash(),
         GlobalContractDeployMode::CodeHash,

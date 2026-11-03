@@ -1,10 +1,12 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{total_send_fees, tx_cost};
-use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
+use crate::config::{ecc_cost, total_send_fees, tx_cost};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
+};
+use crate::wallet_contract::{
+    eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
 };
 use crate::{
     ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
@@ -15,7 +17,7 @@ use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
-use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
@@ -33,9 +35,10 @@ use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
-    InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, EpochError,
+    FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
@@ -46,9 +49,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ExecutionMetadata,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
-    SignedTransaction, TransactionNonce, TransferAction,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ECC_METHOD_NAME,
+    EccTransaction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
@@ -59,14 +62,17 @@ use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateIn
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
+};
+use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
-    set_access_key, set_account,
+    KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
+    TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
+    get_received_data, remove_account, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -630,12 +636,8 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
     let signer = Arc::new(InMemorySigner::test_signer(&sender_id));
     (0..n)
         .map(|i| {
-            let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "foo".to_string(),
-                args: b"arg".to_vec(),
-                gas: MAX_ATTACHED_GAS,
-                deposit: deposit,
-            }))];
+            let inner_actions =
+                [Action::function_call_with_deposit("foo", b"arg", MAX_ATTACHED_GAS, deposit)];
 
             let delegate_action = DelegateAction {
                 sender_id: sender_id.clone(),
@@ -668,6 +670,448 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
             })
         })
         .collect()
+}
+
+/// An ECC in a chunk fails with an outcome of its own and does not stop the signed
+/// transactions around it, since nothing can execute it yet.
+#[test]
+fn test_apply_ecc_in_chunk_fails_without_panic() {
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    let transfer = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &*signers[0],
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let transactions =
+        vec![TransactionEnvelope::from(ecc.clone()), TransactionEnvelope::from(transfer.clone())];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; 2]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let ecc_outcome = &apply_result.outcomes[0];
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.executor_id, bob_account());
+    assert_eq!(
+        ecc_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidTransactionVersion
+        ))
+    );
+    let transfer_outcome = &apply_result.outcomes[1];
+    assert_eq!(transfer_outcome.id, transfer.get_hash());
+    assert_matches!(transfer_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+/// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
+/// ECC fails without burning anything and leaves `bob`'s balance as it was, and returns the
+/// error it fails with.
+fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        bob_balance,
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc.clone())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let [ecc_outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
+    let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
+        ecc_outcome.outcome.status.clone()
+    else {
+        panic!("expected the ECC to fail, got {:?}", ecc_outcome.outcome.status);
+    };
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    assert_eq!(bob.amount(), bob_balance);
+    err
+}
+
+/// The fees of the ECC that `apply_ecc` sends to `bob`.
+fn ecc_fee() -> Balance {
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap().burnt_amount
+}
+
+/// An ECC to an account that does not exist is rejected.
+#[test]
+fn test_apply_ecc_missing_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contract_id: AccountId = "missing.near".parse().unwrap();
+    let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
+    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+}
+
+/// An ECC to a contract that can't pay for its fees is rejected.
+#[test]
+fn test_apply_ecc_not_enough_balance() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let fee = ecc_fee();
+    let balance = fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let err = apply_ecc(bob_account(), balance);
+    assert_eq!(
+        err,
+        InvalidTxError::NotEnoughBalance { signer_id: bob_account(), balance, cost: fee }
+    );
+}
+
+/// An ECC to a contract that can pay for its fees still fails, since nothing executes it yet,
+/// and pays nothing.
+/// TODO(ecc): update this test with a check for successful execution after ECC processing logic is in place.
+#[test]
+fn test_apply_ecc_funded_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let err = apply_ecc(bob_account(), ecc_fee());
+    assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
+}
+
+/// A contract whose ECC method returns `b"ecc"`.
+fn ecc_method_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "ecc")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $value_return (i64.const 3) (i64.const 0))
+  )
+)"#
+    ))
+}
+
+/// Apply a chunk with the given receipts and transactions on top of `root`, without committing
+/// it.
+fn apply_chunk(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> ApplyResult {
+    let num_transactions = transactions.len();
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            apply_state,
+            receipts,
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// Apply a chunk with the given receipts and transactions, commit it, and return the new state
+/// root and the result.
+fn apply_and_commit(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> (CryptoHash, ApplyResult) {
+    let apply_result =
+        apply_chunk(runtime, tries, root, apply_state, receipts, transactions, epoch_info_provider);
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    (root, apply_result)
+}
+
+/// The only receipt in `apply_result` sent to bob.
+fn receipt_to_bob(apply_result: &ApplyResult) -> &Receipt {
+    let mut receipts = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.receiver_id() == &bob_account());
+    let (Some(receipt), None) = (receipts.next(), receipts.next()) else {
+        panic!("expected one receipt to bob, got {:?}", apply_result.outgoing_receipts);
+    };
+    receipt
+}
+
+/// The status of the outcome with the given id.
+fn outcome_status(apply_result: &ApplyResult, id: &CryptoHash) -> ExecutionStatus {
+    let outcome = apply_result.outcomes.iter().find(|outcome| &outcome.id == id);
+    outcome.unwrap_or_else(|| panic!("no outcome for {id}")).outcome.status.clone()
+}
+
+/// The status of a receipt whose only action called the ECC method and was refused.
+fn ecc_method_refused() -> ExecutionStatus {
+    ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+        index: Some(0),
+        kind: ActionErrorKind::ReservedMethodName { method_name: ECC_METHOD_NAME.to_string() },
+    }))
+}
+
+/// A transaction from alice that calls the ECC method of bob.
+fn ecc_method_tx(signer: &Signer) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        bob_account(),
+        signer,
+        vec![Action::function_call(ECC_METHOD_NAME, vec![], Gas::from_teragas(30))],
+        CryptoHash::default(),
+    )
+}
+
+/// A receipt that calls the ECC method and was created before `ExternalContractCalls` is still
+/// refused if it runs after the upgrade.
+#[test]
+fn test_ecc_method_receipt_from_before_upgrade_refused() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = feature_version - 1;
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let (root, _) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![],
+        &epoch_info_provider,
+    );
+
+    // Before the upgrade, the transaction creates a receipt that calls the ECC method of bob.
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[],
+        vec![ecc_method_tx(&signers[0])],
+        &epoch_info_provider,
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    // Before the upgrade, the receipt runs the ECC method like any other method.
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(
+        outcome_status(&apply_result, receipt.receipt_id()),
+        ExecutionStatus::SuccessValue(b"ecc".to_vec())
+    );
+
+    // After the upgrade, the same receipt is refused.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A function call access key that allows the ECC method doesn't let a transaction call it:
+/// the transaction is accepted, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_with_function_call_access_key() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+
+    // Replace the full access key of alice with a function call key for the ECC method of bob.
+    let mut state = tries.new_trie_update(shard_uid, root);
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![ECC_METHOD_NAME.to_string()],
+        }),
+    };
+    set_access_key(&mut state, alice_account(), signers[0].public_key(), &access_key);
+    state.commit(StateChangeCause::InitialState);
+    let trie_changes = state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let tx = ecc_method_tx(&signers[0]);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![tx.clone()],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, &tx.get_hash()),
+        ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A contract can't call the ECC method of another contract with a promise: the promise is
+/// created, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_in_promise() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let call_promise_args = serde_json::json!([
+        {"create": {
+            "account_id": bob_account(),
+            "method_name": ECC_METHOD_NAME,
+            "arguments": [],
+            "amount": "0",
+            "gas": Gas::from_teragas(30).as_gas(),
+        }, "id": 0}
+    ]);
+    let call = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::function_call(
+            "call_promise",
+            serde_json::to_vec(&call_promise_args).unwrap(),
+            Gas::from_teragas(100),
+        )],
+    );
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy, call.clone()],
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, call.receipt_id()),
+        ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
 }
 
 #[test]
@@ -885,9 +1329,8 @@ fn test_apply_delayed_receipts_local_tx() {
     );
 }
 
-// Under AccountCostIncrease the runtime caps gas_burn_price at the receipt's gas_price (no
-// deficit ever) and refunds price_surplus through a refund receipt (instead of adding it to
-// tx_burnt). The tests below assert on both flavors.
+// The runtime caps gas_burn_price at the receipt's gas_price (no deficit ever) and refunds
+// price_surplus through a refund receipt (instead of adding it to tx_burnt).
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -918,16 +1361,9 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is
-        // burnt at exactly what the user paid and no deficit accumulates.
-        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
-    } else {
-        assert_eq!(
-            result.stats.balance.gas_deficit_amount,
-            result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
-        )
-    }
+    // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is burnt
+    // at exactly what the user paid and no deficit accumulates.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -972,19 +1408,12 @@ fn test_apply_surplus_gas_for_transfer() {
         .gas;
 
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
-        // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
-        let expected_burnt_amount =
-            apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 1);
-    } else {
-        // price_surplus is burnt (added to tx_burnt_amount) and no refund is produced.
-        let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 0);
-    }
+    // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
+    // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
+    let expected_burnt_amount =
+        apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+    assert_eq!(result.outgoing_receipts.len(), 1);
 }
 
 #[test]
@@ -1001,14 +1430,9 @@ fn test_apply_deficit_gas_for_function_call_covered() {
 
     let gas = 2 * 10u64.pow(14);
     let gas_price = GAS_PRICE.checked_div(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1018,6 +1442,12 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1032,9 +1462,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
@@ -1063,17 +1491,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
-    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1099,12 +1518,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
 
     let gas = 1_000_000;
     let gas_price = GAS_PRICE.checked_div(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
     let expected_gas_burnt = apply_state
         .config
@@ -1134,15 +1548,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    let expected_deficit = Balance::ZERO;
 
     let result = runtime
         .apply(
@@ -1159,9 +1566,23 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     // The deficit does not affect refunds, hence we should expect a
     // normal refund of the unspent gas. However, this is small enough to
     // cancel out, so we add the refund cost to tx_burnt and expect no
-    // refund. This ends up burning all gas and not refunding anything.
+    // refund. With fixed contract loading costs, the call instead exhausts its
+    // attached gas, and the receiver gets its share of that gas as a reward.
     assert_eq!(result.outgoing_receipts.len(), 0);
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    let function_call_gas_burnt = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        Gas::from_gas(gas)
+            .min(apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base))
+    } else {
+        Gas::ZERO
+    };
+    let receiver_gas_reward = function_call_gas_burnt
+        .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+        .unwrap()
+        .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+        .unwrap();
+    let receiver_reward = gas_price.checked_mul(u128::from(receiver_gas_reward.as_gas())).unwrap();
+    let expected_tx_burnt = total_receipt_cost.checked_sub(receiver_reward).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_tx_burnt);
 }
 
 #[test]
@@ -1178,14 +1599,9 @@ fn test_apply_surplus_gas_for_function_call() {
 
     let gas = 2 * 10u64.pow(14);
     let gas_price = GAS_PRICE.checked_mul(10).unwrap();
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "hello".to_string(),
-        args: b"world".to_vec(),
-        gas: Gas::from_gas(gas),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("hello", b"world", Gas::from_gas(gas))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1195,6 +1611,12 @@ fn test_apply_surplus_gas_for_function_call() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1209,9 +1631,7 @@ fn test_apply_surplus_gas_for_function_call() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
@@ -1226,23 +1646,17 @@ fn test_apply_surplus_gas_for_function_call() {
     let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
     // The unspent gas is refunded at the price it was purchased at (the receipt's `gas_price`).
     let unspent_refund = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap();
-    let expected_refund = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
-        // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
-        // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
-        let penalty =
-            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        let price_surplus = gas_price
-            .checked_sub(apply_state.gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap();
-        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
-    } else {
-        // The refund penalty is charged at the receipt's gas price.
-        let penalty = gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        unspent_refund.checked_sub(penalty).unwrap()
-    };
+    // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
+    // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
+    // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
+    let penalty = apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+    let price_surplus = gas_price
+        .checked_sub(apply_state.gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
+    let expected_refund =
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap();
 
     let result = runtime
         .apply(
@@ -1428,23 +1842,13 @@ fn test_compute_usage_limit() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"second".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"second", sha256_cost.gas)],
     );
 
     let apply_result = runtime
@@ -1514,12 +1918,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -1602,12 +2001,7 @@ fn test_main_storage_proof_size_soft_limit() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
         )
     };
 
@@ -1691,14 +2085,7 @@ fn test_per_receipt_storage_proof_size_limit() {
         account.clone(),
         signer.clone(),
         (0..NUM_VALUES)
-            .map(|key| {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "write_one_megabyte".to_string(),
-                    args: vec![key],
-                    gas: ACTION_GAS,
-                    deposit: Balance::ZERO,
-                }))
-            })
+            .map(|key| Action::function_call("write_one_megabyte", vec![key], ACTION_GAS))
             .collect(),
     );
     let write_receipt_id = *write_receipt.receipt_id();
@@ -1735,14 +2122,7 @@ fn test_per_receipt_storage_proof_size_limit() {
         account,
         signer,
         (0..NUM_VALUES)
-            .map(|key| {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "read_n_megabytes".to_string(),
-                    args: vec![key, key + 1],
-                    gas: ACTION_GAS,
-                    deposit: Balance::ZERO,
-                }))
-            })
+            .map(|key| Action::function_call("read_n_megabytes", vec![key, key + 1], ACTION_GAS))
             .collect(),
     );
     let read_receipt_id = *read_receipt.receipt_id();
@@ -1863,12 +2243,7 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
         .chain((0..NUM_VALUES).map(|key| {
             let mut args = vec![key];
             args.extend_from_slice(&(value_size as u32).to_le_bytes());
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "write_value_of_size".to_string(),
-                args,
-                gas: ACTION_GAS,
-                deposit: Balance::ZERO,
-            }))
+            Action::function_call("write_value_of_size", args, ACTION_GAS)
         }))
         .collect(),
     );
@@ -1876,12 +2251,8 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
     assert_matches!(setup_status, ExecutionStatus::SuccessValue(_));
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
-    let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "read_values_in_key_range".to_string(),
-        args: vec![0, NUM_VALUES],
-        gas: ACTION_GAS,
-        deposit: Balance::ZERO,
-    }));
+    let read_action =
+        Action::function_call("read_values_in_key_range", vec![0, NUM_VALUES], ACTION_GAS);
     let added_keys: Vec<PublicKey> = (0..NUM_ADDED_KEYS)
         .map(|i| {
             InMemorySigner::from_seed(account.clone(), KeyType::ED25519, &format!("added{i}"))
@@ -1934,6 +2305,156 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
     }
 }
 
+enum ContractLoadingFailure {
+    Base,
+    Bytes,
+}
+
+struct ContractLoadingFailureResult {
+    apply_result: ApplyResult,
+    state_root: CryptoHash,
+    code_key: TrieKey,
+    code_len: u32,
+}
+
+/// Deploy a contract and record the state accesses made by a call that cannot
+/// afford either the loading base or the complete per-byte loading charge.
+fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLoadingFailureResult {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
+
+    let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
+    let code_len = contract_code.code().len();
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    account.set_contract(AccountContract::Local(*contract_code.hash())).unwrap();
+    set_account(&mut state_update, alice_account(), &account);
+    state_update.set(code_key.clone(), contract_code.code().to_vec());
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let state_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let costs = &apply_state.config.wasm_config.ext_costs;
+    let loading_base = costs.gas_cost(ExtCosts::contract_loading_base);
+    let loading_bytes =
+        costs.gas_cost(ExtCosts::contract_loading_bytes).checked_mul(code_len as u64).unwrap();
+    let gas = match failure {
+        ContractLoadingFailure::Base => loading_base.checked_sub(Gas::from_gas(1)).unwrap(),
+        ContractLoadingFailure::Bytes => {
+            loading_base.checked_add(loading_bytes).unwrap().checked_sub(Gas::from_gas(1)).unwrap()
+        }
+    };
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::function_call("main", Vec::new(), gas)],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+    let apply_result = runtime
+        .apply(
+            tries
+                .get_trie_for_shard(ShardUId::single_shard(), state_root)
+                .recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let assert_out_of_gas_without_contract_access = |result: &ApplyResult| {
+        let call_outcome = result
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.id == call_id)
+            .expect("function call outcome missing");
+        assert_matches!(
+            &call_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(message)),
+                ..
+            })) if message == "Exceeded the prepaid gas."
+        );
+        assert!(result.contract_updates.contract_accesses.is_empty());
+    };
+    assert_out_of_gas_without_contract_access(&apply_result);
+
+    // Replay from only the recorded values. This succeeds only if the abort path does not read
+    // anything beyond what the producer recorded, in particular contract metadata/body.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    let replay_result = runtime
+        .apply(
+            Trie::from_recorded_storage(apply_result.proof.clone().unwrap(), state_root, false),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_out_of_gas_without_contract_access(&replay_result);
+
+    ContractLoadingFailureResult {
+        apply_result,
+        state_root,
+        code_key,
+        code_len: code_len.try_into().unwrap(),
+    }
+}
+
+#[test]
+fn test_contract_loading_base_failure_skips_contract_metadata() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Base);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    assert!(matches!(
+        state_update.get_ref(
+            &result.code_key,
+            KeyLookupMode::MemOrFlatOrTrie,
+            AccessOptions::DEFAULT,
+        ),
+        Err(StorageError::MissingTrieValue(_))
+    ));
+}
+
+#[test]
+fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Bytes);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    let value_ref = state_update
+        .get_ref(&result.code_key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)
+        .unwrap()
+        .expect("contract metadata should be present");
+    assert_eq!(value_ref.len(), result.code_len);
+    let value_hash = value_ref.value_hash();
+    assert_matches!(
+        state_update.get(&result.code_key, AccessOptions::DEFAULT),
+        Err(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        })) if hash == value_hash
+    );
+}
+
 /// Deploys a contract, records a witness for a call to it (which excludes the
 /// contract body), then applies that call over the recorded storage.
 fn apply_call_to_contract_missing_from_witness(
@@ -1971,12 +2492,7 @@ fn apply_call_to_contract_missing_from_witness(
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let apply_result = runtime
         .apply(
@@ -2067,12 +2583,7 @@ fn apply_call_to_global_contract_missing_from_witness(
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
@@ -2149,7 +2660,7 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
 
 /// The hash of a global contract that is never deployed in these tests.
 fn missing_global_contract_hash() -> CryptoHash {
-    hash(b"global contract that was never deployed")
+    eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id(), PROTOCOL_VERSION)
 }
 
 fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
@@ -2169,28 +2680,79 @@ fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
     );
 }
 
-/// Points alice at a global contract hash that was never deployed, calls it as
-/// the chunk producer and replays the recorded witness as a chunk validator
-/// running `validator_protocol_version`. ETH implicit accounts are created this
-/// way, with a hardcoded wallet contract hash and no existence check. The
-/// producer must fail the call with `CodeDoesNotExist` instead of treating the
+/// Points alice at the missing wallet contract, calls it as the chunk producer
+/// and replays the recorded witness as a chunk validator running
+/// `validator_protocol_version`. The producer must fail the call with
+/// `CodeDoesNotExist` instead of treating the
 /// missing code as an inconsistent state; the validator's verdict is returned
 /// together with the call's receipt id.
 fn apply_call_to_missing_global_contract(
     validator_protocol_version: ProtocolVersion,
 ) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
+    apply_call_to_missing_global_contract_for_account(
+        alice_account(),
+        missing_global_contract_hash(),
+        &MockEpochInfoProvider::default().chain_id(),
+        PROTOCOL_VERSION,
+        validator_protocol_version,
+    )
+}
+
+/// Calls an account whose wallet reference resolves to absent code, and replays its witness.
+fn apply_call_to_missing_global_contract_for_account(
+    wallet_account: AccountId,
+    wallet_hash: CryptoHash,
+    chain_id: &str,
+    producer_protocol_version: ProtocolVersion,
+    validator_protocol_version: ProtocolVersion,
+) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
+        vec![wallet_account.clone()],
         Balance::from_near(1_000_000),
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
 
+    apply_state.current_protocol_version = producer_protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version));
+
+    // Override only the chain identity; preserve the setup's validators and shard layout.
+    struct WalletEpochInfoProvider<'a, T> {
+        inner: T,
+        chain_id: &'a str,
+    }
+    impl<T: EpochInfoProvider> EpochInfoProvider for WalletEpochInfoProvider<'_, T> {
+        fn validator_stake(
+            &self,
+            epoch_id: &EpochId,
+            account_id: &AccountId,
+        ) -> Result<Option<Balance>, EpochError> {
+            self.inner.validator_stake(epoch_id, account_id)
+        }
+
+        fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
+            self.inner.validator_total_stake(epoch_id)
+        }
+
+        fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
+            self.inner.minimum_stake(prev_block_hash)
+        }
+
+        fn chain_id(&self) -> String {
+            self.chain_id.to_owned()
+        }
+
+        fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+            self.inner.shard_layout(epoch_id)
+        }
+    }
+    let epoch_info_provider = WalletEpochInfoProvider { inner: epoch_info_provider, chain_id };
+
     // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
-    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
-    set_account(&mut state_update, alice_account(), &alice);
+    let mut wallet = get_account(&state_update, &wallet_account).unwrap().unwrap();
+    wallet.set_contract(AccountContract::Global(wallet_hash)).unwrap();
+    set_account(&mut state_update, wallet_account.clone(), &wallet);
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
@@ -2198,14 +2760,9 @@ fn apply_call_to_missing_global_contract(
     store_update.commit();
 
     let call_receipt = create_receipt_with_actions(
-        alice_account(),
+        wallet_account,
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "rlp_execute".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("rlp_execute", Vec::new(), Gas::from_teragas(300))],
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
@@ -2231,6 +2788,7 @@ fn apply_call_to_missing_global_contract(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -2241,6 +2799,32 @@ fn apply_call_to_missing_global_contract(
         Default::default(),
     );
     (call_id, apply_result)
+}
+
+/// Old wallet hashes are remapped for named accounts too. An absent replacement
+/// must fail only the call, not the whole chunk, on both producer and validator.
+#[test]
+fn test_named_account_old_wallet_hash_with_missing_replacement() {
+    let feature_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+    for chain_id in [MAINNET, TESTNET] {
+        let old_version = ProtocolFeature::UpdatedEthWalletContract.protocol_version() - 1;
+        let old_hash = eth_wallet_global_contract_hash(chain_id, old_version);
+        for protocol_version in [feature_version, feature_version + 1] {
+            assert!(is_earlier_eth_wallet_global_contract_hash(
+                &old_hash,
+                chain_id,
+                protocol_version
+            ));
+            let (call_id, apply_result) = apply_call_to_missing_global_contract_for_account(
+                alice_account(),
+                old_hash,
+                chain_id,
+                protocol_version,
+                protocol_version,
+            );
+            assert_code_does_not_exist(&apply_result.unwrap(), call_id);
+        }
+    }
 }
 
 /// The witness proves the global contract key is absent, so the validator
@@ -2334,12 +2918,11 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
         create_receipt_with_actions(
             alice_account(),
             signers[0].clone(),
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_yield_create_return_data_id".to_string(),
-                args: vec![6u8; 16],
-                gas: Gas::from_teragas(300),
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call(
+                "call_yield_create_return_data_id",
+                vec![6u8; 16],
+                Gas::from_teragas(300),
+            )],
         )
     };
 
@@ -2457,12 +3040,7 @@ fn test_promise_yield_indices_absent_key_still_applies() {
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("log_something", Vec::new(), Gas::from_teragas(300))],
     );
     let apply_result = runtime
         .apply(
@@ -2540,12 +3118,9 @@ fn test_exclude_contract_code_from_witness() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            }))],
+            // Exercise actual loading, after `FixContractLoadingCost` it
+            // skips even metadata lookup when the loading base cannot be paid.
+            vec![Action::function_call("main", Vec::new(), Gas::from_teragas(1))],
         )
     };
 
@@ -2660,12 +3235,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
         create_receipt_with_actions(
             account_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: sha256_cost.gas,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
         )
     };
 
@@ -2741,12 +3311,7 @@ fn test_deploy_and_call_different_contracts() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -2760,12 +3325,7 @@ fn test_deploy_and_call_different_contracts() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -2847,12 +3407,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -2866,12 +3421,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -2951,12 +3501,7 @@ fn test_deploy_and_call_in_apply() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -2970,12 +3515,7 @@ fn test_deploy_and_call_in_apply() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3030,12 +3570,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: sha256_cost.gas,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", sha256_cost.gas)],
     );
 
     let second_deploy_receipt = create_receipt_with_actions(
@@ -3049,12 +3584,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", Vec::new(), DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3104,12 +3634,7 @@ fn test_deploy_existing_contract_to_different_account() {
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3146,12 +3671,7 @@ fn test_deploy_existing_contract_to_different_account() {
     let second_call_receipt = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3194,12 +3714,7 @@ fn test_deploy_and_call_in_same_receipt() {
         signers[0].clone(),
         vec![
             Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT),
         ],
     );
 
@@ -3243,12 +3758,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         signers[0].clone(),
         vec![
             Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT),
         ],
     );
 
@@ -3284,12 +3794,7 @@ fn test_call_account_without_contract() {
     let receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: vec![],
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3332,12 +3837,7 @@ fn test_contract_accesses_when_validating_chunk() {
     let call_receipt = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_sha256".to_string(),
-            args: b"first".to_vec(),
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_sha256", b"first", DEFAULT_MINIMAL_GAS_ATTACHMENT)],
     );
 
     let apply_result = runtime
@@ -3946,21 +4446,19 @@ fn test_deploy_and_call_local_receipt() {
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
         CryptoHash::default(),
     );
@@ -4026,21 +4524,19 @@ fn test_deploy_and_call_local_receipts() {
         alice_account(),
         &*signers[0],
         vec![
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
         CryptoHash::default(),
     );
@@ -4126,12 +4622,11 @@ fn test_apply_v4_metadata_pads_unexecuted_actions() {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
             Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "log_something".to_string(),
-                args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "log_something",
+                vec![],
+                MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+            ),
         ],
     );
 
@@ -4367,12 +4862,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         alice_account(),
         bob_account(),
         &*alice_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "hello".to_string(),
-            args: vec![],
-            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("hello", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
         CryptoHash::default(),
     );
     let sample_cost = crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
@@ -4442,12 +4932,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
             alice_account(),
             receiver,
             &*alice_signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: vec![],
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                deposit: Balance::ZERO,
-            }))],
+            vec![Action::function_call("hello", vec![], DEFAULT_MINIMAL_GAS_ATTACHMENT)],
             CryptoHash::default(),
         )
     };
@@ -4565,8 +5050,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
-
     // [T, U, T]: the repeat of T is non-adjacent to the original.
     let signed_valid_period_txs =
         SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
@@ -4594,54 +5077,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
 }
 
 #[test]
-fn test_duplicate_transaction_in_chunk_prior_behavior() {
-    let alice_signer = InMemorySigner::test_signer(&alice_account());
-    let tx = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        bob_account(),
-        &alice_signer,
-        Balance::from_near(1),
-        CryptoHash::default(),
-    );
-    let tx_hash = tx.get_hash();
-    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        Balance::from_near(1_000_000),
-        Balance::from_near(500_000),
-        Gas::from_teragas(1000),
-    );
-    apply_state.current_protocol_version =
-        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
-
-    let signed_valid_period_txs =
-        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            signed_valid_period_txs,
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .expect("apply should succeed");
-
-    // Without the feature both copies are processed: the second records a
-    // conflicting InvalidNonce failure under the same id as the success.
-    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
-    assert_eq!(tx_outcomes.len(), 2);
-    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
-    assert_matches!(
-        tx_outcomes[1].outcome.status,
-        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidNonce { .. }
-        ))
-    );
-}
-
-#[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -4649,7 +5084,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     let gas_key_pk =
         InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas_key").public_key();
@@ -4775,7 +5210,7 @@ fn setup_gas_key_test(
         shard_uid,
         &shard_layout,
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -4985,7 +5420,7 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
@@ -5166,23 +5601,21 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
     let call_alice = create_receipt_with_actions(
         alice_account(),
         signers[0].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "max_self_recursion_delay".to_string(),
-            args: 0u32.to_be_bytes().to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "max_self_recursion_delay",
+            0u32.to_be_bytes(),
+            Gas::from_teragas(100),
+        )],
     );
 
     let call_bob = create_receipt_with_actions(
         bob_account(),
         signers[1].clone(),
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "max_self_recursion_delay".to_string(),
-            args: 0u32.to_be_bytes().to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call(
+            "max_self_recursion_delay",
+            0u32.to_be_bytes(),
+            Gas::from_teragas(100),
+        )],
     );
 
     let apply_result = runtime
@@ -5282,12 +5715,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
         &parent_signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(10),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("main", vec![], Gas::from_teragas(10)),
         ],
     );
     let call_id = *create_and_call.receipt_id();
@@ -5679,6 +6107,10 @@ fn test_promise_input_size_limit_does_not_bloat_witness() {
 /// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging is not enabled");
+        return;
+    }
     let initial_balance = Balance::from_near(1_000_000);
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5718,12 +6150,11 @@ fn test_gas_key_add_key_conserves_supply() {
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
             }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&call_promise_args).unwrap(),
-                gas: MAX_ATTACHED_GAS,
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call(
+                "call_promise",
+                serde_json::to_vec(&call_promise_args).unwrap(),
+                MAX_ATTACHED_GAS,
+            ),
         ],
         CryptoHash::default(),
     );
@@ -5791,6 +6222,10 @@ fn test_gas_key_add_key_conserves_supply() {
 /// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging is not enabled");
+        return;
+    }
     let config = RuntimeConfig::test();
     let receiver = alice_account();
     let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
@@ -5861,12 +6296,7 @@ fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
     let call_receipt = create_receipt_with_actions(
         user,
         user_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(10),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("main", vec![], Gas::from_teragas(10))],
     );
 
     let apply_result = runtime
@@ -6326,6 +6756,98 @@ mod self_signed_state_init {
             outcomes[0].outcome.status,
             ExecutionStatus::SuccessReceiptId(_),
             "an added key must still be able to send an idempotent state init"
+        );
+    }
+
+    /// A repeated state init never tops up storage staking from its deposit, even
+    /// when an earlier action in the same receipt pushed the account below its
+    /// requirement. The receipt then fails at the end-of-receipt storage check
+    /// and rolls back, instead of the state init quietly funding the new key.
+    #[test]
+    fn repeated_init_deposit_does_not_cover_other_actions_storage() {
+        init_test_logger();
+        let committed = signer_for("deposit-committed");
+        let added = signer_for("deposit-added");
+        let state_init = state_init_for(&[committed.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let deposit = Balance::from_near(1);
+        // Enough to pay the deposit and fees while still meeting the storage stake,
+        // but less than the stake of the keys added below.
+        let slack = Balance::from_millinear(100);
+        let storage_usage: u64 = 1_000_000;
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::ZERO);
+        let stake =
+            apply_state.config.storage_amount_per_byte().checked_mul(storage_usage.into()).unwrap();
+
+        // An initialized account holding `added` and staking exactly for its storage.
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = get_account(&state, &account_id).unwrap().unwrap();
+        account.initialize().unwrap();
+        account.set_storage_usage(storage_usage);
+        account.set_amount(stake.checked_add(deposit).unwrap().checked_add(slack).unwrap());
+        set_account(&mut state, account_id.clone(), &account);
+        let mut access_key = AccessKey::full_access();
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Function call keys with long method name lists are the cheapest way to
+        // add a lot of storage in one receipt.
+        let new_keys = (0..3)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("deposit-new-key-{i}")))
+            .map(|secret_key| secret_key.public_key())
+            .collect_vec();
+        let method_names = (0..7).map(|i| format!("{i}{}", "m".repeat(249))).collect_vec();
+        let mut actions = new_keys
+            .iter()
+            .map(|public_key| {
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                            allowance: None,
+                            receiver_id: account_id.to_string(),
+                            method_names: method_names.clone(),
+                        }),
+                    },
+                }))
+            })
+            .collect_vec();
+        actions.push(Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit,
+        })));
+        let tx = SignedTransaction::from_actions(
+            expected_nonce(),
+            account_id.clone(),
+            account_id.clone(),
+            &added,
+            actions,
+            CryptoHash::default(),
+        );
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| matches!(outcome.outcome.status, ExecutionStatus::Failure(_)))
+            .expect("the receipt must fail on the storage stake");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::LackBalanceForState { .. }),
+            "the receipt must fail on storage staking, not something else"
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(
+            new_keys.iter().all(|public_key| get_access_key(&state, &account_id, public_key)
+                .unwrap()
+                .is_none()),
+            "the failed receipt must roll back the added keys"
         );
     }
 
@@ -6791,6 +7313,109 @@ mod self_signed_state_init {
                 InvalidTxError::InvalidSignerId { .. } | InvalidTxError::SignerDoesNotExist { .. }
             ))
         );
+    }
+
+    /// A state init that decodes but is not canonical: the data keys are out of order. Valid
+    /// below `CanonicalUniversalStateInit`, so a receipt carrying it can be in flight when
+    /// the protocol upgrades.
+    fn non_canonical_state_init() -> near_primitives::universal_state_init::RawStateInit {
+        let mut bytes = vec![0u8, 0u8]; // V1, code: None
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+        near_primitives::universal_state_init::RawStateInit(bytes)
+    }
+
+    fn state_init_receipt(
+        raw: near_primitives::universal_state_init::RawStateInit,
+        receiver: &AccountId,
+    ) -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: bob_account(),
+            receiver_id: receiver.clone(),
+            receipt_id: hash(b"in-flight-state-init"),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: bob_account(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw,
+                    deposit: Balance::ZERO,
+                }))],
+            }),
+        })
+    }
+
+    /// Applies one chunk with `receipts` as the incoming receipts. Returns the new root, the
+    /// outcomes, and how many receipts were left delayed. The congestion info of the result
+    /// is carried into `apply_state`, as the next chunk would see it.
+    fn apply_receipts(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &mut ApplyState,
+        epoch_info_provider: &impl EpochInfoProvider,
+        receipts: &[Receipt],
+    ) -> (CryptoHash, Vec<ExecutionOutcomeWithId>, u64) {
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                apply_state,
+                receipts,
+                SignedValidPeriodTransactions::empty(),
+                epoch_info_provider,
+                Default::default(),
+            )
+            .expect("an in-flight receipt must never fail the chunk");
+        let new_root = commit_apply_result(&result, apply_state, tries, ShardUId::single_shard());
+        (new_root, result.outcomes, result.delayed_receipts_count)
+    }
+
+    fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
+        apply_state.current_protocol_version = version;
+        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+    }
+
+    fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
+        assert_matches!(
+            &outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::MalformedUniversalStateInit,
+                ..
+            }))
+        );
+    }
+
+    /// A non-canonical receipt created under the old rules arrives as an incoming receipt
+    /// in the first block of the new ones. It passes validation like any existing receipt,
+    /// and its action fails, so nothing halts the chunk and nothing gets installed.
+    #[test]
+    fn in_flight_non_canonical_state_init_fails_the_action_when_incoming() {
+        init_test_logger();
+        let raw = non_canonical_state_init();
+        let account_id = derive_universal_account_id(&raw);
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+        at_protocol_version(
+            &mut apply_state,
+            ProtocolFeature::CanonicalUniversalStateInit.protocol_version(),
+        );
+
+        let receipt = state_init_receipt(raw, &account_id);
+        let (root, outcomes, _) =
+            apply_receipts(&runtime, &tries, root, &mut apply_state, &epoch, &[receipt]);
+
+        assert_malformed_state_init(&outcomes);
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "nothing may be installed");
     }
 }
 

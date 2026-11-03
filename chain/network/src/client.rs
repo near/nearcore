@@ -9,14 +9,14 @@ use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state_part::StatePartIndex;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochHeight, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use std::sync::Arc;
 
@@ -73,18 +73,38 @@ pub struct StateRequestPart {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatePartOrHeader(pub Box<StateResponseInfo>);
 
-/// Incoming response to a prior outgoing state request.
+/// The client's answer to a received state request.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StateResponse {
-    Ack(StateRequestAck),
-    State(Box<StateResponseInfo>),
+pub enum StateRequestResponse {
+    /// The client served the requested header or part.
+    Respond(StatePartOrHeader),
+    /// The client throttled the request.
+    Busy,
+    /// The client failed to serve the requested header or part.
+    Error,
 }
 
-impl StateResponse {
+/// Update on a prior outgoing state request: a message from the host, or the network's report
+/// that the request was not sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateRequestUpdate {
+    Ack(StateRequestAck),
+    State(Box<StateResponseInfo>),
+    /// Reported by the network rather than the host: the request was dropped without being
+    /// sent, e.g. because the connection to the host failed. No response will arrive for it.
+    NotSent {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_or_header: PartOrHeader,
+    },
+}
+
+impl StateRequestUpdate {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::Ack(ack) => ack.shard_id,
             Self::State(state) => state.shard_id(),
+            Self::NotSent { shard_id, .. } => *shard_id,
         }
     }
 
@@ -92,6 +112,7 @@ impl StateResponse {
         match self {
             Self::Ack(ack) => ack.sync_hash,
             Self::State(state) => state.sync_hash(),
+            Self::NotSent { sync_hash, .. } => *sync_hash,
         }
     }
 
@@ -102,14 +123,15 @@ impl StateResponse {
                 Some(part_idx) => PartOrHeader::Part { part_idx },
                 None => PartOrHeader::Header,
             },
+            Self::NotSent { part_or_header, .. } => *part_or_header,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StateResponseReceived {
+pub struct StateRequestUpdateMessage {
     pub peer_id: PeerId,
-    pub state_response: StateResponse,
+    pub update: StateRequestUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,12 +161,6 @@ pub enum ProcessTxResponse {
     /// Processing the transaction failed with an internal error; the string carries debug context.
     InternalError(String),
 }
-
-/// Account announcements that needs to be validated before being processed.
-/// They are paired with last epoch id known to this announcement, in order to accept only
-/// newer announcements.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
@@ -184,15 +200,13 @@ pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
     pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
-    pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
+    pub state_request_update: AsyncSender<SpanWrapped<StateRequestUpdateMessage>, ()>,
     pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
     pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
     pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
     pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
-    pub announce_account:
-        AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,

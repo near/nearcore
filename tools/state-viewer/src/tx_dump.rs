@@ -1,7 +1,7 @@
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 
 /// Returns a list of transactions found in the block.
 pub fn dump_tx_from_block(
@@ -18,6 +18,8 @@ pub fn dump_tx_from_block(
                 .unwrap()
                 .to_transactions()
                 .iter()
+                // TODO(ecc): dump ECCs too
+                .filter_map(TransactionEnvelope::as_signed)
                 .filter(|signed_transaction| {
                     should_include_signed_transaction(signed_transaction, select_account_ids)
                 })

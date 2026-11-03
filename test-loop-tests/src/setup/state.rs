@@ -1,13 +1,13 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::peer_manager_actor::{
-    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
+    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork, HandlerResult,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
 use super::spice_partial_data_faults::SpicePartialDataFaultState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
-use near_async::test_loop::data::TestLoopDataHandle;
+use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -29,7 +29,7 @@ use near_jsonrpc::{RpcConfig, ViewClientSenderForRpc};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::types::StateRequestSenderForNetwork;
+use near_network::types::{NetworkRequests, StateRequestSenderForNetwork};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -140,6 +140,15 @@ pub struct NodeExecutionData {
 }
 
 impl NodeExecutionData {
+    pub fn register_override_handler(
+        &self,
+        test_loop_data: &mut TestLoopData,
+        handler: impl Fn(NetworkRequests) -> HandlerResult + 'static,
+    ) {
+        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(handler));
+    }
+
     pub fn expected_execution_delay(&self) -> u64 {
         self.expected_execution_delay.load(Ordering::Relaxed)
     }

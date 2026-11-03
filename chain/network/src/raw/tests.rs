@@ -6,9 +6,7 @@ use crate::types::PeerInfo;
 use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::ShardId;
 use std::sync::Arc;
 
@@ -71,94 +69,6 @@ async fn test_raw_conn_pings() {
             }
         }
     }
-}
-
-#[tokio::test]
-async fn test_raw_conn_state_parts() {
-    init_test_logger();
-    let mut rng = testonly::make_rng(33955575545);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let cfg = chain.make_config(rng);
-    let peer_id = cfg.node_id();
-    let addr = **cfg.node_addr.as_ref().unwrap();
-    let genesis_id = chain.genesis_id.clone();
-    let _pm = crate::peer_manager::testonly::start(
-        clock.clock(),
-        near_store::db::TestDB::new(),
-        cfg,
-        chain,
-    )
-    .await;
-
-    let mut conn = raw::Connection::connect(
-        &clock.clock(),
-        addr,
-        peer_id.clone(),
-        None,
-        &genesis_id.chain_id,
-        genesis_id.hash,
-        0,
-        vec![ShardId::new(0)],
-        Some(time::Duration::SECOND),
-    )
-    .await
-    .unwrap();
-
-    let num_parts = 5;
-    // Block hash needs to correspond to the hash of the first block of an epoch.
-    // But the fake node simply ignores the block hash.
-    let block_hash = CryptoHash::new();
-    for part_id in 0..num_parts {
-        conn.send_message(raw::DirectMessage::StateRequestPart(
-            ShardId::new(0),
-            block_hash,
-            part_id,
-        ))
-        .await
-        .unwrap();
-    }
-
-    let mut parts_received = std::collections::HashSet::new();
-    loop {
-        match conn.recv().await {
-            Ok((msg, _timestamp)) => {
-                if let raw::Message::Direct(raw::DirectMessage::VersionedStateResponse(
-                    state_response,
-                )) = msg
-                {
-                    let response = state_response.take_state_response();
-                    let part_idx = response.part_idx();
-                    if let Some(part_idx) = part_idx {
-                        if part_idx >= num_parts {
-                            panic!(
-                                "received unexpected part_id {} (expected 0-{})",
-                                part_idx,
-                                num_parts - 1
-                            );
-                        }
-                        if !parts_received.insert(part_idx) {
-                            panic!("received duplicate part_id {}", part_idx);
-                        }
-                        if parts_received.len() == num_parts as usize {
-                            break;
-                        }
-                    } else {
-                        panic!("received state response without part_id");
-                    }
-                }
-            }
-            Err(e) => {
-                panic!("error receiving part: {:?}", e);
-            }
-        }
-    }
-
-    // Verify all expected parts were received
-    let expected_parts: std::collections::HashSet<StatePartIndex> = (0..num_parts).collect();
-    assert_eq!(parts_received, expected_parts, "Did not receive all expected parts");
 }
 
 #[tokio::test]

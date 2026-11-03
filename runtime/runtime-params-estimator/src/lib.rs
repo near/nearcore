@@ -248,6 +248,17 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
         Cost::ActionDeterministicStateInitPerByteSendNotSir,
         action_costs::deterministic_state_init_byte_send,
     ),
+    (Cost::ActionUniversalStateInitPerByte, action_costs::universal_state_init_byte_total),
+    (Cost::ActionUniversalStateInitPerByteExec, action_costs::universal_state_init_byte_exec),
+    (Cost::ActionUniversalStateInitPerByteSendSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerByteSendNotSir, action_costs::universal_state_init_byte_send),
+    (Cost::ActionUniversalStateInitPerEntry, action_costs::universal_state_init_entry_total),
+    (Cost::ActionUniversalStateInitPerEntryExec, action_costs::universal_state_init_entry_exec),
+    (Cost::ActionUniversalStateInitPerEntrySendSir, action_costs::universal_state_init_entry_send),
+    (
+        Cost::ActionUniversalStateInitPerEntrySendNotSir,
+        action_costs::universal_state_init_entry_send,
+    ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::OpFloat, adversarial_float_nan_canonicalization),
@@ -820,7 +831,7 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
 }
 
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
     let large_code = generate_data_only_contract(
@@ -840,7 +851,7 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = &ctx.cached.function_call_base {
         return cost.clone();
     }
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
     let code = generate_data_only_contract(0, &vm_config);
@@ -900,7 +911,7 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     (base, per_byte)
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 5;
 
@@ -1065,7 +1076,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
     config.vm_kind = vm_kind;
     // The soak test contract is a finite loop that must exhaust gas to abort.
@@ -1077,7 +1088,10 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "cpu_ram_soak_test", fake_external.code_len())
+            .expect("contract loading charge failed");
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
@@ -1205,21 +1219,28 @@ fn universal_state_init_to_account_id_base(ctx: &mut EstimatorContext) -> GasCos
     );
     ctx.cached.universal_state_init_to_account_id_base.insert(cost).clone()
 }
+/// The length of the state init that the dense functions of the estimator contract derive an
+/// id from, see `dense_state_init` there.
+const UNIVERSAL_STATE_INIT_DENSE_BYTES: u64 = 2 + 4 + 852 * 12 + 4;
+
 fn universal_state_init_to_account_id_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base = universal_state_init_to_account_id_base(ctx);
     // inside the WASM function, there are 10k calls to the host function.
     let base_call_num = 10_000;
-    // each call derives an id from a 10kiB state init
-    let iteration_bytes = 10 * 1024;
-    let total_bytes = base_call_num * iteration_bytes;
-    let byte = fn_cost(
-        ctx,
-        "universal_state_init_to_account_id_10kib_10k",
-        ExtCosts::universal_state_init_to_account_id_byte,
-        total_bytes,
-    );
-    // subtract the base cost, which `fn_cost` has already spread over the bytes
-    byte - base / iteration_bytes
+    let total_bytes = base_call_num * UNIVERSAL_STATE_INIT_DENSE_BYTES;
+    // Two shapes of the same entries. The sorted payload is canonical, so it is decoded,
+    // re-encoded and hashed. The unsorted one is also sorted while it is decoded, and
+    // rejected before it is hashed. Neither is the slower one for certain, so charge for
+    // whichever is.
+    let mut byte = |method: &str| {
+        let cost =
+            fn_cost(ctx, method, ExtCosts::universal_state_init_to_account_id_byte, total_bytes);
+        // subtract the base cost, which `fn_cost` has already spread over the bytes
+        cost - base.clone() / UNIVERSAL_STATE_INIT_DENSE_BYTES
+    };
+    let sorted = byte("universal_state_init_to_account_id_10kib_10k");
+    let unsorted = byte("universal_state_init_to_account_id_10kib_10k_unsorted");
+    std::cmp::max(sorted, unsorted)
 }
 
 fn sha3_256_base(ctx: &mut EstimatorContext) -> GasCost {

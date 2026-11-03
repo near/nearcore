@@ -5,6 +5,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
@@ -31,13 +32,11 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
 
 /// Reports a rejected account-state change as a storage inconsistency.
@@ -227,6 +226,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     epoch_info_provider: &dyn EpochInfoProvider,
+    protocol_version: ProtocolVersion,
 ) {
     // Config-aware: account type whose feature is off reads as `NamedAccount` and panics
     // below rather than being created. Only `universal_accounts` can still be off.
@@ -256,7 +256,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let chain_id = epoch_info_provider.chain_id();
 
             // Use a deployed global contract for ETH implicit accounts.
-            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id, protocol_version);
             let storage_usage = fee_config.storage_usage_config.num_bytes_account
                 + global_contract_hash.as_bytes().len() as u64;
 
@@ -336,31 +336,10 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
-    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
-        .enabled(current_protocol_version)
-    {
-        let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
-        account_ref.storage_usage().saturating_sub(contract_storage)
-    } else {
-        // Legacy behavior: only subtracts local contract code, misses the
-        // global contract identifier overhead.
-        let account_storage_usage = account_ref.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account_ref.local_contract_hash().unwrap_or_default(),
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage.saturating_sub(code_len)
-    };
+    let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
+    let account_storage_usage = account_ref.storage_usage().saturating_sub(contract_storage);
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -683,14 +662,7 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
-                // Before this fix, the missing early return allowed execution
-                // to fall through to the receiver_id and method_name checks,
-                // which could overwrite this error with a different one.
-                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
             if delegate_action.receiver_id() != &function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -900,21 +872,8 @@ fn get_account_type(account_id: &AccountId, config: &RuntimeConfig) -> AccountTy
     match account_id.get_account_type() {
         AccountType::NamedAccount => AccountType::NamedAccount,
         AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
-        AccountType::EthImplicitAccount => {
-            if config.wasm_config.eth_implicit_accounts {
-                AccountType::EthImplicitAccount
-            } else {
-                AccountType::NamedAccount
-            }
-        }
-        // Deterministic accounts have no separate flag and re-use `eth_implicit_accounts`
-        AccountType::NearDeterministicAccount => {
-            if config.wasm_config.eth_implicit_accounts {
-                AccountType::NearDeterministicAccount
-            } else {
-                AccountType::NamedAccount
-            }
-        }
+        AccountType::EthImplicitAccount => AccountType::EthImplicitAccount,
+        AccountType::NearDeterministicAccount => AccountType::NearDeterministicAccount,
         AccountType::UniversalAccount => {
             if config.wasm_config.universal_accounts {
                 AccountType::UniversalAccount
@@ -952,9 +911,10 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use crate::universal_account_id::action_universal_state_init;
+    use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedDelegateActionPayload, VersionedSignedDelegateAction,
@@ -976,6 +936,7 @@ mod tests {
     use near_primitives::universal_account_id::encode_universal_account_id;
     use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -1096,7 +1057,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1110,10 +1070,7 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(
-        storage_usage: u64,
-        protocol_version: ProtocolVersion,
-    ) -> ActionResult {
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1142,7 +1099,6 @@ mod tests {
                 account.local_contract_hash().unwrap_or_default(),
             ),
             storage_usage,
-            protocol_version,
             &mut state_update,
         )
     }
@@ -1163,72 +1119,32 @@ mod tests {
         account_id: &AccountId,
         contract: AccountContract,
         storage_usage: u64,
-        protocol_version: ProtocolVersion,
     ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        test_delete_account(
-            account_id,
-            contract,
-            storage_usage,
-            protocol_version,
-            &mut state_update,
-        )
+        test_delete_account(account_id, contract, storage_usage, &mut state_update)
     }
 
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_delete_account_with_contract_and_large_state() {
-        let action_result = test_delete_account_with_contract(
-            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
         expect_delete_account_too_large(&action_result);
     }
 
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_global_contract_protocol_transition() {
-        let account_id: AccountId = "alice".parse().unwrap();
-        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
-        let enabled =
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
-
-        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
-        let before = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled - 1,
-        );
-        expect_delete_account_too_large(&before);
-
-        // From the fix onwards: the 32-byte identifier is subtracted, so
-        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
-        let after = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled,
-        );
-        assert!(after.result.is_ok());
     }
 
     /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
@@ -1238,7 +1154,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1253,7 +1168,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1265,7 +1179,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1277,7 +1190,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
     }
@@ -1289,7 +1201,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
     }
@@ -1321,7 +1232,6 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);
@@ -1335,16 +1245,12 @@ mod tests {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
-                    non_delegate_action(
-                        Action::FunctionCall(
-                            Box::new(FunctionCallAction {
-                                 method_name: "ft_transfer".parse().unwrap(),
-                                 args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: Gas::from_teragas(30),
-                                 deposit: Balance::from_yoctonear(1),
-                            })
-                        )
-                    )
+                    non_delegate_action(Action::function_call_with_deposit(
+                        "ft_transfer",
+                        br#"{"receiver_id":"jane.test.near","amount":"4"}"#,
+                        Gas::from_teragas(30),
+                        Balance::from_yoctonear(1),
+                    ))
                 ],
                 nonce: 19000001,
                 max_block_height: 57,
@@ -1764,13 +1670,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
     }
@@ -1816,18 +1720,16 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            }))),
-            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                method_name: "test_method".parse().unwrap(),
-                gas: Gas::from_gas(300),
-            }))),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
+            non_delegate_action(Action::function_call(
+                "test_method",
+                Vec::new(),
+                Gas::from_gas(300),
+            )),
         ];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1854,13 +1756,12 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1902,13 +1803,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.nonce = initial_nonce + 1;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::from_yoctonear(1),
-                gas: Gas::from_gas(300),
-                method_name: "any_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call_with_deposit(
+            "any_method",
+            Vec::new(),
+            Gas::from_gas(300),
+            Balance::from_yoctonear(1),
+        ))];
 
         let mut result = ActionResult::default();
         validate_delegate_action_key(
@@ -1923,30 +1823,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
-
-        // Legacy: missing early return lets ReceiverMismatch overwrite
-        // DepositWithFunctionCall.
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: "token.test.near".parse().unwrap(),
-                    ak_receiver: "other.test.near".parse().unwrap(),
-                },
-            )
-            .into()),
-        );
-    }
-
-    #[test]
     fn test_delegate_deposit_with_function_call_reports_deposit_error() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
+        let result = deposit_with_function_call_and_receiver_mismatch(PROTOCOL_VERSION);
 
         assert_eq!(
             result.result,
@@ -1970,13 +1848,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -2005,13 +1881,11 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -2039,13 +1913,11 @@ mod tests {
         );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-                args: Vec::new(),
-                deposit: Balance::ZERO,
-                gas: Gas::from_gas(300),
-                method_name: "test_method".parse().unwrap(),
-            })))];
+        delegate_action.actions = vec![non_delegate_action(Action::function_call(
+            "test_method",
+            Vec::new(),
+            Gas::from_gas(300),
+        ))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert_eq!(
             result.result,
@@ -2191,12 +2063,12 @@ mod tests {
     }
 
     fn function_call_action(method_name: &str, deposit: Balance) -> NonDelegateAction {
-        non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
-            args: Vec::new(),
+        non_delegate_action(Action::function_call_with_deposit(
+            method_name,
+            Vec::new(),
+            Gas::from_gas(300),
             deposit,
-            gas: Gas::from_gas(300),
-            method_name: method_name.parse().unwrap(),
-        })))
+        ))
     }
 
     fn function_call_permission(
@@ -2335,12 +2207,7 @@ mod tests {
     fn actions_requiring_an_account() -> Vec<Action> {
         vec![
             Action::DeployContract(DeployContractAction { code: vec![] }),
-            Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "foo".to_string(),
-                args: vec![],
-                gas: Gas::from_teragas(1),
-                deposit: Balance::ZERO,
-            })),
+            Action::function_call("foo", vec![], Gas::from_teragas(1)),
             Action::Stake(Box::new(StakeAction {
                 stake: Balance::from_yoctonear(1),
                 public_key: public_key(),
@@ -2497,10 +2364,90 @@ mod tests {
         );
     }
 
-    fn config_with(eth_implicit_accounts: bool, universal_accounts: bool) -> RuntimeConfig {
+    /// Applies a universal state init carrying `deposit` to an initialized account that lacks
+    /// balance for its storage staking, under `protocol_version`.
+    fn apply_repeated_universal_state_init(
+        protocol_version: ProtocolVersion,
+        receipt: &Receipt,
+        deposit: Balance,
+    ) -> (Account, ActionResult) {
+        let mut apply_state = create_apply_state(1);
+        apply_state.current_protocol_version = protocol_version;
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let balance = Balance::from_yoctonear(1);
+        let mut account =
+            Some(Account::new(balance, Balance::ZERO, AccountContract::None, 1_000_000));
+        let missing =
+            match check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config) {
+                Err(StorageStakingError::LackBalanceForStorageStaking(missing)) => missing,
+                _ => panic!("the account must lack balance for storage staking"),
+            };
+        assert!(missing > deposit, "the deposit must not cover the missing storage stake");
+        let action = UniversalStateInitAction { state_init: RawStateInit(vec![]), deposit };
+        let mut result = ActionResult::default();
+
+        action_universal_state_init(
+            &mut state_update,
+            &apply_state,
+            &mut account,
+            &account_id(),
+            receipt,
+            &action,
+            &mut result,
+        )
+        .unwrap();
+        (account.unwrap(), result)
+    }
+
+    /// A state init on an already initialized account refunds the whole deposit,
+    /// even when the account lacks balance for its storage staking. The deposit
+    /// only covers storage staking for the action that initializes the account.
+    #[test]
+    fn repeated_universal_state_init_refunds_whole_deposit() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let deposit = Balance::from_near(1);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version(),
+            &receipt,
+            deposit,
+        );
+
+        assert!(result.result.is_ok());
+        assert_eq!(
+            account.amount(),
+            Balance::from_yoctonear(1),
+            "the account must not be topped up"
+        );
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit)]
+        );
+    }
+
+    /// Before the refund feature, the deposit of a repeated state init still settles the
+    /// storage stake, so a deposit short of the missing stake fails the action.
+    #[test]
+    fn repeated_universal_state_init_settles_storage_before_refund_feature() {
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version() - 1,
+            &receipt,
+            Balance::from_near(1),
+        );
+
+        assert!(matches!(
+            result.result,
+            Err(ActionError { kind: ActionErrorKind::LackBalanceForState { .. }, .. })
+        ));
+        assert_eq!(account.amount(), Balance::from_yoctonear(1));
+        assert!(result.new_receipts.is_empty());
+    }
+
+    fn config_with(universal_accounts: bool) -> RuntimeConfig {
         let mut config = RuntimeConfig::test();
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
-        wasm_config.eth_implicit_accounts = eth_implicit_accounts;
         wasm_config.universal_accounts = universal_accounts;
         config
     }
@@ -2518,27 +2465,26 @@ mod tests {
         let universal = encode_universal_account_id(&[0x33; 32]);
 
         let cases = [
-            (&named, false, false, AccountType::NamedAccount),
-            (&named, true, true, AccountType::NamedAccount),
-            // NEAR-implicit accounts predate the flags and have none of their own.
-            (&near_implicit, false, false, AccountType::NearImplicitAccount),
-            (&near_implicit, true, true, AccountType::NearImplicitAccount),
-            (&eth, true, false, AccountType::EthImplicitAccount),
-            (&eth, false, true, AccountType::NamedAccount),
-            // A deterministic account has no flag of its own and rides the eth one.
-            (&deterministic, true, false, AccountType::NearDeterministicAccount),
-            (&deterministic, false, true, AccountType::NamedAccount),
-            (&universal, false, true, AccountType::UniversalAccount),
-            (&universal, true, false, AccountType::NamedAccount),
+            (&named, false, AccountType::NamedAccount),
+            (&named, true, AccountType::NamedAccount),
+            // These kinds are enabled in every supported protocol version and have
+            // no flag of their own.
+            (&near_implicit, false, AccountType::NearImplicitAccount),
+            (&near_implicit, true, AccountType::NearImplicitAccount),
+            (&eth, false, AccountType::EthImplicitAccount),
+            (&eth, true, AccountType::EthImplicitAccount),
+            (&deterministic, false, AccountType::NearDeterministicAccount),
+            (&deterministic, true, AccountType::NearDeterministicAccount),
+            (&universal, true, AccountType::UniversalAccount),
+            (&universal, false, AccountType::NamedAccount),
         ];
 
-        for (account_id, eth_implicit_accounts, universal_accounts, expected) in cases {
-            let config = config_with(eth_implicit_accounts, universal_accounts);
+        for (account_id, universal_accounts, expected) in cases {
+            let config = config_with(universal_accounts);
             assert_eq!(
                 get_account_type(account_id, &config),
                 expected,
-                "{account_id} with eth_implicit_accounts={eth_implicit_accounts}, \
-                 universal_accounts={universal_accounts}"
+                "{account_id} with universal_accounts={universal_accounts}"
             );
         }
     }
@@ -2555,17 +2501,11 @@ mod tests {
         let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
 
         assert_eq!(
-            check_account_existence(
-                &transfer,
-                &None,
-                &account_id,
-                &config_with(true, false),
-                alone
-            ),
+            check_account_existence(&transfer, &None, &account_id, &config_with(false), alone),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
         );
         assert_eq!(
-            check_account_existence(&transfer, &None, &account_id, &config_with(true, true), alone),
+            check_account_existence(&transfer, &None, &account_id, &config_with(true), alone),
             Ok(())
         );
     }

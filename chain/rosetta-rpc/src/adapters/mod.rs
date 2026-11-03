@@ -833,15 +833,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         }
                         sender_account_id.try_set(&transfer_operation.account)?;
                     }
-                    actions.push(
-                        near_primitives::transaction::FunctionCallAction {
-                            method_name: function_call_operation.method_name,
-                            args: function_call_operation.args,
-                            gas: function_call_operation.attached_gas,
-                            deposit: function_call_operation.attached_amount,
-                        }
-                        .into(),
-                    )
+                    actions.push(near_primitives::transaction::Action::function_call_with_deposit(
+                        function_call_operation.method_name,
+                        function_call_operation.args,
+                        function_call_operation.attached_gas,
+                        function_call_operation.attached_amount,
+                    ))
                 }
                 crate::models::OperationType::DelegateAction => {
                     let delegate_action_operation =
@@ -1082,24 +1079,14 @@ mod tests {
             near_primitives::transaction::DeployContractAction { code: b"binary-data".to_vec() }
                 .into(),
         ];
-        let function_call_without_balance_actions = vec![
-            near_primitives::transaction::FunctionCallAction {
-                method_name: "method-name".parse().unwrap(),
-                args: b"args".to_vec(),
-                gas: Gas::from_gas(100500),
-                deposit: Balance::ZERO,
-            }
-            .into(),
-        ];
-        let function_call_with_balance_actions = vec![
-            near_primitives::transaction::FunctionCallAction {
-                method_name: "method-name".parse().unwrap(),
-                args: b"args".to_vec(),
-                gas: Gas::from_gas(100500),
-                deposit: Balance::MAX,
-            }
-            .into(),
-        ];
+        let function_call_without_balance_actions =
+            vec![Action::function_call("method-name", b"args", Gas::from_gas(100500))];
+        let function_call_with_balance_actions = vec![Action::function_call_with_deposit(
+            "method-name",
+            b"args",
+            Gas::from_gas(100500),
+            Balance::MAX,
+        )];
 
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]

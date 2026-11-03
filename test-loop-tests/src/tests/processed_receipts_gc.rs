@@ -1,6 +1,6 @@
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -54,8 +54,7 @@ fn test_processed_receipt_ids_gc() {
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Wait for the local receipt to be processed (the transaction won't fully
     // complete because the yield callback is waiting for a resume).
@@ -66,12 +65,10 @@ fn test_processed_receipt_ids_gc() {
     };
     let local_outcome =
         env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    // The local receipt produces the PromiseYield instant receipt. Under AccountCostIncrease
-    // the function-call receipt also emits a gas-refund receipt for the price_surplus, so
-    // we take the first child (the instant receipt) which is unaffected by the feature.
-    let instant_receipt_id = if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
+    // The local receipt produces the PromiseYield instant receipt. The function-call
+    // receipt also emits a gas-refund receipt for the price_surplus, so we take the first
+    // child (the instant receipt).
+    let instant_receipt_id = {
         let receipt_ids = &local_outcome.outcome_with_id.outcome.receipt_ids;
         assert_eq!(
             receipt_ids.len(),
@@ -79,11 +76,6 @@ fn test_processed_receipt_ids_gc() {
             "expected PromiseYield instant receipt + gas-refund receipt"
         );
         receipt_ids[0]
-    } else {
-        let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
-            panic!("expected single receipt from local receipt execution")
-        };
-        instant_receipt_id
     };
 
     let receipt_execution_block_hash = local_outcome.block_hash;
@@ -113,15 +105,11 @@ fn test_processed_receipt_ids_gc() {
         ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::ReceiptToTxGc),
         ProcessedReceiptMetadata::new(instant_receipt_id, ReceiptSource::ReceiptToTxGc),
     ];
-    if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
-        // The function-call local receipt also emits a price_surplus gas-refund receipt
-        // which gets registered for receipt_to_tx GC alongside the others.
-        let refund_receipt_id = local_outcome.outcome_with_id.outcome.receipt_ids[1];
-        expected_metadata
-            .push(ProcessedReceiptMetadata::new(refund_receipt_id, ReceiptSource::ReceiptToTxGc));
-    }
+    // The function-call local receipt also emits a price_surplus gas-refund receipt which
+    // gets registered for receipt_to_tx GC alongside the others.
+    let refund_receipt_id = local_outcome.outcome_with_id.outcome.receipt_ids[1];
+    expected_metadata
+        .push(ProcessedReceiptMetadata::new(refund_receipt_id, ReceiptSource::ReceiptToTxGc));
     assert_eq!(all_metadata, expected_metadata);
 
     // Verify ReceiptToTx entries exist for local and instant receipts.
@@ -177,24 +165,12 @@ fn test_processed_receipt_ids_gc() {
 fn test_receipt_to_tx_saved_and_gced() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let user_account = create_account_id("account0");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(
-            std::slice::from_ref(&user_account),
-            Balance::from_near(1_000_000),
-        )
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
@@ -211,8 +187,7 @@ fn test_receipt_to_tx_saved_and_gced() {
         Balance::ZERO,
         Gas::from_teragas(300),
     );
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Wait for the transaction outcome (tx → local receipt).
     let tx_outcome =
@@ -224,12 +199,10 @@ fn test_receipt_to_tx_saved_and_gced() {
     // Wait for the local receipt outcome (local receipt → instant receipt).
     let local_outcome =
         env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    // The local receipt produces the PromiseYield instant receipt. Under AccountCostIncrease
-    // the function-call receipt also emits a gas-refund receipt for the price_surplus, so
-    // we take the first child (the instant receipt) which is unaffected by the feature.
-    let instant_receipt_id = if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
+    // The local receipt produces the PromiseYield instant receipt. The function-call
+    // receipt also emits a gas-refund receipt for the price_surplus, so we take the first
+    // child (the instant receipt).
+    let instant_receipt_id = {
         let receipt_ids = &local_outcome.outcome_with_id.outcome.receipt_ids;
         assert_eq!(
             receipt_ids.len(),
@@ -237,11 +210,6 @@ fn test_receipt_to_tx_saved_and_gced() {
             "expected PromiseYield instant receipt + gas-refund receipt"
         );
         receipt_ids[0]
-    } else {
-        let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
-            panic!("expected single receipt from local receipt execution")
-        };
-        instant_receipt_id
     };
 
     let store = env.validator().store();
@@ -301,24 +269,12 @@ fn test_receipt_to_tx_saved_and_gced() {
 fn test_receipt_to_tx_gc_with_outcomes_disabled() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let user_account = create_account_id("account0");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(
-            std::slice::from_ref(&user_account),
-            Balance::from_near(1_000_000),
-        )
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .config_modifier(|config, _| {
             config.save_tx_outcomes = false;
@@ -329,8 +285,7 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
     // have a ReceiptToTx mapping.
     let tx =
         env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
-    let tx_hash = tx.get_hash();
-    env.validator().submit_tx(tx);
+    let tx_hash = env.validator().submit_tx(tx);
 
     // Run enough blocks for the transaction to be processed.
     env.validator_runner().run_for_number_of_blocks(5);
@@ -612,9 +567,6 @@ fn test_promise_resume_receipt_to_tx_gc() {
 /// GC handles this via `ReceiptSource::ReceiptToTxGc` entries in ProcessedReceiptIds,
 /// which track all receipt IDs with ReceiptToTx entries and clean them up.
 #[test]
-// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
-// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     init_test_logger();
 
@@ -668,8 +620,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
         &receiver,
         Balance::from_yoctonear(100),
     );
-    let tx_hash = tx.get_hash();
-    env.node_for_account(&validator_id).submit_tx(tx);
+    let tx_hash = env.node_for_account(&validator_id).submit_tx(tx);
 
     // Step 2: Wait for the tx outcome on the validator; extract receipt_id.
     let tx_outcome = env

@@ -10,7 +10,8 @@ use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeErro
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, Nonce};
-use near_primitives::universal_state_init::UniversalStateInit;
+use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
+use near_primitives::version::ProtocolFeature;
 use near_store::{TrieUpdate, set_access_key_by_handle};
 use std::cmp::max;
 
@@ -31,9 +32,9 @@ pub(crate) fn action_universal_state_init(
     let storage_usage_config = &fees.storage_usage_config;
 
     // The account may already exist without its state: a transfer to a `0u` id
-    // creates an uninitialized account. Install on the first state init and skip
-    // straight to the deposit handling on a repeat, without touching the state
-    // already there.
+    // creates an uninitialized account. Install on the first state init. A repeat
+    // keeps the state already there and refunds the deposit, or below
+    // `RefundRepeatedUniversalStateInitDeposit` settles it against storage staking.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),
@@ -48,36 +49,59 @@ pub(crate) fn action_universal_state_init(
         )),
     };
 
-    if !account.is_initialized() {
-        // The action carries the bytes the producer serialized; installing the
-        // state needs them decoded. Every receipt is validated before its actions
-        // run and validation rejects a state init that does not decode, so this
-        // only fires if that invariant has been broken. Failing the action rather
-        // than the chunk keeps a hypothetical gap in that coverage from becoming a
-        // halt, since the payload comes from outside.
-        let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init) else {
-            result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
-            return Ok(());
-        };
-        // Installed keys must start above the nonce the bootstrap consumed, or those
-        // same bytes replay through the access-key path. It's practically impossible
-        // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
-        // but let's keep the check for the sake of complete safety.
-        let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
-        let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
-        account.initialize().or_inconsistent_state(account_id)?;
-        install_universal_account(
-            state_update,
-            account,
-            account_id,
-            &state_init,
-            result,
-            fees,
-            access_key_nonce,
-        )?;
-        if result.result.is_err() {
-            return Ok(());
+    if account.is_initialized() {
+        if !ProtocolFeature::RefundRepeatedUniversalStateInitDeposit
+            .enabled(apply_state.current_protocol_version)
+        {
+            return settle_state_init_deposit(
+                account,
+                action.deposit,
+                account_id,
+                receipt,
+                &apply_state.config,
+                result,
+            );
         }
+        if action.deposit > Balance::ZERO {
+            result.new_receipts.push(Receipt::new_balance_refund(
+                receipt.balance_refund_receiver(),
+                action.deposit,
+            ));
+        }
+        return Ok(());
+    }
+
+    // The action carries the bytes the producer serialized; installing the
+    // state needs them decoded. Validation of a new receipt rejects a state init that
+    // is not canonical, so from `CanonicalUniversalStateInit` on this only fires for a
+    // receipt created before it took effect, or if that invariant has been broken.
+    // Failing the action rather than the chunk keeps either from becoming a halt, since
+    // the payload comes from outside.
+    let mode = DecodeMode::strict_if(
+        ProtocolFeature::CanonicalUniversalStateInit.enabled(apply_state.current_protocol_version),
+    );
+    let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init, mode) else {
+        result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
+        return Ok(());
+    };
+    // Installed keys must start above the nonce the bootstrap consumed, or those
+    // same bytes replay through the access-key path. It's practically impossible
+    // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
+    // but let's keep the check for the sake of complete safety.
+    let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
+    let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
+    account.initialize().or_inconsistent_state(account_id)?;
+    install_universal_account(
+        state_update,
+        account,
+        account_id,
+        &state_init,
+        result,
+        fees,
+        access_key_nonce,
+    )?;
+    if result.result.is_err() {
+        return Ok(());
     }
 
     settle_state_init_deposit(

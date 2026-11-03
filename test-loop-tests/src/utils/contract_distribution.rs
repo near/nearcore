@@ -36,8 +36,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
     start_height: u64,
     end_height: u64,
 ) {
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let chain_store = client.chain.chain_store();
     let epoch_manager = &client.epoch_manager;
 
@@ -74,10 +73,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
 pub(crate) fn clear_compiled_contract_caches(env: &TestLoopEnv) {
     #[cfg(feature = "test_features")]
     for i in 0..env.node_datas.len() {
-        let client_handle = env.node_datas[i].client_sender.actor_handle();
-        let contract_cache_handle =
-            env.test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
-        contract_cache_handle.test_only_clear().unwrap();
+        env.node(i).client().runtime_adapter.compiled_contract_cache().test_only_clear().unwrap();
     }
     #[cfg(not(feature = "test_features"))]
     let _ignore = env;

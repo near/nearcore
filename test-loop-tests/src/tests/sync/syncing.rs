@@ -4,7 +4,7 @@ use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_n
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -27,19 +27,11 @@ fn slow_test_sync_from_genesis() {
 
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .validators_spec(validators_spec)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .genesis_height(10000)
+        .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
 
     let first_epoch_tracked_shards = env
@@ -52,24 +44,15 @@ fn slow_test_sync_from_genesis() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
-        },
-        Duration::seconds(50),
-    );
+    env.node_runner(0).run_until(|node| node.head().height > 10050, Duration::seconds(50));
 
     // Add new node
     let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
-    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
+    let new_node_idx = env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.
-    let new_node = env.node_datas.last().unwrap().client_sender.actor_handle();
-    env.test_loop.run_until(
-        |test_loop_data| test_loop_data.get(&new_node).client.chain.head().unwrap().height > 10050,
-        Duration::seconds(20),
-    );
+    env.node_runner(new_node_idx)
+        .run_until(|node| node.head().height > 10050, Duration::seconds(20));
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
@@ -86,20 +69,12 @@ fn slow_test_validator_restart_under_cross_shard_load() {
 
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .shard_layout(ShardLayout::multi_shard(4, 3))
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .gc_num_epochs_to_keep(20)
         .build();
 
@@ -152,9 +127,8 @@ fn slow_test_validator_restart_under_cross_shard_load() {
         // Send cross-shard transfers after each restart to generate traffic
         // across all shards.
         let live_nodes = &env.node_datas[env.node_datas.len() - NUM_CLIENTS..];
-        let clients: Vec<_> = live_nodes
-            .iter()
-            .map(|nd| &env.test_loop.data.get(&nd.client_sender.actor_handle()).client)
+        let clients: Vec<_> = (env.node_datas.len() - NUM_CLIENTS..env.node_datas.len())
+            .map(|idx| env.node(idx).client())
             .collect();
         let anchor_hash = get_anchor_hash(&clients);
         for (j, sender) in accounts.iter().enumerate() {

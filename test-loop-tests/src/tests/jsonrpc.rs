@@ -2,8 +2,6 @@ use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::serialize::to_base64;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId};
 
 /// Get a block by height using jsonrpc
@@ -36,14 +34,8 @@ fn test_rpc_broadcast_tx_commit_transfer() {
         .add_user_account(&validator_account, Balance::from_near(1_000))
         .build();
 
-    let tx = SignedTransaction::send_money(
-        1,
-        validator_account.clone(),
-        validator_account.clone(),
-        &create_user_test_signer(&validator_account),
-        Balance::from_near(1),
-        env.rpc_node().head().last_block_hash,
-    );
+    let tx =
+        env.rpc_node().tx_send_money(&validator_account, &validator_account, Balance::from_near(1));
     let tx_bytes = borsh::to_vec(&tx).unwrap();
     let tx_base64 = to_base64(&tx_bytes);
 

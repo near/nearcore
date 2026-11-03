@@ -10,6 +10,7 @@ use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -31,7 +32,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -47,8 +48,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, Transaction, TransactionV0,
-    ValidatedTransaction,
+    Action, ExecutionStatus, SignedTransaction, Transaction, TransactionV0, ValidatedTransaction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
@@ -1202,13 +1202,13 @@ fn slow_test_process_block_after_state_sync() {
         .state_sync_adapter
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
-    let state_root = header.chunk_prev_state_root();
-    let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let sync_prev_prev_hash = sync_prev_header.prev_hash();
+    let state_root = header.synced_state_root();
+    let snapshot_hash =
+        snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+        .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
         .unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
@@ -1674,9 +1674,15 @@ fn test_sync_hash_validity() {
             height += 1;
         }
 
-        // This assumes that all shards have new chunks in every block, which should be true
-        // with TestEnv::produce_block()
-        let expected_sync_height = epoch_start + 3;
+        // Spice syncs to the epoch's first block. Otherwise the sync block follows the first
+        // block with two new chunks in every shard, which with a chunk in every shard of every
+        // block, as TestEnv::produce_block() makes, is the epoch's fourth.
+        let expected_sync_height =
+            if ProtocolFeature::Spice.enabled(genesis.config.protocol_version) {
+                epoch_start
+            } else {
+                epoch_start + 3
+            };
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
@@ -1762,12 +1768,7 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "write_block_height".to_string(),
-            args: vec![],
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("write_block_height", vec![], Gas::from_teragas(100))],
         *last_block.hash(),
     );
     assert_eq!(
@@ -2016,7 +2017,7 @@ fn slow_test_catchup_gas_price_change() {
                 .runtime_adapter
                 .apply_state_part(
                     shard_id,
-                    &state_sync_header.chunk_prev_state_root(),
+                    &state_sync_header.synced_state_root(),
                     StatePartId::new(part_id, num_parts),
                     &part,
                     blocks[5].header().epoch_id(),
@@ -2108,12 +2109,9 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
-    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
-    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
-    // zero with the test's gas_price.
-    let expected_refund_receipts_in_chunk =
-        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    // The two action receipts processed in block 2 each emit a price_surplus gas-refund
+    // receipt, which then becomes `prev_outgoing_receipts` of block 3.
+    let expected_refund_receipts_in_chunk = 2;
     // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
     // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
     // (that field is always empty) and the produced receipts are stored keyed by the block whose
@@ -3041,6 +3039,7 @@ fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
     let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
     let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
     while let Some(group) = iter.next() {
+        let PooledGroup::Signed(group) = group else { continue };
         while let Some(tx) = group.next() {
             hashes.insert(tx.get_hash());
         }
@@ -3375,12 +3374,7 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "ext_validator_stake".to_string(),
-            args: b"test0".to_vec(),
-            gas: Gas::from_teragas(100),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("ext_validator_stake", b"test0", Gas::from_teragas(100))],
         *genesis_block.hash(),
     );
     assert_eq!(
@@ -3425,10 +3419,10 @@ mod contract_precompilation_tests {
     use super::*;
     use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_runtime::state_viewer::TrieViewer;
+    use near_runtime::state_viewer::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-    use node_runtime::state_viewer::TrieViewer;
-    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 
@@ -3443,13 +3437,12 @@ mod contract_precompilation_tests {
             .state_sync_adapter
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
-        let state_root = state_sync_header.chunk_prev_state_root();
-        let sync_prev_header =
-            env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let sync_prev_prev_hash = sync_prev_header.prev_hash();
+        let state_root = state_sync_header.synced_state_root();
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
+            .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter

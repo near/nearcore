@@ -4,7 +4,6 @@ use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::FunctionCallAction;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, FunctionCallError, InvalidTxError,
     MethodResolveError, TxExecutionError,
@@ -26,12 +25,7 @@ fn empty_method_tx(
     env.rpc_node().tx_from_actions(
         signer,
         contract,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: String::new(),
-            args: vec![],
-            gas: Gas::from_teragas(30),
-            deposit: Balance::ZERO,
-        }))],
+        vec![Action::function_call("", vec![], Gas::from_teragas(30))],
     )
 }
 

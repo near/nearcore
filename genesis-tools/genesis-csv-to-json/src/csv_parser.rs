@@ -10,7 +10,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::ReceiptV0;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{Action, FunctionCallAction};
+use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use std::fs::File;
 use std::io::Read;
@@ -261,12 +261,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "init".to_string(),
-                    args,
-                    gas: INIT_GAS,
-                    deposit: Balance::ZERO,
-                }))],
+                actions: vec![Action::function_call("init", args, INIT_GAS)],
             }),
         });
         res.push(StateRecord::PostponedReceipt(Box::new(receipt)));

@@ -1,4 +1,3 @@
-mod cell;
 mod sync;
 
-pub use crate::{cell::CellLruCache, sync::SyncLruCache};
+pub use crate::sync::SyncLruCache;

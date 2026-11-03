@@ -253,12 +253,6 @@ impl<'a, Memory: ArenaMemoryMut> ArenaPtrMut<'a, Memory> {
     pub fn slice_mut(&mut self, offset: usize, len: usize) -> ArenaSliceMut<'_, Memory> {
         ArenaSliceMut { arena: self.arena, pos: self.pos.offset_by(offset), len }
     }
-
-    /// Provides mutable access to the whole memory, while holding a mutable
-    /// reference to the pointer.
-    pub fn arena_mut(&mut self) -> &mut Memory {
-        &mut self.arena
-    }
 }
 
 /// Represents a mutable slice of memory in the arena.

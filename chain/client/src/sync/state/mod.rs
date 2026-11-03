@@ -21,7 +21,7 @@ use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::StateResponse;
+use near_network::client::StateRequestUpdate;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -184,7 +184,7 @@ impl StateSync {
     pub fn apply_peer_message(
         &self,
         peer_id: PeerId,
-        msg: StateResponse,
+        msg: StateRequestUpdate,
     ) -> Result<(), near_chain::Error> {
         self.peer_source_state.lock().receive_peer_message(peer_id, msg)?;
         Ok(())
@@ -484,27 +484,4 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>>;
-}
-
-/// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
-pub fn get_epoch_start_sync_hash(
-    chain: &Chain,
-    sync_hash: &CryptoHash,
-) -> Result<CryptoHash, near_chain::Error> {
-    let mut header = chain.get_block_header(sync_hash)?;
-    let mut epoch_id = *header.epoch_id();
-    let mut hash = *header.hash();
-    let mut prev_hash = *header.prev_hash();
-    loop {
-        if prev_hash == CryptoHash::default() {
-            return Ok(hash);
-        }
-        header = chain.get_block_header(&prev_hash)?;
-        if &epoch_id != header.epoch_id() {
-            return Ok(hash);
-        }
-        epoch_id = *header.epoch_id();
-        hash = *header.hash();
-        prev_hash = *header.prev_hash();
-    }
 }

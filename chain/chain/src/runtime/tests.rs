@@ -1,6 +1,6 @@
 use super::*;
 use crate::types::{
-    BlockType, ChainConfig, HasContract, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
+    BlockType, ChainConfig, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
     StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
@@ -20,7 +20,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::{FunctionCallAction, UniversalStateInitAction};
+use near_primitives::action::UniversalStateInitAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -34,8 +34,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeleteAccountAction, SignedTransaction, StakeAction, Transaction, TransactionNonce,
-    TransactionV0, TransferAction,
+    Action, DeleteAccountAction, EccTransaction, SignedTransaction, StakeAction, Transaction,
+    TransactionNonce, TransactionV0, TransferAction, ValidatedEcc,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
@@ -52,17 +52,18 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use tempfile::TempDir;
 
 const TEST_SEED: RngSeed = [3; 32];
 const NUM_TEST_SIGNERS: usize = 4;
@@ -88,6 +89,8 @@ struct TestEnv {
     pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
     pub last_proposals: Vec<ValidatorStake>,
     time: u64,
+    // Keep the store and compiled contract cache directories alive for the test.
+    _dir: TempDir,
 }
 
 impl TestEnv {
@@ -192,7 +195,7 @@ impl TestEnv {
         }
 
         epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     genesis_hash,
                     0,
@@ -202,7 +205,6 @@ impl TestEnv {
                     vec![],
                     vec![],
                     genesis_total_supply,
-                    genesis_protocol_version,
                     genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -218,6 +220,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         Self {
             epoch_manager,
@@ -234,6 +237,7 @@ impl TestEnv {
             last_proposals: vec![],
             last_shard_proposals: HashMap::default(),
             time: 0,
+            _dir: dir,
         }
     }
 
@@ -371,7 +375,7 @@ impl TestEnv {
             self.last_shard_proposals.insert(shard_id, proposals);
         }
         self.epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     new_hash,
                     new_height,
@@ -382,7 +386,6 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
-                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
                     None,
@@ -390,6 +393,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
@@ -885,7 +889,7 @@ fn test_state_sync() {
         };
         new_env
             .epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     cur_hash,
                     i,
@@ -895,7 +899,6 @@ fn test_state_sync() {
                     new_env.last_proposals,
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -908,6 +911,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
@@ -1542,7 +1546,7 @@ fn test_genesis_hash() {
         .handle(),
         &genesis.config,
         epoch_manager.clone(),
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
     );
 
     let state_roots =
@@ -1686,7 +1690,7 @@ fn prepare_transactions_extra(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     prepare_transactions_extra_with_time_limit(
@@ -1707,7 +1711,7 @@ fn prepare_transactions_extra_with_time_limit(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
     time_limit: Option<Duration>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1747,13 +1751,74 @@ fn prepare_transactions_extra_with_time_limit(
     )
 }
 
+/// The producer does not pack ECCs yet: it prepares the signed transactions around
+/// them and leaves the ECCs in the pool.
+#[test]
+fn test_prepare_transactions_leaves_eccs_in_pool() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let ecc = ValidatedEcc::new_for_test(EccTransaction::new("test1".parse().unwrap(), vec![1]));
+    assert_eq!(transaction_pool.insert_transaction(ecc.clone()), InsertTransactionResult::Success);
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    let mut iter = transaction_pool.pool_iterator();
+    let prepared = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+    drop(iter);
+
+    assert!(!prepared.transactions.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+    let mut iter = transaction_pool.pool_iterator();
+    let mut eccs_in_pool = vec![];
+    while let Some(group) = iter.next() {
+        if let PooledGroup::Ecc(group) = group {
+            eccs_in_pool.extend(group.next().map(|ecc| ecc.get_hash()));
+        }
+    }
+    assert_eq!(eccs_in_pool, vec![ecc.get_hash()]);
+}
+
+/// Visiting the groups of ECCs that are skipped is bounded by the same limits as everything
+/// else: a cancelled preparation stops at the first of them.
+#[test]
+fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for contract_id in ["test1", "test2"] {
+        let ecc =
+            ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![1]));
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
+    }
+
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        Some(Arc::new(AtomicBool::new(true))),
+    )
+    .unwrap();
+
+    assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Cancelled);
+    assert_eq!(pool.len(), 2);
+}
+
 #[test]
 fn test_prepare_transactions_duplicate_nonces() {
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
 
     // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
     let mut iter = transaction_pool.pool_iterator();
-    let group = iter.next().unwrap();
+    let PooledGroup::Signed(group) = iter.next().unwrap() else {
+        panic!("expected a group of signed transactions")
+    };
     let first_tx = group.peek_next().unwrap();
     let duplicate_nonce_tx = SignedTransaction::send_money(
         first_tx.nonce().nonce(),
@@ -2508,7 +2573,7 @@ fn test_prepare_transactions_pending_skip() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         &|_| true,
-        &mut |_, _| {
+        &mut |_| {
             call_count += 1;
             if call_count.is_multiple_of(2) {
                 PendingTxCheckResult::Skip
@@ -2567,7 +2632,7 @@ fn test_prepare_transactions_pending_balance_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_, _| {
+        &mut |_| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: TESTING_INIT_BALANCE,
                 ..PendingConstraints::default()
@@ -2615,7 +2680,7 @@ fn test_prepare_transactions_pending_nonce_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_, _| {
+        &mut |_| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 max_nonce: 1,
                 ..PendingConstraints::default()
@@ -2872,14 +2937,11 @@ fn test_storage_proof_garbage() {
             gas_price: env.runtime.genesis_config.min_gas_price,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::FunctionCall(
-                FunctionCallAction {
-                    method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
-                    args: vec![],
-                    gas: Gas::from_teragas(300),
-                    deposit: Balance::from_yoctonear(300000000000000),
-                }
-                .into(),
+            actions: vec![Action::function_call_with_deposit(
+                format!("internal_record_storage_garbage_{garbage_size_mb}"),
+                vec![],
+                Gas::from_teragas(300),
+                Balance::from_yoctonear(300000000000000),
             )],
         }),
     });
@@ -2911,7 +2973,7 @@ fn test_precompile_contracts_updates_cache() {
         contract_cache.handle(),
         &genesis.config,
         epoch_manager,
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
     );
 
     let contracts = vec![

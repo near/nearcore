@@ -19,33 +19,31 @@ mod opts {
     pub(super) const FUNCTION_REFERENCES: bool = false;
     pub(super) const MEMORY_CONTROL: bool = false;
     pub(super) const SIGN_EXTENSION: bool = true;
+    pub(super) const REFTYPES_BULK_MEMORY: bool = true;
     pub(super) const STACK_SWITCHING: bool = false;
     pub(super) const WIDE_ARITHMETIC: bool = false;
     pub(super) const CUSTOM_PAGE_SIZES: bool = false;
 }
 
 #[derive(Clone, Copy)]
-#[allow(unused)]
-pub struct WasmFeatures {
-    reftypes_bulk_memory: bool,
-}
+pub struct WasmFeatures {}
 
 impl WasmFeatures {
     #[allow(unused)]
-    pub fn new(config: &vm::Config) -> Self {
-        Self { reftypes_bulk_memory: config.reftypes_bulk_memory }
+    pub fn new(_config: &vm::Config) -> Self {
+        Self {}
     }
 }
 
 #[cfg(feature = "finite-wasm-6")]
 impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
-    fn from(f: WasmFeatures) -> Self {
+    fn from(_: WasmFeatures) -> Self {
         finite_wasm_6::wasmparser::WasmFeaturesInflated {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
-            reference_types: f.reftypes_bulk_memory,
-            bulk_memory: f.reftypes_bulk_memory,
+            reference_types: REFTYPES_BULK_MEMORY,
+            bulk_memory: REFTYPES_BULK_MEMORY,
 
             // wasmer singlepass compiler requires multi_value return values to be disabled.
             multi_value: MULTI_VALUE,

@@ -1,9 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::validators::get_epoch_all_validators;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, AccountInfo, Balance};
 
@@ -14,9 +12,7 @@ fn slow_test_fix_cp_stake_threshold() {
     let epoch_length = 10;
     let accounts =
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect::<Vec<_>>();
-    let num_shards = 6;
-    let shard_layout = ShardLayout::multi_shard(num_shards, 1);
+    let num_shards: u64 = 6;
     let validators = vec![
         AccountInfo {
             account_id: accounts[0].clone(),
@@ -43,20 +39,14 @@ fn slow_test_fix_cp_stake_threshold() {
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .epoch_length(epoch_length)
+        .num_shards(num_shards as usize)
+        .validators_spec(validators_spec)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .build();
 
-    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let client = env.node(0).client();
     let validators = get_epoch_all_validators(client);
     assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
 }

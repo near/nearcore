@@ -15,21 +15,18 @@ use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-    TransferAction,
+    Action, AddKeyAction, DeployContractAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{Balance, Gas};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_primitives_core::{account::AccessKey, types::BlockHeight};
+use near_primitives_core::{account::AccessKey, hash::hash, types::BlockHeight};
+use near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use near_runtime::config::total_prepaid_gas;
 use near_store::ShardUId;
-use near_wallet_contract::{
-    eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
-};
-use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
-use node_runtime::config::total_prepaid_gas;
+use near_test_contracts::wallet_contract::legacy_localnet;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
@@ -93,7 +90,6 @@ fn test_eth_implicit_account_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let chain_id = &genesis.config.chain_id;
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let eth_implicit_account_id = eth_implicit_test_account();
@@ -121,7 +117,7 @@ fn test_eth_implicit_account_creation() {
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert!(view.amount.is_zero());
-            assert_eq!(view.global_contract_hash, Some(eth_wallet_global_contract_hash(chain_id)));
+            assert_eq!(view.global_contract_hash, Some(hash(legacy_localnet())));
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
@@ -134,7 +130,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let chain_id = &genesis.config.chain_id;
     let deposit_for_account_creation = Balance::from_near(1);
     let mut height = 1;
     let blocks_number = 5;
@@ -209,8 +204,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let magic_bytes = wallet_contract_magic_bytes(&chain_id);
-    let wallet_contract_code = wallet_contract(*magic_bytes.hash()).unwrap().code().to_vec();
+    let wallet_contract_code = legacy_localnet().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),
@@ -230,7 +224,6 @@ fn test_wallet_contract_interaction() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let chain_id = &genesis.config.chain_id;
     let mut height = 1;
     let blocks_number = 10;
 
@@ -243,12 +236,11 @@ fn test_wallet_contract_interaction() {
     let receiver = bob_account();
 
     // Deploy the wallet contract as a global contract for ETH implicit accounts.
-    let magic_bytes = wallet_contract_magic_bytes(chain_id);
-    let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+    let wallet_code = legacy_localnet();
     let deploy_tx = SignedTransaction::deploy_global_contract(
         1,
         relayer.clone(),
-        wallet_code.code().to_vec(),
+        wallet_code.to_vec(),
         &relayer_signer.signer,
         *genesis_block.hash(),
         GlobalContractDeployMode::CodeHash,
@@ -395,12 +387,7 @@ pub fn create_rlp_execute_tx(
     .into_bytes();
 
     // Construct Near transaction to `rlp_execute` method
-    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "rlp_execute".into(),
-        args,
-        gas: Gas::from_teragas(300),
-        deposit: Balance::ZERO,
-    }))];
+    let actions = vec![Action::function_call("rlp_execute", args, Gas::from_teragas(300))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;
     let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
     SignedTransaction::from_actions(

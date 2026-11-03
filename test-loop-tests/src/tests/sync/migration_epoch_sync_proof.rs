@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use std::collections::HashMap;
@@ -16,10 +15,6 @@ use std::collections::HashMap;
 /// must seed a proof, not defer), then runs forward so the runtime extends it.
 #[test]
 fn test_migration_48_to_49_epoch_sync_proof_min_gc() {
-    // The 48 -> 49 proof machinery only exists with ContinuousEpochSync.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     init_test_logger();
     for blocks_past_boundary in [0, 5, 9] {
         check_migration_seeds_extendable_proof(blocks_past_boundary);
@@ -44,7 +39,7 @@ fn check_migration_seeds_extendable_proof(blocks_past_boundary: usize) {
         if epoch > 0 {
             env.validator_runner().run_until_new_epoch();
         }
-        let store = env.validator().client().chain.chain_store.store();
+        let store = env.validator().store();
         for (key, value) in store.iter(DBCol::BlockHeader) {
             all_headers.insert(key.to_vec(), value.to_vec());
         }
@@ -52,13 +47,13 @@ fn check_migration_seeds_extendable_proof(blocks_past_boundary: usize) {
     // Move `blocks_past_boundary` into the current epoch to vary the restart point.
     if blocks_past_boundary > 0 {
         env.validator_runner().run_for_number_of_blocks(blocks_past_boundary);
-        let store = env.validator().client().chain.chain_store.store();
+        let store = env.validator().store();
         for (key, value) in store.iter(DBCol::BlockHeader) {
             all_headers.insert(key.to_vec(), value.to_vec());
         }
     }
 
-    let store = env.validator().client().chain.chain_store.store();
+    let store = env.validator().store();
     let genesis_height = store.chain_store().get_genesis_height();
     let tail = store.chain_store().tail();
     let head_height = store.chain_store().head().unwrap().height;

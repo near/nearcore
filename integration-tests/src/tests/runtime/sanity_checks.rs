@@ -3,7 +3,7 @@ use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
@@ -13,7 +13,7 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 /// Initial balance used in tests.
@@ -43,7 +43,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new();
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let node = RuntimeNode::new_from_genesis_and_config(
         &alice_account(),

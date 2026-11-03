@@ -29,7 +29,7 @@ use near_primitives::stateless_validation::partial_witness::{
 use near_primitives::test_utils::{create_test_signer, test_chunk_header};
 use near_primitives::types::{Balance, BlockHeight, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -57,7 +57,7 @@ fn make_witness(
     prev_block_hash: CryptoHash,
     protocol_version: ProtocolVersion,
 ) -> VersionedPartialEncodedStateWitness {
-    let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
+    let chunk_header = test_chunk_header(prev_block_hash, signer);
     VersionedPartialEncodedStateWitness::new(
         EpochId(CryptoHash::default()),
         chunk_header,
@@ -157,7 +157,6 @@ fn build_v2_witness(
         BandwidthRequests::empty(),
         None,
         signer,
-        PROTOCOL_VERSION,
     ));
     VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
         epoch_id,

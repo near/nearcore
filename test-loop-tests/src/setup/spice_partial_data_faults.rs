@@ -263,7 +263,7 @@ fn with_corrupted_part(data: &SpicePartialData) -> SpicePartialData {
     let signer = create_test_signer(data.sender().as_str());
     let mut verified = data
         .clone()
-        .into_verified(&signer.public_key())
+        .into_verified(&[signer.public_key()])
         .expect("test-loop nodes sign with create_test_signer keys");
     let part = verified.parts.first_mut().expect("pushed data carries a part");
     let byte = part.part.first_mut().expect("part is not empty");
@@ -278,7 +278,7 @@ fn with_conflicting_commitment(data: &SpicePartialData) -> SpicePartialData {
     let signer = create_test_signer(data.sender().as_str());
     let verified = data
         .clone()
-        .into_verified(&signer.public_key())
+        .into_verified(&[signer.public_key()])
         .expect("test-loop nodes sign with create_test_signer keys");
     let mut part = verified.parts.into_iter().next().expect("partial data carries a part");
     let byte = part.part.first_mut().expect("part is not empty");

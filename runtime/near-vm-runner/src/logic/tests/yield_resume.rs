@@ -274,7 +274,6 @@ fn test_promise_yield_create_with_id_zero_amount_succeeds_on_zero_balance() {
 #[test]
 fn test_promise_yield_create_with_id_one_yocto_exemption_enabled() {
     let mut logic_builder = VMLogicBuilder::free();
-    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
@@ -303,26 +302,8 @@ fn test_promise_yield_create_with_id_one_yocto_exemption_enabled() {
 }
 
 #[test]
-fn test_promise_yield_create_with_id_one_yocto_exemption_disabled() {
-    let mut logic_builder = VMLogicBuilder::free();
-    logic_builder.config.one_yocto_on_promise = false;
-    logic_builder.context.account_balance = Balance::ZERO;
-    logic_builder.context.attached_deposit = Balance::ZERO;
-    let mut logic = logic_builder.build();
-
-    // Without the exemption, 1 yoctoNEAR on zero balance must fail.
-    let err = yield_create_with_id_attaching(&mut logic, [1u8; 32], 1)
-        .expect_err("1 yoctoNEAR without exemption should fail on zero balance");
-    assert!(
-        matches!(err, crate::logic::VMLogicError::HostError(HostError::BalanceExceeded)),
-        "expected BalanceExceeded, got {err:?}"
-    );
-}
-
-#[test]
 fn test_promise_yield_create_with_id_one_yocto_deducts_with_nonzero_balance() {
     let mut logic_builder = VMLogicBuilder::free();
-    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::from_yoctonear(1);
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();

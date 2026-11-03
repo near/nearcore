@@ -241,37 +241,15 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
-    pub discard_custom_sections: bool,
-    /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
-    pub global_contract_host_fns: bool,
-    /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
-    pub reftypes_bulk_memory: bool,
-    /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
-    pub gas_key_host_fns: bool,
-    /// See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).
-    pub one_yocto_on_promise: bool,
-    /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
-    pub p256_verify_host_fn: bool,
     /// See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).
     pub ml_dsa_verify_host_fn: bool,
     /// See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).
     pub sha3_host_fns: bool,
-    /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
-    pub yield_with_id_host_fns: bool,
-    /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
-    pub chain_id_host_fn: bool,
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
 
-    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
-    pub storage_get_mode: crate::vm::StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// Deprecated
-    pub implicit_account_creation: bool,
-    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
-    pub eth_implicit_accounts: bool,
     /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
     pub universal_accounts: bool,
 
@@ -290,23 +268,12 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
-            storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
-            implicit_account_creation: true,
             vm_kind: config.vm_kind,
-            eth_implicit_accounts: config.eth_implicit_accounts,
             universal_accounts: config.universal_accounts,
-            global_contract_host_fns: config.global_contract_host_fns,
-            reftypes_bulk_memory: config.reftypes_bulk_memory,
-            gas_key_host_fns: config.gas_key_host_fns,
-            one_yocto_on_promise: config.one_yocto_on_promise,
-            p256_verify_host_fn: config.p256_verify_host_fn,
             ml_dsa_verify_host_fn: config.ml_dsa_verify_host_fn,
             sha3_host_fns: config.sha3_host_fns,
-            yield_with_id_host_fns: config.yield_with_id_host_fns,
-            chain_id_host_fn: config.chain_id_host_fn,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
         }
     }
@@ -491,10 +458,6 @@ pub struct ExtCostsConfigView {
     /// Cost of calling `validator_total_stake`.
     pub validator_total_stake_base: Gas,
 
-    // Removed parameters, only here for keeping the output backward-compatible.
-    pub contract_compile_base: Gas,
-    pub contract_compile_bytes: Gas,
-
     // #############
     // # Alt BN128 #
     // #############
@@ -661,9 +624,6 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             bls12381_p2_decompress_base: config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
             bls12381_p2_decompress_element: config
                 .gas_cost(ExtCosts::bls12381_p2_decompress_element),
-            // removed parameters
-            contract_compile_base: Gas::ZERO,
-            contract_compile_bytes: Gas::ZERO,
         }
     }
 }
@@ -861,16 +821,6 @@ pub struct CongestionControlConfigView {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
-
-    /// The standard size limit for outgoing receipts aimed at a single shard.
-    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
-    /// It limits the total sum of outgoing receipts, not individual receipts.
-    pub outgoing_receipts_usual_size_limit: u64,
-
-    /// Large size limit for outgoing receipts to a shard, used when it's safe
-    /// to send a lot of receipts without making the state witness too large.
-    /// It limits the total sum of outgoing receipts, not individual receipts.
-    pub outgoing_receipts_big_size_limit: u64,
 }
 
 impl From<CongestionControlConfig> for CongestionControlConfigView {
@@ -886,8 +836,6 @@ impl From<CongestionControlConfig> for CongestionControlConfigView {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
-            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
-            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }
@@ -905,8 +853,6 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
-            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
-            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }
@@ -953,7 +899,7 @@ mod tests {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new();
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});

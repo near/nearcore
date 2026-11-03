@@ -12,30 +12,27 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::setup::state::NodeExecutionData;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::receipts::action_receipt_v1_to_latest;
-use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
+use crate::utils::transactions::TransactionRunner;
 use bytesize::ByteSize;
-use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthSchedulerParams,
 };
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
-};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -149,20 +146,12 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // TODO(bandwidth_scheduler) - add support for missing block probability?
 
     // Build TestLoop
-    let validators_spec = ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]))
+        .add_user_accounts(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(vec![node_account])
         .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
@@ -172,8 +161,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let mut workload_generator = WorkloadGenerator::init(
         shard_accounts,
         tx_concurrency,
-        &mut env.test_loop,
-        &env.node_datas,
+        &mut env,
         0,
         scenario.link_generators,
     );
@@ -221,7 +209,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // the consensus head otherwise, so this is correct in both modes.
     env.validator_runner().run_until_executed_height(last_height.unwrap());
 
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 
@@ -397,14 +385,7 @@ fn analyze_workload_blocks(
                     .to_shard(target_shard_id)
                     .iter(&trie, false)
                     .map(|res| res.unwrap())
-                    .map(|receipt| match receipt {
-                        ReceiptOrStateStoredReceipt::Receipt(_) => {
-                            panic!("Old receipts shouldn't occur")
-                        }
-                        ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt) => {
-                            ByteSize::b(state_stored_receipt.metadata().congestion_size)
-                        }
-                    })
+                    .map(|receipt| ByteSize::b(receipt.metadata().congestion_size))
                     .collect();
                 let mut total_size: ByteSize = ByteSize::b(0);
                 for &receipt_size in &buffered_receipt_sizes {
@@ -517,8 +498,7 @@ impl WorkloadGenerator {
     pub fn init(
         shard_accounts: BTreeMap<ShardIndex, AccountId>,
         concurrency: usize,
-        test_loop: &mut TestLoopV2,
-        node_datas: &[NodeExecutionData],
+        env: &mut TestLoopEnv,
         random_seed: u64,
         link_generators: LinkGenerators,
     ) -> Self {
@@ -529,10 +509,10 @@ impl WorkloadGenerator {
         };
 
         // Deploy the test contract on all accounts
-        generator.deploy_contracts(test_loop, node_datas);
+        generator.deploy_contracts(env);
 
         // Generate and add access keys to the workload accounts
-        let account_signers = generator.generate_access_keys(test_loop, node_datas, concurrency);
+        let account_signers = generator.generate_access_keys(env, concurrency);
 
         let link_generators = Rc::new(RefCell::new(link_generators));
 
@@ -553,9 +533,9 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
+    fn deploy_contracts(&self, env: &mut TestLoopEnv) {
         tracing::info!(target: "scheduler_test", "deploying contracts");
-        let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
+        let (last_block_hash, nonce) = get_last_block_and_nonce(env);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
             .shard_accounts
             .values()
@@ -569,7 +549,7 @@ impl WorkloadGenerator {
                 )
             })
             .collect();
-        run_txs_parallel(test_loop, deploy_contracts_txs, &node_datas, Duration::seconds(30));
+        env.node_runner(0).run_txs_parallel(deploy_contracts_txs, Duration::seconds(30));
         tracing::info!(target: "scheduler_test", "contracts deployed");
     }
 
@@ -578,8 +558,7 @@ impl WorkloadGenerator {
     /// high concurrency.
     fn generate_access_keys(
         &self,
-        test_loop: &mut TestLoopV2,
-        node_datas: &[NodeExecutionData],
+        env: &mut TestLoopEnv,
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
         tracing::info!(target: "scheduler_test", "adding access keys");
@@ -614,7 +593,7 @@ impl WorkloadGenerator {
             let mut add_key_txs: Vec<SignedTransaction> = Vec::new();
             let mut new_signers = Vec::new();
 
-            let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
+            let (last_block_hash, nonce) = get_last_block_and_nonce(env);
             tracing::info!(target: "scheduler_test", %nonce, "adding access keys with nonce");
 
             for (account, usable_signers) in &available_signers {
@@ -640,7 +619,7 @@ impl WorkloadGenerator {
                 }
             }
 
-            run_txs_parallel(test_loop, add_key_txs, node_datas, Duration::seconds(20));
+            env.node_runner(0).run_txs_parallel(add_key_txs, Duration::seconds(20));
 
             tracing::info!(target: "scheduler_test", access_keys = %new_signers.len(), "added access keys");
             for (account, new_signer) in new_signers {
@@ -779,7 +758,7 @@ fn make_send_receipt_transaction(
     last_block_hash: CryptoHash,
 ) -> SignedTransaction {
     // The receipt sent to `receiver_account` will call the `noop` method.
-    let method_name = "noop".to_string();
+    let method_name = "noop";
 
     // Find out how large a basic receipt with empty arguments will be.
     let base_receipt_template = Receipt::V0(ReceiptV0 {
@@ -792,12 +771,7 @@ fn make_send_receipt_transaction(
             gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: method_name.clone(),
-                args: Vec::new(),
-                gas: Gas::ZERO,
-                deposit: Balance::ZERO,
-            }))],
+            actions: vec![Action::function_call(method_name, Vec::new(), Gas::ZERO)],
         }),
     });
     let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);
@@ -846,10 +820,6 @@ fn get_last_block_and_nonce_from_client(client: &Client) -> (CryptoHash, Nonce) 
     (last_block_hash, nonce)
 }
 
-fn get_last_block_and_nonce(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-) -> (CryptoHash, Nonce) {
-    let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
-    get_last_block_and_nonce_from_client(client)
+fn get_last_block_and_nonce(env: &TestLoopEnv) -> (CryptoHash, Nonce) {
+    get_last_block_and_nonce_from_client(env.node(0).client())
 }

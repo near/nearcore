@@ -5,12 +5,10 @@ use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::action::Action;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnum};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::FinalExecutionStatus;
@@ -20,24 +18,12 @@ use near_store::{ShardUId, Trie, TrieDBStorage};
 use std::str::FromStr;
 use std::sync::Arc;
 
-// The height of the block in which the promise yield is created.
-// Under AccountCostIncrease each "real" receipt also produces a price_surplus refund
-// receipt that consumes an extra block; setup heights shift accordingly.
-fn extra_refund_block() -> u64 {
-    if near_primitives::version::ProtocolFeature::AccountCostIncrease
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
-        1
-    } else {
-        0
-    }
-}
-
-// The exec height of the yield_create function-call receipt itself. Under the feature it
-// is delayed by one block because we wait for the deploy_contract refund receipt before
+// The exec height of the yield_create function-call receipt itself. Each "real" receipt
+// also produces a price_surplus refund receipt that consumes an extra block, so this is
+// delayed by one block because we wait for the deploy_contract refund receipt before
 // submitting the yield tx.
 fn yield_create_height() -> u64 {
-    4 + extra_refund_block()
+    5
 }
 
 // The height of the next block after environment setup is complete.
@@ -196,7 +182,6 @@ fn prepare_env_with_yield(
     init_test_logger();
 
     let test_account: AccountId = "test0".parse().unwrap();
-    let test_account_signer = create_user_test_signer(&test_account).into();
 
     let runtime_config = RuntimeConfig::test();
     assert_eq!(
@@ -217,21 +202,13 @@ fn prepare_env_with_yield(
 
     assert_eq!(env.validator().head().height, 0);
 
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-
     // Submit transaction deploying contract to test0
-    let deploy_contract_tx = SignedTransaction::deploy_contract(
-        1,
-        &test_account,
-        near_test_contracts::rs_contract().into(),
-        &test_account_signer,
-        *genesis_block.hash(),
-    );
+    let deploy_contract_tx = env.validator().tx_deploy_test_contract(&test_account);
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow enough blocks for the contract to be deployed (and, under
-    // AccountCostIncrease, for the price_surplus refund receipt to be processed).
-    env.validator_runner().run_until_executed_height(2 + extra_refund_block());
+    // Allow enough blocks for the contract to be deployed (and for the price_surplus refund
+    // receipt to be processed).
+    env.validator_runner().run_until_executed_height(3);
     assert!(matches!(
         env.validator()
             .client()
@@ -243,21 +220,16 @@ fn prepare_env_with_yield(
     ));
 
     // Submit transaction making a function call which will invoke yield create
-    let yield_transaction = SignedTransaction::from_actions(
-        10,
-        test_account.clone(),
-        test_account,
-        &test_account_signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: anticipated_yield_payload,
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        *genesis_block.hash(),
+    let yield_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
+        vec![Action::function_call(
+            "call_yield_create_return_promise",
+            anticipated_yield_payload,
+            Gas::from_teragas(300),
+        )],
     );
-    let yield_tx_hash = yield_transaction.get_hash();
-    env.validator().submit_tx(yield_transaction);
+    let yield_tx_hash = env.validator().submit_tx(yield_transaction);
     env.validator_runner().run_until_executed_height(yield_create_height());
     assert!(matches!(
         env.validator()
@@ -284,24 +256,21 @@ fn invoke_yield_resume(
     data_id: CryptoHash,
     yield_payload: Vec<u8>,
 ) -> CryptoHash {
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
 
-    let resume_transaction = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_resume".to_string(),
-            args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        *genesis_block.hash(),
+    let resume_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
+        vec![Action::function_call(
+            "call_yield_resume",
+            yield_payload
+                .into_iter()
+                .chain(data_id.as_bytes().iter().cloned())
+                .collect::<Vec<u8>>(),
+            Gas::from_teragas(300),
+        )],
     );
-    let tx_hash = resume_transaction.get_hash();
-    env.validator().submit_tx(resume_transaction);
+    let tx_hash = env.validator().submit_tx(resume_transaction);
     tx_hash
 }
 
@@ -310,22 +279,13 @@ fn invoke_yield_resume(
 /// Note that these transactions start to be processed in the *second* block produced after they are
 /// inserted to client 0's mempool.
 fn create_congestion(env: &TestLoopEnv) {
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
 
-    for i in 0..25 {
-        let signed_transaction = SignedTransaction::from_actions(
-            i + 100,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "epoch_height".to_string(),
-                args: vec![],
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
-            *genesis_block.hash(),
+    for _ in 0..25 {
+        let signed_transaction = env.validator().tx_from_actions(
+            &test_account,
+            &test_account,
+            vec![Action::function_call("epoch_height", vec![], Gas::from_gas(100))],
         );
         env.validator().submit_tx(signed_transaction);
     }

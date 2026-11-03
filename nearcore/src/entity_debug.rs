@@ -27,12 +27,13 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::{
-    BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
+    BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView,
+    TransactionEnvelopeView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
@@ -406,12 +407,12 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::TransactionByHash { transaction_hash } => {
                 let transaction = store
-                    .get_ser::<SignedTransaction>(
+                    .get_ser::<TransactionEnvelope>(
                         DBCol::Transactions,
                         &borsh::to_vec(&transaction_hash).unwrap(),
                     )
                     .ok_or_else(|| anyhow!("Transaction not found"))?;
-                Ok(serialize_entity(&SignedTransactionView::from(transaction)))
+                Ok(serialize_entity(&TransactionEnvelopeView::from(transaction)))
             }
             EntityQuery::TrieNode { trie_path } => {
                 let trie_path =

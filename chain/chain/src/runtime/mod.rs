@@ -6,20 +6,22 @@ use crate::runtime::metrics::{
 };
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
-    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
-    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
+    StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::{background_runtime_tasks, contract_compilation_pool};
+use near_async::thread_pool::{
+    background_contract_compilation_pool, background_runtime_tasks, contract_compilation_pool,
+};
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
@@ -39,12 +41,19 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
-};
+use near_primitives::version::{ProtocolVersion, clamp_to_supported_protocol_version};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
     QueryResponse, QueryResponseKind, ViewStateResult,
+};
+use near_runtime::adapter::ViewRuntimeAdapter;
+use near_runtime::cache_warming::cache_keys_differ;
+use near_runtime::config::tx_cost;
+use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
+use near_runtime::{
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -55,18 +64,11 @@ use near_store::{
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{ContractRuntimeCache, precompile_contract};
-use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::cache_warming::cache_keys_differ;
-use node_runtime::config::tx_cost;
-use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
-use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorization,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+use near_vm_runner::{
+    CompilePriority, ContractRuntimeCache, compiler_daemon, precompile_contract_with_priority,
 };
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -290,14 +292,11 @@ impl NightshadeRuntime {
             &trie,
             shard_id,
             &epoch_id,
-            current_protocol_version,
             &epoch_config,
             block_height,
             prev_block_hash,
         )?;
-        if apply_reason == ApplyChunkReason::UpdateTrackedShard
-            && ProtocolFeature::DynamicResharding.enabled(current_protocol_version)
-        {
+        if apply_reason == ApplyChunkReason::UpdateTrackedShard {
             set_proposed_split_metrics(shard_uid, proposed_split.as_ref());
         }
 
@@ -595,15 +594,10 @@ impl NightshadeRuntime {
         shard_trie: &Trie,
         shard_id: ShardId,
         epoch_id: &EpochId,
-        protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
         height: BlockHeight,
         prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
-        if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            return Ok(None);
-        }
-
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             return Ok(None);
         };
@@ -780,48 +774,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         // upper bound.
         let block_height: Option<BlockHeight> = None;
 
-        let verdict = match authorization {
-            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &access_key,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ),
-            TxAuthorization::GasKey { access_key, nonce_index } => {
-                let current_nonce =
-                    get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
-                        .ok_or_else(|| {
-                            let num_nonces = access_key
-                                .gas_key_info()
-                                .map_or(0, |gas_key_info| gas_key_info.num_nonces);
-                            InvalidTxError::InvalidNonceIndex {
-                                tx_nonce_index: Some(nonce_index),
-                                num_nonces,
-                            }
-                        })?;
-                verify_and_charge_gas_key_tx_ephemeral(
-                    runtime_config,
-                    &signer,
-                    &access_key,
-                    current_nonce,
-                    &tx,
-                    &cost,
-                    block_height,
-                    pending_constraints,
-                )
-            }
-            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ),
-        };
+        let gas_key_nonce =
+            |nonce_index| get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index);
+        let verdict = verify_and_charge_tx_ephemeral(
+            runtime_config,
+            &signer,
+            authorization.as_tx_authorization_ref(),
+            &tx,
+            &cost,
+            block_height,
+            pending_constraints,
+            gas_key_nonce,
+        )?;
 
         match verdict {
             TxVerdict::Success(_) => Ok(()),
@@ -916,7 +880,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -954,7 +918,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
-        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
+        'add_txs_loop: while let Some(group) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -985,6 +949,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
+            // TODO(ecc): include ECCs once the producer packs them. Until then, each group of
+            // ECCs costs a visit here, so once ECCs have a budget in the chunk, the producer
+            // should stop visiting them when the budget is spent. The limits are checked first,
+            // so the visits stay bounded by the time limit and can be cancelled.
+            let PooledGroup::Signed(transaction_group_iter) = group else { continue };
+
             // Transactions taken from this group so far this visit.
             let mut examined_from_group = 0usize;
 
@@ -1010,9 +980,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
-                    > size_limit as u64
-                {
+                if total_size.saturating_add(tx_peek.size_for_limits()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
@@ -1079,16 +1047,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
 
                 // Check pending transaction queue constraints.
-                let has_contract =
-                    if account.contract().is_some() { HasContract::Yes } else { HasContract::No };
-                let pending_constraints =
-                    match check_pending(validated_tx.to_signed_tx(), has_contract) {
-                        PendingTxCheckResult::Admit(constraints) => constraints,
-                        PendingTxCheckResult::Skip => {
-                            skipped_transactions.push(validated_tx);
-                            continue;
-                        }
-                    };
+                let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
+                    PendingTxCheckResult::Admit(constraints) => constraints,
+                    PendingTxCheckResult::Skip => {
+                        skipped_transactions.push(validated_tx);
+                        continue;
+                    }
+                };
 
                 let cost = match tx_cost(
                     runtime_config,
@@ -1103,44 +1068,25 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 };
 
-                let verdict = match &key_entry.access_key {
-                    None => verify_and_charge_bootstrap_tx_ephemeral(
-                        runtime_config,
-                        account,
-                        validated_tx.to_tx(),
-                        &cost,
-                        Some(next_block_height),
-                        &pending_constraints,
-                    ),
-                    Some(access_key) => {
-                        if let Some(nonce_index) = nonce_index {
-                            let current_nonce = *key_entry
-                                .gas_key_nonces
-                                .get(&nonce_index)
-                                .expect("loaded by get_or_load_entry_mut");
-                            verify_and_charge_gas_key_tx_ephemeral(
-                                runtime_config,
-                                account,
-                                access_key,
-                                current_nonce,
-                                validated_tx.to_tx(),
-                                &cost,
-                                Some(next_block_height),
-                                &pending_constraints,
-                            )
-                        } else {
-                            verify_and_charge_tx_ephemeral(
-                                runtime_config,
-                                account,
-                                access_key,
-                                validated_tx.to_tx(),
-                                &cost,
-                                Some(next_block_height),
-                                &pending_constraints,
-                            )
-                        }
-                    }
+                let authorization =
+                    TxAuthorizationRef::new(key_entry.access_key.as_ref(), nonce_index);
+                let gas_key_nonce = |nonce_index| {
+                    let nonce = *key_entry
+                        .gas_key_nonces
+                        .get(&nonce_index)
+                        .expect("loaded by get_or_load_entry_mut");
+                    Ok::<_, Infallible>(Some(nonce))
                 };
+                let Ok(verdict) = verify_and_charge_tx_ephemeral(
+                    runtime_config,
+                    account,
+                    authorization,
+                    validated_tx.to_tx(),
+                    &cost,
+                    Some(next_block_height),
+                    &pending_constraints,
+                    gas_key_nonce,
+                );
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.
@@ -1150,7 +1096,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.size_for_limits(protocol_version);
+                        total_size += validated_tx.size_for_limits();
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
@@ -1675,13 +1621,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        let compilation_pool = if compiler_daemon::is_daemon_configured() {
+            background_contract_compilation_pool()
+        } else {
+            contract_compilation_pool()
+        };
         let (tx, rx) = std::sync::mpsc::channel();
         for code in contract_codes {
             let tx = tx.clone();
             let config = Arc::clone(&runtime_config.wasm_config);
             let cache = self.compiled_contract_cache.handle();
-            contract_compilation_pool().spawn_boxed(Box::new(move || {
-                precompile_contract(&code, config, Some(&*cache)).ok();
+            compilation_pool.spawn_boxed(Box::new(move || {
+                precompile_contract_with_priority(
+                    &code,
+                    config,
+                    Some(&*cache),
+                    CompilePriority::Background,
+                )
+                .ok();
                 let _ = tx.send(());
             }));
         }
@@ -1839,13 +1796,13 @@ fn check_dynamic_resharding(
     Ok(Some(trie_split))
 }
 
-impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
+impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
+    ) -> Result<Account, near_runtime::state_viewer::errors::ViewAccountError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -1856,7 +1813,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+    ) -> Result<ContractCode, near_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account_contract_code(
             &state_update,
@@ -1881,7 +1838,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
+    ) -> Result<Vec<u8>, near_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             shard_id: shard_uid.shard_id(),
@@ -1910,7 +1867,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+    ) -> Result<AccessKey, near_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -1924,7 +1881,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         limit: Option<NonZeroU32>,
     ) -> Result<
         (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
-        node_runtime::state_viewer::errors::ViewAccessKeyError,
+        near_runtime::state_viewer::errors::ViewAccessKeyError,
     > {
         let trie = self.tries.get_view_trie_for_shard(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&trie, account_id, after, limit)
@@ -1936,7 +1893,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
+    ) -> Result<Vec<Nonce>, near_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }
@@ -1950,7 +1907,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         after_key: Option<&[u8]>,
         limit: Option<NonZeroU32>,
         include_proof: bool,
-    ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
+    ) -> Result<ViewStateResult, near_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(
             &state_update,
@@ -1967,7 +1924,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         identifier: GlobalContractIdentifier,
-    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+    ) -> Result<ContractCode, near_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_global_contract_code(&state_update, identifier)
     }

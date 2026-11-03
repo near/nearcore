@@ -21,7 +21,6 @@ use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
-#[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_utils::save_block_data;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
@@ -35,7 +34,6 @@ use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
-#[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -44,7 +42,6 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::create_test_cloud_storage;
-#[cfg(feature = "nightly")]
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -559,7 +556,7 @@ impl CloudArchiveHarness {
     }
 
     fn store_for(&self, account_id: &AccountId) -> Store {
-        self.env.node_for_account(account_id).client().chain.chain_store().store()
+        self.env.node_for_account(account_id).store()
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
@@ -1189,6 +1186,29 @@ fn test_cloud_archival_single_skipped_slot() {
     h.shutdown();
 }
 
+/// A writer restarted while its bucket head is a height with no block resumes archiving.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_restart_with_head_at_skipped_height() {
+    let batch_size = BlockHeight::from(CloudArchiveHarness::TEST_BATCH_SIZE);
+    let dropped_height = 4 * batch_size - 1;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[dropped_height])
+        .disable_gc()
+        .build();
+    // Stop after the batch ending at the dropped height is archived and before the next one is.
+    h.run_until(dropped_height + batch_size + 1);
+    assert_eq!(h.cloud_block_head(), dropped_height, "setup: bucket head is the dropped height");
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+    assert!(h.local_min_head() > dropped_height, "archiving must resume after the restart");
+    h.assert_heads_ok_before_gc();
+
+    h.shutdown();
+}
+
 /// At cadence 2, `start` (epoch 3) has no snapshot, so the reader resolves the
 /// snapshot to an earlier epoch whose sync block is below the downloaded block
 /// range. Reconstruction loads that snapshot from cloud state parts, so it works
@@ -1231,7 +1251,8 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
     let (start, target) = (12, 18);
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     let own_snapshot_height = get_state_header_for_epoch(&cloud_storage, start_epoch_id, shard_id)
-        .chunk_height_included();
+        .chunk_height_included()
+        .unwrap();
     assert!(
         own_snapshot_height > start,
         "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
@@ -1287,9 +1308,9 @@ fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
         "h={start} and its batch start h={batch_start} must resolve to different snapshots"
     );
     let far_root =
-        get_state_header_for_epoch(&cloud_storage, far_epoch_id, shard_id).chunk_prev_state_root();
+        get_state_header_for_epoch(&cloud_storage, far_epoch_id, shard_id).synced_state_root();
     let near_root =
-        get_state_header_for_epoch(&cloud_storage, near_epoch_id, shard_id).chunk_prev_state_root();
+        get_state_header_for_epoch(&cloud_storage, near_epoch_id, shard_id).synced_state_root();
     assert_ne!(far_root, near_root, "the two snapshots must stand at different roots");
 
     h.bootstrap_historical_reader(start, target);
@@ -1508,7 +1529,9 @@ fn test_cloud_archival_anchor_below_sync_prev() {
         (shard_missing_early_chunks, snapshot_height),
     ];
     let reconstruction_start_of = |shard_id| {
-        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id).chunk_height_included()
+        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id)
+            .chunk_height_included()
+            .unwrap()
     };
     let has_chunk_at = |height, shard_id| {
         cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().new_chunk().is_some()
@@ -2315,7 +2338,6 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
 /// layout-agnostic and round-trips the rows the seeder wrote (the anchor's own
 /// pre-split layout) without consulting any layout.
 #[test]
-#[cfg(feature = "nightly")]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();

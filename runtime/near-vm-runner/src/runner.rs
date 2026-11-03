@@ -1,6 +1,7 @@
+use crate::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
-use crate::logic::{External, VMContext, VMOutcome};
+use crate::logic::{External, PreparedContractGasCounter, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{Config, VMKind};
@@ -43,6 +44,10 @@ pub fn contract_cached(
 /// may occur in preparation will not be reported until an attempt is made to run the prepared
 /// module.
 ///
+/// Callers obtain the required [`PreparedContractGasCounter`] by charging the loading
+/// base, resolving source metadata, and then charging for the resolved source length.
+/// VM preparation checks the charged length against the loaded code.
+///
 /// Contract preparation and execution need not to be executed on the same thread.
 #[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
     code.hash = %contract.hash(),
@@ -55,13 +60,32 @@ pub fn prepare(
     contract: &dyn Contract,
     wasm_config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-    gas_counter: crate::logic::GasCounter,
+    gas_counter: PreparedContractGasCounter,
     method: &str,
 ) -> Box<dyn crate::PreparedContract> {
+    prepare_with_priority(
+        contract,
+        wasm_config,
+        cache,
+        gas_counter,
+        method,
+        CompilePriority::default(),
+    )
+}
+
+pub fn prepare_with_priority(
+    contract: &dyn Contract,
+    wasm_config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+    gas_counter: PreparedContractGasCounter,
+    method: &str,
+    priority: CompilePriority,
+) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
-    let runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
+    let mut runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
         panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
     });
+    runtime.set_compile_priority(priority);
     runtime.prepare(contract, cache, gas_counter, method)
 }
 
@@ -79,8 +103,9 @@ pub fn prepare(
 /// The contract will be executed with the default VM implementation for the
 /// current protocol version.
 ///
-/// The gas cost for contract preparation will be subtracted by the VM
-/// implementation.
+/// Contract preparation gas is accounted for in the returned outcome. With
+/// `FixContractLoadingCost`, the caller charges the loading cost before VM
+/// preparation, otherwise, the VM implementation charges it during preparation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
     method_name,
     burnt_gas = tracing::field::Empty,
@@ -142,6 +167,11 @@ pub trait VM {
     /// covered by `Config` alone (e.g. wasmtime engine version).
     fn vm_hash(&self) -> u64;
 
+    /// Set the priority of compilation calls this VM handle triggers.
+    ///
+    /// Only has an effect if the out-of-process compiler daemon is enabled.
+    fn set_compile_priority(&mut self, _priority: CompilePriority) {}
+
     /// Determine if the machine code for the contract is already cached.
     ///
     /// If this returns `true`, `VM::precompile` **will** return `Ok(Ok(ContractAlreadyInCache))`.
@@ -152,6 +182,10 @@ pub trait VM {
     ) -> Result<bool, crate::logic::errors::CacheError>;
 
     /// Prepare a contract for execution.
+    ///
+    /// The supplied [`PreparedContractGasCounter`] proves that contract-loading gas
+    /// preparation completed. Implementations must validate the charging mode against their
+    /// configuration and check a charged length against the length of the code they load.
     ///
     /// Work that goes into the preparation is runtime implementation specific, and depending on
     /// the runtime may not do anything at all (and instead prepare everything when the contract is
@@ -165,7 +199,7 @@ pub trait VM {
         self: Box<Self>,
         ext: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
-        gas_counter: crate::logic::GasCounter,
+        gas_counter: PreparedContractGasCounter,
         method: &str,
     ) -> Box<dyn PreparedContract>;
 
@@ -179,7 +213,7 @@ pub trait VM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError>;
 
     /// Like [`Self::precompile`], but returns `ContractAlreadyInCache`
     /// instead of blocking when another thread is already compiling the
@@ -189,7 +223,7 @@ pub trait VM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError>;
 }
 
 pub trait VMKindExt {

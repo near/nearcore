@@ -71,7 +71,9 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{
+    SignedTransaction, TransactionEnvelope, ValidatedTransactionEnvelope,
+};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -285,8 +287,6 @@ impl Client {
 pub struct AsyncComputationMultiSpawner {
     /// Spawner to run 'apply chunks' tasks (see `ApplyChunksSpawner` for default)
     apply_chunks: ApplyChunksSpawner,
-    /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
-    epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
@@ -297,7 +297,6 @@ impl Default for AsyncComputationMultiSpawner {
     fn default() -> Self {
         Self {
             apply_chunks: Default::default(),
-            epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
             memtrie_loading: Default::default(),
         }
@@ -309,7 +308,6 @@ impl AsyncComputationMultiSpawner {
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
             prepare_transactions: spawner.clone(),
             memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
@@ -382,7 +380,6 @@ impl Client {
             clock.clone(),
             network_adapter.clone(),
             chain.genesis().clone(),
-            multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
         );
         let header_sync = HeaderSync::new(
@@ -586,16 +583,19 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .filter(|tx| !exclude.contains(&tx.get_hash()))
-                    .cloned()
-                    .filter_map(|signed_tx| {
-                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                    .filter_map(|tx| {
+                        match ValidatedTransactionEnvelope::new(
+                            &config,
+                            tx.clone(),
+                            protocol_version,
+                        ) {
                             Ok(validated_tx) => Some(validated_tx),
-                            Err((err, signed_tx)) => {
+                            Err((err, tx)) => {
                                 tracing::debug!(
                                     target: "client",
-                                    ?signed_tx,
+                                    ?tx,
                                     ?err,
-                                    "validating signed tx failed with error"
+                                    "validating tx failed with error"
                                 );
                                 None
                             }
@@ -661,7 +661,8 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                transactions,
+                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
             );
@@ -713,7 +714,8 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    transactions,
+                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,
                 );
@@ -2057,7 +2059,9 @@ impl Client {
                     }
                 }
 
-                // Reintroduce old-branch-only txs (skip overlap with new branch).
+                // Reintroduce old-branch-only txs (skip overlap with new branch). The blocks are
+                // ordered from the newest one, and each batch of ECCs goes ahead of
+                // everything waiting, so the ECCs end up in the order of arrival.
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                         match self.reintroduce_transactions_for_block(&block, &new_branch_txs) {

@@ -7,8 +7,6 @@ use near_chain::backfill_receipt_to_tx::{
 use near_database_tool::backfill_receipt_to_tx::{BackfillOptions, backfill_receipt_to_tx};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::receipt::{ReceiptOrigin, ReceiptToTxInfo};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockHeight};
 use near_store::DBCol;
 use near_store::test_utils::create_test_store;
@@ -124,17 +122,8 @@ fn test_backfill_idempotent() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.validator().head().last_block_hash;
-
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     env.validator().submit_tx(tx);
 
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -215,17 +204,8 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let block_hash = env.validator().head().last_block_hash;
-
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     env.validator().submit_tx(tx);
 
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -302,21 +282,14 @@ fn test_checkpoint_resume_after_partial_completion() {
         .gc_num_epochs_to_keep(20)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Generate traffic across multiple epochs to ensure entries span a wide range.
-    let mut nonce = 1;
     for _ in 0..3 {
         for _ in 0..5 {
-            let tx = SignedTransaction::send_money(
-                nonce,
-                user_account.clone(),
-                user_account.clone(),
-                &signer,
+            let tx = env.validator().tx_send_money(
+                &user_account,
+                &user_account,
                 Balance::from_yoctonear(100),
-                env.validator().head().last_block_hash,
             );
-            nonce += 1;
             env.validator().submit_tx(tx);
         }
         let target = env.validator().head().height + EPOCH_LENGTH;

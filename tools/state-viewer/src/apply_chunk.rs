@@ -19,10 +19,10 @@ use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::DBCol;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -165,7 +165,8 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-    let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
+    let valid_txs =
+        chain_store.compute_transaction_validity(prev_block.header(), chunk.to_transactions());
 
     let target_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &target_epoch_id)?;

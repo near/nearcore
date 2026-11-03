@@ -3,7 +3,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_ids;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use itertools::Itertools as _;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, NumSeats};
@@ -32,17 +31,10 @@ fn test_validator_rotation() {
         .shard_layout(ShardLayout::single_shard())
         .build();
 
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(accounts)
-        .epoch_config_store(epoch_config_store)
-        .build();
-
-    let client_actor_handle = env.node_datas[0].client_sender.actor_handle();
+    let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
     let assert_current_validators = |env: &TestLoopEnv, validators: &[AccountId]| {
-        let client = &env.test_loop.data.get(&client_actor_handle).client;
+        let client = env.node(0).client();
         let epoch_id = client.chain.head().unwrap().epoch_id;
         let current_validators: Vec<_> = client
             .epoch_manager

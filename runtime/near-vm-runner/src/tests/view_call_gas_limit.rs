@@ -12,10 +12,10 @@
 //! The fix bounds `prepaid_gas` by `max_gas_burnt` in view mode, so the guest
 //! gas global reflects the cap and an unbounded loop aborts promptly.
 
-use crate::logic::VMContext;
 use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{ExecutionMode, VMContext};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let mut config =
         near_parameters::vm::Config::clone(&store.get_config(PROTOCOL_VERSION).wasm_config);
     config.vm_kind = VMKind::Wasmtime;
@@ -52,12 +52,15 @@ fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: Some(ViewConfig { max_gas_burnt: cap }),
+        execution_mode: ExecutionMode::View(ViewConfig { max_gas_burnt: cap }),
         output_data_receivers: vec![],
     };
 
     let gas_counter = context.make_gas_counter(&config);
     let mut ext = MockedExternal::with_code(ContractCode::new(code.to_vec(), None));
+    let gas_counter = gas_counter
+        .prepare_for_contract(&config, "burn", ext.code_len())
+        .expect("contract loading charge failed");
     let fees = Arc::new(RuntimeFeesConfig::test());
     let runtime = VMKind::Wasmtime.runtime(Arc::clone(&config)).expect("wasmtime not compiled in");
     runtime

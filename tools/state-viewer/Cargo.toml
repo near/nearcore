@@ -43,11 +43,12 @@ near-external-storage.workspace = true
 near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-primitives-core.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
@@ -60,7 +61,7 @@ sandbox = [
     "near-chain/sandbox",
     "near-client/sandbox",
     "near-o11y/sandbox",
-    "node-runtime/sandbox",
+    "near-runtime/sandbox",
 ]
 
 nightly = [
@@ -71,11 +72,12 @@ nightly = [
     "near-jsonrpc/nightly",
     "near-network/nightly",
     "near-o11y/nightly",
+    "near-parameters/nightly",
     "near-primitives-core/nightly",
     "near-primitives/nightly",
     "near-store/nightly",
     "nearcore/nightly",
-    "node-runtime/nightly",
+    "near-runtime/nightly",
     "testlib/nightly",
 ]
 

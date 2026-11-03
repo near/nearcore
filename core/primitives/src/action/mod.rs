@@ -405,6 +405,28 @@ const _: () = assert!(
 );
 
 impl Action {
+    pub fn function_call(
+        method_name: impl Into<String>,
+        args: impl Into<Vec<u8>>,
+        gas: Gas,
+    ) -> Self {
+        Self::function_call_with_deposit(method_name, args, gas, Balance::ZERO)
+    }
+
+    pub fn function_call_with_deposit(
+        method_name: impl Into<String>,
+        args: impl Into<Vec<u8>>,
+        gas: Gas,
+        deposit: Balance,
+    ) -> Self {
+        Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: method_name.into(),
+            args: args.into(),
+            gas,
+            deposit,
+        }))
+    }
+
     /// Whether this is a delegate action (meta transaction). Delegate actions
     /// must not be nested inside one another, so this is the single predicate
     /// the nesting guard and JSON schema filter rely on. Exhaustive by design:
@@ -468,14 +490,13 @@ impl Action {
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
             // A state init that does not decode carries no keys as far as this is
             // concerned; it is rejected by action validation before it can run.
-            Action::UniversalStateInit(a) => {
-                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+            Action::UniversalStateInit(a) => UniversalStateInit::from_raw_lenient(&a.state_init)
+                .is_ok_and(|state_init| {
                     state_init
                         .access_keys()
                         .iter()
                         .any(|handle| handle.key_type().is_post_quantum())
-                })
-            }
+                }),
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
             Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),

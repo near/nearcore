@@ -17,11 +17,11 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
+use near_runtime::state_viewer::errors;
+use near_runtime::state_viewer::*;
 use near_store::{
     NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardTries, ShardUId, TrieUpdate, set_account,
 };
-use node_runtime::state_viewer::errors;
-use node_runtime::state_viewer::*;
 use std::num::NonZeroU32;
 use std::{collections::HashMap, io, sync::Arc};
 use testlib::runtime_utils::alice_account;
@@ -374,7 +374,7 @@ fn test_view_state_too_large() {
         &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
     let trie_viewer = TrieViewer::new(
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
         Some(50_000),
         default_view_access_keys_limit(),
         None,
@@ -400,7 +400,7 @@ fn test_view_state_with_large_contract() {
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
         Some(50_000),
         default_view_access_keys_limit(),
         None,
@@ -718,7 +718,7 @@ fn test_view_state_pagination_bypasses_size_limit() {
     }
     let state_update = commit_and_view(tries, state_update);
     let viewer = TrieViewer::new(
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(),
         Some(50_000),
         default_view_access_keys_limit(),
         None,

@@ -28,10 +28,13 @@ use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceR
 use near_jsonrpc_primitives::types::indexer::{RpcIndexerBlockRequest, RpcIndexerBlockResponse};
 use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
-    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
-    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
     RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
     RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
+};
+#[cfg(feature = "protocol_feature_spice")]
+use near_jsonrpc_primitives::types::light_client::{
+    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
     RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
 };
 use near_jsonrpc_primitives::types::maintenance::{
@@ -1235,6 +1238,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["light_client", "experimental"],
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_method::<RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse>(
         &mut methods,
         &mut all_schemas,
@@ -1243,6 +1247,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["light_client", "experimental"],
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_method::<
         RpcLightClientExecutionOutcomeProofRequest,
         RpcLightClientExecutionOutcomeProofResponse,
@@ -1254,6 +1259,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["light_client", "experimental"],
     );
+    #[cfg(feature = "protocol_feature_spice")]
     add_method::<RpcLightClientStateProofRequest, RpcLightClientStateProofResponse>(
         &mut methods,
         &mut all_schemas,
@@ -1449,7 +1455,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         "openrpc": "1.3.2",
         "info": {
             "title": "NEAR Protocol JSON-RPC API",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "JSON-RPC API for interacting with the NEAR Protocol blockchain",
             "license": {
                 "name": "Apache-2.0",

@@ -11,8 +11,10 @@ memories). Memory preferences override the defaults below.
 
 **User instructions:** $ARGUMENTS
 
+PRs are created as drafts by default (non-draft PRs auto-assign a random codeowner as reviewer, which then has to be reassigned).
+
 If user instructions are non-empty, parse them for the following hints (they are free-form text, not structured flags):
-- **"draft"** → create the PR as a draft
+- **"ready"** (or "not draft", "no-draft", "non-draft") → create the PR as ready-for-review instead of a draft
 - **"fork"** → push to the user's own fork instead of `origin`
 - **"reuse-branch"** → reuse the current branch instead of creating a new one (default is to create a new branch)
 - **A base branch** (e.g., "base: shreyan/project/pr1", "base is master") → use as the PR base branch instead of auto-detecting
@@ -63,7 +65,7 @@ Follow these steps in order:
      - Concise summary of what changed and why. Use prose, bullet points, or a mix — whatever fits the change best. A one-line description is fine for small changes.
      - Incorporate any extra context from user instructions
      - Do not include implementation details, test plan sections, or AI attribution
-   - **Draft:** true if user instructions contain "draft", false otherwise
+   - **Draft:** false if user instructions opt out via "ready" (or "not draft", "no-draft", "non-draft"), true otherwise
    - **Push remote:** the fork remote name if "fork" was specified, otherwise `origin`
 
 4. **Confirm with user:**

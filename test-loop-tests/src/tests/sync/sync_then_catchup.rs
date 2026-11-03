@@ -79,8 +79,7 @@ fn test_sync_then_shard_catchup() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
 
@@ -144,8 +143,7 @@ fn test_near_horizon_sync_then_shard_catchup() {
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
+    let new_node_idx = env.add_node("new_node", node_state);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);

@@ -31,7 +31,6 @@ near-primitives.workspace = true
 near-store.workspace = true
 
 [features]
-calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 nightly = [
     "near-chain-configs/nightly",
     "near-client/nightly",

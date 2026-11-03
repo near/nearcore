@@ -225,7 +225,7 @@ impl GlobalContractsTestEnv {
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         let env = TestLoopBuilder::new()
             .validators(2, 2)
             .enable_rpc()

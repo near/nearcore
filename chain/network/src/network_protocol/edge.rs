@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
-use near_crypto::{KeyType, SecretKey, Signature};
+use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -46,11 +46,6 @@ impl Edge {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
     }
 
-    pub fn with_removal_info(mut self, ri: Option<(bool, Signature)>) -> Edge {
-        Arc::make_mut(&mut self.0).removal_info = ri;
-        self
-    }
-
     pub fn key(&self) -> &(PeerId, PeerId) {
         &self.0.key
     }
@@ -69,16 +64,6 @@ impl Edge {
 
     pub fn removal_info(&self) -> Option<&(bool, Signature)> {
         self.0.removal_info.as_ref()
-    }
-
-    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
-        Self(Arc::new(EdgeInner {
-            key: if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) },
-            nonce,
-            signature0: Signature::empty(KeyType::ED25519),
-            signature1: Signature::empty(KeyType::ED25519),
-            removal_info: None,
-        }))
     }
 
     /// Build a new edge with given information from the other party.
@@ -107,14 +92,6 @@ impl Edge {
 
     pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
         if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) }
-    }
-
-    /// Helper function when adding a new edge and we receive information from new potential peer
-    /// to verify the signature.
-    pub fn partial_verify(peer0: &PeerId, peer1: &PeerId, edge_info: &PartialEdgeInfo) -> bool {
-        let pk = peer1.public_key();
-        let data = Edge::build_hash(peer0, peer1, edge_info.nonce);
-        edge_info.signature.verify(data.as_ref(), pk)
     }
 
     /// Next nonce of valid addition edge.
@@ -198,10 +175,6 @@ impl Edge {
     /// Next nonce of valid addition edge.
     pub fn next(&self) -> u64 {
         Edge::next_nonce(self.nonce())
-    }
-
-    pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
-        self.key().0 == *peer_id || self.key().1 == *peer_id
     }
 
     /// Find a peer id in this edge different from `me`.

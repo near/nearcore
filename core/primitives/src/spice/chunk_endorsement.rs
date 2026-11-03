@@ -59,11 +59,25 @@ impl SpiceChunkEndorsement {
         }
     }
 
-    /// Checks signatures are returns SpiceVerifiedEndorsement if it's correct.
-    /// NOTE: that it doesn't do any additional validations apart from checking signature.
-    pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedEndorsement> {
+    pub fn chunk_id(&self) -> &SpiceChunkId {
         match self {
-            Self::V1(v1) => v1.into_verified(public_key),
+            Self::V1(v1) => &v1.chunk_id,
+        }
+    }
+
+    /// Returns whether the signature matches any of `public_keys`.
+    pub fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
+        match self {
+            Self::V1(v1) => v1.verify_signature(public_keys),
+        }
+    }
+
+    /// Checks the signature against `public_keys` and returns SpiceVerifiedEndorsement if it
+    /// matches any of them.
+    /// NOTE: that it doesn't do any additional validations apart from checking signature.
+    pub fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedEndorsement> {
+        match self {
+            Self::V1(v1) => v1.into_verified(public_keys),
         }
     }
 }
@@ -78,9 +92,13 @@ pub struct SpiceChunkEndorsementV1 {
 }
 
 impl SpiceChunkEndorsementV1 {
-    fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedEndorsement> {
+    fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
         let data = &self.to_signed_data().serialize_data_for_signing();
-        if !self.signature.verify(data, public_key) {
+        public_keys.iter().any(|public_key| self.signature.verify(data, public_key))
+    }
+
+    fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedEndorsement> {
+        if !self.verify_signature(public_keys) {
             return None;
         }
         Some(SpiceVerifiedEndorsement {
@@ -151,12 +169,13 @@ impl SpiceEndorsementCoreStatement {
         &self.account_id
     }
 
+    /// Returns the signed data if the signature matches any of `public_keys`.
     pub fn verified_signed_data(
         &self,
-        public_key: &PublicKey,
+        public_keys: &[PublicKey],
     ) -> Option<(&SpiceEndorsementSignedData, &Signature)> {
         let data = &self.signed_data.serialize_data_for_signing();
-        if !self.signature.verify(data, public_key) {
+        if !public_keys.iter().any(|public_key| self.signature.verify(data, public_key)) {
             return None;
         }
         Some((&self.signed_data, &self.signature))
@@ -245,19 +264,19 @@ mod tests {
     fn test_created_endorsement_core_statement_signature_is_valid() {
         let signer = create_test_signer("account");
         let endorsement = new_endorsement(&signer);
-        let verified = endorsement.into_verified(&signer.public_key()).unwrap();
+        let verified = endorsement.into_verified(&[signer.public_key()]).unwrap();
         let core_statement = verified
             .to_stored()
             .into_core_statement(verified.chunk_id().clone(), signer.validator_id().clone());
         let SpiceCoreStatement::Endorsement(core_statement) = core_statement else { panic!() };
-        assert!(core_statement.verified_signed_data(&signer.public_key()).is_some());
+        assert!(core_statement.verified_signed_data(&[signer.public_key()]).is_some());
     }
 
     #[test]
     fn test_created_endorsement_signature_is_valid() {
         let signer = create_test_signer("account");
         let endorsement = new_endorsement(&signer);
-        assert!(endorsement.into_verified(&signer.public_key()).is_some());
+        assert!(endorsement.into_verified(&[signer.public_key()]).is_some());
     }
 
     fn new_endorsement(signer: &ValidatorSigner) -> SpiceChunkEndorsement {

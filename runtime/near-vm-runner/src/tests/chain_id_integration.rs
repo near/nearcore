@@ -27,7 +27,10 @@ fn test_chain_id_integration_returns_chain_id() {
         let mut fake_external = MockedExternal::with_code(code);
         let want_chain_id = fake_external.chain_id();
         let context = create_context(vec![]);
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "ext_chain_id", fake_external.code_len())
+            .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(Arc::<Config>::clone(&config)).expect("no runtime");
         let outcome = runtime
             .prepare(&fake_external, None, gas_counter, "ext_chain_id")

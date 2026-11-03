@@ -1,8 +1,6 @@
 //! Per-shard buffer of network-path receipt proofs awaiting verification.
 
 use super::storage::save_receipt_proof;
-use crate::spice::data_distributor_actor::DataVerification;
-use crate::spice::data_manager::DataId;
 use near_chain::Error;
 use near_chain::spice::core::SpiceCoreReader;
 use near_primitives::hash::CryptoHash;
@@ -16,18 +14,12 @@ use std::sync::Arc;
 /// Buffer of receipt proofs mapped by their source blocks.
 #[derive(Default)]
 pub(crate) struct UnverifiedReceiptTracker {
-    /// Each proof is stored with the id it was delivered under, so its verification
-    /// result can be reported against it.
-    proofs_by_source_block: HashMap<CryptoHash, Vec<(DataId, ReceiptProof)>>,
+    proofs_by_source_block: HashMap<CryptoHash, Vec<ReceiptProof>>,
 }
 
 impl UnverifiedReceiptTracker {
-    pub(crate) fn insert(&mut self, data_id: DataId, receipt_proof: ReceiptProof) {
-        let DataId::ReceiptProof { source, .. } = &data_id;
-        self.proofs_by_source_block
-            .entry(source.block_hash)
-            .or_default()
-            .push((data_id, receipt_proof));
+    pub(crate) fn insert(&mut self, source_block: CryptoHash, receipt_proof: ReceiptProof) {
+        self.proofs_by_source_block.entry(source_block).or_default().push(receipt_proof);
     }
 
     /// Number of source blocks with buffered receipts.
@@ -37,31 +29,29 @@ impl UnverifiedReceiptTracker {
     }
 
     /// Verify and persist any receipts buffered against `source_block` once its
-    /// execution results are available. Returns each proof's verification result;
-    /// invalid proofs are dropped.
+    /// execution results are available; invalid proofs are dropped.
     pub(crate) fn try_drain(
         &mut self,
         chain_store: &ChainStoreAdapter,
         core_reader: &SpiceCoreReader,
         source_block: &CryptoHash,
-    ) -> Result<Vec<DataVerification>, Error> {
+    ) -> Result<(), Error> {
         let block = match chain_store.get_block(source_block) {
             Ok(block) => block,
             // Source block not on disk yet — nothing to drain. A later receipt or
             // chunk execution result endorsement re-drives once it lands.
-            Err(Error::DBNotFoundErr(_)) => return Ok(Vec::new()),
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
         if !core_reader.all_execution_results_exist(block.header())? {
-            return Ok(Vec::new());
+            return Ok(());
         }
         let execution_results = core_reader.get_execution_results_by_shard_id(block.header())?;
         let Some(receipt_proofs) = self.proofs_by_source_block.remove(source_block) else {
-            return Ok(Vec::new());
+            return Ok(());
         };
-        let mut verifications = Vec::new();
-        for (data_id, receipt_proof) in receipt_proofs {
-            let verification = match verify_receipt_proof(&receipt_proof, &execution_results) {
+        for receipt_proof in receipt_proofs {
+            match verify_receipt_proof(&receipt_proof, &execution_results) {
                 // Commit each proof in its own transaction: duplicate network
                 // deliveries share a key, so batching them would overwrite within
                 // one transaction. Separate commits make the writes idempotent.
@@ -69,16 +59,13 @@ impl UnverifiedReceiptTracker {
                     let mut store_update = chain_store.store().store_update();
                     save_receipt_proof(&mut store_update, source_block, &receipt_proof);
                     store_update.commit();
-                    DataVerification::Ok(data_id)
                 }
                 Err(err) => {
                     tracing::debug!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts");
-                    DataVerification::Failed(data_id)
                 }
-            };
-            verifications.push(verification);
+            }
         }
-        Ok(verifications)
+        Ok(())
     }
 
     /// Drop receipts buffered against source blocks at or below the final

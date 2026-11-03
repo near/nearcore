@@ -121,8 +121,7 @@ fn test_spice_block_sync_with_malicious_chunks() {
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
-    env.add_node("sync_node", new_node_state);
-    let sync_node_idx = env.node_datas.len() - 1;
+    let sync_node_idx = env.add_node("sync_node", new_node_state);
 
     // New node should catch up.
     let honest_height = env.node(honest_node).head().height;

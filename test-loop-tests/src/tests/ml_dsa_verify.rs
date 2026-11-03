@@ -17,7 +17,7 @@ const MSG_HEX: &str = "070707070707070707070707070707070707070707070707070707070
 /// Lowest supported protocol version at which the `ml_dsa_verify` host function
 /// is enabled.
 fn ml_dsa_verify_activation_version() -> ProtocolVersion {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     (MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION)
         .find(|pv| store.get_config(*pv).wasm_config.ml_dsa_verify_host_fn)
         .expect("ml_dsa_verify must be enabled at some supported protocol version")

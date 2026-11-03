@@ -28,9 +28,9 @@ use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
-    ReceiptView, StateChangesView,
+    ReceiptView, StateChangesView, TransactionEnvelopeView,
 };
-use node_runtime::config::calculate_tx_cost;
+use near_runtime::config::calculate_tx_cost;
 use std::collections::HashMap;
 
 const INDEXER: &str = "indexer";
@@ -100,7 +100,7 @@ pub async fn build_streamer_message(
         let prev_block = client.fetch_block(block.header.prev_hash).await?;
         prev_block.header.gas_price
     };
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new();
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
@@ -136,6 +136,17 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
+                let transaction = match transaction {
+                    TransactionEnvelopeView::Signed(transaction) => transaction,
+                    TransactionEnvelopeView::Unsigned(ecc) => {
+                        // TODO(ecc): index ECCs once they have outcomes. Until then
+                        // `EXPERIMENTAL_indexer_block` rejects blocks with an ECC, because it
+                        // validates that the message has all the transactions of the chunk.
+                        // Drop the outcome too, so it is not mistaken for a receipt outcome.
+                        outcomes.remove(&ecc.hash);
+                        return None;
+                    }
+                };
                 let outcome = outcomes.remove(&transaction.hash);
                 if outcome.is_none() {
                     tracing::error!(
@@ -220,8 +231,8 @@ pub async fn build_streamer_message(
     //
     // TODO: eliminate leftovers entirely by addressing (a) and (b) above
     // and emitting these outcomes through the per-chunk loop.
-    if !shards_outcomes.is_empty() {
-        let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
+    let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
+    if leftover_outcomes > 0 {
         tracing::warn!(
             target: INDEXER,
             block_hash = %block.header.hash,

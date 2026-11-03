@@ -6,10 +6,9 @@ use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain::Error;
 use near_chain_configs::GenesisConfig;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
@@ -18,7 +17,6 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -37,22 +35,14 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(transaction_validity_period)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
         .build();
 
     let first_epoch_tracked_shards = env
@@ -74,8 +64,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
     }
 
     // Make sure the chain progressed for several epochs.
-    let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
-    assert!(client_actor.client.chain.head().unwrap().height > 10050);
+    assert!(env.node(0).head().height > 10050);
 
     env
 }
@@ -92,12 +81,12 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             config.block_header_fetch_horizon = 8;
         })
         .build();
-    env.add_node(&identifier, node_state);
+    let new_node_idx = env.add_node(&identifier, node_state);
 
     // Allow talking only with the source node.
-    let new_node_peer_id = env.node_datas.last().unwrap().peer_id.clone();
+    let new_node_peer_id = env.node_datas[new_node_idx].peer_id.clone();
     env.shared_state.network_shared_state.allow_all_requests();
-    for (index, data) in env.node_datas[..env.node_datas.len() - 1].iter().enumerate() {
+    for (index, data) in env.node_datas[..new_node_idx].iter().enumerate() {
         if index != source_node {
             env.shared_state
                 .network_shared_state
@@ -109,7 +98,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     }
 
     // Check that the new node will reach a high height as well.
-    let client_sender = &env.node_datas.last().unwrap().client_sender;
+    let client_sender = &env.node_datas[new_node_idx].client_sender;
     let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
@@ -142,15 +131,9 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         Duration::seconds(20),
     );
 
-    let current_height = env.test_loop.data.get(&node0).client.chain.head().unwrap().height;
+    let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
-            new_node_height >= current_height + 30
-        },
-        Duration::seconds(30),
-    );
+    env.node_runner(new_node_idx).run_until_head_height(current_height + 30);
     let expected: Vec<String> =
         ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
             .into_iter()
@@ -206,8 +189,7 @@ fn slow_test_epoch_sync_with_expired_transactions() {
 
 impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
         let last_block_hash =
             find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
@@ -216,21 +198,17 @@ impl TestLoopEnv {
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let chain = &self.test_loop.data.get(&client_handle).client.chain;
-        chain.chain_store.final_head().unwrap().height
+        self.node(node_index).final_head().height
     }
 
     fn assert_epoch_sync_proof_existence_on_disk(&self, node_index: usize, exists: bool) {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let proof = store.epoch_store().get_epoch_sync_proof().unwrap();
         assert_eq!(proof.is_some(), exists);
     }
 
     fn assert_header_existence(&self, node_index: usize, height: u64, exists: bool) {
-        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
-        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let store = self.node(node_index).store();
         let header = store.chain_store().get_block_hash_by_height(height);
         assert_eq!(header.is_ok(), exists);
     }
@@ -284,8 +262,7 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
-    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
-    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
+    env.assert_epoch_sync_proof_existence_on_disk(0, true);
 }
 
 #[test]
@@ -310,9 +287,8 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);
 
-    // On the original node, proof exists on disk only when ContinuousEpochSync is enabled.
-    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
-    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
+    // On the original node, proof exists on disk.
+    env.assert_epoch_sync_proof_existence_on_disk(0, true);
     env.assert_header_existence(0, env.shared_state.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.
@@ -350,8 +326,7 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 
@@ -380,8 +355,7 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 
@@ -410,8 +384,7 @@ fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
+    let client = env.node(0).client();
     let epoch_sync = &client.sync_handler.epoch_sync;
     let epoch_manager = client.epoch_manager.as_ref();
 

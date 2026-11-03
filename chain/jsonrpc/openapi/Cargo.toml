@@ -20,3 +20,6 @@ near-jsonrpc-primitives = { workspace = true, features = ["schemars"] }
 near-primitives = { workspace = true, features = ["schemars"] }
 near-chain-configs = { workspace = true, features = ["schemars"] }
 itertools.workspace = true
+
+[features]
+protocol_feature_spice = []

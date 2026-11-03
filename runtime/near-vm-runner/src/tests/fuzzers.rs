@@ -1,8 +1,8 @@
 use super::test_vm_config;
 use crate::ContractCode;
-use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{ExecutionMode, VMContext};
 use crate::runner::{VMKindExt, VMResult};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -10,7 +10,7 @@ use near_primitives_core::types::Balance;
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
-/// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
+/// Finds a no-parameter exported function with non-empty name, something like `(func (export "entry-point"))`.
 #[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     use wasmparser_236::{Export, ExternalKind, Parser, Payload};
@@ -23,6 +23,9 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
             Ok(Payload::ExportSection(rdr)) => {
                 for export in rdr {
                     if let Ok(Export { name, kind: ExternalKind::Func, index }) = export {
+                        if name.is_empty() {
+                            continue;
+                        }
                         if let Some(&Ok(ty_index)) = fns.get(index as usize) {
                             if let Some(Ok(func_type)) = tys.get(ty_index as usize) {
                                 if func_type.params().is_empty() && func_type.results().is_empty() {
@@ -58,7 +61,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: near_primitives_core::types::Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
-        view_config: None,
+        execution_mode: ExecutionMode::Internal,
         output_data_receivers: vec![],
     }
 }
@@ -71,7 +74,10 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     context.prepaid_gas = near_primitives_core::types::Gas::from_teragas(100);
     let config = test_vm_config(Some(vm_kind));
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, &method_name, fake_external.code_len())
+        .expect("contract loading charge failed");
     let mut res = vm_kind
         .runtime(config.into())
         .unwrap()
@@ -110,7 +116,7 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 #[test]
 #[cfg(feature = "wasmtime_vm")]
 fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
-    use crate::wasmtime_runner::WasmtimeVM;
+    use crate::wasmtime_runner::{CachedArtifact, WasmtimeVM};
     use near_primitives_core::hash::CryptoHash;
 
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
@@ -120,8 +126,8 @@ fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
         for _ in 0..3 {
             let vm = WasmtimeVM::new(config.clone());
             let exec = match vm.compile_uncached(&code) {
-                Ok(e) => e,
-                Err(_) => return,
+                Ok(CachedArtifact::CompiledBytes(bytes)) => bytes,
+                Ok(CachedArtifact::CompilerError(_)) | Err(_) => return,
             };
             let hash = CryptoHash::hash_bytes(&exec);
             match first_hash {

@@ -2,15 +2,12 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
-use crate::utils::run_for_number_of_blocks;
-use crate::utils::transactions::{
-    TransactionRunner, execute_tx, make_accounts, run_txs_parallel_on,
-};
+use crate::utils::transactions::make_accounts;
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
@@ -89,30 +86,22 @@ fn slow_test_one_shard_congested() {
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
 
     // Run for `max_missed_chunks * 2` blocks to make sure shard 2 is congested
-    run_for_number_of_blocks(&mut env, &rpc_id, max_missed_chunks as usize * 2);
+    env.runner_for_account(&rpc_id).run_for_number_of_blocks(max_missed_chunks as usize * 2);
 
     // Check if shard 2 is congested
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client_actor = env.test_loop.data.get(&client_handle);
-    let head = client_actor.client.chain.get_head_block().unwrap();
+    let client = env.node(0).client();
+    let head = client.chain.get_head_block().unwrap();
     let missed_chunks = head.block_congestion_info().get(&shard2).unwrap().missed_chunks_count;
     assert!(missed_chunks >= max_missed_chunks);
 
     // Send transfer from shard 1 to shard 1 – should succeed
-    let block_time = client_actor.client.config.max_block_production_delay.get();
+    let block_time = client.config.max_block_production_delay.get();
     let tx = env.node_for_account(&rpc_id).tx_send_money(
         &shard1_acc1,
         &shard1_acc2,
         Balance::from_near(1),
     );
-    let tx_outcome = execute_tx(
-        &mut env.test_loop,
-        &rpc_id,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        block_time * 3,
-    )
-    .unwrap();
+    let tx_outcome = env.runner_for_account(&rpc_id).execute_tx(tx, block_time * 3).unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
@@ -121,14 +110,7 @@ fn slow_test_one_shard_congested() {
         &shard2_acc1,
         Balance::from_near(1),
     );
-    let tx_error = execute_tx(
-        &mut env.test_loop,
-        &rpc_id,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        block_time * 3,
-    )
-    .unwrap_err();
+    let tx_error = env.runner_for_account(&rpc_id).execute_tx(tx, block_time * 3).unwrap_err();
     assert_matches!(tx_error, InvalidTxError::ShardStuck { shard_id, .. } if shard_id == Into::<u32>::into(shard2));
 }
 
@@ -140,8 +122,7 @@ fn setup(
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
-    let tmp = clients.clone();
-    let (producers, tmp) = tmp.split_at(NUM_PRODUCERS);
+    let (producers, tmp) = clients.split_at(NUM_PRODUCERS);
     let (validators, tmp) = tmp.split_at(NUM_VALIDATORS);
     let (rpcs, tmp) = tmp.split_at(NUM_RPC);
     assert!(tmp.is_empty());
@@ -154,26 +135,19 @@ fn setup(
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .genesis_height(10000)
-        .build();
     // TODO(spice): Spice execution-certification does not yet support shuffling chunk-producer
     // shard assignment across epoch boundaries: after the first boundary the prev
     // block's execution results never get certified (MissingExecutionResults for
     // all shards) and the chunk executor wedges.
     let shuffle_shard_assignment = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
-        .build_store_for_genesis_protocol_version();
-
     let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_non_validator_client(rpc_id)
+        .add_user_accounts(accounts, Balance::from_near(1_000_000))
+        .genesis_height(10000)
+        .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
         .build();
     (env, rpc_id.clone())
 }
@@ -204,5 +178,5 @@ fn do_call_contract(
         .collect_vec();
     // Poll each tx to completion. All calls land on the contract's congested shard
     // and drain slowly through backpressure, hence the generous deadline.
-    run_txs_parallel_on(&mut env.test_loop, rpc_id, txs, &env.node_datas, Duration::seconds(60));
+    env.runner_for_account(rpc_id).run_txs_parallel(txs, Duration::seconds(60));
 }

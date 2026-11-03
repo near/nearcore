@@ -86,9 +86,7 @@ impl Test {
 
         for node_datas in &env.node_datas {
             let from_whom = node_datas.account_id.clone();
-            let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-            let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-            peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
                 match request {
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: ref to_whom,
@@ -137,18 +135,16 @@ impl Test {
                     _ => {}
                 };
                 return HandlerResult::Unhandled(request);
-            }));
+            });
         }
 
         // We run for an epoch to make sure that validators are switched each epoch during testing
         // below.
         runner.run_for_an_epoch(&mut env);
 
-        let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-        let client = &env.test_loop.data.get(client_actor_handle).client;
         let view_client_actor_handle = &env.node_datas[0].view_client_sender.actor_handle();
 
-        let start_height = client.chain.head().unwrap().height;
+        let start_height = env.node(0).head().height;
         let stop_height = start_height + epoch_length * 3;
 
         let heights = Arc::new(RwLock::new(HashMap::new()));
