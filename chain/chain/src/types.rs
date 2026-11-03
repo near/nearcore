@@ -789,8 +789,8 @@ mod tests {
         b2.header().verify_block_producer(&signer.public_key());
     }
 
-    /// External calls see the previous block's timestamp and random value, while the rest of the
-    /// chunk sees the block it is applied in.
+    /// `ApplyChunkBlockContext` has the hash, height and timestamp of the previous block
+    /// (used in external calls).
     #[test]
     fn test_apply_chunk_block_context_prev_block() {
         let shard_ids = vec![ShardId::new(0)];
