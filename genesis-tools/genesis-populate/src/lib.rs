@@ -290,6 +290,7 @@ impl GenesisBuilder {
                     *genesis.header().random_value(),
                 )
                 .unwrap()
+                .store_update
                 .into(),
         );
         store_update

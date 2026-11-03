@@ -13,6 +13,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::utils::get_block_shard_id;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct EpochStoreAdapter {
@@ -36,9 +37,13 @@ impl EpochStoreAdapter {
         }
     }
 
+    /// Depends on fork processing order: two first blocks of competing forks with the same
+    /// parent share an `EpochId`, and the last one written wins. Do not use on consensus
+    /// paths; use `EpochManager::get_epoch_start_height` (the `BlockInfo` walk) instead.
     pub fn get_epoch_start(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.store
-            .get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .caching_get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
+            .map(|epoch_start| *epoch_start)
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
@@ -46,15 +51,15 @@ impl EpochStoreAdapter {
     /// Errors
     ///   EpochError::IOErr if storage returned an error
     ///   EpochError::MissingBlock if block is not in storage
-    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochError> {
+    pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.store
-            .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
+            .caching_get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
             .ok_or(EpochError::MissingBlock(*hash))
     }
 
-    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<EpochInfo, EpochError> {
+    pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
+            .caching_get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 

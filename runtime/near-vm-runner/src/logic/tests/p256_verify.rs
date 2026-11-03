@@ -28,7 +28,7 @@ fn p256_test_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let signing_key = p256_test_signing_key();
     let signature: Signature = signing_key.sign_prehash(&message).unwrap();
     let signature_bytes = signature.to_vec();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true);
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true);
     let public_key_bytes = public_key.as_bytes().to_vec();
     (signature_bytes, message, public_key_bytes)
 }
@@ -158,7 +158,7 @@ fn test_p256_verify_wrong_public_key() {
         0x10, 0x21,
     ];
     let other_signing_key = SigningKey::from_bytes(&other_secret.into()).unwrap();
-    let other_public = VerifyingKey::from(&other_signing_key).to_encoded_point(true);
+    let other_public = VerifyingKey::from(&other_signing_key).to_sec1_point(true);
     let other_public_bytes = other_public.as_bytes().to_vec();
 
     let (signature, message, _) = p256_test_vectors();
@@ -295,7 +295,7 @@ fn test_p256_verify_empty_message() {
 #[test]
 fn test_p256_verify_long_message() {
     // Feed the host a longer "prehash" (256 bytes) to ensure the per-byte gas
-    // accounting scales with input length even though bits2field truncates the
+    // accounting scales with input length even though `p256` truncates the
     // prehash to the field size before verification.
     let secret_key: [u8; 32] = [
         0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
@@ -306,7 +306,7 @@ fn test_p256_verify_long_message() {
     let message: Vec<u8> = (0..256u16).map(|i| (i & 0xff) as u8).collect();
     let signature: Signature = signing_key.sign_prehash(&message).unwrap();
     let signature = signature.to_vec();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
 
     check_p256_verify(
         signature.len() as u64,
@@ -450,11 +450,12 @@ fn test_p256_verify_register_signature_invalid_length() {
 }
 
 // The 16-byte minimum comes from `bits2field` in ecdsa 0.16 (via p256 0.13).
-// ecdsa 0.17 (p256 0.14) zero-pads shorter messages instead.
+// ecdsa 0.17 (p256 0.14) zero-pads shorter messages instead, so `p256_verify`
+// rejects them explicitly.
 #[test]
 fn test_p256_verify_empty_message_rejects_signature_over_zero_padded_digest() {
     let signing_key = p256_test_signing_key();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     let message = vec![7u8; 0];
     let mut zero_padded_digest = [0u8; 32];
     zero_padded_digest[32 - message.len()..].copy_from_slice(&message);
@@ -481,7 +482,7 @@ fn test_p256_verify_empty_message_rejects_signature_over_zero_padded_digest() {
 #[test]
 fn test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest() {
     let signing_key = p256_test_signing_key();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     let message = vec![7u8; 15];
     let mut zero_padded_digest = [0u8; 32];
     zero_padded_digest[32 - message.len()..].copy_from_slice(&message);
@@ -508,7 +509,7 @@ fn test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest() 
 #[test]
 fn test_p256_verify_16_byte_message_accepts_signature_over_zero_padded_digest() {
     let signing_key = p256_test_signing_key();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     let message = vec![7u8; 16];
     let mut zero_padded_digest = [0u8; 32];
     zero_padded_digest[32 - message.len()..].copy_from_slice(&message);

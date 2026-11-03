@@ -42,7 +42,7 @@ fn a_pullable_item_asks_one_backer_per_live_tracker_for_its_gaps_and_every_unbou
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_settled_commitments_producers_are_never_asked() {
+fn settled_commitment_producers_are_not_pulled_from() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
     let id = manager.track_needed_proof(&blocks[0]);
@@ -62,14 +62,21 @@ fn a_settled_commitments_producers_are_never_asked() {
         &fake,
         parts_with_ordinals(&fake_parts, &[1]),
     );
-    let result = manager.manager.on_parts_received(
+    let result = manager.manager.receive_from(
         &producers[2],
         &id,
         &fake,
         parts_with_ordinals(&fake_parts, &[2]),
-        TOTAL_PARTS,
     );
     assert_matches!(result, Err(SenderFault::GarbageCommitment(_)));
+    // A fourth liar answers only after the fake settled.
+    let result = manager.manager.receive_from(
+        &producers[4],
+        &id,
+        &fake,
+        parts_with_ordinals(&fake_parts, &[4]),
+    );
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
     manager.push_and_assert_collecting(
         &producers[3],
         &id,
@@ -82,10 +89,7 @@ fn a_settled_commitments_producers_are_never_asked() {
 
     assert_eq!(
         wants_for(requests, &id),
-        BTreeMap::from([
-            (producers[3].clone(), ordinals(&[0, 1, 2, 4])),
-            (producers[4].clone(), ordinals(&[4])),
-        ])
+        BTreeMap::from([(producers[3].clone(), ordinals(&[0, 1, 2, 4]))])
     );
 }
 
@@ -252,13 +256,7 @@ fn an_unverifiable_answer_leaves_the_request_outstanding() {
     broken[0].part[0] ^= 1;
     let missing_before = manager.tracker(&id, &commitment).missing_ordinals();
     for producer in &producers[..2] {
-        let result = manager.manager.on_parts_received(
-            producer,
-            &id,
-            &commitment,
-            broken.clone(),
-            TOTAL_PARTS,
-        );
+        let result = manager.manager.receive_from(producer, &id, &commitment, broken.clone());
         assert_matches!(result, Err(SenderFault::InvalidMerkleProof));
     }
 
@@ -375,19 +373,13 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
     }
     let result = manager
         .manager
-        .on_parts_received(
-            &honest,
-            &id,
-            &commitment,
-            parts_with_ordinals(&parts, &[1, 2, 3, 4]),
-            TOTAL_PARTS,
-        )
+        .receive_from(&honest, &id, &commitment, parts_with_ordinals(&parts, &[1, 2, 3, 4]))
         .unwrap();
     assert_matches!(result, PartsOutcome::Decoded(_));
 }
 
 /// Six heights, an item from each of two shards at each, nothing pushed: every producer gets a
-/// request for its own ordinal of every shard's items at the lowest pulled heights only.
+/// request for its own ordinal of its shard's items at the lowest pulled heights only.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn only_the_lowest_pullable_heights_are_pulled() {
@@ -406,16 +398,16 @@ fn only_the_lowest_pullable_heights_are_pulled() {
 
     let requests = by_producer(manager.on_block_processed(&blocks[6]));
 
-    let expected_ids: BTreeSet<DataId> = blocks[..pulled_heights]
-        .iter()
-        .flat_map(|block| [receipt_id(block, 0, 2), receipt_id(block, 1, 2)])
-        .collect();
-    assert_eq!(requests.len(), TOTAL_PARTS);
-    for (ordinal, producer) in producers().iter().enumerate() {
-        let wants = &requests[producer];
-        assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
-        for requested in wants.values() {
-            assert_eq!(requested, &ordinals(&[ordinal as u64]));
+    assert_eq!(requests.len(), 2 * TOTAL_PARTS);
+    for from_shard in [0, 1] {
+        let expected_ids: BTreeSet<DataId> =
+            blocks[..pulled_heights].iter().map(|block| receipt_id(block, from_shard, 2)).collect();
+        for (ordinal, producer) in shard_producers(from_shard).iter().enumerate() {
+            let wants = &requests[producer];
+            assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
+            for requested in wants.values() {
+                assert_eq!(requested, &ordinals(&[ordinal as u64]));
+            }
         }
     }
 }
@@ -431,9 +423,7 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
-    let others: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("other{i}.near"))).collect();
-    manager.set_producers_for(1, others.clone());
+    let others = shard_producers(1);
     for block in &blocks[..6] {
         manager.track_block(&block);
     }

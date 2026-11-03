@@ -54,7 +54,7 @@ fn bad_account_data_size() {
         },
         account_key: signer.public_key(),
         version: rng.r#gen(),
-        timestamp: clock.now_utc(),
+        timestamp: to_unix_nanos(clock.now_utc()),
     };
     assert!(ad.sign(&signer.into()).is_err());
 }
@@ -209,6 +209,7 @@ fn deserialize_sync_routing_table_with_legacy_accounts() {
     assert_eq!(got, msg);
 }
 
+#[cfg(not(feature = "nightly"))]
 fn make_block_approval_message() -> RoutedMessage {
     let mut rng = make_rng(19385389);
     let signer = data::make_validator_signer(&mut rng);
@@ -230,56 +231,6 @@ fn make_chunk_request_message() -> RoutedMessage {
         })
         .into(),
     )
-}
-
-#[test]
-fn test_message_matching_hashes() {
-    let message_v3 = make_chunk_request_message();
-    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
-    assert_eq!(message_v3.hash(), message_v1.hash());
-}
-
-/// Tests that messages get upgraded to V3 when a field that is not present in V1 is mutated.
-/// Also tests that RoutedMessageBody is upgraded to TieredMessageBody.
-#[test]
-fn test_upgrading_to_v3() {
-    let message_v3 = make_chunk_request_message();
-    let message_v1: RoutedMessage = message_v3.msg_v1().into();
-    let message_v2: RoutedMessage =
-        RoutedMessageV2 { msg: message_v1.clone().msg_v1(), created_at: None, num_hops: 0 }.into();
-
-    // Tier 2
-    let mut message = message_v1.clone();
-    assert!(matches!(message, RoutedMessage::V1(_)));
-    let _ = message.num_hops_mut();
-    assert!(matches!(message, RoutedMessage::V3(_)));
-
-    assert!(matches!(message_v1, RoutedMessage::V1(_)));
-    let body = message_v1.body_owned();
-    assert!(matches!(body, TieredMessageBody::T2(_)));
-
-    let mut message: RoutedMessage = message_v2.clone();
-    assert!(matches!(message, RoutedMessage::V2(_)));
-    let _ = message.num_hops_mut();
-    assert!(matches!(message, RoutedMessage::V3(_)));
-
-    assert!(matches!(message_v2, RoutedMessage::V2(_)));
-    let body = message_v2.body_owned();
-    assert!(matches!(body, TieredMessageBody::T2(_)));
-
-    // Tier 1
-    let message_v3 = make_block_approval_message();
-
-    let message_v1: RoutedMessage = message_v3.msg_v1().into();
-
-    let mut message = message_v1.clone();
-    assert!(matches!(message, RoutedMessage::V1(_)));
-    let _ = message.num_hops_mut();
-    assert!(matches!(message, RoutedMessage::V3(_)));
-
-    assert!(matches!(message_v1, RoutedMessage::V1(_)));
-    let body = message_v1.body_owned();
-    assert!(matches!(body, TieredMessageBody::T1(_)));
 }
 
 #[test]

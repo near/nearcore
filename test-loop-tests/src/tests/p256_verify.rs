@@ -76,7 +76,7 @@ const DETERMINISTIC_SECRET: [u8; 32] = [
 fn sign_and_keys(message: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let signing_key = SigningKey::from_bytes(&DETERMINISTIC_SECRET.into()).unwrap();
     let signature: Signature = signing_key.sign_prehash(message).unwrap();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     (signature.to_vec(), public_key)
 }
 

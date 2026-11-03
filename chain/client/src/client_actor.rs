@@ -63,7 +63,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponse, StateResponseReceived,
+    StateRequestUpdate, StateRequestUpdateMessage,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -682,20 +682,22 @@ impl Handler<SpanWrapped<BlockApproval>> for ClientActor {
     }
 }
 
-/// StateResponse is used during StateSync and catchup.
-/// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
-impl Handler<SpanWrapped<StateResponseReceived>> for ClientActor {
-    fn handle(&mut self, msg: SpanWrapped<StateResponseReceived>) {
-        let StateResponseReceived { peer_id, state_response } = msg.span_unwrap();
-        let hash = state_response.sync_hash();
-        let shard_id = state_response.shard_id();
+/// Updates on the state requests sent during state sync and catchup.
+impl Handler<SpanWrapped<StateRequestUpdateMessage>> for ClientActor {
+    fn handle(&mut self, msg: SpanWrapped<StateRequestUpdateMessage>) {
+        let StateRequestUpdateMessage { peer_id, update } = msg.span_unwrap();
+        let hash = update.sync_hash();
+        let shard_id = update.shard_id();
 
-        match state_response {
-            StateResponse::Ack(ref ack) => {
-                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_or_header(), ack_body = ?ack.body, "received state request ack");
+        match update {
+            StateRequestUpdate::Ack(ref ack) => {
+                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?update.part_or_header(), ack_body = ?ack.body, "received state request ack");
             }
-            StateResponse::State(ref state) => {
-                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_or_header(), size = ?state.payload_length(), "received state response");
+            StateRequestUpdate::State(ref state) => {
+                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?update.part_or_header(), size = ?state.payload_length(), "received state response");
+            }
+            StateRequestUpdate::NotSent { .. } => {
+                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?update.part_or_header(), "state request not sent");
             }
         }
 
@@ -707,7 +709,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActor {
         {
             if hash == *sync_hash {
                 if let Err(err) =
-                    self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
+                    self.client.sync_handler.state_sync.apply_peer_message(peer_id, update)
                 {
                     tracing::error!(target: "sync", ?err, "error applying state sync response");
                 }
@@ -719,7 +721,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActor {
         if let Some(CatchupState { state_sync, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
+            if let Err(err) = state_sync.apply_peer_message(peer_id, update) {
                 tracing::error!(target: "sync", ?err, "error applying catchup state sync response");
             }
             return;

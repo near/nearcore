@@ -21,7 +21,7 @@ use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::StateResponse;
+use near_network::client::StateRequestUpdate;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -184,7 +184,7 @@ impl StateSync {
     pub fn apply_peer_message(
         &self,
         peer_id: PeerId,
-        msg: StateResponse,
+        msg: StateRequestUpdate,
     ) -> Result<(), near_chain::Error> {
         self.peer_source_state.lock().receive_peer_message(peer_id, msg)?;
         Ok(())

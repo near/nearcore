@@ -49,7 +49,9 @@ pub enum SnapshotHostInfo {
 pub struct SnapshotHostInfoV1 {
     /// Id of the node serving the snapshot
     pub peer_id: PeerId,
-    /// Hash of the snapshot's state root
+    /// The block the snapshot was taken at. Without spice that is the block before the one
+    /// before the state sync hash; under spice it is the sync hash itself. Requests carry the
+    /// same hash as `snapshot_hash` so hosts can be matched to them.
     pub sync_hash: CryptoHash,
     /// Ordinal of the epoch of the state root
     pub epoch_height: EpochHeight,
@@ -180,6 +182,14 @@ impl SnapshotHostInfo {
         match self {
             Self::V1(info) => &info.shards,
             Self::V2(info) => &info.shards,
+        }
+    }
+
+    /// Listening address the host advertises for itself. V1 infos carry none.
+    pub fn addr(&self) -> Option<SocketAddr> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(info) => Some(info.addr),
         }
     }
 

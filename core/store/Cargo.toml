@@ -60,9 +60,9 @@ near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-schema-checker-lib.workspace = true
 near-time.workspace = true
-near-vm-runner.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rocksdb = { workspace = true, optional = true, features = ["bindgen-runtime"] }
@@ -101,7 +101,7 @@ default = ["rocksdb"]
 rocksdb = ["dep:rocksdb", "dep:near-external-storage"]
 io_trace = []
 single_thread_rocksdb = ["rocksdb"] # Deactivate RocksDB IO background threads
-test_features = ["near-vm-runner/test_features"]
+test_features = []
 
 # TODO(#11639): extract metrics into separate feature
 nightly = [
@@ -112,7 +112,7 @@ nightly = [
     "near-o11y/nightly",
     "near-parameters/nightly",
     "near-primitives/nightly",
-    "near-vm-runner/nightly",
+    "near-primitives-core/nightly",
     "testlib/nightly",
 ]
 protocol_schema = [
