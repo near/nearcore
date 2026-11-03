@@ -1208,9 +1208,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// Legacy routed message carried in the protobuf `routed` field by nodes released before
-/// `routed_v3` was sent. It is only used to deserialize those messages and convert them to V3;
-/// it is deliberately not a variant of `RoutedMessage`, so it cannot be received over borsh.
+/// Routed message as encoded in the protobuf `routed` field, the only wire format for routed
+/// messages. It is deliberately not a variant of `RoutedMessage`, so it cannot be received over
+/// borsh.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
