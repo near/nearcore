@@ -54,8 +54,6 @@ pub struct InfoHelper {
     started: Instant,
     /// Total number of blocks processed.
     num_blocks_processed: u64,
-    /// Total number of blocks processed.
-    num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: Gas,
     /// Telemetry event sender.
@@ -87,7 +85,6 @@ impl InfoHelper {
             pid: get_current_pid().ok(),
             started: clock.now(),
             num_blocks_processed: 0,
-            num_chunks_in_blocks_processed: 0,
             gas_used: Gas::ZERO,
             telemetry_sender,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
@@ -121,7 +118,6 @@ impl InfoHelper {
         last_final_block_height_in_epoch: Option<BlockHeight>,
     ) {
         self.num_blocks_processed += 1;
-        self.num_chunks_in_blocks_processed += num_chunks;
         self.gas_used = self.gas_used.checked_add(gas_used).unwrap();
         metrics::GAS_USED.inc_by(gas_used.as_gas() as f64);
         metrics::BLOCKS_PROCESSED.inc();
@@ -468,7 +464,6 @@ impl InfoHelper {
 
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
-        self.num_chunks_in_blocks_processed = 0;
         self.gas_used = Gas::ZERO;
 
         let telemetry_event = TelemetryEvent {
