@@ -38,7 +38,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeleteAccountAction, EccTransaction, SignedTransaction, StakeAction, Transaction,
+    Action, DeleteAccountAction, DeployContractAction, ECC_METHOD_NAME, EccTransaction,
+    ExecutionStatus, SignedTransaction, StakeAction, Transaction, TransactionEnvelope,
     TransactionNonce, TransactionV0, TransferAction, ValidatedEcc, ValidatedTransactionEnvelope,
 };
 use near_primitives::trie_key::TrieKey;
@@ -245,10 +246,10 @@ impl TestEnv {
         }
     }
 
-    pub fn apply_new_chunk(
+    pub fn apply_new_chunk<T: Into<TransactionEnvelope>>(
         &self,
         shard_id: ShardId,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<T>,
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
@@ -290,7 +291,7 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
-                    prev_block_height: 0,
+                    prev_block_height: self.head.height,
                     prev_block_timestamp: 0,
                     block_timestamp,
                     gas_price,
@@ -1405,6 +1406,67 @@ fn test_delete_account_after_unstake() {
     for _ in 15..=17 {
         env.step_default(vec![]);
     }
+}
+
+/// An external call in the first chunk of a new epoch sees the chunk's parent block, which is
+/// the last block of the previous epoch: its height and its epoch height.
+#[test]
+fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    init_test_logger();
+    let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
+    let mut env = TestEnv::new(vec![validators.clone()], 4, false);
+    let contract_id = validators[0].clone();
+    let signer = InMemorySigner::test_signer(&contract_id);
+    // The ECC method returns the block height and the epoch height it sees, in that order.
+    let code = near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "block_index" (func $block_index (result i64)))
+  (import "env" "epoch_height" (func $epoch_height (result i64)))
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (func (export "{ECC_METHOD_NAME}")
+    (i64.store (i32.const 0) (call $block_index))
+    (i64.store (i32.const 8) (call $epoch_height))
+    (call $value_return (i64.const 16) (i64.const 0)))
+)"#
+    ));
+    let deploy = SignedTransaction::from_actions(
+        1,
+        contract_id.clone(),
+        contract_id.clone(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction { code })],
+        // runtime does not validate block history
+        CryptoHash::default(),
+    );
+    env.step_default(vec![deploy]);
+    // The epoch height doesn't change at the first epoch boundary after genesis, so step to the
+    // end of the epoch after it.
+    for _ in 0..2 {
+        env.step_default(vec![]);
+        while !env.epoch_manager.is_next_block_epoch_start(&env.head.last_block_hash).unwrap() {
+            env.step_default(vec![]);
+        }
+    }
+
+    let parent = env.head.last_block_hash;
+    let parent_epoch_id = env.epoch_manager.get_epoch_id(&parent).unwrap();
+    let parent_epoch_height =
+        env.epoch_manager.get_epoch_info(&parent_epoch_id).unwrap().epoch_height();
+    let chunk_epoch_height = env.epoch_manager.get_epoch_height_from_prev_block(&parent).unwrap();
+    assert_ne!(chunk_epoch_height, parent_epoch_height);
+
+    let ecc = EccTransaction::new(contract_id, vec![]);
+    let apply_result = env.apply_new_chunk(ShardId::new(0), vec![ecc], &[]);
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    let mut seen = env.head.height.to_le_bytes().to_vec();
+    seen.extend(parent_epoch_height.to_le_bytes());
+    assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(seen));
 }
 
 #[test]
@@ -3405,7 +3467,7 @@ fn test_storage_proof_garbage() {
             )],
         }),
     });
-    let apply_result = env.apply_new_chunk(shard_id, vec![], &[receipt]);
+    let apply_result = env.apply_new_chunk(shard_id, Vec::<SignedTransaction>::new(), &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);
