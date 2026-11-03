@@ -1004,6 +1004,7 @@ mod tests {
     use crate::types::{ChainConfig, RuntimeAdapter};
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
     use assert_matches::assert_matches;
+    use borsh::to_vec;
     use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue, ReshardingHandle, TrackedShardsConfig};
@@ -1014,7 +1015,7 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{AccountId, ShardId, VmGeneration};
+    use near_primitives::types::{AccountId, ContractCompilationStatus, ShardId, VmGeneration};
     use near_store::ShardUId;
     use near_store::adapter::StoreAdapter;
     use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -1511,12 +1512,12 @@ mod tests {
             insert_promise_yield(&store, parent_shard),
             insert_buffered_receipts(&store, parent_shard),
         ];
-        let status_key = TrieKey::ContractCompilationStatus {
-            vm_generation: VmGeneration(158),
-            code_hash: CryptoHash::default(),
-        }
-        .to_vec();
-        let status_value = Some(FlatStateValue::Inlined(vec![0]));
+        let status_key =
+            TrieKey::ContractCompilationStatus { code_hash: CryptoHash::default() }.to_vec();
+        let status_value = Some(FlatStateValue::Inlined(
+            to_vec(&ContractCompilationStatus::Cached { vm_generation: VmGeneration(158) })
+                .unwrap(),
+        ));
         let mut update = store.store_update();
         update.set(parent_shard, status_key.clone(), status_value.clone());
         update.commit();

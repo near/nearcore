@@ -2,7 +2,7 @@ use super::*;
 use crate::contract_compilation_status::{
     record_contract_compilation, update_contract_compilation_status,
 };
-use near_primitives::types::{ContractCompilationStatus, VmGeneration};
+use near_primitives::types::ContractCompilationStatus;
 use near_store::{TrieUpdate, get};
 
 struct Fixture {
@@ -56,18 +56,16 @@ impl Fixture {
         result
     }
 
-    fn compilation_status_at_generation(
-        &self,
-        code: &[u8],
-        vm_generation: VmGeneration,
-    ) -> Option<ContractCompilationStatus> {
+    fn compilation_status(&self, code: &[u8]) -> Option<ContractCompilationStatus> {
         let state = self.tries.new_trie_update(ShardUId::single_shard(), self.root);
-        get(&state, &TrieKey::ContractCompilationStatus { vm_generation, code_hash: hash(code) })
-            .unwrap()
+        get(&state, &TrieKey::ContractCompilationStatus { code_hash: hash(code) }).unwrap()
     }
 
-    fn compilation_status(&self, code: &[u8]) -> Option<ContractCompilationStatus> {
-        self.compilation_status_at_generation(code, self.state.vm_generation)
+    fn assert_cached(&self, code: &[u8]) {
+        assert_eq!(
+            self.compilation_status(code),
+            Some(ContractCompilationStatus::Cached { vm_generation: self.state.vm_generation })
+        );
     }
 
     // Simulate code deployed before activation: no implicit warmness for old code.
@@ -138,9 +136,11 @@ fn status_proof_is_recorded_before_finalization_and_survives_rollback() {
             expected_cold_bytes
         );
         assert_eq!(update.trie.recorded_storage_size_upper_bound(), after);
-        let key =
-            TrieKey::ContractCompilationStatus { vm_generation: f.state.vm_generation, code_hash };
-        assert_eq!(get(&update, &key).unwrap(), Some(ContractCompilationStatus::Cached));
+        let key = TrieKey::ContractCompilationStatus { code_hash };
+        assert_eq!(
+            get(&update, &key).unwrap(),
+            Some(ContractCompilationStatus::Cached { vm_generation: f.state.vm_generation })
+        );
     }
 }
 
@@ -155,7 +155,7 @@ fn deduplicates_across_accounts_and_survives_cache_eviction() {
     let pre_root = f.root;
     let result = f.apply(&calls);
     assert_eq!(result.cold_contract_bytes, code.len() as u64);
-    assert_eq!(f.compilation_status(code), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(code);
 
     // Validation records the same protocol warmness even though it does not
     // populate the producer's contract-distribution tracker.
@@ -178,17 +178,20 @@ fn deduplicates_across_accounts_and_survives_cache_eviction() {
 
     f.state.cache = Some(Box::new(NoContractRuntimeCache));
     assert_eq!(f.apply(&calls).cold_contract_bytes, 0);
-    // Each VM generation has an independent status entry; local cache eviction is unrelated.
+    // A new VM generation replaces the stale value at the same code-hash key.
     let old_generation = f.state.vm_generation;
     f.state.vm_generation.0 += 1;
-    assert_eq!(f.apply(&calls).cold_contract_bytes, code.len() as u64);
-    assert_eq!(f.compilation_status(code), Some(ContractCompilationStatus::Cached));
     assert_eq!(
-        f.compilation_status_at_generation(code, old_generation),
-        Some(ContractCompilationStatus::Cached)
+        f.compilation_status(code),
+        Some(ContractCompilationStatus::Cached { vm_generation: old_generation })
     );
-    f.state.vm_generation = old_generation;
+    assert_eq!(f.apply(&calls).cold_contract_bytes, code.len() as u64);
+    f.assert_cached(code);
     assert_eq!(f.apply(&calls).cold_contract_bytes, 0);
+    // The old generation is no longer retained, so switching back is cold, too.
+    f.state.vm_generation = old_generation;
+    assert_eq!(f.apply(&calls).cold_contract_bytes, code.len() as u64);
+    f.assert_cached(code);
 }
 
 #[test]
@@ -219,8 +222,8 @@ fn counts_all_global_switches_and_local_code_in_one_receipt() {
     let result = f.apply(&[receipt]);
     assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
     assert_eq!(result.cold_contract_bytes, (local.len() + global.len()) as u64);
-    assert_eq!(f.compilation_status(local), Some(ContractCompilationStatus::Cached));
-    assert_eq!(f.compilation_status(global), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(local);
+    f.assert_cached(global);
 }
 
 #[test]
@@ -235,7 +238,7 @@ fn failed_receipt_warms_only_reached_code() {
     let result = f.apply(&[receipt]);
     assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
     assert_eq!(result.cold_contract_bytes, first.len() as u64);
-    assert_eq!(f.compilation_status(first), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(first);
     assert_eq!(f.compilation_status(later), None);
 }
 
@@ -248,8 +251,8 @@ fn deployments_survive_rollback_and_count_every_code() {
     let result = f.apply(&[receipt]);
     assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
     assert_eq!(result.cold_contract_bytes, (first.len() + second.len()) as u64);
-    assert_eq!(f.compilation_status(first), Some(ContractCompilationStatus::Cached));
-    assert_eq!(f.compilation_status(second), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(first);
+    f.assert_cached(second);
     let state = f.tries.new_trie_update(ShardUId::single_shard(), f.root);
     assert!(get_account(&state, &alice_account()).unwrap().unwrap().contract().is_none());
 }
@@ -260,7 +263,7 @@ fn global_distribution_and_compilation_errors_are_warm() {
     let invalid = b"not wasm";
     let distribution = distribute(GlobalContractIdentifier::CodeHash(hash(invalid)), invalid);
     assert_eq!(f.apply(&[distribution]).cold_contract_bytes, invalid.len() as u64);
-    assert_eq!(f.compilation_status(invalid), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(invalid);
     let receipt = f.receipt(
         0,
         vec![use_global(GlobalContractIdentifier::CodeHash(hash(invalid))), call("main")],
@@ -328,5 +331,5 @@ fn check_data_dependency(yielded: bool) {
         receipt: if yielded { ReceiptEnum::PromiseResume(data) } else { ReceiptEnum::Data(data) },
     });
     assert_eq!(f.apply(&[data]).cold_contract_bytes, code.len() as u64);
-    assert_eq!(f.compilation_status(code), Some(ContractCompilationStatus::Cached));
+    f.assert_cached(code);
 }

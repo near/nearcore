@@ -1503,10 +1503,11 @@ impl SpiceUncertifiedChunkInfo {
 
 /// Consensus compilation status for a code hash and VM generation, independent of local caches.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, ProtocolSchema)]
+#[repr(u8)]
 #[borsh(use_discriminant = true)]
 pub enum ContractCompilationStatus {
     /// The contract has reached deterministic compilation for this VM generation.
-    Cached = 0,
+    Cached { vm_generation: VmGeneration } = 0,
     // TODO(async-compilation): add pending, accepted, and rejected attestation states.
 }
 
