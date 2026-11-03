@@ -14,7 +14,7 @@ use std::fmt::{self, Debug, Formatter};
 /// `done` the head is in the third spice epoch, so `keep=4` puts the stop height at the
 /// start of the last pre-spice epoch and every block the oracles read is still there. The
 /// fault then adds a post-`done` phase: the driver runs on until the stop height passes
-/// the last pre-spice height, about one more epoch, the tail follows it, and the node
+/// the last pre-spice height, `keep - 3` more epochs, the tail follows it, and the node
 /// must still answer.
 const DEFAULT_KEEP: u64 = 4;
 
@@ -33,8 +33,7 @@ impl GcTight {
         Self { keep: DEFAULT_KEEP }
     }
 
-    /// No preset needs it yet.
-    #[allow(dead_code)]
+    /// The epochs of blocks the node keeps, at least the default.
     pub fn keep(mut self, keep: u64) -> Self {
         self.keep = keep;
         self
@@ -78,8 +77,10 @@ impl Fault for GcTight {
     /// The tail passes the boundary and the node still answers.
     fn post_done(&mut self, env: &mut TestLoopEnv, timeline: &Timeline) -> Result<(), String> {
         let boundary_height = timeline.last_pre_spice_height().unwrap();
-        // The stop height moves one epoch at a time, so one more epoch takes it past the
-        // boundary; the tail follows it a few blocks later.
+        // The stop height moves one epoch at a time and trails the head by `keep - 1`
+        // epochs. The head is in the third spice epoch at `done`, and the stop height is past
+        // the boundary once the head is in the spice epoch numbered `keep`, `keep - 3` epochs
+        // on; the tail follows it a few blocks later.
         let target = {
             let node = env.rpc_node();
             let epoch_length = node
@@ -88,7 +89,7 @@ impl Fault for GcTight {
                 .get_epoch_config(&node.head().epoch_id)
                 .unwrap()
                 .epoch_length;
-            node.head().height + epoch_length + 5
+            node.head().height + (self.keep - 3) * epoch_length + 5
         };
         env.rpc_runner().run_until_head_height(target);
         let stop_height = {
@@ -97,18 +98,17 @@ impl Fault for GcTight {
         };
         if stop_height <= boundary_height {
             return Err(format!(
-                "the GC stop height is {stop_height} after one more epoch, not past the last \
-                 pre-spice block at {boundary_height}"
+                "the GC stop height is {stop_height} after {} more epochs, not past the last \
+                 pre-spice block at {boundary_height}",
+                self.keep - 3,
             ));
         }
-        env.rpc_runner().run_until(|node| node.tail() > boundary_height, Duration::seconds(60));
+        env.rpc_runner()
+            .try_run_until(|node| node.tail() > boundary_height, Duration::seconds(60))
+            .map_err(|timed_out| {
+                format!("the tail did not pass the last pre-spice block at {boundary_height}: {timed_out}")
+            })?;
         let node = env.rpc_node();
-        let tail = node.tail();
-        if tail <= boundary_height {
-            return Err(format!(
-                "the tail is at {tail}, not past the last pre-spice block at {boundary_height}"
-            ));
-        }
         node.view_account_query(&LoadKind::TransferLowToUpper.receiver())
             .map_err(|err| format!("the node no longer answers a view query: {err:?}"))?;
         let _ = node.head_block();

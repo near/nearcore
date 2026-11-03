@@ -741,7 +741,7 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
         .delay_warmup()
         .build();
 
-    // Register override handlers on validator-only nodes to track any
+    // Add observing rules on validator-only nodes to track any
     // SpicePartialData messages they attempt to send. These messages are the
     // downstream network effect of handling SpiceDistributorOutgoingReceipts
     // and SpiceDistributorStateWitness, so their absence proves no distribution
@@ -787,7 +787,7 @@ fn test_spice_validator_only_sends_endorsements() {
         .delay_warmup()
         .build();
 
-    // Register override handlers on validator-only nodes to count outgoing
+    // Add observing rules on validator-only nodes to count outgoing
     // SpiceChunkEndorsement messages.
     let endorsement_count = Arc::new(AtomicUsize::new(0));
     for i in num_producers..env.node_datas.len() {

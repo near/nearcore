@@ -97,7 +97,7 @@ expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow
 expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly,protocol_feature_spice
 
 # Spice activation scenario groups, see docs/architecture/next/spice_activation_scenarios.md.
-# Timeouts are twice the measured runtime on a laptop.
+# Timeouts leave a wide margin over the runtime measured on a laptop.
 expensive --timeout=40m test-loop-tests test_loop_tests tests::spice::activation_scenarios::ultra_slow_test_spice_activation_matrix_core --features nightly,protocol_feature_spice
 expensive --timeout=30m test-loop-tests test_loop_tests tests::spice::activation_scenarios::ultra_slow_test_spice_activation_matrix_nodes --features nightly,protocol_feature_spice
 expensive --timeout=15m test-loop-tests test_loop_tests tests::spice::activation_scenarios::ultra_slow_test_spice_activation_matrix_storage --features nightly,protocol_feature_spice

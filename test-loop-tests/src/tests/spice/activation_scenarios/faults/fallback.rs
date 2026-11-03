@@ -70,9 +70,9 @@ impl Fault for Fallback {
                     .unwrap_or_else(|error| panic!("precondition: {error}"));
             }
             Progress::BoundaryKnown { estimate } => {
-                // Nothing moves the boundary until milestone 6, so the last pre-spice block
-                // sits right below the estimate; a node endorses a block it has processed,
-                // so its own epoch manager knows the block's height and epoch.
+                // The last pre-spice block is taken to sit right below the estimate, which
+                // a fault that moves the boundary breaks; a node endorses a block it has
+                // processed, so its own epoch manager knows the block's height and epoch.
                 let boundary_height = estimate - 1;
                 for index in 0..env.node_datas.len() {
                     let epoch_manager = env.node(index).client().epoch_manager.clone();

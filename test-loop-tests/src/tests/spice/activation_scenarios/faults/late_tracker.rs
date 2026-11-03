@@ -146,12 +146,14 @@ impl Fault for LateTracker {
             .collect();
         let catchup_period = self.catchup_period;
         builder.config_modifier(move |config, index| {
-            // Catch-up advances one step per period: state sync takes a few steps and then
-            // each block of the epoch takes one. Steps this far apart keep the late trackers
-            // catching up well past the epoch's last block.
-            config.catchup_step_period = catchup_period;
             if late.contains(&index) {
                 config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
+                // Catch-up advances one step per period: state sync takes a few steps and
+                // then each block of the epoch takes one. Steps this far apart keep the
+                // late trackers catching up well past the epoch's last block. Only theirs
+                // are slowed: another node's state sync, such as a joiner's, has to finish
+                // in time.
+                config.catchup_step_period = catchup_period;
             }
         })
     }

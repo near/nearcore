@@ -774,14 +774,14 @@ fn test_far_horizon_tx_during_sync() {
 }
 
 // Scenario: A fresh node enters StateSync but state part downloads always
-// fail (an override handler drops StateRequestPart messages). The chain
+// fail (a network rule drops StateRequestPart messages). The chain
 // advances to a new epoch, making the sync hash stale. The node should
 // detect this and trigger recovery.
 //
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards
 //   - Network runs past the epoch sync horizon
-//   - Add a fresh node, install override handler that drops state part requests
+//   - Add a fresh node, add a network rule that drops state part requests
 //   - Node enters StateSync (parts blocked), record the sync hash
 //   - Advance the chain until validators have a different sync hash
 //

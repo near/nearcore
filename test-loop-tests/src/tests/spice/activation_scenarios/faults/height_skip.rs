@@ -145,8 +145,8 @@ impl Fault for HeightSkip {
         }]
     }
 
-    /// No block exists at the injected heights on the driver node; the requests the rules
-    /// swallowed are reported.
+    /// No block exists at the injected heights on the driver node, and the rules dropped at
+    /// least one block; the requests the rules swallowed are reported.
     fn assert_fired(&self, env: &TestLoopEnv, _timeline: &Timeline) {
         assert!(!self.heights.is_empty(), "the offsets were never resolved");
         let chain = &env.rpc_node().client().chain;
@@ -157,6 +157,11 @@ impl Fault for HeightSkip {
             );
         }
         let kept = env.shared_state.network_rules.kept_blocks();
+        assert!(
+            !kept.hashes.is_empty(),
+            "no block was dropped, so the heights {:?} have no block for another reason",
+            self.heights,
+        );
         tracing::info!(
             target: "test",
             heights = ?self.heights,

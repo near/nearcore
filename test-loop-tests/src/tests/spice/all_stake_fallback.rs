@@ -15,9 +15,12 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::BlockHeader;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::pre_spice_protocol_version;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumShards, ShardId, SpiceChunkId,
 };
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::ProtocolFeature;
 use std::collections::HashSet;
 
 /// Shards of the fallback tests.
@@ -211,8 +214,43 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
 }
 
-// The protocol upgrade with every designated endorsement dropped is the `fallback` scenario
-// of `activation_scenarios`, in its `fallback` group.
+/// The protocol upgrade with every designated endorsement dropped: the last
+/// pre-spice block can only certify via the all-stake fallback.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_activation_boundary_all_stake_fallback() {
+    init_test_logger();
+
+    // Longer than the fallback window, so certification can lag by a full window
+    // without the boundary chunks ever leaving the current epoch's uncertified set.
+    let epoch_length = 25;
+    let mut env = fallback_builder()
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    // Cross the boundary (pre-spice epochs are unaffected by the drop), then locate
+    // the last pre-spice block under the head.
+    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
+    let last_pre_spice = env.node(0).last_pre_spice_block_header();
+
+    // An epoch cannot end before its first block certifies, so leaving the first spice
+    // epoch proves the fallback alone certified the last pre-spice block and carried
+    // certification on into spice while the chain kept producing blocks.
+    env.node_runner(0).run_until_new_epoch();
+    assert_certified_via_fallback(&env.node(0), last_pre_spice.as_ref());
+    let frontier = env.node(0).last_certified_block_header();
+    assert!(
+        frontier.height() > last_pre_spice.height(),
+        "certification must advance into the spice epoch",
+    );
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+}
 
 fn fallback_only_certification_schedule(
     node: &TestLoopNode,

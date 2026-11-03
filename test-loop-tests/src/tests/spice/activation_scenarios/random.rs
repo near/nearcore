@@ -1,8 +1,7 @@
 //! Scenarios sampled from the catalog with default-or-sampled parameters, minus the ones
 //! the resolver rejects. The sampled scenarios are logged before the first run, so a
 //! failure is reproduced by writing the printed scenario down as a preset, not by
-//! re-sampling; the seed is part of the spec, so a nightly entry later is a fresh seed per
-//! run.
+//! re-sampling; the seed is part of the spec, so the same spec samples the same scenarios.
 
 use super::faults::{
     Archival, At, BadBlockMode, BadBoundaryEndorsement, BadBoundaryWitness, BadFirstSpiceBlock,
@@ -125,7 +124,8 @@ fn missing_chunk(rng: &mut ChaCha8Rng) -> Box<dyn Fault> {
             0 => fault.shards(Shards::All),
             _ => fault.shards(Shards::Index(rng.gen_range(0..Profile::A.num_shards()))),
         };
-        // Up to two heights on either side of the boundary; the spice side goes by parts.
+        // Offsets from four below the estimate to one above it; the spice side goes by
+        // parts.
         let start = rng.gen_range(-4..2);
         let end = rng.gen_range(start + 1..=2);
         fault = fault.at(start..end);

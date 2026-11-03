@@ -10,17 +10,16 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::network_rules::Action;
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
+use near_chain::spice::activation::SpiceMessageKind;
 use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::{Block, ChainStoreAccess};
 use near_network::types::NetworkRequests;
 use near_primitives::types::{BlockHeight, EpochId, SpiceChunkId};
 use parking_lot::Mutex;
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-
-use near_chain::spice::activation::SpiceMessageKind;
 use strum::IntoEnumIterator as _;
 
 /// The spice epochs the chain must leave before the terminal condition. An epoch cannot end
@@ -63,7 +62,7 @@ pub struct RunRecord {
     pub code_requests: Vec<SpiceChunkId>,
     /// Per node index, the gates' drop counts when that node's head first reached the last
     /// pre-spice block.
-    pub gate_snapshots: HashMap<usize, GateCounts>,
+    pub gate_snapshots: BTreeMap<usize, GateCounts>,
 }
 
 impl RunRecord {
@@ -151,7 +150,7 @@ struct Driver {
     code_requests: Arc<Mutex<Vec<SpiceChunkId>>>,
     /// The epoch the driver's last observed spice block is in.
     spice_epoch_id: Option<EpochId>,
-    gate_snapshots: HashMap<usize, GateCounts>,
+    gate_snapshots: BTreeMap<usize, GateCounts>,
 }
 
 impl Driver {
@@ -164,7 +163,7 @@ impl Driver {
             loads: Loads::new(resolved.profile, load_rate),
             code_requests: Arc::default(),
             spice_epoch_id: None,
-            gate_snapshots: HashMap::new(),
+            gate_snapshots: BTreeMap::new(),
         }
     }
 
@@ -303,7 +302,6 @@ impl Driver {
             self.fire(env, Progress::LastPreSpice);
         }
         if found_first_spice {
-            self.fire(env, Progress::Height { offset: 0, height });
             self.fire(env, Progress::FirstSpice);
         } else if let Some(spice_epoch_id) = self.spice_epoch_id {
             if block.header().epoch_id() != &spice_epoch_id {

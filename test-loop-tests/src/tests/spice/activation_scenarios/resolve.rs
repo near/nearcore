@@ -4,7 +4,7 @@ use super::faults::{
     BadBoundaryWitness, DataBeforeBlock, LateChunk, MissingChunk, NodeCrash, SlowNode,
 };
 use super::loads;
-use super::scenario::Scenario;
+use super::scenario::{Fault as _, Scenario};
 use crate::setup::builder::{MIN_BLOCK_PROD_TIME, TestLoopBuilder};
 use crate::utils::account::create_validator_id;
 use chrono::{DateTime, Utc};
@@ -319,6 +319,10 @@ fn resolved_of(scenario: &Scenario) -> Resolved {
     Resolved { profile }
 }
 
+/// The faults that skip a height at the boundary, by holding, dropping or rewriting a block
+/// there.
+const BOUNDARY_SKIPPERS: [&str; 3] = ["height_skip", "fork_at_boundary", "bad_first_spice_block"];
+
 /// The conflicts and unmet requirements of `scenario` on `resolved`, one message each,
 /// naming the tags involved: what each fault rejects on its own, then the pairs the
 /// design lists.
@@ -393,6 +397,13 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
                 slow.target(),
             ));
         }
+        if slow.slows_witness_validation() && has("track_all") {
+            errors.push(
+                "slow_node with track_all: nobody validates from a witness, so the slowed \
+                 witness validation never runs"
+                    .to_string(),
+            );
+        }
     }
     if has("gc_tight") && has("node_crash") {
         errors.push(
@@ -403,18 +414,34 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
         errors.push("track_all with late_tracker: nothing is tracked late".to_string());
     }
 
-    // The faults that skip a height at the boundary, by holding, dropping or rewriting a
-    // block there: two of them leave two of the four producers on their own forks and
+    // Two skips at the boundary leave two of the four producers on their own forks and
     // stall Doomslug, as two consecutive height skips do.
-    let skippers: Vec<&str> = ["height_skip", "fork_at_boundary", "bad_first_spice_block"]
-        .into_iter()
-        .filter(|tag| has(tag))
-        .collect();
+    let skippers: Vec<&str> = BOUNDARY_SKIPPERS.into_iter().filter(|tag| has(tag)).collect();
     if skippers.len() >= 2 {
         errors.push(format!(
             "{}: each skips a height at the boundary, and two skips there stall the chain",
             skippers.join(" with "),
         ));
+    }
+    // A crashed producer approves nothing while it is down, and a producer left on its own
+    // fork by a skip approves nothing the others build on, so a crash and a skip at once
+    // leave half the producer stake and stall the chain. A skip that moves the boundary is
+    // over before a crash that does not begins, at the canonical last pre-spice block or
+    // later; any other pair overlaps. `height_skip` is not told apart by where it falls.
+    for crash in crashes.iter().filter(|crash| profile.is_producer(crash.target())) {
+        for skip in faults.iter().filter(|fault| BOUNDARY_SKIPPERS.contains(&fault.tag())) {
+            let apart = skip.tag() != "height_skip"
+                && skip.moves_boundary(resolved)
+                && !crash.moves_boundary(resolved);
+            if !apart {
+                errors.push(format!(
+                    "node_crash with {}: producer {} is down while the skip leaves another on \
+                     its own fork, which is half the producer stake and stalls the chain",
+                    skip.tag(),
+                    crash.target(),
+                ));
+            }
+        }
     }
     // The withheld block is keyed by height against the estimate, so the boundary must sit
     // where the estimate puts it; the faults that hold or rewrite a boundary block also

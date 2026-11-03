@@ -163,7 +163,7 @@ impl SpiceTrafficCounter {
     }
 
     /// Asserts no spice request was emitted. Also asserts the counter saw *some*
-    /// traffic, so that a handler that silently failed to install cannot pass.
+    /// traffic, so that a rule that silently failed to install cannot pass.
     fn assert_no_spice_traffic(&self) {
         assert!(
             self.total.load(Ordering::Relaxed) > 0,

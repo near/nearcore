@@ -399,6 +399,13 @@ impl Oracle for LateChunkTransactionsReincluded {
                 }
             }
         }
+        if carried.is_empty() {
+            return Err(format!(
+                "the late chunk at height {} carried no transactions, so there is nothing to \
+                 include again",
+                self.height,
+            ));
+        }
         let mut errors = Vec::new();
         for tx in &carried {
             match inclusions.get(tx).map(Vec::as_slice) {

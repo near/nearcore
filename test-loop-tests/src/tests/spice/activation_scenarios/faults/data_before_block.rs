@@ -239,11 +239,9 @@ impl Fault for DataBeforeBlock {
                         endorsed.fetch_add(1, Ordering::Relaxed);
                     }
                 };
-                self.observers.push(env.network_rule(
-                    self.node,
-                    matches,
-                    Action::Observe(Box::new(observe)),
-                ));
+                // Observed first, so an endorsement another rule holds or delays still
+                // counts: the node sent it.
+                self.observers.push(env.observe_messages_from(self.node, matches, observe));
             }
             Progress::Height { height, .. } => {
                 if let Some(held_height) = self.held_height {

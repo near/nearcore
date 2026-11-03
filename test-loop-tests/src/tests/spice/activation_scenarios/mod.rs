@@ -479,7 +479,9 @@ fn test_pairwise_presets_cover_the_allowed_pairs() {
     let tags = DEFAULT_FAULTS.len();
     let all_pairs = tags * (tags - 1) / 2;
     let conflicts = [
+        "\"node_crash,bad_first_spice_block\"",
         "\"node_crash,gc_tight\"",
+        "\"slow_node,track_all\"",
         "\"late_tracker,track_all\"",
         "\"missing_chunk,late_chunk\"",
         "\"data_before_block,bad_first_spice_block\"",
@@ -492,6 +494,48 @@ fn test_pairwise_presets_cover_the_allowed_pairs() {
     }
     assert!(printed.contains(&"\"missing_chunk,shard_skip\"".to_string()));
     assert!(printed.contains(&"\"late_chunk,fork_at_boundary\"".to_string()));
+    assert!(printed.contains(&"\"node_crash,fork_at_boundary\"".to_string()));
+    // Slowing a task `track_all` leaves running is no conflict.
+    let slowed_apply = SlowNode::new().task(task_names::APPLY_CHUNKS_NORMAL);
+    let scenario = Scenario::new().fault(slowed_apply).fault(TrackAll::new());
+    assert_eq!(conflicts_of(&scenario), Vec::<String>::new());
     let parts: usize = (0..3).map(|part| pairwise_part(part).len()).sum();
     assert_eq!(parts, printed.len());
+}
+
+/// A crashed producer and a producer left on its own fork by a skip at the boundary are
+/// half the producer stake, which stalls the chain. A skip that moves the boundary is over
+/// before a crash at the canonical last pre-spice block, and a crash of a chunk-only
+/// validator is no producer down at all.
+#[test]
+fn test_producer_crash_conflicts_with_overlapping_boundary_skips() {
+    let skips: [(&str, fn() -> Box<dyn Fault>, bool); 6] = [
+        ("height_skip", || Box::new(HeightSkip::new()), true),
+        ("first spice fork", || Box::new(ForkAtBoundary::new().kind(ForkKind::FirstSpice)), true),
+        ("fake boundary result", || Box::new(BadFirstSpiceBlock::new()), true),
+        ("last pre-spice fork", || Box::new(ForkAtBoundary::new()), false),
+        (
+            "spice header",
+            || Box::new(BadFirstSpiceBlock::new().mode(BadBlockMode::SpiceHeaderPreSpice)),
+            false,
+        ),
+        // The crash is down before the boundary resolves, so it overlaps the fork.
+        ("last pre-spice fork against an early crash", || Box::new(ForkAtBoundary::new()), true),
+    ];
+    for (name, skip, rejected) in skips {
+        let crash = if name.ends_with("early crash") {
+            NodeCrash::new().at(At::Height(-3))
+        } else {
+            NodeCrash::new()
+        };
+        let scenario = Scenario::new().fault(crash).fault_boxed(skip());
+        assert_eq!(!conflicts_of(&scenario).is_empty(), rejected, "{name}: {scenario:?}");
+        // The same skip with a crash of a chunk-only validator never conflicts.
+        let scenario = Scenario::new().fault(NodeCrash::new().node(4)).fault_boxed(skip());
+        let errors = conflicts_of(&scenario);
+        assert!(
+            errors.iter().all(|error| !error.starts_with("node_crash with")),
+            "{name}: {errors:?}",
+        );
+    }
 }

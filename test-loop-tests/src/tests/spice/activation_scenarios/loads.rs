@@ -2,11 +2,12 @@
 //! always on and always together, so a boundary that only works with empty blocks, or with
 //! transfers but not contract calls, does not pass.
 //!
-//! Each load has its own accounts, so nonces never interleave. The accounts follow the
-//! builder's two-shard layout, which splits at "test1": ids starting with "low_" are on
-//! the shard with index 0 and ids starting with "upper_" on the one with index 1. The
-//! layout's shard ids are a shuffle of the indices, so the loads only assume the grouping
-//! and read the ids off the layout.
+//! Each load has its own accounts, so nonces never interleave. On profile A the accounts
+//! follow the builder's two-shard layout, which splits at "test1": ids starting with
+//! "low_" are on the shard with index 0 and ids starting with "upper_" on the one with
+//! index 1. The layout's shard ids are a shuffle of the indices, so the loads only assume
+//! the grouping and read the ids off the layout; `assert_accounts_on_expected_shards`
+//! checks it on either profile.
 
 use super::resolve::Profile;
 use super::scenario::Progress;
@@ -373,8 +374,8 @@ fn assert_accounts_on_expected_shards(env: &TestLoopEnv, profile: Profile) {
     );
 }
 
-/// Submits the deploy of the test contract on the contract account in the genesis epoch,
-/// so it is settled long before the boundary. It is not waited for: a fault silencing the
+/// Submits the deploy of the test contract on the contract account at `warmed_up`, so it
+/// is settled long before the boundary. It is not waited for: a fault silencing the
 /// contract's shard keeps it in the pool until the shard's first spice chunk, where it
 /// lands ahead of the calls, in nonce order; `exactly_once` checks it was included once.
 fn deploy_contract(env: &TestLoopEnv) -> CryptoHash {

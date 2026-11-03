@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::network_rules::Action;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
@@ -25,9 +26,12 @@ fn network_drop_random_messages() {
     // it a test of resilience against misbehaving nodes who withhold messages.
     for index in 0..env.node_datas.len() {
         let rng = rng.clone();
-        env.drop_messages_from(index, move |_| {
-            rng.write().gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR)
-        });
+        // Lost, not dropped: a lost block is still there for a peer to fetch by hash.
+        env.network_rule(
+            index,
+            move |_| rng.write().gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR),
+            Action::Lose,
+        );
     }
 
     // We need to allow more than the default timeout calculated by

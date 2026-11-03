@@ -27,7 +27,7 @@ pub enum At {
     /// the window the existing restart test covers.
     BoundaryPending,
     /// The driver's head reaches this offset, resolved as `height(k)` is. Pre-spice
-    /// offsets move the boundary and land in milestone 6.
+    /// offsets move the boundary.
     Height(i64),
 }
 
@@ -173,9 +173,12 @@ impl NodeCrash {
     /// crashed account skipped, per thing it produces, see the framework's
     /// `producer_outage`. A node that never came back is relaxed through the head. The
     /// loads' transactions are relaxed too where they were lost, see the framework's
-    /// `forwarding_dead_ends`.
+    /// `forwarding_dead_ends`. A node that was never killed relaxes nothing, and
+    /// `assert_fired` reports it.
     fn resolve_relaxations(&mut self, env: &TestLoopEnv) {
-        let killed_at = self.killed_at.expect("the node was killed");
+        let Some(killed_at) = self.killed_at else {
+            return;
+        };
         self.relaxations =
             producer_outage_relaxations(env, self.account_id(), killed_at + 1, self.restarted_at);
         let node = env.rpc_node();

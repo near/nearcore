@@ -32,7 +32,7 @@ impl Default for Scenario {
     }
 }
 
-// The builder methods below are the surface the faults of milestone 2 on use.
+// The builder methods below are the surface the faults use.
 #[allow(dead_code)]
 impl Scenario {
     /// The plain crossing: no fault, the default load rate, the profile the faults pick.
@@ -148,7 +148,8 @@ pub struct Timeline {
     pub last_pre_spice: Option<Arc<Block>>,
     /// The first spice block, from `FirstSpice` on.
     pub first_spice: Option<Arc<Block>>,
-    /// The driver node's head height when it first saw the last pre-spice block certified.
+    /// The height of the block the driver was processing when it first saw the last
+    /// pre-spice block certified.
     pub boundary_certified_height: Option<BlockHeight>,
     /// Spice epochs the driver still has to leave before the terminal condition.
     pub spice_epochs_left: u32,
@@ -191,7 +192,7 @@ pub trait Fault: Debug {
     fn as_any(&self) -> &dyn Any;
 
     /// `Err` with why the fault's parameters are not runnable on `resolved`: a combination
-    /// the design rejects, or a parameter whose milestone has not landed yet.
+    /// the design rejects, or one the profile cannot hold.
     fn validate(&self, resolved: Resolved) -> Result<(), String> {
         Ok(())
     }

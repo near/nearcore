@@ -82,3 +82,23 @@ fn test_delay_messages_from_node() {
     assert!(delayed.matched() > 0, "node 0 sent no approval to delay");
     assert_eq!(*passed.lock(), 0, "a delayed approval went through the rules again on its way out");
 }
+
+/// Node 0 loses the blocks it broadcasts. Unlike dropping them, which withholds a block on
+/// purpose and swallows the requests for it, a lost block is not kept from the network, so a
+/// peer that asks for it by hash still gets it.
+#[test]
+fn test_lose_messages_from_node() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().validators(4, 0).build();
+
+    let lost = env.network_rule(
+        0,
+        |request| matches!(request, NetworkRequests::Block { .. }),
+        Action::Lose,
+    );
+
+    env.node_runner(1).run_for_number_of_blocks(10);
+    assert!(lost.matched() > 0, "node 0 broadcast no block to lose");
+    let kept = env.shared_state.network_rules.kept_blocks();
+    assert!(kept.hashes.is_empty(), "a lost block was kept from the network");
+}

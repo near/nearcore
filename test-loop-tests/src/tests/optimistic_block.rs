@@ -344,7 +344,7 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // `skip_warmup`: default warmup asserts all chunks produced in the first
     // few blocks, too tight while one node's optimistic-apply is slowed.
     let mut env: TestLoopEnv = get_builder(num_shards).track_all_shards().skip_warmup().build();
-    env.delay_task_for_account(
+    let slowed = env.delay_task_for_account(
         &slow_node,
         task_names::APPLY_CHUNKS_OPTIMISTIC,
         Duration::seconds(5),
@@ -354,6 +354,7 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // 5s-delayed optimistic apply tasks need virtual time to fire after their
     // memtrie roots are GC'd. A head-based condition would exit too soon.
     env.test_loop.run_for(Duration::seconds(60));
+    assert!(slowed.matched() > 0, "the slow node applied no optimistic block while slowed");
 
     let failed_applies = env
         .node_for_account(&slow_node)

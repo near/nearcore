@@ -187,8 +187,12 @@ impl Fault for EndorsementDelay {
                 if self.start == WindowStart::Offset(*offset) && self.opened.is_none() {
                     self.open(env);
                 }
-                if self.end == WindowEnd::Offset(*offset) && self.is_open() {
-                    self.close(env);
+                // At or past the end: the block at the end offset may not exist, and a
+                // window that stayed open would hide every gap after it.
+                if let WindowEnd::Offset(end) = self.end {
+                    if *offset >= end && self.is_open() {
+                        self.close(env);
+                    }
                 }
             }
             _ => {}

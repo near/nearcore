@@ -1,7 +1,8 @@
 //! Rules on what leaves a node over the network: from the moment a rule is added until it is
-//! lifted, the node drops, delays, holds back, rewrites or reports every outgoing request the
-//! rule matches. Rules are keyed by account, so a node that is killed and restarted keeps its
-//! rules, and a node added later is covered by the rules added for its account before.
+//! lifted, the node drops, loses, delays, holds back, rewrites or reports every outgoing
+//! request the rule matches. Rules are keyed by account, so a node that is killed and
+//! restarted keeps its rules, and a node added later is covered by the rules added for its
+//! account before.
 //!
 //! A request goes through the observers of the node's peer manager, then the rules of the
 //! node's account in the order they were added, then the handlers that route it. A rule
@@ -37,8 +38,13 @@ pub type Release = Box<dyn Fn(&NetworkRequests, BlockHeight) -> bool + Send + Sy
 
 /// What a rule does with a request it matches.
 pub enum Action {
-    /// The request never leaves the node.
+    /// The request never leaves the node. A block it carries is kept from the network, see
+    /// [`NetworkRules::kept_blocks`].
     Drop,
+    /// The request is lost in transit: it never leaves the node, but a block it carries is
+    /// not kept from the network, so the node's peers can still fetch it by hash. What a
+    /// test of loss and retry needs, where [`Self::Drop`] is a block withheld on purpose.
+    Lose,
     /// The request leaves the node this much later, in test-loop time.
     Delay(Duration),
     /// [`Self::Delay`] by an amount the function picks per request, for a rule whose delay
@@ -277,6 +283,7 @@ impl NetworkRules {
                 rule.state.matched.fetch_add(1, Ordering::Relaxed);
                 match &rule.action {
                     Action::Drop => inner.keep_block(account_id, &request, false),
+                    Action::Lose => {}
                     Action::Delay(delay) => inner.defer(account_id, request, *delay),
                     Action::DelayBy(delay) => {
                         let delay = delay(&request);
@@ -291,20 +298,22 @@ impl NetworkRules {
                             .push((rule.clone(), request));
                     }
                     Action::Replace(replace) => {
-                        let original = block_of(&request).map(|block| *block.hash());
+                        let original = block_of(&request)
+                            .map(|block| (*block.hash(), block.header().height()));
                         let replaced = replace(request);
-                        if let Some(hash) = original {
+                        if let Some((hash, original_height)) = original {
                             let kept = !replaced.iter().any(|request| {
                                 block_of(request).is_some_and(|b| *b.hash() == hash)
                             });
                             if kept {
                                 // The original is gone; what is known of it is its hash and
-                                // height, which the replacements may have changed.
+                                // its height, which a replacement block, if there is one,
+                                // may have changed.
                                 inner.kept.entry(hash).or_insert_with(|| KeptBlock {
                                     height: replaced
                                         .iter()
                                         .find_map(block_of)
-                                        .map_or(seen_height, |b| b.header().height()),
+                                        .map_or(original_height, |b| b.header().height()),
                                     keeper: account_id.clone(),
                                     held: false,
                                 });

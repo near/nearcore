@@ -235,11 +235,6 @@ impl Fault for PartialDataFault {
         Vec::new()
     }
 
-    fn on_node_restarted(&mut self, env: &mut TestLoopEnv, _index: usize) {
-        // Re-running instruments the new node; the knobs are shared.
-        env.install_spice_partial_data_faults();
-    }
-
     fn relaxes(&self) -> Vec<Relaxation> {
         if self.kind == Kind::Drop {
             return vec![Relaxation {

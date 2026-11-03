@@ -18,13 +18,11 @@ use std::ops::RangeInclusive;
 
 /// Which epochs the shard is silent in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// `LastPreSpice` is rejected until milestone 6.
-#[allow(dead_code)]
 pub enum Epochs {
     /// From the first chunk the dropper may touch through the last pre-spice block. Both
     /// pre-spice epochs: they share the genesis epoch info and so its epoch height.
     PreSpice,
-    /// The last pre-spice epoch only; needs `setup:vote=epoch(N)`, milestone 6.
+    /// The last pre-spice epoch only.
     LastPreSpice,
     /// The whole first spice epoch, through the adversarial chunk mode on the shard's
     /// producers: the endorsement drop has no effect under spice, and a chunk that is

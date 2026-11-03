@@ -55,10 +55,6 @@ impl Fault for DropContractAccesses {
         Vec::new()
     }
 
-    fn on_node_restarted(&mut self, env: &mut TestLoopEnv, _index: usize) {
-        env.install_spice_partial_data_faults();
-    }
-
     fn assert_fired(&self, _env: &TestLoopEnv, _timeline: &Timeline) {
         let observed = self.observed.as_ref().expect("the faults are installed at built").lock();
         assert!(observed.dropped_contract_accesses > 0, "no contract-accesses message was dropped");

@@ -94,6 +94,12 @@ impl SlowNode {
         self.node
     }
 
+    /// Whether the slowed task is the witness validation a chunk-only validator runs under
+    /// spice, which a validator tracking every shard never runs.
+    pub fn slows_witness_validation(&self) -> bool {
+        self.task == task_names::SPICE_STATELESS_VALIDATION
+    }
+
     fn open(&mut self, env: &TestLoopEnv) {
         assert!(self.handle.is_none(), "the window opens once");
         let delay = Duration::milliseconds(self.delay_ms as i64);
@@ -192,8 +198,12 @@ impl Fault for SlowNode {
                 if self.start == WindowStart::Offset(*offset) && self.handle.is_none() {
                     self.open(env);
                 }
-                if self.end == WindowEnd::Offset(*offset) && self.is_open() {
-                    self.close(env);
+                // At or past the end: the block at the end offset may not exist, and a
+                // window that stayed open would hide every gap after it.
+                if let WindowEnd::Offset(end) = self.end {
+                    if *offset >= end && self.is_open() {
+                        self.close(env);
+                    }
                 }
             }
             Progress::Done => {

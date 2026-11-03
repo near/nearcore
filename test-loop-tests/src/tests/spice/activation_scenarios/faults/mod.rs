@@ -44,13 +44,10 @@ pub use shard_skip::{Epochs, ShardSkip};
 pub use slow_node::SlowNode;
 pub use track_all::TrackAll;
 pub use validator_churn::{Kind as ChurnKind, ValidatorChurn};
-// The variant it carries is rejected until its milestone lands, so no preset names it yet.
+// No preset names `Retrack::None` yet.
 #[allow(unused_imports)]
 pub use node_crash::Retrack;
 // Cannot fire on profile A, see the fault; no preset names it.
-#[allow(unused_imports)]
-pub use shard_rotation::ShardRotation;
-
 use super::scenario::{Narrowing, OracleId, Relaxation};
 use crate::setup::drop_condition::ends_pre_spice_epoch;
 use crate::setup::env::TestLoopEnv;
@@ -62,6 +59,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
+#[allow(unused_imports)]
+pub use shard_rotation::ShardRotation;
 use std::fmt::{self, Formatter};
 use std::sync::Arc;
 

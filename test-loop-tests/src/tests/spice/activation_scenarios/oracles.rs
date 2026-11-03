@@ -840,6 +840,7 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
         boundary_height,
         boundary_height + 1,
         boundary_height + 2,
+        first_spice_height,
         last_queried_height,
     ] {
         let Ok(block_hash) = chain.chain_store.get_block_hash_by_height(queried_height) else {
@@ -876,7 +877,11 @@ fn view_queries(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(
     let mut spanning = None;
     'transfers: for kind in LoadKind::TRANSFERS {
         for tx in run.loads.txs(kind) {
-            let tx_height = outcome_height(tx.hash)?;
+            // A lost transaction has no outcome; `exactly_once` reports it unless a fault
+            // relaxes it.
+            let Ok(tx_height) = outcome_height(tx.hash) else {
+                continue;
+            };
             if tx_height > boundary_height {
                 continue;
             }
