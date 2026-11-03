@@ -4669,9 +4669,7 @@ dependencies = [
 name = "near-mainnet-res"
 version = "0.0.0"
 dependencies = [
- "near-account-id",
  "near-chain-configs",
- "near-primitives",
  "serde_json",
 ]
 
