@@ -151,10 +151,14 @@ It applies new singed transactions and incoming receipts for some chunk/shard on
 given trie and the given state root.
 If the validator accounts update is provided, updates validators accounts.
 All new signed transactions should be valid and already verified by the chunk producer.
-If any transaction is invalid, the method returns an <code>InvalidTxError</code>.
+If a transaction in the chunk is invalid, the runtime records a failed execution outcome for it and skips it.
+A gas key transaction that fails its deposit check also gets a failed outcome, but it is not skipped completely.
+The gas key still pays the gas burnt for the conversion step, and the nonce of the key is updated.
+No receipt is created.
+The rest of the chunk is still applied.
+The method returns a <code>RuntimeError</code> for problems such as a storage error or an invalid incoming receipt.
 In case of success, the method returns <code>ApplyResult</code> that contains the new state root, trie changes,
-new outgoing receipts, stats for validators (e.g. total rent paid by all the affected accounts),
-execution outcomes.</p>
+new outgoing receipts, validator stake proposals, chunk statistics and execution outcomes.</p>
 <h3 id="apply-arguments"><a class="header" href="#apply-arguments">Apply arguments</a></h3>
 <p>It takes the following arguments:</p>
 <ul>
@@ -186,7 +190,7 @@ It also happens when there is a challenge in the current block with one of the p
 <p>New signed transaction transactions are provided by the chunk producer in the chunk. These transactions should be ordered and already validated.
 Runtime does validation again for the following reasons:</p>
 <ul>
-<li>to charge accounts for transactions fees, transfer balances, prepaid gas and account rents;</li>
+<li>to charge accounts for transactions fees, transfer balances and prepaid gas;</li>
 <li>to create new receipts;</li>
 <li>to compute burnt gas;</li>
 <li>to validate transactions again, in case the chunk producer was malicious.</li>
@@ -196,52 +200,60 @@ otherwise it's added to the list of new outgoing receipts.</p>
 <h2 id="receipt-processing"><a class="header" href="#receipt-processing">Receipt processing</a></h2>
 <p>Receipts are processed one by one in the following order:</p>
 <ol>
+<li>New local receipts. They come from transactions where the signer and the receiver are the same account.</li>
 <li>Previously delayed receipts from the state.</li>
-<li>New local receipts.</li>
 <li>New incoming receipts.</li>
 </ol>
-<p>After each processed receipt, we compare total gas burnt (so far) with the gas limit.
-When the total gas burnt reaches or exceeds the gas limit, the processing stops.
-The remaining receipts are considered delayed and stored into the state.</p>
+<p>Before each receipt, the runtime checks whether a limit is reached.
+A limit is reached when the total compute usage so far reaches the chunk gas limit, or when the storage proof recorded so far exceeds its size limit.
+Compute usage is usually equal to burnt gas. Some operations, such as storage reads and writes and contract deployment, have their own compute cost, which can differ from their gas cost.
+When a limit is reached, the processing stops.
+The remaining receipts are considered delayed and stored into the state.
+Instant receipts are the exception to the limit check. These are <code>PromiseYield</code> receipts, and action receipts that hold
+only a <code>DeleteAccount</code> action and no input data. The runtime processes an instant receipt right after the receipt that
+created it, without checking the limits.</p>
+<p>Then, while no limit is reached, the runtime handles yields that have timed out.
+For each timed-out yield that has not been resumed, it creates a promise resume receipt with no data for the same account.</p>
 <h3 id="delayed-receipts"><a class="header" href="#delayed-receipts">Delayed receipts</a></h3>
 <p>Delayed receipts are stored as a persistent queue in the state.
 Initially, the first unprocessed index and the next available index are initialized to 0.
 When a new delayed receipt is added, it's written under the next available index in to the state and the next available index is incremented by 1.
 When a delayed receipt is processed, it's read from the state using the first unprocessed index and the first unprocessed index is incremented.
-At the end of the receipt processing, the all remaining local and incoming receipts are considered to be delayed and stored to the state in their respective order.
+Local and incoming receipts that are not processed because a limit is reached are stored to the state as delayed receipts, in their respective order.
 If during receipt processing, we've changed indices, then the delayed receipt indices are stored to the state as well.</p>
 <h3 id="receipt-processing-algorithm"><a class="header" href="#receipt-processing-algorithm">Receipt processing algorithm</a></h3>
 <p>The receipt processing algorithm is the following:</p>
 <ol>
 <li>Read indices from the state or initialize with zeros.</li>
-<li>While the first unprocessed index is less than the next available index do the following
-<ol>
-<li>If the total burnt gas is at least the gas limit, break.</li>
-<li>Read the receipt from the first unprocessed index.</li>
-<li>Remove the receipt from the state.</li>
-<li>Increment the first unprocessed index.</li>
-<li>Process the receipt.</li>
-<li>Add the new burnt gas to the total burnt gas.</li>
-<li>Remember that the delayed queue indices has changed.</li>
-</ol>
-</li>
-<li>Process the new local receipts and then the new incoming receipts
+<li>Process the new local receipts. For each receipt:
 <ul>
-<li>If the total burnt gas is less then the gas limit:
+<li>If no limit is reached:
 <ol>
 <li>Process the receipt.</li>
-<li>Add the new burnt gas to the total burnt gas.</li>
+<li>Add the new compute usage to the total compute usage.</li>
 </ol>
 </li>
 <li>Else:
 <ol>
 <li>Store the receipt under the next available index.</li>
 <li>Increment the next available index.</li>
-<li>Remember that the delayed queue indices has changed.</li>
+<li>Mark the delayed queue indices as changed.</li>
 </ol>
 </li>
 </ul>
 </li>
+<li>While the first unprocessed index is less than the next available index do the following
+<ol>
+<li>If a limit is reached, break.</li>
+<li>Read the receipt from the first unprocessed index.</li>
+<li>Remove the receipt from the state.</li>
+<li>Increment the first unprocessed index.</li>
+<li>Process the receipt.</li>
+<li>Add the new compute usage to the total compute usage.</li>
+<li>Mark the delayed queue indices as changed.</li>
+</ol>
+</li>
+<li>Process the new incoming receipts in the same way as the new local receipts.</li>
 <li>If the delayed queue indices has changed, store the new indices to the state.</li>
 </ol>
 <h2 id="balance-checker"><a class="header" href="#balance-checker">Balance checker</a></h2>
@@ -264,7 +276,6 @@ Note, the data receipts are 0 cost, because they are completely prepaid when iss
 <li>Outgoing receipts balances.</li>
 <li>New delayed receipts. Local and incoming receipts that were not processed this time.</li>
 <li>Final balances for the postponed receipts.</li>
-<li>Total rent paid by all affected accounts.</li>
 <li>Total new validator rewards. It's computed from total gas burnt rewards.</li>
 <li>Total balance burnt. In case the balance is burnt for some reason (e.g. account was deleted during the refund), it's accounted there.</li>
 <li>Total balance slashed. In case a validator is slashed for some reason, the balance is account here.</li>

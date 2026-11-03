@@ -195,9 +195,12 @@ on testnet it is 100.</p>
 <p>near-shell or other tool that Alice uses then signs this transaction, by: computing the hash of the transaction and signing it
 with the secret key, resulting in a <code>SignedTransaction</code> object.</p>
 <h2 id="sending-the-transaction"><a class="header" href="#sending-the-transaction">Sending the transaction</a></h2>
-<p>To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it.
-If users wants to wait until the transaction is processed they can use <code>send_tx_commit</code> JSONRPC method which waits for the
-transaction to appear in a block. Otherwise the user can use <code>send_tx_async</code>.</p>
+<p>To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it with the <code>send_tx</code>
+JSON-RPC method. The <code>wait_until</code> parameter sets which execution status the call waits for. For example, <code>NONE</code> returns right away.
+<code>EXECUTED_OPTIMISTIC</code>, the default, waits until the transaction and all non-refund receipts it creates are executed.
+<code>FINAL</code> waits until the execution of all receipts, including refunds, is final. The older methods <code>broadcast_tx_async</code>
+and <code>broadcast_tx_commit</code> still work. <code>broadcast_tx_async</code> returns the transaction hash right away, and
+<code>broadcast_tx_commit</code> waits like <code>EXECUTED_OPTIMISTIC</code>.</p>
 <h2 id="transaction-to-receipt"><a class="header" href="#transaction-to-receipt">Transaction to receipt</a></h2>
 <p>We skip the details on how the transaction arrives to be processed by the runtime, since it is a part of the blockchain layer
 discussion.

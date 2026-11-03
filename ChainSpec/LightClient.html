@@ -142,6 +142,13 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="light-client"><a class="header" href="#light-client">Light Client</a></h1>
+<blockquote>
+<p><strong>Note:</strong> This page is out of date and may contain errors. Do not use it as the only reference
+when you build a light client. Have any light client implementation reviewed independently before
+you use it in production.</p>
+<p>The <a href="https://github.com/near/near-light-client">near/near-light-client</a> implementation is archived
+and no longer maintained. Avoid using it.</p>
+</blockquote>
 <p>The state of the light client is defined by:</p>
 <ol>
 <li><code>BlockHeaderInnerLiteView</code> for the current head (which contains <code>height</code>, <code>epoch_id</code>, <code>next_epoch_id</code>, <code>prev_state_root</code>, <code>outcome_root</code>, <code>timestamp</code>, the hash of the block producers set for the next epoch <code>next_bp_hash</code>, and the merkle root of all the block hashes <code>block_merkle_root</code>);</li>

@@ -369,8 +369,11 @@ A normal implicit account has a fixed access key that is implicitly associated w
 Deterministic accounts have a fixed code and fixed initial state associated with it.</p>
 <h3 id="state-initializing-data-of-deterministic-accounts"><a class="header" href="#state-initializing-data-of-deterministic-accounts">State-initializing data of deterministic accounts</a></h3>
 <p>The initial state of a deterministic account is fully defined by an instance of <code>DeterministicAccountStateInit</code>.</p>
-<p>Key-value pairs in <code>data</code> must be at most <code>max_length_storage_key</code> and <code>max_length_storage_value</code> bytes long,
-respectively. These parameters are currently both set to 4Mib (4194304 bytes).</p>
+<p>Keys in <code>data</code> must be at most <code>max_length_storage_key</code> bytes long (currently 2048 bytes). Values in <code>data</code> must be at
+most <code>max_length_storage_value</code> bytes long (currently 4 MiB, 4194304 bytes).</p>
+<p>From protocol version 87 (nearcore 2.14.0), all state init actions in one receipt together can carry at most
+<code>max_state_init_entries</code> data entries (currently 1500). State init actions inside a delegate action count too. Before
+protocol version 87, there is no practical limit on the number of entries.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum DeterministicAccountStateInit {
@@ -393,8 +396,11 @@ pub enum GlobalContractIdentifier {
 <p>To derive the deterministic account id, borsh-encode the <code>DeterministicAccountStateInit</code> enum instance into raw
 bytes. Then use the following formula: <code>'0s' + keccak256(bytes)[12:32].hex()</code>.</p>
 <h3 id="deterministic-account-creation"><a class="header" href="#deterministic-account-creation">Deterministic account creation</a></h3>
-<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> nor with a <code>Transfer</code> action.
-A special action, <code>DeterministicStateInitAction</code>, is required.
+<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> action.
+A <code>Transfer</code> that is the only action of its receipt creates the account, but without code or data.
+A refund receipt cannot create an account, even when its only action is a <code>Transfer</code> (see <a href="DataStructures/../RuntimeSpec/Refunds.html">Refunds</a>).
+If a refund goes to a deterministic account that does not exist yet, the refund fails and its amount is burnt.
+A special action, <code>DeterministicStateInitAction</code>, is required to initialize it.
 This action validates that the account id matches its initial state.</p>
 <p>As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and
 initial state is small enough to fit below the zero-balance limit, no balance is required. The
@@ -966,6 +972,13 @@ def send_approval(self, target_height):
 <p>It is critical that for the skip messages we do <strong>not</strong> require the hashes in the approvals to match the hash of the previous block, because otherwise a malicious actor can create two blocks at the same height, and distribute them such that half of the block producers have one as their head, and the other half has the other. The two halves of the block producers will be sending skip messages with different <code>prev_hash</code> but the same <code>prev_height</code> to the future block producers, and if there's a requirement that the <code>prev_hash</code> in the skip matches exactly the <code>prev_hash</code> of the block, no block producer will be able to create their blocks.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="light-client"><a class="header" href="#light-client">Light Client</a></h1>
+<blockquote>
+<p><strong>Note:</strong> This page is out of date and may contain errors. Do not use it as the only reference
+when you build a light client. Have any light client implementation reviewed independently before
+you use it in production.</p>
+<p>The <a href="https://github.com/near/near-light-client">near/near-light-client</a> implementation is archived
+and no longer maintained. Avoid using it.</p>
+</blockquote>
 <p>The state of the light client is defined by:</p>
 <ol>
 <li><code>BlockHeaderInnerLiteView</code> for the current head (which contains <code>height</code>, <code>epoch_id</code>, <code>next_epoch_id</code>, <code>prev_state_root</code>, <code>outcome_root</code>, <code>timestamp</code>, the hash of the block producers set for the next epoch <code>next_bp_hash</code>, and the merkle root of all the block hashes <code>block_merkle_root</code>);</li>
@@ -3168,6 +3181,8 @@ pub enum GlobalContractDeployMode {
 <li>First, the provided code is made available as global contract on the current shard.</li>
 <li>The same code propagates globally, shard by shard.</li>
 <li>Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.</li>
+<li>The account balance is reduced by <code>global_contract_storage_amount_per_byte</code> (currently 0.0001 NEAR) times the size of
+the code in bytes. These tokens are burnt and are not returned. For a 4 MiB contract, this is about 419 NEAR.</li>
 </ul>
 <h3 id="errors-10"><a class="header" href="#errors-10">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
@@ -3176,7 +3191,8 @@ pub enum GlobalContractDeployMode {
 </ul>
 <p><strong>Execution Error</strong>:</p>
 <ul>
-<li><code>LackBalanceForState</code> if the account does not hold enough NEAR to cover the added storage.</li>
+<li><code>LackBalanceForState</code> if the account balance is less than this cost, or if the balance left after paying it does not
+cover the account's storage staking.</li>
 </ul>
 <h2 id="useglobalcontractaction"><a class="header" href="#useglobalcontractaction">UseGlobalContractAction</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3228,8 +3244,11 @@ take a while for it to propagate to all shards.)</li>
 <p><strong>Validation Error</strong>:</p>
 <ul>
 <li><code>InvalidDeterministicStateInitReceiver</code> if the receiver id is not derived from the provided <code>DeterministicAccountStateInit</code></li>
-<li><code>DeterministicStateInitKeyLengthExceeded</code> if any data key is longer than <code>max_length_storage_key</code> (4MiB)</li>
+<li><code>DeterministicStateInitKeyLengthExceeded</code> if any data key is longer than <code>max_length_storage_key</code> (2048 bytes)</li>
 <li><code>DeterministicStateInitValueLengthExceeded</code> if any data value is longer than <code>max_length_storage_value</code> (4MiB)</li>
+<li>From protocol version 87 (nearcore 2.14.0), <code>TotalNumberOfStateInitEntriesExceeded</code> if all state init actions in one
+receipt together carry more than <code>max_state_init_entries</code> (1500) data entries. State init actions inside a delegate
+action count too. The runtime checks this when the receipt is created.</li>
 </ul>
 <p><strong>Execution Error</strong>:</p>
 <ul>
@@ -3291,10 +3310,14 @@ It applies new singed transactions and incoming receipts for some chunk/shard on
 given trie and the given state root.
 If the validator accounts update is provided, updates validators accounts.
 All new signed transactions should be valid and already verified by the chunk producer.
-If any transaction is invalid, the method returns an <code>InvalidTxError</code>.
+If a transaction in the chunk is invalid, the runtime records a failed execution outcome for it and skips it.
+A gas key transaction that fails its deposit check also gets a failed outcome, but it is not skipped completely.
+The gas key still pays the gas burnt for the conversion step, and the nonce of the key is updated.
+No receipt is created.
+The rest of the chunk is still applied.
+The method returns a <code>RuntimeError</code> for problems such as a storage error or an invalid incoming receipt.
 In case of success, the method returns <code>ApplyResult</code> that contains the new state root, trie changes,
-new outgoing receipts, stats for validators (e.g. total rent paid by all the affected accounts),
-execution outcomes.</p>
+new outgoing receipts, validator stake proposals, chunk statistics and execution outcomes.</p>
 <h3 id="apply-arguments"><a class="header" href="#apply-arguments">Apply arguments</a></h3>
 <p>It takes the following arguments:</p>
 <ul>
@@ -3326,7 +3349,7 @@ It also happens when there is a challenge in the current block with one of the p
 <p>New signed transaction transactions are provided by the chunk producer in the chunk. These transactions should be ordered and already validated.
 Runtime does validation again for the following reasons:</p>
 <ul>
-<li>to charge accounts for transactions fees, transfer balances, prepaid gas and account rents;</li>
+<li>to charge accounts for transactions fees, transfer balances and prepaid gas;</li>
 <li>to create new receipts;</li>
 <li>to compute burnt gas;</li>
 <li>to validate transactions again, in case the chunk producer was malicious.</li>
@@ -3336,52 +3359,60 @@ otherwise it's added to the list of new outgoing receipts.</p>
 <h2 id="receipt-processing"><a class="header" href="#receipt-processing">Receipt processing</a></h2>
 <p>Receipts are processed one by one in the following order:</p>
 <ol>
+<li>New local receipts. They come from transactions where the signer and the receiver are the same account.</li>
 <li>Previously delayed receipts from the state.</li>
-<li>New local receipts.</li>
 <li>New incoming receipts.</li>
 </ol>
-<p>After each processed receipt, we compare total gas burnt (so far) with the gas limit.
-When the total gas burnt reaches or exceeds the gas limit, the processing stops.
-The remaining receipts are considered delayed and stored into the state.</p>
+<p>Before each receipt, the runtime checks whether a limit is reached.
+A limit is reached when the total compute usage so far reaches the chunk gas limit, or when the storage proof recorded so far exceeds its size limit.
+Compute usage is usually equal to burnt gas. Some operations, such as storage reads and writes and contract deployment, have their own compute cost, which can differ from their gas cost.
+When a limit is reached, the processing stops.
+The remaining receipts are considered delayed and stored into the state.
+Instant receipts are the exception to the limit check. These are <code>PromiseYield</code> receipts, and action receipts that hold
+only a <code>DeleteAccount</code> action and no input data. The runtime processes an instant receipt right after the receipt that
+created it, without checking the limits.</p>
+<p>Then, while no limit is reached, the runtime handles yields that have timed out.
+For each timed-out yield that has not been resumed, it creates a promise resume receipt with no data for the same account.</p>
 <h3 id="delayed-receipts-1"><a class="header" href="#delayed-receipts-1">Delayed receipts</a></h3>
 <p>Delayed receipts are stored as a persistent queue in the state.
 Initially, the first unprocessed index and the next available index are initialized to 0.
 When a new delayed receipt is added, it's written under the next available index in to the state and the next available index is incremented by 1.
 When a delayed receipt is processed, it's read from the state using the first unprocessed index and the first unprocessed index is incremented.
-At the end of the receipt processing, the all remaining local and incoming receipts are considered to be delayed and stored to the state in their respective order.
+Local and incoming receipts that are not processed because a limit is reached are stored to the state as delayed receipts, in their respective order.
 If during receipt processing, we've changed indices, then the delayed receipt indices are stored to the state as well.</p>
 <h3 id="receipt-processing-algorithm"><a class="header" href="#receipt-processing-algorithm">Receipt processing algorithm</a></h3>
 <p>The receipt processing algorithm is the following:</p>
 <ol>
 <li>Read indices from the state or initialize with zeros.</li>
-<li>While the first unprocessed index is less than the next available index do the following
-<ol>
-<li>If the total burnt gas is at least the gas limit, break.</li>
-<li>Read the receipt from the first unprocessed index.</li>
-<li>Remove the receipt from the state.</li>
-<li>Increment the first unprocessed index.</li>
-<li>Process the receipt.</li>
-<li>Add the new burnt gas to the total burnt gas.</li>
-<li>Remember that the delayed queue indices has changed.</li>
-</ol>
-</li>
-<li>Process the new local receipts and then the new incoming receipts
+<li>Process the new local receipts. For each receipt:
 <ul>
-<li>If the total burnt gas is less then the gas limit:
+<li>If no limit is reached:
 <ol>
 <li>Process the receipt.</li>
-<li>Add the new burnt gas to the total burnt gas.</li>
+<li>Add the new compute usage to the total compute usage.</li>
 </ol>
 </li>
 <li>Else:
 <ol>
 <li>Store the receipt under the next available index.</li>
 <li>Increment the next available index.</li>
-<li>Remember that the delayed queue indices has changed.</li>
+<li>Mark the delayed queue indices as changed.</li>
 </ol>
 </li>
 </ul>
 </li>
+<li>While the first unprocessed index is less than the next available index do the following
+<ol>
+<li>If a limit is reached, break.</li>
+<li>Read the receipt from the first unprocessed index.</li>
+<li>Remove the receipt from the state.</li>
+<li>Increment the first unprocessed index.</li>
+<li>Process the receipt.</li>
+<li>Add the new compute usage to the total compute usage.</li>
+<li>Mark the delayed queue indices as changed.</li>
+</ol>
+</li>
+<li>Process the new incoming receipts in the same way as the new local receipts.</li>
 <li>If the delayed queue indices has changed, store the new indices to the state.</li>
 </ol>
 <h2 id="balance-checker"><a class="header" href="#balance-checker">Balance checker</a></h2>
@@ -3404,7 +3435,6 @@ Note, the data receipts are 0 cost, because they are completely prepaid when iss
 <li>Outgoing receipts balances.</li>
 <li>New delayed receipts. Local and incoming receipts that were not processed this time.</li>
 <li>Final balances for the postponed receipts.</li>
-<li>Total rent paid by all affected accounts.</li>
 <li>Total new validator rewards. It's computed from total gas burnt rewards.</li>
 <li>Total balance burnt. In case the balance is burnt for some reason (e.g. account was deleted during the refund), it's accounted there.</li>
 <li>Total balance slashed. In case a validator is slashed for some reason, the balance is account here.</li>
@@ -5154,7 +5184,7 @@ invoked.</p>
 <p>All cross-contract (we assume that each account lives in its own shard) communication in Near happens through Receipts.</p>
 <p>Receipts are stateful in a sense that they serve not only as messages between accounts but also can be stored in the account storage to await DataReceipts.</p>
 <p>Each receipt has a <a href="RuntimeSpec/Receipts.html#predecessor_id"><code>predecessor_id</code></a> (who sent it) and <a href="RuntimeSpec/Receipts.html#receiver_id"><code>receiver_id</code></a> the current account.</p>
-<p>Receipts are one of 2 types: action receipts or data receipts.</p>
+<p>Receipts are one of these kinds: action receipts, data receipts, promise yield receipts, promise resume receipts and global contract distribution receipts.</p>
 <p>Data Receipts are receipts that contains some data for some <code>ActionReceipt</code> with the same <code>receiver_id</code>.
 Data Receipts have 2 fields: the unique data identifier <code>data_id</code> and <code>data</code> the received result.
 <code>data</code> is an <code>Option</code> field and it indicates whether the result was a success or a failure. If it's <code>Some</code>, it means
@@ -5169,6 +5199,16 @@ Each <code>DataReceiver</code> consists of <code>data_id</code> and <code>receiv
 Which means all corresponding data receipts have to be received.
 If any of the data dependencies are missing, the action receipt is postponed until all missing data dependencies arrive.</p>
 <p>Because chain and runtime guarantees that no receipts are missing, we can rely that every action receipt will be executed eventually (<a href="RuntimeSpec/Receipts.html#receipt-matching">Receipt Matching explanation</a>).</p>
+<p>A promise yield receipt is an action receipt with exactly one input <code>data_id</code>.
+A contract creates it with a yield host function such as <code>promise_yield_create</code>.
+The runtime does not postpone it like other action receipts.
+Instead, it stores the receipt under its input <code>data_id</code> and runs it when a promise resume receipt with the same <code>data_id</code> arrives.
+A promise resume receipt is a data receipt.
+A contract creates it with a resume host function such as <code>promise_yield_resume</code>.
+If the yield is not resumed before it times out, the runtime creates a promise resume receipt with no data.</p>
+<p>A global contract distribution receipt carries the code of a global contract.
+A <a href="RuntimeSpec/Actions.html#deployglobalcontractaction"><code>DeployGlobalContractAction</code></a> creates it.
+When the receipt is applied on a shard, the runtime stores the code there. It then sends a new distribution receipt to the next shard, until every shard has the code. Its <code>receiver_id</code> is <code>system</code>. The runtime sends it to the shard named in the receipt, not to the shard of an account.</p>
 <p>Each <code>Receipt</code> has the following fields:</p>
 <h4 id="predecessor_id"><a class="header" href="#predecessor_id">predecessor_id</a></h4>
 <ul>
@@ -5188,9 +5228,26 @@ In case of a gas or deposit refund, the account ID is <code>system</code>.</p>
 <p>An unique id for the receipt.</p>
 <h4 id="receipt-1"><a class="header" href="#receipt-1">receipt</a></h4>
 <ul>
-<li><strong><code>type</code></strong>: <a href="RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a> | <a href="RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a></li>
+<li><strong><code>type</code></strong>: <code>ReceiptEnum</code></li>
 </ul>
-<p>There are 2 types of Receipt: <a href="RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a> and <a href="RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a>. An <code>ActionReceipt</code> is a request to apply <a href="RuntimeSpec/Actions.html">Actions</a>, while a <code>DataReceipt</code> is a result of the application of these actions.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum ReceiptEnum {
+    Action(ActionReceipt) = 0,
+    Data(DataReceipt) = 1,
+    PromiseYield(ActionReceipt) = 2,
+    PromiseResume(DataReceipt) = 3,
+    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
+    ActionV2(ActionReceiptV2) = 5,
+    PromiseYieldV2(ActionReceiptV2) = 6,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>An <a href="RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a> is a request to apply <a href="RuntimeSpec/Actions.html">Actions</a>, while a <a href="RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a> is a result of the application of these actions.
+<code>PromiseYield</code>, <code>PromiseResume</code> and <code>GlobalContractDistribution</code> are the receipts described above.
+<code>ActionV2</code> and <code>PromiseYieldV2</code> carry an <code>ActionReceiptV2</code>, which has the fields of <code>ActionReceipt</code> plus <code>refund_to</code>.
+If <code>refund_to</code> is set, deposit refunds for the receipt go to that account instead of <code>predecessor_id</code>.
+Action receipts that contracts create use these V2 kinds.</p>
 <h2 id="actionreceipt"><a class="header" href="#actionreceipt">ActionReceipt</a></h2>
 <p><code>ActionReceipt</code> represents a request to apply actions on the <code>receiver_id</code> side. It could be derived as a result of a <code>Transaction</code> execution or another <code>ActionReceipt</code> processing. <code>ActionReceipt</code> consists the following fields:</p>
 <h4 id="signer_id"><a class="header" href="#signer_id">signer_id</a></h4>
@@ -5835,9 +5892,12 @@ on testnet it is 100.</p>
 <p>near-shell or other tool that Alice uses then signs this transaction, by: computing the hash of the transaction and signing it
 with the secret key, resulting in a <code>SignedTransaction</code> object.</p>
 <h2 id="sending-the-transaction"><a class="header" href="#sending-the-transaction">Sending the transaction</a></h2>
-<p>To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it.
-If users wants to wait until the transaction is processed they can use <code>send_tx_commit</code> JSONRPC method which waits for the
-transaction to appear in a block. Otherwise the user can use <code>send_tx_async</code>.</p>
+<p>To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it with the <code>send_tx</code>
+JSON-RPC method. The <code>wait_until</code> parameter sets which execution status the call waits for. For example, <code>NONE</code> returns right away.
+<code>EXECUTED_OPTIMISTIC</code>, the default, waits until the transaction and all non-refund receipts it creates are executed.
+<code>FINAL</code> waits until the execution of all receipts, including refunds, is final. The older methods <code>broadcast_tx_async</code>
+and <code>broadcast_tx_commit</code> still work. <code>broadcast_tx_async</code> returns the transaction hash right away, and
+<code>broadcast_tx_commit</code> waits like <code>EXECUTED_OPTIMISTIC</code>.</p>
 <h2 id="transaction-to-receipt"><a class="header" href="#transaction-to-receipt">Transaction to receipt</a></h2>
 <p>We skip the details on how the transaction arrives to be processed by the runtime, since it is a part of the blockchain layer
 discussion.
@@ -5917,21 +5977,26 @@ measurement.</p>
 That is the permission of the access key is not <code>AccessKeyPermission::FullAccess</code> but is instead: <code>AccessKeyPermission::FunctionCall(FunctionCallPermission)</code>
 where</p>
 <pre><code>FunctionCallPermission {
-    allowance: Some(3000),
+    allowance: Some(250000000000000000000000),
     receiver_id: &quot;travel_agency&quot;,
     method_names: [ &quot;reserve_trip&quot;, &quot;cancel_trip&quot; ]
 }
 </code></pre>
 <p>This scenario might arise when someone Alice's parent has given them a restricted access to <code>alice_near</code> account by
 creating an access key that can be used strictly for trip management.
-This access key allows up to <code>3000</code> tokens to be spent (which includes token transfers and payments for gas), it can
-be only used to call <code>travel_agency</code> and it can be only used with the <code>reserve_trip</code> and <code>cancel_trip</code> methods.
-The way runtime treats this case is almost exactly the same as the previous one, with the only difference on how it verifies
-the signature of on the signed transaction, and that it also checks for allowance to not be exceeded.</p>
+This access key allows up to 0.25 NEAR (<code>250000000000000000000000</code> yoctoNEAR) to be spent on gas. It cannot be used to
+transfer tokens or to attach a deposit. It can be only used to call <code>travel_agency</code> and it can be only used with the
+<code>reserve_trip</code> and <code>cancel_trip</code> methods. A transaction signed with this key must have exactly one <code>FunctionCall</code> action
+with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>tokens: 100</code>), so with this key it would be rejected
+with <code>DepositWithFunctionCall</code>.
+The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
+that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
+allowance does not cover it, the transaction fails with <code>NotEnoughAllowance</code>. Then the runtime checks the zero deposit,
+the receiver and the method name.</p>
 <p>Finally, in the last scenario, Alice does not have an account (or the existence of <code>alice_near</code> is irrelevant). However,
 alice has full or restricted access key directly on <code>travel_agency</code> account. In that case <code>signer_id == receiver_id</code> in the
 <code>Transaction</code> object and runtime will convert transaction to the first receipt and apply that receipt in the same block.</p>
-<p>This section will focus on the first scenario, since the other two are the same with some minor differences.</p>
+<p>This section will focus on the first scenario. The third one differs only in minor ways. The second one works the same way for a call that attaches no deposit.</p>
 <h2 id="transaction-to-receipt-1"><a class="header" href="#transaction-to-receipt-1">Transaction to receipt</a></h2>
 <p>The process of converting transaction to receipt is very similar to the <a href="RuntimeSpec/Scenarios/FinancialTransaction.html">Financial Transaction</a>
 with several key points to note:</p>

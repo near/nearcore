@@ -181,21 +181,26 @@ measurement.</p>
 That is the permission of the access key is not <code>AccessKeyPermission::FullAccess</code> but is instead: <code>AccessKeyPermission::FunctionCall(FunctionCallPermission)</code>
 where</p>
 <pre><code>FunctionCallPermission {
-    allowance: Some(3000),
+    allowance: Some(250000000000000000000000),
     receiver_id: &quot;travel_agency&quot;,
     method_names: [ &quot;reserve_trip&quot;, &quot;cancel_trip&quot; ]
 }
 </code></pre>
 <p>This scenario might arise when someone Alice's parent has given them a restricted access to <code>alice_near</code> account by
 creating an access key that can be used strictly for trip management.
-This access key allows up to <code>3000</code> tokens to be spent (which includes token transfers and payments for gas), it can
-be only used to call <code>travel_agency</code> and it can be only used with the <code>reserve_trip</code> and <code>cancel_trip</code> methods.
-The way runtime treats this case is almost exactly the same as the previous one, with the only difference on how it verifies
-the signature of on the signed transaction, and that it also checks for allowance to not be exceeded.</p>
+This access key allows up to 0.25 NEAR (<code>250000000000000000000000</code> yoctoNEAR) to be spent on gas. It cannot be used to
+transfer tokens or to attach a deposit. It can be only used to call <code>travel_agency</code> and it can be only used with the
+<code>reserve_trip</code> and <code>cancel_trip</code> methods. A transaction signed with this key must have exactly one <code>FunctionCall</code> action
+with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>tokens: 100</code>), so with this key it would be rejected
+with <code>DepositWithFunctionCall</code>.
+The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
+that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
+allowance does not cover it, the transaction fails with <code>NotEnoughAllowance</code>. Then the runtime checks the zero deposit,
+the receiver and the method name.</p>
 <p>Finally, in the last scenario, Alice does not have an account (or the existence of <code>alice_near</code> is irrelevant). However,
 alice has full or restricted access key directly on <code>travel_agency</code> account. In that case <code>signer_id == receiver_id</code> in the
 <code>Transaction</code> object and runtime will convert transaction to the first receipt and apply that receipt in the same block.</p>
-<p>This section will focus on the first scenario, since the other two are the same with some minor differences.</p>
+<p>This section will focus on the first scenario. The third one differs only in minor ways. The second one works the same way for a call that attaches no deposit.</p>
 <h2 id="transaction-to-receipt"><a class="header" href="#transaction-to-receipt">Transaction to receipt</a></h2>
 <p>The process of converting transaction to receipt is very similar to the <a href="FinancialTransaction.html">Financial Transaction</a>
 with several key points to note:</p>

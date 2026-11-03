@@ -248,8 +248,11 @@ A normal implicit account has a fixed access key that is implicitly associated w
 Deterministic accounts have a fixed code and fixed initial state associated with it.</p>
 <h3 id="state-initializing-data-of-deterministic-accounts"><a class="header" href="#state-initializing-data-of-deterministic-accounts">State-initializing data of deterministic accounts</a></h3>
 <p>The initial state of a deterministic account is fully defined by an instance of <code>DeterministicAccountStateInit</code>.</p>
-<p>Key-value pairs in <code>data</code> must be at most <code>max_length_storage_key</code> and <code>max_length_storage_value</code> bytes long,
-respectively. These parameters are currently both set to 4Mib (4194304 bytes).</p>
+<p>Keys in <code>data</code> must be at most <code>max_length_storage_key</code> bytes long (currently 2048 bytes). Values in <code>data</code> must be at
+most <code>max_length_storage_value</code> bytes long (currently 4 MiB, 4194304 bytes).</p>
+<p>From protocol version 87 (nearcore 2.14.0), all state init actions in one receipt together can carry at most
+<code>max_state_init_entries</code> data entries (currently 1500). State init actions inside a delegate action count too. Before
+protocol version 87, there is no practical limit on the number of entries.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum DeterministicAccountStateInit {
@@ -272,8 +275,11 @@ pub enum GlobalContractIdentifier {
 <p>To derive the deterministic account id, borsh-encode the <code>DeterministicAccountStateInit</code> enum instance into raw
 bytes. Then use the following formula: <code>'0s' + keccak256(bytes)[12:32].hex()</code>.</p>
 <h3 id="deterministic-account-creation"><a class="header" href="#deterministic-account-creation">Deterministic account creation</a></h3>
-<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> nor with a <code>Transfer</code> action.
-A special action, <code>DeterministicStateInitAction</code>, is required.
+<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> action.
+A <code>Transfer</code> that is the only action of its receipt creates the account, but without code or data.
+A refund receipt cannot create an account, even when its only action is a <code>Transfer</code> (see <a href="../RuntimeSpec/Refunds.html">Refunds</a>).
+If a refund goes to a deterministic account that does not exist yet, the refund fails and its amount is burnt.
+A special action, <code>DeterministicStateInitAction</code>, is required to initialize it.
 This action validates that the account id matches its initial state.</p>
 <p>As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and
 initial state is small enough to fit below the zero-balance limit, no balance is required. The

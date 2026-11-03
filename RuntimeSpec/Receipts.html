@@ -145,7 +145,7 @@
 <p>All cross-contract (we assume that each account lives in its own shard) communication in Near happens through Receipts.</p>
 <p>Receipts are stateful in a sense that they serve not only as messages between accounts but also can be stored in the account storage to await DataReceipts.</p>
 <p>Each receipt has a <a href="#predecessor_id"><code>predecessor_id</code></a> (who sent it) and <a href="#receiver_id"><code>receiver_id</code></a> the current account.</p>
-<p>Receipts are one of 2 types: action receipts or data receipts.</p>
+<p>Receipts are one of these kinds: action receipts, data receipts, promise yield receipts, promise resume receipts and global contract distribution receipts.</p>
 <p>Data Receipts are receipts that contains some data for some <code>ActionReceipt</code> with the same <code>receiver_id</code>.
 Data Receipts have 2 fields: the unique data identifier <code>data_id</code> and <code>data</code> the received result.
 <code>data</code> is an <code>Option</code> field and it indicates whether the result was a success or a failure. If it's <code>Some</code>, it means
@@ -160,6 +160,16 @@ Each <code>DataReceiver</code> consists of <code>data_id</code> and <code>receiv
 Which means all corresponding data receipts have to be received.
 If any of the data dependencies are missing, the action receipt is postponed until all missing data dependencies arrive.</p>
 <p>Because chain and runtime guarantees that no receipts are missing, we can rely that every action receipt will be executed eventually (<a href="#receipt-matching">Receipt Matching explanation</a>).</p>
+<p>A promise yield receipt is an action receipt with exactly one input <code>data_id</code>.
+A contract creates it with a yield host function such as <code>promise_yield_create</code>.
+The runtime does not postpone it like other action receipts.
+Instead, it stores the receipt under its input <code>data_id</code> and runs it when a promise resume receipt with the same <code>data_id</code> arrives.
+A promise resume receipt is a data receipt.
+A contract creates it with a resume host function such as <code>promise_yield_resume</code>.
+If the yield is not resumed before it times out, the runtime creates a promise resume receipt with no data.</p>
+<p>A global contract distribution receipt carries the code of a global contract.
+A <a href="Actions.html#deployglobalcontractaction"><code>DeployGlobalContractAction</code></a> creates it.
+When the receipt is applied on a shard, the runtime stores the code there. It then sends a new distribution receipt to the next shard, until every shard has the code. Its <code>receiver_id</code> is <code>system</code>. The runtime sends it to the shard named in the receipt, not to the shard of an account.</p>
 <p>Each <code>Receipt</code> has the following fields:</p>
 <h4 id="predecessor_id"><a class="header" href="#predecessor_id">predecessor_id</a></h4>
 <ul>
@@ -179,9 +189,26 @@ In case of a gas or deposit refund, the account ID is <code>system</code>.</p>
 <p>An unique id for the receipt.</p>
 <h4 id="receipt-1"><a class="header" href="#receipt-1">receipt</a></h4>
 <ul>
-<li><strong><code>type</code></strong>: <a href="#actionreceipt">ActionReceipt</a> | <a href="#datareceipt">DataReceipt</a></li>
+<li><strong><code>type</code></strong>: <code>ReceiptEnum</code></li>
 </ul>
-<p>There are 2 types of Receipt: <a href="#actionreceipt">ActionReceipt</a> and <a href="#datareceipt">DataReceipt</a>. An <code>ActionReceipt</code> is a request to apply <a href="Actions.html">Actions</a>, while a <code>DataReceipt</code> is a result of the application of these actions.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum ReceiptEnum {
+    Action(ActionReceipt) = 0,
+    Data(DataReceipt) = 1,
+    PromiseYield(ActionReceipt) = 2,
+    PromiseResume(DataReceipt) = 3,
+    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
+    ActionV2(ActionReceiptV2) = 5,
+    PromiseYieldV2(ActionReceiptV2) = 6,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>An <a href="#actionreceipt">ActionReceipt</a> is a request to apply <a href="Actions.html">Actions</a>, while a <a href="#datareceipt">DataReceipt</a> is a result of the application of these actions.
+<code>PromiseYield</code>, <code>PromiseResume</code> and <code>GlobalContractDistribution</code> are the receipts described above.
+<code>ActionV2</code> and <code>PromiseYieldV2</code> carry an <code>ActionReceiptV2</code>, which has the fields of <code>ActionReceipt</code> plus <code>refund_to</code>.
+If <code>refund_to</code> is set, deposit refunds for the receipt go to that account instead of <code>predecessor_id</code>.
+Action receipts that contracts create use these V2 kinds.</p>
 <h2 id="actionreceipt"><a class="header" href="#actionreceipt">ActionReceipt</a></h2>
 <p><code>ActionReceipt</code> represents a request to apply actions on the <code>receiver_id</code> side. It could be derived as a result of a <code>Transaction</code> execution or another <code>ActionReceipt</code> processing. <code>ActionReceipt</code> consists the following fields:</p>
 <h4 id="signer_id"><a class="header" href="#signer_id">signer_id</a></h4>
