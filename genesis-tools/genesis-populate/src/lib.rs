@@ -86,8 +86,6 @@ pub struct GenesisBuilder {
     additional_accounts_code: Option<Vec<u8>>,
     additional_accounts_code_hash: CryptoHash,
     global_contracts: Vec<(GlobalContractIdentifier, Vec<u8>)>,
-
-    print_progress: bool,
 }
 
 impl GenesisBuilder {
@@ -117,13 +115,7 @@ impl GenesisBuilder {
             additional_accounts_code: None,
             additional_accounts_code_hash: CryptoHash::default(),
             global_contracts: Default::default(),
-            print_progress: false,
         }
-    }
-
-    pub fn print_progress(mut self) -> Self {
-        self.print_progress = true;
-        self
     }
 
     pub fn add_additional_accounts(mut self, num: u64) -> Self {
