@@ -83,25 +83,8 @@ pub struct ResetCmd {
 }
 
 #[derive(Parser)]
-pub struct InitCmd {
-    shard_id: ShardId,
-
-    #[clap(default_value = "3")]
-    num_threads: usize,
-}
-
-#[derive(Parser)]
 pub struct VerifyCmd {
     shard_id: ShardId,
-}
-
-#[derive(Parser)]
-pub struct MigrateValueInliningCmd {
-    #[clap(default_value = "16")]
-    num_threads: usize,
-
-    #[clap(default_value = "50000")]
-    batch_size: usize,
 }
 
 #[derive(Parser)]

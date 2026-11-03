@@ -4566,7 +4566,6 @@ dependencies = [
  "near-client-primitives",
  "near-epoch-manager",
  "near-indexer-primitives",
- "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-network",
@@ -4580,14 +4579,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "near-jsonrpc-adversarial-primitives"
-version = "0.0.0"
-dependencies = [
- "near-primitives",
- "serde",
 ]
 
 [[package]]
