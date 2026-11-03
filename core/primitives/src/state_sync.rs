@@ -351,23 +351,22 @@ pub enum ShardStateSyncResponse {
 impl ShardStateSyncResponse {
     /// Each response version pins one header version, so the response version follows from
     /// the header being served.
-    pub fn new_from_header(header: Option<ShardStateSyncResponseHeader>) -> Self {
+    pub fn new_from_header(header: ShardStateSyncResponseHeader) -> Self {
         match header {
-            Some(ShardStateSyncResponseHeader::V1(header)) => {
+            ShardStateSyncResponseHeader::V1(header) => {
                 Self::V1(ShardStateSyncResponseV1 { header: Some(header), part: None })
             }
-            Some(ShardStateSyncResponseHeader::V2(header)) => {
+            ShardStateSyncResponseHeader::V2(header) => {
                 Self::V4(ShardStateSyncResponseV4 { header: Some(header), part: None })
             }
-            Some(ShardStateSyncResponseHeader::V3(header)) => {
+            ShardStateSyncResponseHeader::V3(header) => {
                 Self::V5(ShardStateSyncResponseV5 { header: Some(header), part: None })
             }
-            None => Self::V4(ShardStateSyncResponseV4 { header: None, part: None }),
         }
     }
 
-    pub fn new_from_part(part: Option<(StatePartIndex, StatePart)>) -> Self {
-        Self::V4(ShardStateSyncResponseV4 { header: None, part })
+    pub fn new_from_part(part_idx: StatePartIndex, part: StatePart) -> Self {
+        Self::V4(ShardStateSyncResponseV4 { header: None, part: Some((part_idx, part)) })
     }
 
     pub fn take_header(self) -> Option<ShardStateSyncResponseHeader> {

@@ -73,6 +73,17 @@ pub struct StateRequestPart {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatePartOrHeader(pub Box<StateResponseInfo>);
 
+/// The client's answer to a received state request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateRequestResponse {
+    /// The client served the requested header or part.
+    Respond(StatePartOrHeader),
+    /// The client throttled the request.
+    Busy,
+    /// The client failed to serve the requested header or part.
+    Error,
+}
+
 /// Update on a prior outgoing state request: a message from the host, or the network's report
 /// that the request was not sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
