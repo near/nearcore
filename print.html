@@ -2529,7 +2529,16 @@ for the rest of the actions until <code>DeleteAccount</code>. This gives permiss
 </span>pub struct CreateAccountAction {}
 <span class="boring">}
 </span></code></pre></pre>
-<p>If <code>receiver_id</code> has length == 64, this account id is considered to be <code>hex(public_key)</code>, meaning creation of account only succeeds if followed up with <code>AddKey(public_key)</code> action.</p>
+<p>If <code>receiver_id</code> is an implicit account ID, the action fails with <code>OnlyImplicitAccountCreationAllowed</code>. Implicit
+account IDs are NEAR-implicit IDs (64 lowercase hex characters), <code>0x</code> ETH-implicit IDs, <code>0s</code> deterministic IDs and,
+from protocol version 88 (nearcore 2.14.0), <code>0u</code> universal IDs. These accounts are created in other ways:</p>
+<ul>
+<li>A NEAR-implicit, ETH-implicit or deterministic account is created by a <code>Transfer</code> to its ID, when the <code>Transfer</code> is
+the only action of a receipt that is not a refund.</li>
+<li>A deterministic account can also be created by <code>DeterministicStateInit</code>.</li>
+<li>From protocol version 88, a universal account is created by <code>UniversalStateInit</code>, or by a <code>Transfer</code> that is not a
+refund. That <code>Transfer</code> may be batched with other actions.</li>
+</ul>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>creates an account with <code>id</code> = <code>receiver_id</code></li>
@@ -2538,8 +2547,10 @@ for the rest of the actions until <code>DeleteAccount</code>. This gives permiss
 <h3 id="errors"><a class="header" href="#errors">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
 <ul>
-<li>If the action tries to create a top level account whose length is no greater than 32 characters, and <code>predecessor_id</code> is not
-<code>registrar_account_id</code>, which is defined by the protocol, the following error will be returned</li>
+<li>If <code>predecessor_id</code> is not <code>registrar_account_id</code> (currently <code>registrar</code>), and the action tries to create a top level
+account whose ID is shorter than <code>min_allowed_top_level_account_length</code> (currently 65), the following error will be
+returned. Account IDs are at most 64 characters long, so only the registrar can create named top level accounts with
+<code>CreateAccount</code>.</li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2559,6 +2570,14 @@ the following error will be returned</li>
 </span><span class="boring">fn main() {
 </span>/// A newly created account must be under a namespace of the creator account
 CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li>If <code>receiver_id</code> is an implicit account ID, the following error will be returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>OnlyImplicitAccountCreationAllowed { account_id: AccountId },
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="deploycontractaction"><a class="header" href="#deploycontractaction">DeployContractAction</a></h2>
