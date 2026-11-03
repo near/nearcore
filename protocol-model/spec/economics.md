@@ -1,5 +1,7 @@
 # Economics
 
+<!-- cspell:ignore calimero -->
+
 > Protocol version: 88 (stable) · Release: 2.14.0 · Derived from commit: bc4e9e8 · Generated: 2026-11-03
 > Primary crates/files: `chain/epoch-manager/src/reward_calculator.rs`, `runtime/runtime/src/lib.rs`, `runtime/runtime/src/config.rs`, `runtime/runtime/src/verifier.rs`, `runtime/runtime/src/global_contracts.rs`, `runtime/runtime/src/universal_account_id.rs`, `runtime/runtime/src/deterministic_account_id.rs`, `runtime/near-vm-runner/src/logic/host.rs`, `core/parameters/src/cost.rs`, `core/parameters/src/config.rs`, `core/parameters/src/config_store.rs`, `core/parameters/res/runtime_configs/`, `core/primitives/src/universal_state_init.rs`, `core/primitives/src/block.rs`, `core/primitives/src/chunk_apply_stats.rs`, `chain/chain/src/types.rs`, `chain/chain/src/runtime/mod.rs`
 
