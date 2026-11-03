@@ -21,7 +21,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
 /// Protocol versions that change the consensus VM generation.
 /// Add a version whenever its VM config changes.
-const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 89, 129, 150, 155, 157];
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 150, 155, 157];
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
