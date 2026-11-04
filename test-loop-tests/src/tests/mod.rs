@@ -20,6 +20,8 @@ mod congestion_control_genesis_bootstrap;
 mod congestion_control_limits;
 mod consensus;
 mod contract_distribution_cross_shard;
+#[cfg(feature = "test_features")]
+mod contract_distribution_security;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
