@@ -947,7 +947,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // The contracts that have their ECC in the chunk. The groups come round after round, and
         // a contract gets one ECC per chunk.
         let mut contracts_in_chunk: HashSet<AccountId> = HashSet::new();
-        let time_is_up = || time_limit.is_some_and(|limit| start_time.elapsed() >= limit);
+        let deadline = time_limit.map(|limit| start_time + limit);
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
         // for metrics only
@@ -957,7 +957,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_if(num_eccs_left > 0) {
+        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -1001,7 +1001,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &epoch_id,
                         &prev_block,
                         size_limit.saturating_sub(total_size),
-                        &time_is_up,
+                        deadline,
                     )?;
                     skipped_transactions.extend(visit.skipped.into_iter().map(Into::into));
                     rejected_due_to_congestion += visit.num_rejected_due_to_congestion;
@@ -1823,7 +1823,7 @@ fn take_ecc_from_group(
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     size_left: u64,
-    time_is_up: &dyn Fn() -> bool,
+    deadline: Option<Instant>,
 ) -> Result<EccGroupVisit, Error> {
     let mut visit = EccGroupVisit::default();
     // All of the group is for the same contract.
@@ -1844,7 +1844,7 @@ fn take_ecc_from_group(
         if MAX_TXS_PER_GROUP_PER_VISIT < num_examined {
             break;
         }
-        if time_is_up() {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             visit.limited_by = Some(PrepareTransactionsLimit::Time);
             break;
         }

@@ -13,7 +13,7 @@ pub trait TransactionGroupIterator {
     fn next_signed(&mut self) -> Option<&mut TransactionGroup>;
 
     /// Next group if `allow_eccs` is true, next *signed* group otherwise.
-    fn next_if(&mut self, allow_eccs: bool) -> Option<PooledGroup<'_>> {
+    fn next_filtered(&mut self, allow_eccs: bool) -> Option<PooledGroup<'_>> {
         if allow_eccs { self.next() } else { self.next_signed().map(PooledGroup::Signed) }
     }
 }
