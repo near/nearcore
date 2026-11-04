@@ -57,8 +57,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
-    ShardId, StateChangeCause,
+    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    NonceIndex, ShardId, StateChangeCause,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::{
@@ -720,8 +720,8 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
 }
 
 /// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
-/// ECC fails, burns no tokens and leaves `bob`'s balance as it was, but that its fees count
-/// toward the chunk's gas and compute. Returns the error it fails with.
+/// ECC fails, burns no gas and no tokens and leaves `bob`'s balance as it was, but that the
+/// compute of its fees counts toward the chunk's compute. Returns the error it fails with.
 fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
@@ -751,7 +751,7 @@ fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
     };
     assert_eq!(ecc_outcome.id, create_ecc_outcome_id(ecc.hash(), apply_state.block_height));
     let fee = ecc_cost(&apply_state.config, &ecc, GAS_PRICE).unwrap();
-    assert_eq!(ecc_outcome.outcome.gas_burnt, fee.gas_burnt);
+    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
     assert_eq!(ecc_outcome.outcome.compute_usage, Some(fee.compute_burnt));
     assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, Balance::ZERO);
@@ -801,7 +801,8 @@ fn test_apply_ecc_not_enough_balance() {
     );
 }
 
-/// An ECC to an account without a contract runs nothing and is refused, and pays nothing.
+/// An ECC to an account without a contract is refused before anything is loaded, so it costs the
+/// same as an ECC to a missing account: the compute of its fees.
 #[test]
 fn test_apply_ecc_no_contract() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -813,16 +814,18 @@ fn test_apply_ecc_no_contract() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
-    assert_matches!(
-        err,
+    let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
+    assert_eq!(
+        refused.error,
         TxExecutionError::ActionError(ActionError {
             index: Some(0),
             kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { .. }
+                CompilationError::CodeDoesNotExist { account_id: bob_account() }
             )),
         })
     );
+    let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
+    assert_eq!(refused.compute_usage, fee.compute_burnt);
 }
 
 /// The payload of the ECCs in the execution tests. The ECC methods write it under `ECC_KEY`.
@@ -1031,12 +1034,12 @@ struct RefusedEcc {
     root: CryptoHash,
     /// The error the call is refused with.
     error: TxExecutionError,
-    /// The gas the call's outcome reports, which counts toward the chunk's gas.
-    gas_burnt: Gas,
+    /// The compute the call's outcome reports, which counts toward the chunk's compute.
+    compute_usage: Compute,
 }
 
 /// Applies the ECC from `ecc_to_bob` on top of `root`, and checks that it is refused: the run's
-/// write is gone, bob's account is unchanged and nobody pays.
+/// write is gone, bob's account is unchanged, nobody pays and no gas counts toward the chunk.
 fn apply_refused_ecc(
     runtime: &Runtime,
     tries: &ShardTries,
@@ -1060,6 +1063,7 @@ fn apply_refused_ecc(
     };
     assert_eq!(outcome.id, create_ecc_outcome_id(ecc.hash(), apply_state.block_height));
     assert_eq!(outcome.outcome.executor_id, bob_account());
+    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, Balance::ZERO);
     assert!(outcome.outcome.logs.is_empty());
@@ -1069,7 +1073,7 @@ fn apply_refused_ecc(
     let ExecutionStatus::Failure(error) = outcome.outcome.status.clone() else {
         panic!("expected the ECC to be refused, got {:?}", outcome.outcome.status);
     };
-    RefusedEcc { root, error, gas_burnt: outcome.outcome.gas_burnt }
+    RefusedEcc { root, error, compute_usage: outcome.outcome.compute_usage.unwrap() }
 }
 
 /// Applies an ECC to a funded contract that accepts it, and returns the charge and bob's storage
@@ -1196,7 +1200,8 @@ fn test_apply_ecc_refused_random_seed() {
 }
 
 /// An ECC whose run doesn't return within the gas budget of external calls is refused. The
-/// fees and the run together burn exactly the whole budget.
+/// fees and the run together use the whole budget, and since compute costs are at least the gas
+/// costs, at least as much compute counts toward the chunk.
 #[test]
 fn test_apply_ecc_refused_out_of_gas() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1217,7 +1222,7 @@ fn test_apply_ecc_refused_out_of_gas() {
     );
     let budget = apply_state.config.wasm_config.limit_config.max_gas_burnt_external;
     assert_eq!(budget, Gas::from_teragas(20));
-    assert_eq!(refused.gas_burnt, budget);
+    assert!(refused.compute_usage >= budget.as_gas());
 }
 
 /// An ECC whose run creates a promise is refused, since external calls can't create receipts
@@ -1357,9 +1362,9 @@ fn apply_ecc_before_receipt(
     (receipt, apply_result)
 }
 
-/// A refused ECC's run counts toward the chunk's gas limit: the limit is one more than the
+/// A refused ECC's run counts toward the chunk's compute limit: the limit is one more than the
 /// compute of the fees, so only the run can fill it, and the receipt after it is delayed. Its
-/// outcome reports the gas of the fees and the run, but burns no tokens.
+/// outcome reports the compute of the fees and the run, but no gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1378,17 +1383,17 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
         &outcome.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::ActionError(_))
     );
-    assert!(outcome.outcome.gas_burnt > fee.gas_burnt);
+    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
     assert!(outcome.outcome.compute_usage.unwrap() > fee.compute_burnt);
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.delayed_receipts_count, 1);
     assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
 }
 
-/// An ECC refused before its method runs, here for a missing contract, still counts its fees
-/// toward the chunk's gas limit: the limit is the compute of the fees, so the fees alone fill it,
-/// and the receipt after the ECC is delayed. Its outcome reports the gas of the fees, but burns
-/// no tokens.
+/// An ECC refused before its method runs, here for a missing contract, still counts the compute
+/// of its fees toward the chunk's compute limit: the limit is the compute of the fees, so the
+/// fees alone fill it, and the receipt after the ECC is delayed. Its outcome reports that
+/// compute, but no gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1410,7 +1415,7 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
             InvalidTxError::SignerDoesNotExist { .. }
         ))
     );
-    assert_eq!(outcome.outcome.gas_burnt, fee.gas_burnt);
+    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
     assert_eq!(outcome.outcome.compute_usage, Some(fee.compute_burnt));
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.delayed_receipts_count, 1);

@@ -39,10 +39,11 @@ use std::sync::Arc;
 
 /// What an external call did, and whether the contract accepts and pays for it.
 pub(crate) struct ExternalCallRun {
-    /// Gas burnt by the call's fees and its run. It counts toward the chunk's gas whether or
-    /// not the call is accepted.
+    /// Gas burnt by the call's fees and its run. It counts toward the chunk's gas only if the
+    /// call is accepted.
     pub gas_burnt: Gas,
-    /// Compute used by the call's fees and its run.
+    /// Compute used by the call's fees and its run. It counts toward the chunk's compute whether
+    /// or not the call is accepted.
     pub compute_usage: Compute,
     /// The amount the contract pays if it accepts the call, or why the call is refused. The
     /// whole amount is reported as burnt, in the outcome and in the chunk's stats.
@@ -66,13 +67,7 @@ impl ExternalCallRun {
             Ok(charge) => charge,
             // TODO(ecc): include the logs of a refused call in its outcome.
             Err(error) => {
-                return ExecutionOutcomeWithId::refused_ecc(
-                    id,
-                    ecc,
-                    error,
-                    self.gas_burnt,
-                    self.compute_usage,
-                );
+                return ExecutionOutcomeWithId::refused_ecc(id, ecc, error, self.compute_usage);
             }
         };
         let status = match self.outcome.return_data {

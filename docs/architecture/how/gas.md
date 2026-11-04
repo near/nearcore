@@ -219,19 +219,22 @@ base fee, and the per-byte fee for the method name and the payload, each with
 its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward `max_gas_burnt_external`, so a larger
 payload leaves less of the budget to the method. With the largest payload the
-fees are about 8 Tgas. The contract must be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the
-call, the fees are charged after the call, and only if the contract accepts
-it.
+fees are about 8 Tgas. The contract must exist, have a contract deployed and
+be able to afford the fees, or the call is rejected before any contract code is
+loaded. Like the rest of the call, the fees are charged after the call, and
+only if the contract accepts it.
 
-A rejected call pays nothing, but it isn't free for the chunk. The gas it
-burnt, fees included, counts toward the chunk's gas limit, and its outcome
-reports that gas with no tokens burnt, so the chunk's gas used, and through it
-the next gas price, account for the work. This holds even for a call rejected
+A rejected call pays nothing, but it isn't free for the chunk. The compute of
+the work validators did on it, fees included, counts toward the chunk's
+compute limit, so that work stays bounded. This holds even for a call rejected
 before any contract code runs, for example because the contract's account
-doesn't exist: validators still check it, so its fees count. An honest chunk
-producer runs each call before including it and leaves out the ones that
-would be rejected. An accepted call's fees and gas are burnt.
+doesn't exist or has no contract: validators still check it, so the compute of
+its fees counts. A rejected call burns no gas, though, and its outcome reports
+no gas burnt: nobody pays for it, so it doesn't add to the chunk's gas used or
+move the next gas price, which everyone else pays. An honest chunk producer
+runs each call before including it and leaves out the ones that would be
+rejected. An accepted call's fees and gas are burnt, and count toward the
+chunk's gas like any other.
 
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
