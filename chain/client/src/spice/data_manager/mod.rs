@@ -10,7 +10,7 @@ mod pull;
 mod sender;
 mod serve;
 
-pub use data_id::DataId;
+pub use data_id::{DataId, ReceiptProofId};
 pub(crate) use encode::{EncodedData, encode};
 use heights::ChainHeights;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
@@ -33,13 +33,17 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use orphans::ParkedParts;
+pub(crate) use policy::ServePolicies;
 use policy::receipt_proof;
-pub(crate) use policy::{ServePolicies, ServePolicy};
 use pull::Pulls;
+#[cfg(test)]
+pub(crate) use pull::RequestLimits;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 use sender::AuthenticatedSender;
 pub use serve::MalformedDataRequest;
-pub(crate) use serve::{Push, ServeError, ServeOutcome, SpiceDataServer};
+pub(crate) use serve::{
+    CheckedDataRequest, Push, RequestedItem, ServeError, ServeOutcome, SpiceDataServer,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
 use std::num::NonZeroUsize;
@@ -107,11 +111,7 @@ fn producers_in_epoch(
     shard_layout: &ShardLayout,
     id: &DataId,
 ) -> Result<Vec<AccountId>, Error> {
-    match id {
-        DataId::ReceiptProof { source, .. } => {
-            Ok(epoch_chunk_producers_for_shard(epoch_info, shard_layout, source.shard_id)?)
-        }
-    }
+    Ok(epoch_chunk_producers_for_shard(epoch_info, shard_layout, id.producing_chunk().shard_id)?)
 }
 
 /// What a processed block yields.
@@ -186,9 +186,10 @@ impl SpiceDataManager {
     /// Whether the item is completed as far as data distribution is concerned.
     fn is_done(&self, id: &DataId) -> bool {
         match id {
-            DataId::ReceiptProof { source, to_shard } => {
-                receipt_proof::is_done(&self.chain_store.store(), source, *to_shard)
+            DataId::ReceiptProof(id) => {
+                receipt_proof::is_done(&self.chain_store.store(), &id.source, id.to_shard)
             }
+            DataId::Witness(_) => unreachable!("the data manager tracks no witnesses"),
         }
     }
 
@@ -338,8 +339,7 @@ impl SpiceDataManager {
         if data.num_parts() > MAX_REQUESTED_PARTS {
             return Err(SenderFault::TooManyParts);
         }
-        let id = DataId::from_identifier(data.id())
-            .expect("only data the engine tracks should reach the data manager");
+        let id = DataId::from(data.id());
         let Some(item) = self.items.get(&id) else {
             return self.handle_untracked_item(id, data);
         };

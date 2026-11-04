@@ -23,7 +23,7 @@ fn a_producer_serves_the_requested_parts_of_its_stored_proof_under_the_pushed_co
     let pushed = server.build_push(me, &id, &data).unwrap();
     // One data part and one parity part.
     let requested = [1, DATA_PARTS as u64];
-    let served = server.requested_parts(me, &id, &ordinals(&requested)).unwrap();
+    let served = server.requested_parts(me, &requested_item(&id, ordinals(&requested))).unwrap();
 
     let (commitment, parts) = encode_to_wire(&encoder(), &data);
     assert_eq!(pushed.commitment, commitment);
@@ -83,7 +83,8 @@ fn a_proof_below_the_final_execution_head_is_still_served() {
     set_final_execution_head(&chain.chain_store.store(), &blocks[1]);
     let mut server = test_server(&chain);
 
-    let served = server.requested_parts(&producers()[0], &id, &ordinals(&[0])).unwrap();
+    let served =
+        server.requested_parts(&producers()[0], &requested_item(&id, ordinals(&[0]))).unwrap();
 
     assert_matches!(served, ServeOutcome::Parts { .. });
 }
@@ -96,7 +97,8 @@ fn a_request_to_a_node_that_is_not_a_producer_is_refused() {
     save_proof(&chain, &blocks[0], &receipt_data(0, 1));
     let mut server = test_server(&chain);
 
-    let served = server.requested_parts(&account("outsider.near"), &id, &ordinals(&[0]));
+    let served =
+        server.requested_parts(&account("outsider.near"), &requested_item(&id, ordinals(&[0])));
 
     assert_matches!(served, Err(ServeError::Requester(MalformedDataRequest::NotAProducer)));
 }
@@ -108,7 +110,8 @@ fn a_proof_not_in_the_store_serves_nothing() {
     let id = receipt_id(&blocks[0], 0, 1);
     let mut server = test_server(&chain);
 
-    let served = server.requested_parts(&producers()[0], &id, &ordinals(&[0])).unwrap();
+    let served =
+        server.requested_parts(&producers()[0], &requested_item(&id, ordinals(&[0]))).unwrap();
 
     assert_matches!(served, ServeOutcome::NotStored);
 }
@@ -121,7 +124,8 @@ fn an_ordinal_outside_the_producer_set_is_refused() {
     save_proof(&chain, &blocks[0], &receipt_data(0, 1));
     let mut server = test_server(&chain);
 
-    let served = server.requested_parts(&producers()[0], &id, &ordinals(&[0, TOTAL_PARTS as u64]));
+    let served = server
+        .requested_parts(&producers()[0], &requested_item(&id, ordinals(&[0, TOTAL_PARTS as u64])));
 
     assert_matches!(
         served,
@@ -138,17 +142,93 @@ fn a_shard_outside_the_layout_is_refused() {
 
     let unknown_from = server.requested_parts(
         &producers()[0],
-        &receipt_id(&blocks[0], bad_shard_id, 1),
-        &ordinals(&[0]),
+        &requested_item(&receipt_id(&blocks[0], bad_shard_id, 1), ordinals(&[0])),
     );
     let unknown_to = server.requested_parts(
         &producers()[0],
-        &receipt_id(&blocks[0], 0, bad_shard_id),
-        &ordinals(&[0]),
+        &requested_item(&receipt_id(&blocks[0], 0, bad_shard_id), ordinals(&[0])),
     );
 
     assert_matches!(unknown_from, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
     assert_matches!(unknown_to, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_witness_shard_outside_the_layout_is_refused() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let mut server = test_server(&chain);
+
+    let served = server.requested_parts(
+        &producers()[0],
+        &requested_item(&witness_id(&blocks[0], 7), ordinals(&[0])),
+    );
+
+    assert_matches!(served, Err(ServeError::Requester(MalformedDataRequest::UnknownShard)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_producer_serves_the_requested_parts_of_its_stored_witness_under_the_pushed_commitment() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let id = witness_id(&blocks[0], 0);
+    let data = witness_data(&blocks[0], 0);
+    save_witness(&chain, &blocks[0], &data);
+    let mut server = test_server(&chain);
+    let me = &producers()[0];
+
+    let pushed = server.build_push(me, &id, &data).unwrap();
+    let requested = [1, DATA_PARTS as u64];
+    let served = server.requested_parts(me, &requested_item(&id, ordinals(&requested))).unwrap();
+
+    let (commitment, parts) = encode_to_wire(&encoder(), &data);
+    assert_eq!(pushed.commitment, commitment);
+    assert_eq!(pushed.part, parts[0]);
+    assert_matches!(
+        served,
+        ServeOutcome::Parts { commitment: served_commitment, parts: served_parts }
+            if served_commitment == commitment
+                && served_parts == parts_with_ordinals(&parts, &requested)
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_witness_push_goes_to_the_chunks_validators_that_do_not_produce_it() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let id = witness_id(&blocks[0], 0);
+    let mut server = test_server(&chain);
+    let validators: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_chunk_validator_assignments(blocks[0].header().epoch_id(), ShardId::new(0), 1)
+        .unwrap()
+        .ordered_chunk_validators()
+        .into_iter()
+        .collect();
+    let expected: HashSet<AccountId> =
+        validators.iter().filter(|account| !producers().contains(account)).cloned().collect();
+    assert!(!expected.is_empty(), "the push needs a recipient that is not a producer");
+    assert!(validators.len() > expected.len(), "a producer must validate the chunk too");
+
+    let pushed = server.build_push(&producers()[0], &id, &witness_data(&blocks[0], 0)).unwrap();
+
+    assert_eq!(pushed.recipients, expected);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_witness_not_in_the_store_serves_nothing() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let mut server = test_server(&chain);
+
+    let served = server
+        .requested_parts(
+            &producers()[0],
+            &requested_item(&witness_id(&blocks[0], 0), ordinals(&[0])),
+        )
+        .unwrap();
+
+    assert_matches!(served, ServeOutcome::NotStored);
 }
 
 #[test]
@@ -208,7 +288,7 @@ fn a_proof_from_an_epochs_first_block_is_served_through_the_next_epoch_until_gc_
     while block.header().epoch_id() == &next_epoch_id {
         chain.clear_data(&gc_config).unwrap();
         assert_eq!(chain.chain_store.tail(), prev_epoch_start - 1, "gc lags the head");
-        let served = server.requested_parts(&producer, &id, &ordinals(&[0]));
+        let served = server.requested_parts(&producer, &requested_item(&id, ordinals(&[0])));
         assert_matches!(
             served,
             Ok(ServeOutcome::Parts { .. }),
@@ -229,6 +309,64 @@ fn a_proof_from_an_epochs_first_block_is_served_through_the_next_epoch_until_gc_
         block = produce_spice_block_certifying_parent(&mut chain, &block);
         chain.clear_data(&gc_config).unwrap();
     }
-    let served = server.requested_parts(&producer, &id, &ordinals(&[0]));
+    let served = server.requested_parts(&producer, &requested_item(&id, ordinals(&[0])));
     assert_matches!(served, Ok(ServeOutcome::NotStored) | Err(ServeError::Chain(_)));
+}
+
+/// A request for `ordinals` of each of `count` distinct receipt proofs.
+fn wants(count: u64, ordinals: &[u64]) -> BTreeMap<SpiceDataIdentifier, BTreeSet<u64>> {
+    (0..count)
+        .map(|shard| {
+            let id =
+                DataId::receipt_proof(CryptoHash::default(), ShardId::new(shard), ShardId::new(0));
+            (SpiceDataIdentifier::from(&id), self::ordinals(ordinals))
+        })
+        .collect()
+}
+
+#[test]
+fn a_request_at_the_limits_is_accepted_with_every_item() {
+    assert_eq!(MAX_REQUESTED_PARTS % MAX_REQUESTED_DATA_IDS, 0);
+    let per_item = (MAX_REQUESTED_PARTS / MAX_REQUESTED_DATA_IDS) as u64;
+    let item_ordinals: Vec<u64> = (0..per_item).collect();
+
+    let request =
+        CheckedDataRequest::new(wants(MAX_REQUESTED_DATA_IDS as u64, &item_ordinals)).unwrap();
+
+    let items = request.into_items();
+    assert_eq!(items.len(), MAX_REQUESTED_DATA_IDS);
+    assert!(items.iter().all(|item| item.ordinals() == &ordinals(&item_ordinals)));
+}
+
+#[test]
+fn a_request_without_items_is_refused() {
+    let request = CheckedDataRequest::new(BTreeMap::new());
+
+    assert_matches!(request, Err(MalformedDataRequest::NoEntries));
+}
+
+#[test]
+fn a_request_with_more_items_than_the_limit_is_refused() {
+    let request = CheckedDataRequest::new(wants(MAX_REQUESTED_DATA_IDS as u64 + 1, &[0]));
+
+    assert_matches!(request, Err(MalformedDataRequest::TooManyEntries));
+}
+
+#[test]
+fn a_request_with_an_item_without_ordinals_is_refused() {
+    let mut wants = wants(2, &[0]);
+    wants.values_mut().next().unwrap().clear();
+
+    let request = CheckedDataRequest::new(wants);
+
+    assert_matches!(request, Err(MalformedDataRequest::EntryWithoutOrdinals));
+}
+
+#[test]
+fn a_request_with_more_ordinals_than_the_limit_is_refused() {
+    let item_ordinals: Vec<u64> = (0..MAX_REQUESTED_PARTS as u64 / 2 + 1).collect();
+
+    let request = CheckedDataRequest::new(wants(2, &item_ordinals));
+
+    assert_matches!(request, Err(MalformedDataRequest::TooManyOrdinals));
 }
