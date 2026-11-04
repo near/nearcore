@@ -7,7 +7,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, MAX_CONTRACTS_PER_REQUEST,
+    PartialEncodedContractDeploys, has_repeated_contracts,
 };
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
@@ -215,6 +216,13 @@ pub fn validate_contract_code_request(
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
     let key = request.chunk_production_key();
+    let num_contracts = request.contracts().len();
+    if num_contracts > MAX_CONTRACTS_PER_REQUEST {
+        return Err(Error::Other(format!(
+            "contract code request asks for {num_contracts} contracts, over the limit of \
+             {MAX_CONTRACTS_PER_REQUEST}"
+        )));
+    }
     require_relevant!(validate_chunk_relevant_as_validator(
         epoch_manager,
         key,
@@ -222,6 +230,12 @@ pub fn validate_contract_code_request(
         store
     )?);
     validate_witness_contract_code_request_signature(epoch_manager, request)?;
+    // Runs after the count check above, so the set it builds stays bounded.
+    if has_repeated_contracts(request.contracts()) {
+        return Err(Error::Other(format!(
+            "contract code request repeats a contract hash across its {num_contracts} entries"
+        )));
+    }
 
     Ok(ChunkRelevance::Relevant)
 }

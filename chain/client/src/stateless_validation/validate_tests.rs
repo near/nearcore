@@ -1,7 +1,8 @@
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_partial_encoded_contract_deploys,
-    validate_partial_encoded_state_witness,
+    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
+    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
+use assert_matches::assert_matches;
 use near_async::time::Clock;
 use near_async::time::{Duration, FakeClock, Utc};
 use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period_at_version};
@@ -13,8 +14,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, MainTransitionKey, PartialEncodedContractDeploys,
-    PartialEncodedContractDeploysPart,
+    ChunkContractAccesses, CodeHash, ContractCodeRequest, MAX_CONTRACTS_PER_REQUEST,
+    MainTransitionKey, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
@@ -1089,4 +1090,60 @@ fn v2_deploys_resolves_anchored_db_row() {
         ),
         "deploys signed by the non-anchored canonical producer must be rejected"
     );
+}
+
+/// A contract code request for the genesis epoch's only chunk validator, carrying `contracts`
+/// verbatim so a test can repeat a hash. Height sits one above genesis, inside the relevance
+/// window.
+fn make_contract_code_request(
+    chain: &Chain,
+    contracts: Vec<CodeHash>,
+    signer: &ValidatorSigner,
+) -> ContractCodeRequest {
+    let genesis_hash = *chain.genesis().hash();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let key =
+        ChunkProductionKey { shard_id, epoch_id, height_created: chain.genesis().height() + 1 };
+    let main_transition = MainTransitionKey { block_hash: genesis_hash, shard_id };
+    ContractCodeRequest::new_with_contract_list(key, contracts, main_transition, signer)
+}
+
+fn code_hash(seed: &[u8]) -> CodeHash {
+    CodeHash(CryptoHash::hash_bytes(seed))
+}
+
+#[test]
+fn contract_code_request_with_distinct_hashes_is_accepted() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let contracts = vec![code_hash(b"contract_a"), code_hash(b"contract_b")];
+    let request = make_contract_code_request(&chain, contracts, signer.as_ref());
+
+    let store = chain.chain_store().store();
+    let result = validate_contract_code_request(chain.epoch_manager.as_ref(), &request, &store);
+    assert_matches!(result, Ok(ChunkRelevance::Relevant));
+}
+
+#[test]
+fn contract_code_request_with_repeated_hash_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let repeated = code_hash(b"contract_a");
+    let contracts = vec![repeated.clone(), code_hash(b"contract_b"), repeated];
+    let request = make_contract_code_request(&chain, contracts, signer.as_ref());
+
+    let store = chain.chain_store().store();
+    let result = validate_contract_code_request(chain.epoch_manager.as_ref(), &request, &store);
+    assert_matches!(result, Err(Error::Other(_)));
+}
+
+#[test]
+fn contract_code_request_over_contract_limit_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let contracts =
+        (0..MAX_CONTRACTS_PER_REQUEST + 1).map(|i| code_hash(&i.to_le_bytes())).collect::<Vec<_>>();
+    let request = make_contract_code_request(&chain, contracts, signer.as_ref());
+
+    let store = chain.chain_store().store();
+    let result = validate_contract_code_request(chain.epoch_manager.as_ref(), &request, &store);
+    assert_matches!(result, Err(Error::Other(_)));
 }
