@@ -2,7 +2,11 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::network_rules::Action;
 use near_chain::ChainStoreAccess;
 use near_network::types::NetworkRequests;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 /// The tag of the hold rule `delay_endorsements_propagation` installs on each account.
@@ -41,14 +45,26 @@ impl TestLoopEnv {
             };
             // The endorsed block's height comes from the node's store, so an endorsement of a
             // block the node has not received yet stays held until it has.
+            // The store is the killed node's after a restart, which is the same one as long as
+            // the restart reuses its storage.
+            let endorsed_heights = Mutex::new(HashMap::<CryptoHash, BlockHeight>::new());
             let release = move |held: &NetworkRequests, seen_height| {
                 let NetworkRequests::SpiceChunkEndorsement(_, endorsement) = held else {
                     return true;
                 };
-                let Ok(header) = chain_store.get_block_header(endorsement.block_hash()) else {
-                    return false;
+                let block_hash = *endorsement.block_hash();
+                let mut endorsed_heights = endorsed_heights.lock();
+                let height = match endorsed_heights.get(&block_hash) {
+                    Some(height) => *height,
+                    None => {
+                        let Ok(header) = chain_store.get_block_header(&block_hash) else {
+                            return false;
+                        };
+                        endorsed_heights.insert(block_hash, header.height());
+                        header.height()
+                    }
                 };
-                header.height() + delay.load(Ordering::Relaxed) < seen_height
+                height + delay.load(Ordering::Relaxed) < seen_height
             };
             rules.add_tagged(
                 node.account_id.clone(),

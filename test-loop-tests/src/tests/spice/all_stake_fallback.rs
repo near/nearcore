@@ -264,7 +264,7 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     // all-stake fallback alone must carry certification across into the next epoch.
     env.node_runner(0).run_until_head_height(epoch_length - 3);
     let initial_epoch = env.node(0).head().epoch_id;
-    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
+    env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
 
     // The certified frontier must reach the second epoch (height past the boundary, with a different
     // epoch id), proving the fallback certified the boundary chunks under the new assignments.
@@ -278,7 +278,6 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     );
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
-    drop.lift();
 }
 
 #[test]
@@ -331,7 +330,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&contract_user);
     let deploy_hash = env.rpc_node().submit_tx(deploy_tx);
     env.rpc_runner().run_until_included(&[deploy_hash]);
-    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
+    env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
 
     // The call's chunk witness omits the code, so a cold non-designated fallback validator must
     // fetch it via a contract-code request.
@@ -354,7 +353,6 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     );
     let frontier = env.rpc_node().last_certified_block_header();
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
-    drop.lift();
 }
 
 /// The protocol upgrade with every designated endorsement dropped: the last

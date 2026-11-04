@@ -10,6 +10,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
 use near_primitives::block::Block;
+use near_primitives::block_header::ApprovalInner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -22,10 +23,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// node has shown it knows, whether the request may go out now.
 pub type Release = Box<dyn Fn(&NetworkRequests, BlockHeight) -> bool + Send + Sync>;
 
-/// What a rule does with a request it matches.
+/// What a rule does with a request it matches. The rules' functions run while the rules are
+/// locked, so they must not call into [`NetworkRules`].
 pub enum Action {
-    /// The request never leaves the node. A block it carries is kept from the network, see
-    /// [`NetworkRules::kept_blocks`].
+    /// The request never leaves the node. A block it carries is kept from the network for the
+    /// rest of the test, lifting the rule included, see [`NetworkRules::kept_blocks`].
     Drop,
     /// The request is lost in transit: it never leaves the node, but a block it carries is
     /// not kept from the network, so the node's peers can still fetch it by hash.
@@ -160,7 +162,7 @@ impl NetworkRules {
 
     /// Adds an observer of the outgoing requests of `account_id` ahead of the account's
     /// rules, so it reports every request as the node sent it, before any rule has its
-    /// say.
+    /// say. Requests for a kept block are swallowed before it, so it never sees them.
     pub fn observe_first(
         &self,
         account_id: AccountId,
@@ -243,7 +245,8 @@ impl NetworkRules {
     }
 
     /// Records where the requests of `account_id` go out from and the peer id of its node,
-    /// when the node is set up. A restarted node replaces the entries of the node it replaces.
+    /// when the node is set up. A restarted node replaces the entries of the node it replaces,
+    /// and what the rules held for that node is discarded with it.
     pub(crate) fn register_peer_manager(
         &self,
         account_id: &AccountId,
@@ -253,6 +256,12 @@ impl NetworkRules {
         let mut inner = self.0.lock();
         inner.peer_managers.insert(account_id.clone(), sender);
         inner.peer_ids.insert(account_id.clone(), peer_id);
+        inner.held.remove(account_id);
+        for kept in inner.kept.values_mut() {
+            if &kept.keeper == account_id {
+                kept.held = false;
+            }
+        }
     }
 
     /// Runs `request`, which `account_id` is sending, through the account's rules.
@@ -421,12 +430,16 @@ fn block_of(request: &NetworkRequests) -> Option<&Arc<Block>> {
 }
 
 /// The block height a request shows its sender knows: a block it broadcasts, or the parent of
-/// a block it approves.
+/// a block it approves or skips.
 fn seen_height_of(request: &NetworkRequests) -> Option<BlockHeight> {
     match request {
         NetworkRequests::Block { block } => Some(block.header().height()),
         NetworkRequests::Approval { approval_message } => {
-            approval_message.approval.target_height.checked_sub(1)
+            let approval = &approval_message.approval;
+            match approval.inner {
+                ApprovalInner::Endorsement(_) => approval.target_height.checked_sub(1),
+                ApprovalInner::Skip(parent_height) => Some(parent_height),
+            }
         }
         _ => None,
     }

@@ -56,8 +56,8 @@ pub struct SpicePartialDataFaults {
 }
 
 impl SpicePartialDataFaults {
-    /// Whether the faults apply to `partial_data` at all: its sender is faulted somehow and its
-    /// kind is not excluded.
+    /// Whether the faults apply to `partial_data` at all: its kind is not excluded by
+    /// `only_kind`.
     fn applies_to(&self, partial_data: &SpicePartialData) -> bool {
         let kind = SpiceDataKind::of(partial_data.id());
         !self.only_kind.is_some_and(|only| only != kind)
@@ -85,7 +85,8 @@ impl SpiceDataKind {
 #[derive(Default)]
 pub struct SpicePartialDataObserved {
     /// Messages dropped, delayed, corrupted, and sent again under a conflicting commitment. One
-    /// message can be counted by more than one of these.
+    /// message can be counted by more than one of these, and `delayed` counts each copy an
+    /// equivocated message is sent as.
     pub dropped: usize,
     pub delayed: usize,
     pub corrupted: usize,
@@ -134,17 +135,20 @@ fn install_spice_partial_data_fault_rules(
         rules.add_tagged(me.clone(), SPICE_PARTIAL_DATA_RULES, matches, action)
     };
 
+    // Counting goes ahead of every rule of the account, so a drop condition added before the
+    // faults does not hide what the node sent.
     let observed = state.observed.clone();
     let requester = me.clone();
-    add(
-        Box::new(|request| {
+    rules.observe_first(
+        me.clone(),
+        |request| {
             matches!(
                 request,
                 NetworkRequests::SpiceDataRequest { .. }
                     | NetworkRequests::SpiceChunkEndorsement(..)
             )
-        }),
-        Action::Observe(Box::new(move |request| match request {
+        },
+        move |request| match request {
             NetworkRequests::SpiceDataRequest { .. } => {
                 *observed.lock().data_requests.entry(requester.clone()).or_default() += 1;
             }
@@ -161,7 +165,7 @@ fn install_spice_partial_data_fault_rules(
                     .insert(chunk_id);
             }
             _ => {}
-        })),
+        },
     );
 
     let faults = state.faults.clone();

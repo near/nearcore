@@ -100,10 +100,9 @@ impl TestLoopEnv {
         self.shared_state.network_rules.add_with_handle(handle, account_id, None, matches, action);
     }
 
-    /// [`Self::network_rule`] on the messages that carry the parts of the chunks `selects` where inclusion
-    /// checks no endorsements. Covers the parts a producer pushes, the parts owners forward,
-    /// and the request and response pair a node falls back to See
-    /// [`crate::utils::network::chunk_parts_matcher`].
+    /// [`Self::network_rule`] on the messages that carry the parts of the chunks `selects`: the
+    /// parts a producer pushes, the parts owners forward, and the request and response pair a
+    /// node falls back to. See [`crate::utils::network::chunk_parts_matcher`].
     pub fn chunk_parts_rule(
         &self,
         index: usize,

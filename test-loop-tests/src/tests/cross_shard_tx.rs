@@ -38,7 +38,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
 
     let seed: u64 = StdRng::from_entropy().r#gen();
     println!("RNG seed: {seed}. If test fails use it to find the issue.");
-    let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
+    let rng = StdRng::seed_from_u64(seed);
     let rng = Arc::new(RwLock::new(rng));
 
     let stake = Balance::from_near(1);

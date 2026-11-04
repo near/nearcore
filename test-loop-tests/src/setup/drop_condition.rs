@@ -120,6 +120,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
 }
 
 impl NodeExecutionData {
+    /// Adds the rule of `drop_condition` on this node's account under `handle`. A restarted node keeps it.
     pub fn register_drop_condition(
         &self,
         test_loop_data: &TestLoopData,

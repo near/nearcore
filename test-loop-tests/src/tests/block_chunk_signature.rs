@@ -35,7 +35,7 @@ fn block_chunk_signature_rejection() {
                         let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
                         assert!(
                             previous < 2,
-                            "Expected at most two mutated blocks before a ban kicks in"
+                            "expected at most two mutated blocks before a ban kicks in"
                         );
                         return vec![NetworkRequests::Block { block: Arc::new(block_clone) }];
                     }
