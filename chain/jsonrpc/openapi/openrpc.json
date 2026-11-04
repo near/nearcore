@@ -3971,6 +3971,11 @@
         "title": "DurationAsStdSchemaProvider",
         "type": "object"
       },
+      "EccTransaction": {
+        "format": "byte",
+        "title": "EccTransaction",
+        "type": "string"
+      },
       "EccTransactionView": {
         "properties": {
           "contract_id": {
@@ -10118,14 +10123,29 @@
         "type": "object"
       },
       "RpcSendTransactionRequest": {
+        "description": "On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in `ecc_base64`, so\nrequests with a signed transaction look as they did before ECCs.",
         "properties": {
-          "signed_tx_base64": {
-            "allOf": [
+          "ecc_base64": {
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/TransactionEnvelope"
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "description": "A signed transaction, or an external contract call (ECC)."
+            ]
+          },
+          "signed_tx_base64": {
+            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "wait_until": {
             "allOf": [
@@ -10136,9 +10156,6 @@
             "default": "EXECUTED_OPTIMISTIC"
           }
         },
-        "required": [
-          "signed_tx_base64"
-        ],
         "title": "RpcSendTransactionRequest",
         "type": "object"
       },
@@ -13024,11 +13041,6 @@
         ],
         "title": "TrackedShardsConfig"
       },
-      "TransactionEnvelope": {
-        "format": "byte",
-        "title": "TransactionEnvelope",
-        "type": "string"
-      },
       "TransactionEnvelopeView": {
         "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had.",
         "oneOf": [
@@ -13909,15 +13921,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "ecc_base64",
+          "required": false,
           "schema": {
-            "allOf": [
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/TransactionEnvelope"
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "description": "A signed transaction, or an external contract call (ECC)."
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
@@ -15423,15 +15453,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "ecc_base64",
+          "required": false,
           "schema": {
-            "allOf": [
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/TransactionEnvelope"
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "description": "A signed transaction, or an external contract call (ECC)."
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
@@ -15469,15 +15517,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "ecc_base64",
+          "required": false,
           "schema": {
-            "allOf": [
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/TransactionEnvelope"
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "description": "A signed transaction, or an external contract call (ECC)."
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
