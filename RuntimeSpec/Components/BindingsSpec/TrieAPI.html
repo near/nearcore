@@ -164,10 +164,15 @@ not follow the specification are considered to be bugs that need to be fixed.</p
 </ul>
 <h6 id="panics"><a class="header" href="#panics">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> or <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics
-with <code>MemoryAccessViolation</code>. (When we say that something panics with the given error we mean that we use Wasmer API to
-create this error and terminate the execution of VM. For mocks of the host that would only cause a non-name panic.)</li>
+<li>If <code>key_len + key_ptr</code> or <code>value_len + value_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>.
+(When we say that something panics with the given error, it means that the host function returns this error and the
+execution of the contract stops. For mocks of the host that would only cause a non-name panic.)</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>. The same applies to
+<code>value_len</code> and <code>value_ptr</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If the value is longer than <code>max_length_storage_value</code> (4,194,304 bytes) it panics with <code>ValueLengthExceeded</code>;</li>
+<li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
 </ul>
 <h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
 <ul>
@@ -196,8 +201,10 @@ however the actual implementation does not return error at all, <a href="https:/
 </ul>
 <h6 id="panics-1"><a class="header" href="#panics-1">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 </ul>
 <h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
 <ul>
@@ -224,9 +231,12 @@ however the actual implementation does not return error at all, <a href="https:/
 </ul>
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
 </ul>
 <h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
 <ul>
@@ -248,6 +258,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <h6 id="panics-3"><a class="header" href="#panics-3">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_iter_prefix"><a class="header" href="#storage_iter_prefix">storage_iter_prefix</a></h4>

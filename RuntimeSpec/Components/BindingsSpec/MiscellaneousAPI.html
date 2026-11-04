@@ -172,8 +172,9 @@
 <h6 id="panics-1"><a class="header" href="#panics-1">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
-<li>If string length without null-termination symbol is larger than <code>config.max_log_len</code> returns <code>BadUtf8</code>.</li>
+<li>If string is not UTF-8 returns <code>BadUTF8</code>.</li>
+<li>If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="log_utf8"><a class="header" href="#log_utf8">log_utf8</a></h4>
@@ -188,8 +189,10 @@
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
-<li>If string length without null-termination symbol is larger than <code>config.max_log_len</code> returns <code>BadUtf8</code>.</li>
+<li>If string is not UTF-8 returns <code>BadUTF8</code>.</li>
+<li>If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>.</li>
+<li>If this function call already has <code>max_number_logs</code> (100) logs, returns <code>NumberOfLogsExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="log_utf16"><a class="header" href="#log_utf16">log_utf16</a></h4>

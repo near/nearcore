@@ -177,11 +177,10 @@ attached_deposit(balance_ptr: u64)
 
 <span class="boring">}
 </span></code></pre></pre>
-<p>-- writes the value into the <code>u128</code> variable pointed by <code>balance_ptr</code>.</p>
+<p>-- writes the value into the <code>u128</code> variable pointed by <code>balance_ptr</code>. Both functions can be called in view functions.</p>
 <h6 id="panics"><a class="header" href="#panics">Panics</a></h6>
 <ul>
-<li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>.</li>
 </ul>
 <h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
 <ul>

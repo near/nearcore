@@ -143,16 +143,14 @@
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="bindings-specification"><a class="header" href="#bindings-specification">Bindings Specification</a></h1>
 <p>This is the low-level interface available to the smart contracts, it consists of the functions that the host (represented by
-Wasmer inside near-vm-runner) exposes to the guest (the smart contract compiled to Wasm).</p>
+near-vm-runner, which runs contracts on Wasmtime) exposes to the guest (the smart contract compiled to Wasm).</p>
 <p>Due to Wasm restrictions the methods operate only with primitive types, like <code>u64</code>.</p>
 <p>Also for all functions in the bindings specification the following is true:</p>
 <ul>
-<li>Method execution could result in <code>MemoryAccessViolation</code> error if one of the following happens:
-<ul>
-<li>The method causes host to read a piece of memory from the guest but it points outside the guest's memory;</li>
-<li>The guest causes host to read from the register, but register id is invalid.</li>
-</ul>
-</li>
+<li>Method execution could result in <code>MemoryAccessViolation</code> error if the method causes host to read a piece of memory
+from the guest but it points outside the guest's memory;</li>
+<li>Method execution could result in <code>InvalidRegisterId</code> error if the guest causes host to read from a register that is
+not set.</li>
 </ul>
 <p>Execution of a bindings function call result in an error being generated. This error causes execution of the smart contract
 to be terminated and the error message written into the logs of the transaction that caused the execution. Many bindings
@@ -164,14 +162,15 @@ on it it causes overflow or underflow;</li>
 <li><code>GasExceeded</code> -- happens when operation performed by the guest causes more gas than the remaining prepaid gas;</li>
 <li><code>GasLimitExceeded</code> -- happens when the execution uses more gas than allowed by the global limit imposed in the economics
 config;</li>
-<li><code>StorageError</code> -- happens when method fails to do some operation on the trie.</li>
 </ul>
+<p>If the node fails to read or write the trie during a host call, this is not a contract error. The node fails to apply
+the chunk instead.</p>
 <p>The following binding methods cannot be invoked in a view call:</p>
 <ul>
 <li><code>signer_account_id</code></li>
 <li><code>signer_account_pk</code></li>
 <li><code>predecessor_account_id</code></li>
-<li><code>attached_deposit</code></li>
+<li><code>refund_to_account_id</code></li>
 <li><code>prepaid_gas</code></li>
 <li><code>used_gas</code></li>
 <li><code>promise_create</code></li>
@@ -179,20 +178,41 @@ config;</li>
 <li><code>promise_and</code></li>
 <li><code>promise_batch_create</code></li>
 <li><code>promise_batch_then</code></li>
+<li><code>promise_set_refund_to</code></li>
 <li><code>promise_batch_action_create_account</code></li>
-<li><code>promise_batch_action_deploy_account</code></li>
+<li><code>promise_batch_action_deploy_contract</code></li>
+<li><code>promise_batch_action_deploy_global_contract</code></li>
+<li><code>promise_batch_action_deploy_global_contract_by_account_id</code></li>
+<li><code>promise_batch_action_use_global_contract</code></li>
+<li><code>promise_batch_action_use_global_contract_by_account_id</code></li>
+<li><code>promise_batch_action_state_init</code></li>
+<li><code>promise_batch_action_state_init_by_account_id</code></li>
+<li><code>set_state_init_data_entry</code></li>
+<li><code>promise_batch_action_universal_state_init</code></li>
 <li><code>promise_batch_action_function_call</code></li>
+<li><code>promise_batch_action_function_call_weight</code></li>
 <li><code>promise_batch_action_transfer</code></li>
+<li><code>promise_batch_action_transfer_to_gas_key</code></li>
 <li><code>promise_batch_action_stake</code></li>
 <li><code>promise_batch_action_add_key_with_full_access</code></li>
 <li><code>promise_batch_action_add_key_with_function_call</code></li>
+<li><code>promise_batch_action_add_gas_key_with_full_access</code></li>
+<li><code>promise_batch_action_add_gas_key_with_function_call</code></li>
 <li><code>promise_batch_action_delete_key</code></li>
 <li><code>promise_batch_action_delete_account</code></li>
+<li><code>promise_yield_create</code></li>
+<li><code>promise_yield_create_with_id</code></li>
+<li><code>promise_yield_resume</code></li>
+<li><code>promise_yield_resume_with_yield_id</code></li>
 <li><code>promise_results_count</code></li>
 <li><code>promise_result</code></li>
 <li><code>promise_return</code></li>
+<li><code>storage_write</code></li>
+<li><code>storage_remove</code></li>
 </ul>
-<p>If they are invoked the smart contract execution will panic with <code>ProhibitedInView(&lt;method name&gt;)</code>.</p>
+<p>If they are invoked, the smart contract execution will panic with <code>ProhibitedInView { method_name }</code>. The <code>method_name</code>
+field names the host function that made the check. <code>promise_create</code> and <code>promise_then</code> report <code>promise_batch_create</code>
+and <code>promise_batch_then</code>. <code>promise_batch_action_function_call_weight</code> reports <code>promise_batch_action_function_call</code>.</p>
 
                     </main>
 

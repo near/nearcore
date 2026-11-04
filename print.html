@@ -3459,16 +3459,14 @@ If they don't match, we throw an error.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="bindings-specification"><a class="header" href="#bindings-specification">Bindings Specification</a></h1>
 <p>This is the low-level interface available to the smart contracts, it consists of the functions that the host (represented by
-Wasmer inside near-vm-runner) exposes to the guest (the smart contract compiled to Wasm).</p>
+near-vm-runner, which runs contracts on Wasmtime) exposes to the guest (the smart contract compiled to Wasm).</p>
 <p>Due to Wasm restrictions the methods operate only with primitive types, like <code>u64</code>.</p>
 <p>Also for all functions in the bindings specification the following is true:</p>
 <ul>
-<li>Method execution could result in <code>MemoryAccessViolation</code> error if one of the following happens:
-<ul>
-<li>The method causes host to read a piece of memory from the guest but it points outside the guest's memory;</li>
-<li>The guest causes host to read from the register, but register id is invalid.</li>
-</ul>
-</li>
+<li>Method execution could result in <code>MemoryAccessViolation</code> error if the method causes host to read a piece of memory
+from the guest but it points outside the guest's memory;</li>
+<li>Method execution could result in <code>InvalidRegisterId</code> error if the guest causes host to read from a register that is
+not set.</li>
 </ul>
 <p>Execution of a bindings function call result in an error being generated. This error causes execution of the smart contract
 to be terminated and the error message written into the logs of the transaction that caused the execution. Many bindings
@@ -3480,14 +3478,15 @@ on it it causes overflow or underflow;</li>
 <li><code>GasExceeded</code> -- happens when operation performed by the guest causes more gas than the remaining prepaid gas;</li>
 <li><code>GasLimitExceeded</code> -- happens when the execution uses more gas than allowed by the global limit imposed in the economics
 config;</li>
-<li><code>StorageError</code> -- happens when method fails to do some operation on the trie.</li>
 </ul>
+<p>If the node fails to read or write the trie during a host call, this is not a contract error. The node fails to apply
+the chunk instead.</p>
 <p>The following binding methods cannot be invoked in a view call:</p>
 <ul>
 <li><code>signer_account_id</code></li>
 <li><code>signer_account_pk</code></li>
 <li><code>predecessor_account_id</code></li>
-<li><code>attached_deposit</code></li>
+<li><code>refund_to_account_id</code></li>
 <li><code>prepaid_gas</code></li>
 <li><code>used_gas</code></li>
 <li><code>promise_create</code></li>
@@ -3495,20 +3494,41 @@ config;</li>
 <li><code>promise_and</code></li>
 <li><code>promise_batch_create</code></li>
 <li><code>promise_batch_then</code></li>
+<li><code>promise_set_refund_to</code></li>
 <li><code>promise_batch_action_create_account</code></li>
-<li><code>promise_batch_action_deploy_account</code></li>
+<li><code>promise_batch_action_deploy_contract</code></li>
+<li><code>promise_batch_action_deploy_global_contract</code></li>
+<li><code>promise_batch_action_deploy_global_contract_by_account_id</code></li>
+<li><code>promise_batch_action_use_global_contract</code></li>
+<li><code>promise_batch_action_use_global_contract_by_account_id</code></li>
+<li><code>promise_batch_action_state_init</code></li>
+<li><code>promise_batch_action_state_init_by_account_id</code></li>
+<li><code>set_state_init_data_entry</code></li>
+<li><code>promise_batch_action_universal_state_init</code></li>
 <li><code>promise_batch_action_function_call</code></li>
+<li><code>promise_batch_action_function_call_weight</code></li>
 <li><code>promise_batch_action_transfer</code></li>
+<li><code>promise_batch_action_transfer_to_gas_key</code></li>
 <li><code>promise_batch_action_stake</code></li>
 <li><code>promise_batch_action_add_key_with_full_access</code></li>
 <li><code>promise_batch_action_add_key_with_function_call</code></li>
+<li><code>promise_batch_action_add_gas_key_with_full_access</code></li>
+<li><code>promise_batch_action_add_gas_key_with_function_call</code></li>
 <li><code>promise_batch_action_delete_key</code></li>
 <li><code>promise_batch_action_delete_account</code></li>
+<li><code>promise_yield_create</code></li>
+<li><code>promise_yield_create_with_id</code></li>
+<li><code>promise_yield_resume</code></li>
+<li><code>promise_yield_resume_with_yield_id</code></li>
 <li><code>promise_results_count</code></li>
 <li><code>promise_result</code></li>
 <li><code>promise_return</code></li>
+<li><code>storage_write</code></li>
+<li><code>storage_remove</code></li>
 </ul>
-<p>If they are invoked the smart contract execution will panic with <code>ProhibitedInView(&lt;method name&gt;)</code>.</p>
+<p>If they are invoked, the smart contract execution will panic with <code>ProhibitedInView { method_name }</code>. The <code>method_name</code>
+field names the host function that made the check. <code>promise_create</code> and <code>promise_then</code> report <code>promise_batch_create</code>
+and <code>promise_batch_then</code>. <code>promise_batch_action_function_call_weight</code> reports <code>promise_batch_action_function_call</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="context-api"><a class="header" href="#context-api">Context API</a></h1>
 <p>Context API mostly provides read-only functions that access current information about the blockchain, the accounts
@@ -3734,11 +3754,10 @@ attached_deposit(balance_ptr: u64)
 
 <span class="boring">}
 </span></code></pre></pre>
-<p>-- writes the value into the <code>u128</code> variable pointed by <code>balance_ptr</code>.</p>
+<p>-- writes the value into the <code>u128</code> variable pointed by <code>balance_ptr</code>. Both functions can be called in view functions.</p>
 <h6 id="panics-6"><a class="header" href="#panics-6">Panics</a></h6>
 <ul>
-<li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+<li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>.</li>
 </ul>
 <h6 id="current-bugs-5"><a class="header" href="#current-bugs-5">Current bugs</a></h6>
 <ul>
@@ -3838,8 +3857,9 @@ used_gas() -&gt; u64
 <h6 id="panics-13"><a class="header" href="#panics-13">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
-<li>If string length without null-termination symbol is larger than <code>config.max_log_len</code> returns <code>BadUtf8</code>.</li>
+<li>If string is not UTF-8 returns <code>BadUTF8</code>.</li>
+<li>If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="log_utf8"><a class="header" href="#log_utf8">log_utf8</a></h4>
@@ -3854,8 +3874,10 @@ used_gas() -&gt; u64
 <h6 id="panics-14"><a class="header" href="#panics-14">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
-<li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
-<li>If string length without null-termination symbol is larger than <code>config.max_log_len</code> returns <code>BadUtf8</code>.</li>
+<li>If string is not UTF-8 returns <code>BadUTF8</code>.</li>
+<li>If the string length without the null-termination symbol, plus the bytes already logged in this function call, is
+larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>.</li>
+<li>If this function call already has <code>max_number_logs</code> (100) logs, returns <code>NumberOfLogsExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="log_utf16"><a class="header" href="#log_utf16">log_utf16</a></h4>
@@ -4144,18 +4166,21 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 </span><span class="boring">fn main() {
 </span>promise_batch_action_stake(promise_idx: u64,
                            amount_ptr: u64,
-                           bls_public_key_len: u64,
-                           bls_public_key_ptr: u64)
+                           public_key_len: u64,
+                           public_key_ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
 <p>Appends <code>Stake</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R52</p>
+<p>The staking key must be an ED25519 public key whose bytes decode to a valid, torsion-free curve point.
+Normally generated ED25519 keys meet this rule. If any other key is used, the host call still succeeds.
+The function call then fails with <code>NewReceiptValidationError</code> (<code>UnsuitableStakingKey</code>) after the method returns.</p>
 <h6 id="panics-28"><a class="header" href="#panics-28">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
-<li>If the given BLS public key is not a valid BLS public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
-<li>If <code>amount_ptr + 16</code> or <code>bls_public_key_len + bls_public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
+<li>If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with <code>InvalidPublicKey</code>.</li>
+<li>If <code>amount_ptr + 16</code> or <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
 <hr />
@@ -4335,10 +4360,15 @@ not follow the specification are considered to be bugs that need to be fixed.</p
 </ul>
 <h6 id="panics-34"><a class="header" href="#panics-34">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> or <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics
-with <code>MemoryAccessViolation</code>. (When we say that something panics with the given error we mean that we use Wasmer API to
-create this error and terminate the execution of VM. For mocks of the host that would only cause a non-name panic.)</li>
+<li>If <code>key_len + key_ptr</code> or <code>value_len + value_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>.
+(When we say that something panics with the given error, it means that the host function returns this error and the
+execution of the contract stops. For mocks of the host that would only cause a non-name panic.)</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>. The same applies to
+<code>value_len</code> and <code>value_ptr</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If the value is longer than <code>max_length_storage_value</code> (4,194,304 bytes) it panics with <code>ValueLengthExceeded</code>;</li>
+<li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
 </ul>
 <h6 id="current-bugs-8"><a class="header" href="#current-bugs-8">Current bugs</a></h6>
 <ul>
@@ -4367,8 +4397,10 @@ however the actual implementation does not return error at all, <a href="https:/
 </ul>
 <h6 id="panics-35"><a class="header" href="#panics-35">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 </ul>
 <h6 id="current-bugs-9"><a class="header" href="#current-bugs-9">Current bugs</a></h6>
 <ul>
@@ -4395,9 +4427,12 @@ however the actual implementation does not return error at all, <a href="https:/
 </ul>
 <h6 id="panics-36"><a class="header" href="#panics-36">Panics</a></h6>
 <ul>
-<li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
 </ul>
 <h6 id="current-bugs-10"><a class="header" href="#current-bugs-10">Current bugs</a></h6>
 <ul>
@@ -4419,6 +4454,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <h6 id="panics-37"><a class="header" href="#panics-37">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
+<li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_iter_prefix"><a class="header" href="#storage_iter_prefix">storage_iter_prefix</a></h4>
@@ -4904,6 +4941,17 @@ FunctionCallZeroAttachedGas,
 <p>error will be returned</p>
 </li>
 <li>
+<p>From protocol version 87 (nearcore 2.14.0), if the method name of a new transaction or a newly
+created receipt is empty, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The method name in a FunctionCall action must not be empty.
+FunctionCallEmptyMethodName,
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+</li>
+<li>
 <p>If the length of the method name to be called exceeds <code>max_length_method_name</code>, a genesis
 parameter whose current value is <code>256</code>, a</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -4932,32 +4980,63 @@ FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 }
 <ul>
 <li>
 <p><code>FunctionCallError</code> includes everything from around the execution of the wasm binary,
-from compiling wasm to native to traps occurred while executing the compiled native binary. More specifically,
-it includes the following errors:</p>
+from compiling wasm to native to traps occurred while executing the compiled native binary.</p>
+<p>Execution outcomes report a <code>FunctionCallError</code> in one of three forms:</p>
+<ul>
+<li><code>CompilationError</code>, a structured error, when the contract cannot be compiled.</li>
+<li><code>MethodResolveError</code>, a structured error, when the method is not found, its signature is not
+valid, or its name is empty (<code>MethodEmptyName</code>). From protocol version 87, validation rejects
+new transactions and receipts with an empty method name. So only a receipt created before that
+version can still fail with <code>MethodEmptyName</code>.</li>
+<li><code>ExecutionError</code> with a message string, for all other errors: wasm traps, host errors, link
+errors and errors when loading the compiled contract.</li>
+</ul>
+<p>For example, a function call whose contract panics with the message <code>oops</code> fails with this
+status in the RPC response:</p>
+<pre><code class="language-json">{
+  &quot;Failure&quot;: {
+    &quot;ActionError&quot;: {
+      &quot;index&quot;: 0,
+      &quot;kind&quot;: {
+        &quot;FunctionCallError&quot;: {
+          &quot;ExecutionError&quot;: &quot;Smart contract panicked: oops&quot;
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<p>The enum also has variants that only old data uses:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
-    /// Wasm binary env link error
+    /// Wasm binary env link error. Only in old data.
     LinkError {
         msg: String,
     },
     /// Import/export resolve error
     MethodResolveError(MethodResolveError),
-    /// A trap happened during execution of a binary
+    /// A trap happened during execution of a binary. Only in old data.
     WasmTrap(WasmTrap),
+    /// Only in old data.
     WasmUnknownError,
+    /// Only in old data.
     HostError(HostError),
+    ExecutionError(String),
 }
 <span class="boring">}
 </span></code></pre></pre>
+<p>The <code>WasmTrap</code> and <code>HostError</code> enums below are the errors that the contract runtime returns. The
+<code>ExecutionError</code> message is the text of one of these errors.</p>
 </li>
 <li>
 <p><code>CompilationError</code> includes errors that can occur during the compilation of wasm binary.</p>
 </li>
 <li>
-<p><code>LinkError</code> is returned when wasmer runtime is unable to link the wasm module with provided imports.</p>
+<p><code>LinkError</code> happens when the runtime cannot link the wasm module with the provided imports. It is
+reported as <code>ExecutionError</code> with a message that starts with <code>Link Error:</code>.</p>
 </li>
 <li>
 <p><code>MethodResolveError</code> occurs when the method in the action cannot be found in the contract code.</p>
@@ -4979,8 +5058,8 @@ it includes the following errors:</p>
     IllegalArithmetic,
     /// Misaligned atomic access trap.
     MisalignedAtomicAccess,
-    /// Breakpoint trap.
-    BreakpointTrap,
+    /// Indirect call to null.
+    IndirectCallToNull,
     /// Stack overflow.
     StackOverflow,
     /// Generic trap.
@@ -4990,7 +5069,7 @@ it includes the following errors:</p>
 </span></code></pre></pre>
 </li>
 <li>
-<p><code>WasmUnknownError</code> occurs when something inside wasmer goes wrong</p>
+<p><code>WasmUnknownError</code> is kept only to read old data. New outcomes do not use it.</p>
 </li>
 <li>
 <p><code>HostError</code> includes errors that might be returned during the execution of a host function. Those errors are</p>
@@ -5019,18 +5098,21 @@ it includes the following errors:</p>
     CannotAppendActionToJointPromise,
     /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
+    /// Setting `refund_to` on a joint promise is prohibited
+    CannotSetRefundToOnJointPromise,
     /// Accessed invalid promise result index
     InvalidPromiseResultIndex { result_idx: u64 },
     /// Accessed invalid register id
     InvalidRegisterId { register_id: u64 },
-    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
-    IteratorWasInvalidated { iterator_index: u64 },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
     /// VM Logic returned an invalid receipt index
     InvalidReceiptIndex { receipt_index: u64 },
     /// Iterator index `iterator_index` does not exist
     InvalidIteratorIndex { iterator_index: u64 },
+    /// Action index does not exist within the given receipt or does not hold
+    /// the expected type of action.
+    InvalidActionIndex { receipt_index: u64, action_index: u64 },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
     /// VM Logic returned an invalid method name
@@ -5057,6 +5139,38 @@ it includes the following errors:</p>
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// General errors for ECDSA recover.
+    ECRecoverError { msg: String },
+    /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
+    /// on the curve).
+    AltBn128InvalidInput { msg: String },
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    Ed25519VerifyInvalidInput { msg: String },
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
+    P256VerifyInvalidInput { msg: String },
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput { msg: String },
+    // Invalid input to bls12381 family of functions
+    BLS12381InvalidInput { msg: String },
+    /// Yield payload length exceeds the maximum permitted.
+    YieldPayloadLength { length: u64, limit: u64 },
+    /// Yield resumption data id is malformed.
+    DataIdMalformed,
+    /// User-provided yield id (for `promise_yield_create_with_id` /
+    /// `promise_yield_resume_with_yield_id`) is malformed.
+    YieldIdMalformed,
+    /// Size of the recorded trie storage proof has exceeded the allowed limit.
+    RecordedStorageExceeded { limit: ByteSize },
+    /// Contract code hash is malformed.
+    ContractCodeHashMalformed,
+    /// Data entry within DeterministicStateInit already exists.
+    DataEntryAlreadyExists,
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -5104,15 +5218,47 @@ the chain or via a cross-contract call.</p>
 saved and reported when a <code>FunctionCallAction</code> is submitted. Deployment itself may only report
 errors relevant to itself, as described in the specification for <a href="RuntimeSpec/./Actions.html#deploycontractaction"><code>DeployContractAction</code></a>.</p>
 <h2 id="validation"><a class="header" href="#validation">Validation</a></h2>
-<p>A number of limits are imposed on the WebAssembly module that is being parsed:</p>
+<p>The table below lists the limits that apply to a contract deployed at protocol version 88
+(nearcore 2.14.0). When the parser and a later check both limit the same thing, the table gives
+the lower limit.</p>
+<div class="table-wrapper"><table><thead><tr><th>What is limited</th><th>Limit</th><th>Runtime parameter</th></tr></thead><tbody>
+<tr><td>Size of the wasm code</td><td><code>4_194_304</code> bytes</td><td><code>max_contract_size</code></td></tr>
+<tr><td>Types (signatures) in the module</td><td><code>1_024</code></td><td><code>max_types_per_contract</code></td></tr>
+<tr><td>Function imports and functions defined in the module</td><td><code>10_000</code></td><td><code>max_functions_number_per_contract</code></td></tr>
+<tr><td>Parameters of one function defined in the module</td><td><code>64</code></td><td><code>max_params_per_function</code></td></tr>
+<tr><td>Parameters of all functions defined in the module</td><td><code>50_000</code></td><td><code>max_params_per_contract</code></td></tr>
+<tr><td>Parameters of one signature, for example of an imported function</td><td><code>1_000</code></td><td>None (parser limit)</td></tr>
+<tr><td>Results of one signature</td><td><code>1</code></td><td>None (multi-value is not enabled)</td></tr>
+<tr><td>Locals of one function</td><td><code>50_000</code></td><td>None (parser limit)</td></tr>
+<tr><td>Locals of all functions</td><td><code>1_000_000</code>, and at most the code size in bytes divided by <code>2</code></td><td><code>max_locals_per_contract</code>, <code>min_contract_size_per_local</code></td></tr>
+<tr><td>Size of one function body</td><td><code>196_608</code> bytes</td><td><code>max_function_body_size</code></td></tr>
+<tr><td><code>block</code>, <code>loop</code> and <code>if</code> instructions in one function</td><td><code>5_000</code></td><td><code>max_blocks_per_function</code></td></tr>
+<tr><td><code>block</code>, <code>loop</code> and <code>if</code> instructions in the module</td><td><code>50_000</code></td><td><code>max_blocks_per_contract</code></td></tr>
+<tr><td>Operand stack of one function</td><td><code>8_192</code> bytes</td><td><code>max_operand_stack_bytes_per_function</code></td></tr>
+<tr><td>Size of the module after instrumentation</td><td><code>16_777_216</code> bytes</td><td><code>max_instrumented_code_size</code></td></tr>
+<tr><td>Tables</td><td><code>1</code></td><td><code>max_tables_per_contract</code></td></tr>
+<tr><td>Initial size of a table</td><td><code>10_000</code> entries</td><td><code>max_elements_per_contract_table</code></td></tr>
+<tr><td>Imports</td><td>Function imports from the <code>env</code> module only</td><td>None</td></tr>
+</tbody></table>
+</div>
+<p>The parser also limits the number of imports, exports, globals and data segments, and the length
+of names. Only the first violation is reported, so the order of the checks matters. The checks run
+in the four steps below, one step after another.</p>
+<p>Before preparation starts, the validation of the deploy action rejects code longer than the
+<code>max_contract_size</code> runtime parameter.</p>
+<p>Then the module is parsed. The parser reads the sections in the order of the binary encoding and
+reports the first violation that it finds. So within this step, the order of the checks depends on
+the module, not on the order of this list. These limits are checked while parsing:</p>
 <ul>
-<li>The length of the wasm code must not exceed <code>max_contract_size</code> genesis configuration parameter;</li>
-<li>The wasm module must be a valid module according to the WebAssembly core 1.0 specification (this
-means no extensions such as multi value returns or SIMD; this limitation may be relaxed in the
-future).</li>
+<li>The wasm module must be a valid module according to the WebAssembly core 1.0 specification with
+these extensions enabled: sign-extension operators, non-trapping float-to-int conversions, and,
+from protocol version 84, reference types and bulk memory operations. Other extensions, such as
+multi-value returns, SIMD, threads, tail calls, multiple memories, memory64 and exception
+handling, are rejected;</li>
 <li>The wasm module may contain no more than:
 <ul>
-<li><code>1_000_000</code> distinct signatures;</li>
+<li><code>1_024</code> types (signatures), set by the <code>max_types_per_contract</code> runtime parameter from protocol
+version 84;</li>
 <li><code>1_000_000</code> function imports and local function definitions;</li>
 <li><code>100_000</code> imports;</li>
 <li><code>100_000</code> exports;</li>
@@ -5126,27 +5272,42 @@ future).</li>
 bytes each;</li>
 <li>Function definitions may not specify more than <code>50_000</code> locals;</li>
 <li>Signatures may not specify more than <code>1_000</code> parameters;</li>
-<li>Signatures may not specify more than <code>1_000</code> results;</li>
-<li>Tables may not specify more than <code>10_000_000</code> entries;</li>
+<li>Signatures may not specify more than <code>1</code> result, because the multi-value proposal is not enabled;</li>
+<li>All imports must be function imports from the <code>env</code> module. A module that imports a table, a
+global or a memory is rejected. The runtime provides the contract memory itself, as described in
+<a href="RuntimeSpec/Preparation.html#memory-normalization">Memory normalization</a>;</li>
+<li>Tables may not specify an initial size of more than <code>10_000</code> entries (the
+<code>max_elements_per_contract_table</code> runtime parameter, from protocol version 82);</li>
+<li>The wasm module may contain no more function imports and local function definitions than the
+<code>max_functions_number_per_contract</code> runtime parameter (<code>10_000</code>);</li>
+<li>Each function body may not exceed <code>max_function_body_size</code> (<code>196_608</code> bytes), from protocol
+version 84;</li>
+<li>The total number of locals declared in all functions may not exceed <code>max_locals_per_contract</code>
+(<code>1_000_000</code>). From protocol version 87 (nearcore 2.14.0), the total also may not exceed the
+contract size in bytes divided by <code>min_contract_size_per_local</code> (<code>2</code>).</li>
 </ul>
-<p>If the contract code is invalid, the first violation in the binary encoding of the WebAssembly
-module shall be reported. These additional requirements are imposed after the module is parsed:</p>
+<p>Then preparation instruments the module. It checks the functions one by one. For each function it
+checks the parameters first, then the operand stack, then the blocks. These limits apply from
+protocol version 84:</p>
 <ul>
-<li>The wasm module may contain no more function imports and local definitions than specified in the
-<code>max_functions_number_per_contract</code> genesis configuration parameter; and</li>
+<li>Functions defined in the module may not have more than <code>64</code> parameters each
+(<code>max_params_per_function</code>). All functions defined in the module together may not have more than
+<code>50_000</code> parameters (<code>max_params_per_contract</code>).</li>
+<li>The operand stack of each function may not exceed <code>max_operand_stack_bytes_per_function</code>
+(<code>8_192</code> bytes).</li>
+<li>Each function may contain no more than <code>max_blocks_per_function</code> (<code>5_000</code>) <code>block</code>, <code>loop</code> and
+<code>if</code> instructions. The whole module may contain no more than <code>max_blocks_per_contract</code>
+(<code>50_000</code>) of these instructions.</li>
 </ul>
-<p>These additional requirements are imposed after the instrumentation, as documented in the later
-sections:</p>
-<ul>
-<li>All imports may only import from the <code>env</code> module.</li>
-</ul>
+<p>Last, the module after instrumentation may not exceed <code>max_instrumented_code_size</code> (<code>16_777_216</code>
+bytes), from protocol version 84.</p>
 <h2 id="memory-normalization"><a class="header" href="#memory-normalization">Memory normalization</a></h2>
 <p>All near contracts have the same amount of memory made available for execution. The exact amount is
-specified specified by the <code>initial_memory_pages</code> and <code>max_memory_pages</code> genesis configuration
-parameters. In order to ensure a level playing field, any module-local memory definitions are
-transparently replaced with an import of a standard memory instance from <code>env.memory</code>.</p>
-<p>If the original memory instance definition specified limits different from those specified by the
-genesis configuration parameters, the limits are reset to the configured parameters.</p>
+specified by the <code>initial_memory_pages</code> (<code>1_024</code>) and <code>max_memory_pages</code> (<code>2_048</code>) runtime
+parameters, in pages of 64 KiB. In order to ensure a level playing field, preparation removes any
+memory definition of the module and adds one memory definition with these limits. A module without
+a memory definition gets the same memory. The limits that the module declared are not used. A
+module that imports a memory is rejected.</p>
 <h2 id="gas-instrumentation"><a class="header" href="#gas-instrumentation">Gas instrumentation</a></h2>
 <p>In order to implement precise and efficient gas accounting, the contract code is analyzed and
 instrumented with additional operations before the compilation occurs. One such instrumentation
@@ -5182,7 +5343,7 @@ construction and are accounted for much like other instructions not mentioned in
 also means that calling the <code>used_gas</code> host function at different points of the same metered block
 would return the same value if the <code>base</code> cost was <code>0</code>.</p>
 <p>All the instructions covered by a metered block are assigned a fee based on the <code>regular_op_cost</code>
-genesis parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
+runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
 then charged by instrumentation inserted at the beginning of each metered block.</p>
 <h3 id="examples-1"><a class="header" href="#examples-1">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
@@ -5264,41 +5425,47 @@ body is only executed conditionally:</p>
   end
   nop)
 </code></pre>
-<h2 id="operand-stack-depth-instrumentation"><a class="header" href="#operand-stack-depth-instrumentation">Operand stack depth instrumentation</a></h2>
-<p>The <code>max_stack_height</code> genesis parameter imposes a limit on the number of entries the wasm
-operand stack may contain during the contract execution.</p>
-<p>The maximum operand stack height required for a function to execute successfully is computed
-statically by simulating the operand stack operations executed by each instruction. For example,
-<code>i32.const 1</code> pushes 1 entry on the operand stack, whereas <code>i32.add</code> pops two entries and pushes 1
-entry containing the result value. The maximum operand stack height of the <code>if..else..end</code> control
-block is the larger of the heights for two bodies of the conditional. Stack operations for each
-instruction are otherwise specified in the section 4 of the WebAssembly core 1.0 specification.</p>
-<p>Before the <code>call</code> or <code>call_indirect</code> instructions are executed, the callee's required stack is
-added to the current stack height counter and is compared with the <code>max_stack_height</code> parameter. A
-trap is raised if the counter exceeds the limit. The instruction is executed, otherwise.</p>
-<p>Note that the stack depth instrumentation runs after the gas instrumentation. At each point where
-gas is charged one entry worth of operand stack space is considered to be used.</p>
+<h2 id="consensus-stack-metering"><a class="header" href="#consensus-stack-metering">Consensus stack metering</a></h2>
+<p>This limit does not measure the native stack that Wasmtime uses. For each function, preparation
+computes its maximum WebAssembly operand stack size and a frame charge. Instrumentation
+subtracts their sum from a budget when the function is entered, and adds it back when the
+function returns. The budget is a protocol parameter, so all nodes stop a contract at the same
+point.</p>
+<p>The operand stack holds the values that WebAssembly instructions push and pop, as defined in
+section 4 of the WebAssembly core 1.0 specification. Each value uses 4 bytes (<code>i32</code>, <code>f32</code>) or 8
+bytes (<code>i64</code>, <code>f64</code>, references). The frame charge of a function is 64 bytes plus the size of its
+locals.</p>
+<p>The <code>max_stack_height</code> runtime parameter (<code>262_144</code> bytes) is the budget. If entering a function
+would take the budget below zero, the execution of the contract stops with a
+<code>MemoryAccessViolation</code> error. From protocol version 84, a function whose maximum operand stack
+size exceeds <code>max_operand_stack_bytes_per_function</code> (<code>8_192</code> bytes) is rejected at preparation.</p>
+<p>The maximum operand stack size of each function, in bytes, is computed statically by simulating
+the operand stack operations executed by each instruction. For example, <code>i32.const 1</code> pushes one
+4-byte value on the operand stack, whereas <code>i32.add</code> pops two values and pushes one value containing
+the result. The maximum operand stack size of the <code>if..else..end</code> control block is the larger of the
+sizes for the two bodies of the conditional. Stack operations for each instruction are otherwise
+specified in the section 4 of the WebAssembly core 1.0 specification and in the enabled extensions.</p>
+<p>Both the operand stack sizes and the gas fees are computed from the code before any
+instrumentation is added.</p>
 <h3 id="examples-2"><a class="header" href="#examples-2">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
-<p>Picking the example from the gas instrumentation section, we can tell that this function will use
-just 1 operand slot. Lets annotate the operand stack operations at each of the instructions:</p>
+<p>Picking the example from the gas instrumentation section, without the gas charges, we can tell
+that this function needs 4 bytes of operand stack. Let's annotate the operand stack operations at
+each of the instructions:</p>
 <pre><code class="language-wat">(func
-  (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
   i32.const 42             (; [] =&gt; [i32]       ;)
   if                       (; [i32] =&gt; []       ;)
-    (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
     nop                      (; []                ;)
     nop                      (; []                ;)
   else
-    (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
     unreachable              (; []                ;)
   end
   nop                      (; [] ;)
 )
 </code></pre>
-<p>We can see that at no point in time the operand stack contained more than 1 entry. As a result,
-the runtime will check that 1 entry is available in the operand stack before the function is
-invoked.</p>
+<p>At no point does the operand stack contain more than one <code>i32</code> value. As a
+result, the maximum operand stack size of this function is 4 bytes. When the function starts, the
+runtime takes these 4 bytes plus the frame size of the function from the stack budget.</p>
 <!-- TODO: describe the ahead-of-time compilation details and the errors it may cause or limits it
      may impose -->
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">

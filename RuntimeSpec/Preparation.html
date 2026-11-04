@@ -164,15 +164,47 @@ the chain or via a cross-contract call.</p>
 saved and reported when a <code>FunctionCallAction</code> is submitted. Deployment itself may only report
 errors relevant to itself, as described in the specification for <a href="./Actions.html#deploycontractaction"><code>DeployContractAction</code></a>.</p>
 <h2 id="validation"><a class="header" href="#validation">Validation</a></h2>
-<p>A number of limits are imposed on the WebAssembly module that is being parsed:</p>
+<p>The table below lists the limits that apply to a contract deployed at protocol version 88
+(nearcore 2.14.0). When the parser and a later check both limit the same thing, the table gives
+the lower limit.</p>
+<div class="table-wrapper"><table><thead><tr><th>What is limited</th><th>Limit</th><th>Runtime parameter</th></tr></thead><tbody>
+<tr><td>Size of the wasm code</td><td><code>4_194_304</code> bytes</td><td><code>max_contract_size</code></td></tr>
+<tr><td>Types (signatures) in the module</td><td><code>1_024</code></td><td><code>max_types_per_contract</code></td></tr>
+<tr><td>Function imports and functions defined in the module</td><td><code>10_000</code></td><td><code>max_functions_number_per_contract</code></td></tr>
+<tr><td>Parameters of one function defined in the module</td><td><code>64</code></td><td><code>max_params_per_function</code></td></tr>
+<tr><td>Parameters of all functions defined in the module</td><td><code>50_000</code></td><td><code>max_params_per_contract</code></td></tr>
+<tr><td>Parameters of one signature, for example of an imported function</td><td><code>1_000</code></td><td>None (parser limit)</td></tr>
+<tr><td>Results of one signature</td><td><code>1</code></td><td>None (multi-value is not enabled)</td></tr>
+<tr><td>Locals of one function</td><td><code>50_000</code></td><td>None (parser limit)</td></tr>
+<tr><td>Locals of all functions</td><td><code>1_000_000</code>, and at most the code size in bytes divided by <code>2</code></td><td><code>max_locals_per_contract</code>, <code>min_contract_size_per_local</code></td></tr>
+<tr><td>Size of one function body</td><td><code>196_608</code> bytes</td><td><code>max_function_body_size</code></td></tr>
+<tr><td><code>block</code>, <code>loop</code> and <code>if</code> instructions in one function</td><td><code>5_000</code></td><td><code>max_blocks_per_function</code></td></tr>
+<tr><td><code>block</code>, <code>loop</code> and <code>if</code> instructions in the module</td><td><code>50_000</code></td><td><code>max_blocks_per_contract</code></td></tr>
+<tr><td>Operand stack of one function</td><td><code>8_192</code> bytes</td><td><code>max_operand_stack_bytes_per_function</code></td></tr>
+<tr><td>Size of the module after instrumentation</td><td><code>16_777_216</code> bytes</td><td><code>max_instrumented_code_size</code></td></tr>
+<tr><td>Tables</td><td><code>1</code></td><td><code>max_tables_per_contract</code></td></tr>
+<tr><td>Initial size of a table</td><td><code>10_000</code> entries</td><td><code>max_elements_per_contract_table</code></td></tr>
+<tr><td>Imports</td><td>Function imports from the <code>env</code> module only</td><td>None</td></tr>
+</tbody></table>
+</div>
+<p>The parser also limits the number of imports, exports, globals and data segments, and the length
+of names. Only the first violation is reported, so the order of the checks matters. The checks run
+in the four steps below, one step after another.</p>
+<p>Before preparation starts, the validation of the deploy action rejects code longer than the
+<code>max_contract_size</code> runtime parameter.</p>
+<p>Then the module is parsed. The parser reads the sections in the order of the binary encoding and
+reports the first violation that it finds. So within this step, the order of the checks depends on
+the module, not on the order of this list. These limits are checked while parsing:</p>
 <ul>
-<li>The length of the wasm code must not exceed <code>max_contract_size</code> genesis configuration parameter;</li>
-<li>The wasm module must be a valid module according to the WebAssembly core 1.0 specification (this
-means no extensions such as multi value returns or SIMD; this limitation may be relaxed in the
-future).</li>
+<li>The wasm module must be a valid module according to the WebAssembly core 1.0 specification with
+these extensions enabled: sign-extension operators, non-trapping float-to-int conversions, and,
+from protocol version 84, reference types and bulk memory operations. Other extensions, such as
+multi-value returns, SIMD, threads, tail calls, multiple memories, memory64 and exception
+handling, are rejected;</li>
 <li>The wasm module may contain no more than:
 <ul>
-<li><code>1_000_000</code> distinct signatures;</li>
+<li><code>1_024</code> types (signatures), set by the <code>max_types_per_contract</code> runtime parameter from protocol
+version 84;</li>
 <li><code>1_000_000</code> function imports and local function definitions;</li>
 <li><code>100_000</code> imports;</li>
 <li><code>100_000</code> exports;</li>
@@ -186,27 +218,42 @@ future).</li>
 bytes each;</li>
 <li>Function definitions may not specify more than <code>50_000</code> locals;</li>
 <li>Signatures may not specify more than <code>1_000</code> parameters;</li>
-<li>Signatures may not specify more than <code>1_000</code> results;</li>
-<li>Tables may not specify more than <code>10_000_000</code> entries;</li>
+<li>Signatures may not specify more than <code>1</code> result, because the multi-value proposal is not enabled;</li>
+<li>All imports must be function imports from the <code>env</code> module. A module that imports a table, a
+global or a memory is rejected. The runtime provides the contract memory itself, as described in
+<a href="#memory-normalization">Memory normalization</a>;</li>
+<li>Tables may not specify an initial size of more than <code>10_000</code> entries (the
+<code>max_elements_per_contract_table</code> runtime parameter, from protocol version 82);</li>
+<li>The wasm module may contain no more function imports and local function definitions than the
+<code>max_functions_number_per_contract</code> runtime parameter (<code>10_000</code>);</li>
+<li>Each function body may not exceed <code>max_function_body_size</code> (<code>196_608</code> bytes), from protocol
+version 84;</li>
+<li>The total number of locals declared in all functions may not exceed <code>max_locals_per_contract</code>
+(<code>1_000_000</code>). From protocol version 87 (nearcore 2.14.0), the total also may not exceed the
+contract size in bytes divided by <code>min_contract_size_per_local</code> (<code>2</code>).</li>
 </ul>
-<p>If the contract code is invalid, the first violation in the binary encoding of the WebAssembly
-module shall be reported. These additional requirements are imposed after the module is parsed:</p>
+<p>Then preparation instruments the module. It checks the functions one by one. For each function it
+checks the parameters first, then the operand stack, then the blocks. These limits apply from
+protocol version 84:</p>
 <ul>
-<li>The wasm module may contain no more function imports and local definitions than specified in the
-<code>max_functions_number_per_contract</code> genesis configuration parameter; and</li>
+<li>Functions defined in the module may not have more than <code>64</code> parameters each
+(<code>max_params_per_function</code>). All functions defined in the module together may not have more than
+<code>50_000</code> parameters (<code>max_params_per_contract</code>).</li>
+<li>The operand stack of each function may not exceed <code>max_operand_stack_bytes_per_function</code>
+(<code>8_192</code> bytes).</li>
+<li>Each function may contain no more than <code>max_blocks_per_function</code> (<code>5_000</code>) <code>block</code>, <code>loop</code> and
+<code>if</code> instructions. The whole module may contain no more than <code>max_blocks_per_contract</code>
+(<code>50_000</code>) of these instructions.</li>
 </ul>
-<p>These additional requirements are imposed after the instrumentation, as documented in the later
-sections:</p>
-<ul>
-<li>All imports may only import from the <code>env</code> module.</li>
-</ul>
+<p>Last, the module after instrumentation may not exceed <code>max_instrumented_code_size</code> (<code>16_777_216</code>
+bytes), from protocol version 84.</p>
 <h2 id="memory-normalization"><a class="header" href="#memory-normalization">Memory normalization</a></h2>
 <p>All near contracts have the same amount of memory made available for execution. The exact amount is
-specified specified by the <code>initial_memory_pages</code> and <code>max_memory_pages</code> genesis configuration
-parameters. In order to ensure a level playing field, any module-local memory definitions are
-transparently replaced with an import of a standard memory instance from <code>env.memory</code>.</p>
-<p>If the original memory instance definition specified limits different from those specified by the
-genesis configuration parameters, the limits are reset to the configured parameters.</p>
+specified by the <code>initial_memory_pages</code> (<code>1_024</code>) and <code>max_memory_pages</code> (<code>2_048</code>) runtime
+parameters, in pages of 64 KiB. In order to ensure a level playing field, preparation removes any
+memory definition of the module and adds one memory definition with these limits. A module without
+a memory definition gets the same memory. The limits that the module declared are not used. A
+module that imports a memory is rejected.</p>
 <h2 id="gas-instrumentation"><a class="header" href="#gas-instrumentation">Gas instrumentation</a></h2>
 <p>In order to implement precise and efficient gas accounting, the contract code is analyzed and
 instrumented with additional operations before the compilation occurs. One such instrumentation
@@ -242,7 +289,7 @@ construction and are accounted for much like other instructions not mentioned in
 also means that calling the <code>used_gas</code> host function at different points of the same metered block
 would return the same value if the <code>base</code> cost was <code>0</code>.</p>
 <p>All the instructions covered by a metered block are assigned a fee based on the <code>regular_op_cost</code>
-genesis parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
+runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
 then charged by instrumentation inserted at the beginning of each metered block.</p>
 <h3 id="examples"><a class="header" href="#examples">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
@@ -324,41 +371,47 @@ body is only executed conditionally:</p>
   end
   nop)
 </code></pre>
-<h2 id="operand-stack-depth-instrumentation"><a class="header" href="#operand-stack-depth-instrumentation">Operand stack depth instrumentation</a></h2>
-<p>The <code>max_stack_height</code> genesis parameter imposes a limit on the number of entries the wasm
-operand stack may contain during the contract execution.</p>
-<p>The maximum operand stack height required for a function to execute successfully is computed
-statically by simulating the operand stack operations executed by each instruction. For example,
-<code>i32.const 1</code> pushes 1 entry on the operand stack, whereas <code>i32.add</code> pops two entries and pushes 1
-entry containing the result value. The maximum operand stack height of the <code>if..else..end</code> control
-block is the larger of the heights for two bodies of the conditional. Stack operations for each
-instruction are otherwise specified in the section 4 of the WebAssembly core 1.0 specification.</p>
-<p>Before the <code>call</code> or <code>call_indirect</code> instructions are executed, the callee's required stack is
-added to the current stack height counter and is compared with the <code>max_stack_height</code> parameter. A
-trap is raised if the counter exceeds the limit. The instruction is executed, otherwise.</p>
-<p>Note that the stack depth instrumentation runs after the gas instrumentation. At each point where
-gas is charged one entry worth of operand stack space is considered to be used.</p>
+<h2 id="consensus-stack-metering"><a class="header" href="#consensus-stack-metering">Consensus stack metering</a></h2>
+<p>This limit does not measure the native stack that Wasmtime uses. For each function, preparation
+computes its maximum WebAssembly operand stack size and a frame charge. Instrumentation
+subtracts their sum from a budget when the function is entered, and adds it back when the
+function returns. The budget is a protocol parameter, so all nodes stop a contract at the same
+point.</p>
+<p>The operand stack holds the values that WebAssembly instructions push and pop, as defined in
+section 4 of the WebAssembly core 1.0 specification. Each value uses 4 bytes (<code>i32</code>, <code>f32</code>) or 8
+bytes (<code>i64</code>, <code>f64</code>, references). The frame charge of a function is 64 bytes plus the size of its
+locals.</p>
+<p>The <code>max_stack_height</code> runtime parameter (<code>262_144</code> bytes) is the budget. If entering a function
+would take the budget below zero, the execution of the contract stops with a
+<code>MemoryAccessViolation</code> error. From protocol version 84, a function whose maximum operand stack
+size exceeds <code>max_operand_stack_bytes_per_function</code> (<code>8_192</code> bytes) is rejected at preparation.</p>
+<p>The maximum operand stack size of each function, in bytes, is computed statically by simulating
+the operand stack operations executed by each instruction. For example, <code>i32.const 1</code> pushes one
+4-byte value on the operand stack, whereas <code>i32.add</code> pops two values and pushes one value containing
+the result. The maximum operand stack size of the <code>if..else..end</code> control block is the larger of the
+sizes for the two bodies of the conditional. Stack operations for each instruction are otherwise
+specified in the section 4 of the WebAssembly core 1.0 specification and in the enabled extensions.</p>
+<p>Both the operand stack sizes and the gas fees are computed from the code before any
+instrumentation is added.</p>
 <h3 id="examples-1"><a class="header" href="#examples-1">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
-<p>Picking the example from the gas instrumentation section, we can tell that this function will use
-just 1 operand slot. Lets annotate the operand stack operations at each of the instructions:</p>
+<p>Picking the example from the gas instrumentation section, without the gas charges, we can tell
+that this function needs 4 bytes of operand stack. Let's annotate the operand stack operations at
+each of the instructions:</p>
 <pre><code class="language-wat">(func
-  (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
   i32.const 42             (; [] =&gt; [i32]       ;)
   if                       (; [i32] =&gt; []       ;)
-    (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
     nop                      (; []                ;)
     nop                      (; []                ;)
   else
-    (; charge_gas(...) ;)    (; [] =&gt; [gas] =&gt; [] ;)
     unreachable              (; []                ;)
   end
   nop                      (; [] ;)
 )
 </code></pre>
-<p>We can see that at no point in time the operand stack contained more than 1 entry. As a result,
-the runtime will check that 1 entry is available in the operand stack before the function is
-invoked.</p>
+<p>At no point does the operand stack contain more than one <code>i32</code> value. As a
+result, the maximum operand stack size of this function is 4 bytes. When the function starts, the
+runtime takes these 4 bytes plus the frame size of the function from the stack budget.</p>
 <!-- TODO: describe the ahead-of-time compilation details and the errors it may cause or limits it
      may impose -->
 

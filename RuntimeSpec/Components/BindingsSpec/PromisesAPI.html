@@ -391,18 +391,21 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 </span><span class="boring">fn main() {
 </span>promise_batch_action_stake(promise_idx: u64,
                            amount_ptr: u64,
-                           bls_public_key_len: u64,
-                           bls_public_key_ptr: u64)
+                           public_key_len: u64,
+                           public_key_ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
 <p>Appends <code>Stake</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R52</p>
+<p>The staking key must be an ED25519 public key whose bytes decode to a valid, torsion-free curve point.
+Normally generated ED25519 keys meet this rule. If any other key is used, the host call still succeeds.
+The function call then fails with <code>NewReceiptValidationError</code> (<code>UnsuitableStakingKey</code>) after the method returns.</p>
 <h6 id="panics-12"><a class="header" href="#panics-12">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
-<li>If the given BLS public key is not a valid BLS public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
-<li>If <code>amount_ptr + 16</code> or <code>bls_public_key_len + bls_public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
+<li>If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with <code>InvalidPublicKey</code>.</li>
+<li>If <code>amount_ptr + 16</code> or <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
 <hr />
