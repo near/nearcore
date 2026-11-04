@@ -14,7 +14,6 @@ use crate::types::StateResponseInfo;
 use borsh::{BorshDeserialize as _, to_vec};
 use bytesize::MIB;
 use near_async::time::error::ComponentRange;
-use near_crypto::Signature;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
@@ -316,30 +315,21 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => {
-                    let signature = r.signature().cloned().unwrap_or_else(|| {
-                        tracing::error!(
-                            target: "network",
-                            "signature is missing, this should not yet happen"
-                        );
-                        Signature::default()
-                    });
-                    ProtoMT::Routed(proto::RoutedMessage {
-                        borsh: borsh::to_vec(&RoutedMessageV1 {
-                            target: r.target().clone(),
-                            author: r.author().clone(),
-                            ttl: r.ttl(),
-                            body: r.body().clone().into(),
-                            signature,
-                        })
-                        .unwrap(),
-                        created_at: MF::from_option(
-                            r.created_at().map(from_unix_nanos_i64).as_ref().map(utc_to_proto),
-                        ),
-                        num_hops: r.num_hops(),
-                        ..Default::default()
+                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
+                    borsh: borsh::to_vec(&RoutedMessageV1 {
+                        target: r.target().clone(),
+                        author: r.author().clone(),
+                        ttl: r.ttl(),
+                        body: r.body().clone().into(),
+                        signature: r.signature().clone(),
                     })
-                }
+                    .unwrap(),
+                    created_at: MF::from_option(
+                        r.created_at().map(from_unix_nanos_i64).as_ref().map(utc_to_proto),
+                    ),
+                    num_hops: r.num_hops(),
+                    ..Default::default()
+                }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
                     remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
@@ -531,7 +521,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                         author: msg.author,
                         ttl: msg.ttl,
                         body,
-                        signature: Some(msg.signature),
+                        signature: msg.signature,
                         created_at: r
                             .created_at
                             .as_ref()
@@ -642,7 +632,6 @@ mod tests {
         let RoutedMessage::V3(msg) = *msg;
         assert_eq!(msg.ttl, 5);
         assert_eq!(msg.num_hops, 3);
-        assert!(msg.signature.is_some());
         assert!(matches!(msg.body, TieredMessageBody::T2(_)));
     }
 

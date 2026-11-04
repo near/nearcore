@@ -1240,7 +1240,6 @@ pub struct RoutedMessageV1 {
     pub body: RoutedMessageBody,
 }
 
-/// V3 message will remove the signature field for T1.
 /// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
 /// All other fields are the same as in previous versions.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
@@ -1255,8 +1254,8 @@ pub struct RoutedMessageV3 {
     pub ttl: u8,
     /// Message
     pub body: TieredMessageBody,
-    /// Signature only for T2 messages.
-    pub signature: Option<Signature>,
+    /// Signature from `author` over `target`, `author` and `body`.
+    pub signature: Signature,
     /// The time the Routed message was created by `author`, in nanoseconds since the unix epoch.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
@@ -1275,9 +1274,7 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.as_ref().is_some_and(|signature| {
-            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
-        })
+        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1326,9 +1323,9 @@ impl RoutedMessage {
         }
     }
 
-    pub fn signature(&self) -> Option<&Signature> {
+    pub fn signature(&self) -> &Signature {
         match self {
-            RoutedMessage::V3(msg) => msg.signature.as_ref(),
+            RoutedMessage::V3(msg) => &msg.signature,
         }
     }
 
@@ -1602,7 +1599,7 @@ impl RawRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let body = RoutedMessageBody::from(self.body.clone());
         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = Some(node_key.sign(hash.as_ref()));
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
