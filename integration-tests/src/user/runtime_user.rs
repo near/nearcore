@@ -13,7 +13,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId,
+};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -39,6 +41,8 @@ pub struct MockClient {
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
     pub cumulative_subsidized: Balance,
+    /// Height of the last applied chunk. Each apply runs at the next height.
+    pub block_height: BlockHeight,
 }
 
 impl MockClient {
@@ -57,6 +61,8 @@ pub struct RuntimeUser {
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
     pub transactions: RefCell<HashSet<SignedTransaction>>,
+    // Height of the chunk in which each transaction or receipt was executed
+    pub outcome_heights: RefCell<HashMap<CryptoHash, BlockHeight>>,
     pub epoch_info_provider: MockEpochInfoProvider,
     pub runtime_config: Arc<RuntimeConfig>,
     pub gas_price: Balance,
@@ -78,6 +84,7 @@ impl RuntimeUser {
             transaction_results: Default::default(),
             receipts: Default::default(),
             transactions: RefCell::new(Default::default()),
+            outcome_heights: Default::default(),
             epoch_info_provider: MockEpochInfoProvider::default(),
             runtime_config,
             gas_price,
@@ -139,6 +146,9 @@ impl RuntimeUser {
                 .checked_add(apply_result.stats.balance.subsidized_amount)
                 .expect("cumulative_subsidized overflow");
             for outcome_with_id in apply_result.outcomes {
+                self.outcome_heights
+                    .borrow_mut()
+                    .insert(outcome_with_id.id, apply_state.block_height);
                 self.transaction_results
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
@@ -155,6 +165,8 @@ impl RuntimeUser {
             }
             update.commit();
             client.state_root = apply_result.state_root;
+            client.block_height = apply_state.block_height;
+            apply_state.block_height += 1;
             for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
@@ -196,7 +208,7 @@ impl RuntimeUser {
 
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
-            block_height: 1,
+            block_height: self.client.read().block_height + 1,
             prev_block_hash: Default::default(),
             block_timestamp: 0,
             shard_id,
@@ -338,7 +350,8 @@ impl User for RuntimeUser {
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
-            block_height: apply_state.block_height,
+            // The view reads the state of the last applied chunk.
+            block_height: client.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
@@ -415,6 +428,10 @@ impl User for RuntimeUser {
 
     fn get_block(&self, _block_hash: CryptoHash) -> Option<BlockView> {
         None
+    }
+
+    fn get_outcome_height(&self, outcome: &ExecutionOutcomeWithIdView) -> Option<BlockHeight> {
+        self.outcome_heights.borrow().get(&outcome.id).copied()
     }
 
     fn get_chunk_by_height(&self, _height: u64, _shard_id: ShardId) -> Option<ChunkView> {

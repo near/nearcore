@@ -15,7 +15,6 @@ use near_crypto::Signature;
 use near_fmt::AbbrBytes;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
@@ -284,7 +283,6 @@ impl ShardChunkHeaderV3 {
                 BandwidthRequests::empty(),
                 None,
                 &EmptyValidatorSigner::default().into(),
-                protocol_version,
             )
         }
     }
@@ -318,46 +316,25 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-                proposed_split,
-            })
-        } else {
-            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-            })
-        };
+        let inner = ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+            proposed_split,
+        });
         Self::from_inner(inner, signer)
     }
 
@@ -625,7 +602,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
-                ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
+                ShardChunkHeaderInner::V5(_) => true,
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
             },
         };
@@ -1542,9 +1519,8 @@ impl ShardChunkWithEncoding {
         proposed_split: Option<TrieSplit>,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
-        protocol_version: ProtocolVersion,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the pool can hold them (#16473)
+        // TODO(ecc): include ECCs once the producer packs them
         let signed_txs = validated_txs
             .into_iter()
             .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
@@ -1574,7 +1550,6 @@ impl ShardChunkWithEncoding {
             bandwidth_requests,
             proposed_split,
             signer,
-            protocol_version,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let shard_chunk = ShardChunk::new(
@@ -1597,7 +1572,7 @@ impl ShardChunkWithEncoding {
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the pool can hold them (#16473)
+        // TODO(ecc): include ECCs once the producer packs them
         let signed_txs = validated_txs
             .into_iter()
             .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
@@ -1777,14 +1752,18 @@ impl From<&ArcedShardChunk> for ShardChunk {
 #[cfg(test)]
 mod tests {
     use crate::action::{Action, TransferAction};
+    use crate::bandwidth_scheduler::BandwidthRequests;
+    use crate::congestion_info::CongestionInfo;
     use crate::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+    use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
     use crate::sharding::{
         ArcedShardChunk, ArcedShardChunkV1, ArcedShardChunkV2, ChunkHash, ShardChunk,
-        ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3, ShardChunkV1,
-        ShardChunkV2,
+        ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV1, ShardChunkHeaderV2,
+        ShardChunkHeaderV3, ShardChunkV1, ShardChunkV2,
     };
     use crate::transaction::SignedTransaction;
-    use crate::version::PROTOCOL_VERSION;
+    use crate::validator_signer::EmptyValidatorSigner;
+    use crate::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, ShardId};
@@ -1877,5 +1856,47 @@ mod tests {
 
         let chunk = ShardChunk::from(&arced);
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+    }
+
+    /// Header versions the previous release accepts (V4 and V5) must stay accepted at every
+    /// protocol version both releases support, or the binaries disagree during the rollout.
+    #[test]
+    fn old_chunk_header_versions_stay_accepted() {
+        let v4 = ShardChunkHeaderV3::from_inner(
+            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                prev_block_hash: Default::default(),
+                prev_state_root: Default::default(),
+                prev_outcome_root: Default::default(),
+                encoded_merkle_root: Default::default(),
+                encoded_length: Default::default(),
+                height_created: Default::default(),
+                shard_id: ShardId::new(0),
+                prev_gas_used: Default::default(),
+                gas_limit: Default::default(),
+                prev_balance_burnt: Default::default(),
+                prev_outgoing_receipts_root: Default::default(),
+                tx_root: Default::default(),
+                prev_validator_proposals: Default::default(),
+                congestion_info: CongestionInfo::default(),
+                bandwidth_requests: BandwidthRequests::empty(),
+            }),
+            &EmptyValidatorSigner::default().into(),
+        );
+        let v5 = ShardChunkHeaderV3::new_dummy(
+            1,
+            ShardId::new(0),
+            CryptoHash::default(),
+            MIN_SUPPORTED_PROTOCOL_VERSION,
+        );
+        assert!(matches!(v5.inner, ShardChunkHeaderInner::V5(_)));
+
+        for header in [v4, v5].map(ShardChunkHeader::V3) {
+            for version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
+                assert!(
+                    header.validate_version(version).is_ok(),
+                    "{header:?} rejected at {version}"
+                );
+            }
+        }
     }
 }

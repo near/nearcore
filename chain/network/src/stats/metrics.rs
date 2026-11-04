@@ -1,5 +1,6 @@
 use crate::network_protocol::RoutedMessage;
 use crate::network_protocol::TieredMessageBody;
+use crate::network_protocol::to_unix_nanos_i64;
 use crate::tcp;
 use crate::types::PeerType;
 use near_async::time;
@@ -331,6 +332,22 @@ pub(crate) static TIER3_PUBLIC_ADDR: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static TIER3_PUBLIC_ADDR_GROUPS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_tier3_public_addr_groups",
+        "Number of peer network groups reporting the IP of the tier3 public address",
+    )
+    .unwrap()
+});
+
+pub(crate) static TIER3_PUBLIC_ADDR_RUNNER_UP_GROUPS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_tier3_public_addr_runner_up_groups",
+        "Number of peer network groups reporting the runner-up IP for the tier3 public address",
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
@@ -423,6 +440,11 @@ pub(crate) fn bool_to_str(b: bool) -> &'static str {
     }
 }
 
+/// Cap on recorded latencies. Besides the buckets, a Prometheus histogram exports a running
+/// `_sum` of the observed values, which consumers divide by `_count` for the average. It is
+/// never reset, so one bogus `created_at` would otherwise skew the average until restart.
+const MAX_ROUTED_MSG_LATENCY: time::Duration = time::Duration::minutes(1);
+
 // The routed message reached its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
 fn record_routed_msg_latency(
@@ -431,16 +453,20 @@ fn record_routed_msg_latency(
     tier: tcp::Tier,
     fastest: bool,
 ) {
-    let Some(created_at) = msg.created_at() else {
-        return;
-    };
-    let now = clock.now_utc().unix_timestamp();
-    let Some(duration) = now.checked_sub(created_at) else {
+    let Some(latency) = routed_msg_latency(clock.now_utc(), msg) else {
         return;
     };
     NETWORK_ROUTED_MSG_LATENCY
         .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
-        .observe(duration as f64);
+        .observe(latency.as_seconds_f64());
+}
+
+/// Time since `msg` was created, capped at `MAX_ROUTED_MSG_LATENCY`, or `None` if its creation
+/// time is unknown or in the future.
+fn routed_msg_latency(now: time::Utc, msg: &RoutedMessage) -> Option<time::Duration> {
+    let created_at = msg.created_at()?;
+    let latency = time::Duration::nanoseconds(to_unix_nanos_i64(now).saturating_sub(created_at));
+    (latency >= time::Duration::ZERO).then_some(latency.min(MAX_ROUTED_MSG_LATENCY))
 }
 
 // The routed message reached its destination. If the number of hops is known, then update the
@@ -479,5 +505,34 @@ impl MessageDropped {
     pub fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network_protocol::{PeerIdOrHash, Ping, RawRoutedMessage, T2MessageBody};
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::network::PeerId;
+
+    fn routed_message_created_at(created_at: time::Utc) -> RoutedMessage {
+        let key = SecretKey::from_random(KeyType::ED25519);
+        let peer_id = PeerId::new(key.public_key());
+        let body = T2MessageBody::Ping(Ping { nonce: 0, source: peer_id.clone() }).into();
+        RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
+            &key,
+            /*ttl=*/ 1,
+            Some(created_at),
+        )
+    }
+
+    #[test]
+    fn latency_from_created_at_is_bounded() {
+        let now = time::FakeClock::default().now_utc();
+        let latency = |created_at| routed_msg_latency(now, &routed_message_created_at(created_at));
+        let recent = time::Duration::milliseconds(250);
+        assert_eq!(latency(now - recent), Some(recent));
+        assert_eq!(latency(now + time::Duration::seconds(1)), None);
+        assert_eq!(latency(now - time::Duration::hours(1)), Some(MAX_ROUTED_MSG_LATENCY));
     }
 }

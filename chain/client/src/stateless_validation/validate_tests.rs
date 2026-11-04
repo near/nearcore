@@ -24,7 +24,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -97,7 +97,6 @@ fn v2_witness_with_height_mismatch_is_rejected() {
         BandwidthRequests::empty(),
         None,
         signer.as_ref(),
-        PROTOCOL_VERSION,
     ));
 
     // The signed anchor matches the genesis parent's prev hash (the default value), so
@@ -183,7 +182,6 @@ fn v2_witness_parent_absent_accepted_only_at_anchor_offset() {
             BandwidthRequests::empty(),
             None,
             witness_signer,
-            PROTOCOL_VERSION,
         ));
         VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
             epoch_id,
@@ -311,7 +309,6 @@ fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
         BandwidthRequests::empty(),
         None,
         signer.as_ref(),
-        PROTOCOL_VERSION,
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
@@ -372,7 +369,6 @@ fn v2_witness_with_anchor_mismatch_is_rejected() {
         BandwidthRequests::empty(),
         None,
         signer.as_ref(),
-        PROTOCOL_VERSION,
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
@@ -438,7 +434,6 @@ fn v2_witness_with_default_anchor_above_genesis_plus_one_is_rejected() {
         BandwidthRequests::empty(),
         None,
         signer.as_ref(),
-        PROTOCOL_VERSION,
     ));
 
     let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(

@@ -10,7 +10,7 @@ use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -32,7 +32,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -1203,8 +1203,8 @@ fn slow_test_process_block_after_state_sync() {
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
     let state_root = header.synced_state_root();
-    let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+    let snapshot_hash =
+        snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
 
     let state_part = env.clients[0]
         .runtime_adapter
@@ -1674,9 +1674,15 @@ fn test_sync_hash_validity() {
             height += 1;
         }
 
-        // This assumes that all shards have new chunks in every block, which should be true
-        // with TestEnv::produce_block()
-        let expected_sync_height = epoch_start + 3;
+        // Spice syncs to the epoch's first block. Otherwise the sync block follows the first
+        // block with two new chunks in every shard, which with a chunk in every shard of every
+        // block, as TestEnv::produce_block() makes, is the epoch's fourth.
+        let expected_sync_height =
+            if ProtocolFeature::Spice.enabled(genesis.config.protocol_version) {
+                epoch_start
+            } else {
+                epoch_start + 3
+            };
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
@@ -2103,12 +2109,9 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
-    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
-    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
-    // zero with the test's gas_price.
-    let expected_refund_receipts_in_chunk =
-        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    // The two action receipts processed in block 2 each emit a price_surplus gas-refund
+    // receipt, which then becomes `prev_outgoing_receipts` of block 3.
+    let expected_refund_receipts_in_chunk = 2;
     // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
     // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
     // (that field is always empty) and the produced receipts are stored keyed by the block whose
@@ -3036,6 +3039,7 @@ fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
     let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
     let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
     while let Some(group) = iter.next() {
+        let PooledGroup::Signed(group) = group else { continue };
         while let Some(tx) = group.next() {
             hashes.insert(tx.get_hash());
         }
@@ -3434,9 +3438,8 @@ mod contract_precompilation_tests {
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
         let state_root = state_sync_header.synced_state_root();
-        let sync_prev_header =
-            env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
         let state_part = env.clients[0]
             .runtime_adapter
             .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))

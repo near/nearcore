@@ -2,13 +2,12 @@ use crate::node::{Node, RuntimeNode};
 use assert_matches::assert_matches;
 use near_primitives::errors::{ActionError, ActionErrorKind, FunctionCallError};
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 /// Initial balance used in tests.

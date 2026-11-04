@@ -4,7 +4,7 @@ use crate::config::{
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -22,11 +22,9 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (89, include_config!("89.yaml")),
-    (129, include_config!("129.yaml")),
     (150, include_config!("150.yaml")),
     (155, include_config!("155.yaml")),
     (157, include_config!("157.yaml")),
@@ -145,7 +143,14 @@ impl RuntimeConfigStore {
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
+    ///
+    /// Protocol versions below `MIN_SUPPORTED_PROTOCOL_VERSION` are clamped up: the current
+    /// binary no longer carries the per-version diffs for those versions (they were folded
+    /// into the base config), so an exact historical replay is not possible. Archival callers
+    /// that replay very old blocks should run a binary that still supports those protocol
+    /// versions.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
+        let protocol_version = protocol_version.max(MIN_SUPPORTED_PROTOCOL_VERSION);
         self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
@@ -156,7 +161,9 @@ impl RuntimeConfigStore {
     }
 
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
+    /// See [`Self::get_config`] for the clamping behavior.
     pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
+        let protocol_version = protocol_version.max(MIN_SUPPORTED_PROTOCOL_VERSION);
         self.store
             .range_mut((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
@@ -250,8 +257,8 @@ mod tests {
         let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
         let mock_diff_str = r#"
         ml_dsa_65_verification_cost: {
-          old: 0,
-          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+          old: 100_000_000_000,
+          new: { gas: 200_000_000_000, compute: 300_000_000_000 },
         }
         "#;
         base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
@@ -259,7 +266,7 @@ mod tests {
 
         assert_eq!(
             modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
-            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
+            ParameterCost::new(Gas::from_gas(200_000_000_000), 300_000_000_000),
         );
     }
 
@@ -371,6 +378,23 @@ mod tests {
         let per_entry = ActionCosts::universal_state_init_entry;
         assert_eq!(before.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
         assert_ne!(after.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
+    }
+
+    #[test]
+    fn test_max_storage_value_fits_receipt_storage_proof() {
+        // Room for the trie path to the value and the receipt's other reads.
+        const MARGIN: u64 = 128 * 1024;
+
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let feature_version = ProtocolFeature::RaisePerReceiptStorageProofLimit.protocol_version();
+        for version in feature_version..=feature_version.max(PROTOCOL_VERSION) {
+            let limits = &store.get_config(version).wasm_config.limit_config;
+            assert!(
+                limits.max_length_storage_value + limits.max_length_storage_key + MARGIN
+                    <= limits.per_receipt_storage_proof_size_limit as u64,
+                "max storage value does not fit at protocol version {version}"
+            );
+        }
     }
 
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions

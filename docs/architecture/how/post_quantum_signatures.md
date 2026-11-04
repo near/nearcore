@@ -1,18 +1,16 @@
 # Post-Quantum Signatures (ML-DSA-65)
 
 This document captures the load-bearing design decisions and known caveats of
-the post-quantum transaction-signature integration introduced under the
-`PostQuantumSignatures` protocol feature. It does not document every code
-change; for that, read the protocol-feature commit and the cross-references
-below.
+the post-quantum transaction-signature integration. It does not document every
+code change; for that, read the stabilization commit (protocol version 85) and
+the cross-references below.
 
 ## Summary
 
 NEAR supports a third transaction-signature scheme - FIPS 204 **ML-DSA-65** -
 alongside the existing `ed25519` and `secp256k1` schemes. Existing schemes are
-NOT deprecated. ML-DSA-65 is accepted in transactions and as access keys after
-the `PostQuantumSignatures` protocol feature activates (stabilized at protocol
-version 85).
+NOT deprecated. ML-DSA-65 has been accepted in transactions and as access keys
+since protocol version 85.
 
 Contracts can also verify ML-DSA-65 signatures on-chain through the
 `ml_dsa_verify` host function (§7), which is gated separately from the
@@ -38,7 +36,8 @@ implicit-account derivation remain unchanged and are out of scope.
 
 ### 2. Protocol gating
 
-A single `ProtocolFeature::PostQuantumSignatures` gate controls:
+The feature was initially gated behind `ProtocolFeature::PostQuantumSignatures`
+across three admission points:
 
 - Whether ML-DSA-65 is permitted as a transaction signer
   (`core/primitives/src/transaction.rs::check_valid_for_config`).
@@ -49,12 +48,12 @@ A single `ProtocolFeature::PostQuantumSignatures` gate controls:
 
 Borsh deserialization of `PublicKey::MLDSA65` and `Signature::MLDSA65` is
 **not** gated - once a value enters state it must always parse - but the
-action-validation gates ensure no ML-DSA-65 value can enter state on a
-pre-feature protocol. Practically that means: when `PostQuantumSignatures`
-activates, no ML-DSA-65 access keys exist in state yet, so the runtime
-doesn't have to handle a mixed population of "legacy keys we tolerated
-before the gate existed" and "keys added under the new rules" - every
-ML-DSA-65 key in state was added under the new rules.
+action-validation gates ensured no ML-DSA-65 value could enter state on a
+pre-feature protocol. Practically that means: at the moment of activation
+no ML-DSA-65 access keys existed in state, so the runtime doesn't have to
+handle a mixed population of "legacy keys we tolerated before the gate
+existed" and "keys added under the new rules" - every ML-DSA-65 key in
+state was added under the new rules.
 
 ### 3. `PublicKey` enum extension and `PublicKeyHandle` split
 
@@ -199,7 +198,7 @@ Gas:
 - **Implicit accounts** (NEAR-style and ETH-style) unchanged. PQ implicit
   accounts are a separate research item.
 - **Host functions / on-chain verification primitives**: out of scope for the
-  `PostQuantumSignatures` feature itself - `ml_dsa_verify` landed afterwards
+  initial transaction-signature integration - `ml_dsa_verify` landed afterwards
   under its own config gate, see §7.
 - **ETH wallet contract** (`integration-tests/src/tests/features/wallet_contract.rs`)
   marks ML-DSA-65 unreachable in the AddKey selector path - wallet contracts
@@ -281,12 +280,11 @@ so the history is legible:
 `SignedTransaction::get_size()` counts only the inner `Transaction` body, so it
 under-counted every ML-DSA-65 tx by its ~3.3 KiB signature - including inside
 `combined_transactions_size_limit`, the bound on transaction bytes carried by
-the `ChunkStateWitness`. `SignedTransaction::wire_size()` now returns the full
-borsh length (signature included), and `size_for_limits(protocol_version)`
-selects it for the `max_transaction_size` and `combined_transactions_size_limit`
-gates from `PostQuantumSignatures` onward (version-gated to keep chunk
-production deterministic across the boundary). The mempool counts `wire_size()`
-unconditionally, since it physically buffers the signature. *Pricing* the extra
+the `ChunkStateWitness`. `SignedTransaction::wire_size()` returns the full
+borsh length (signature included), and `size_for_limits()` uses it for the
+`max_transaction_size` and `combined_transactions_size_limit` gates. The
+mempool counts `wire_size()` unconditionally, since it physically buffers the
+signature. *Pricing* the extra
 size - e.g. a per-wire-byte gas surcharge at conversion time, mirroring the
 verify cost - is deferred: the accounting fix closes the witness-honesty gap on
 its own, independent of any later pricing decision. A per-byte component on

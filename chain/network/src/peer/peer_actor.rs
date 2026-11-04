@@ -3,9 +3,10 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
-    Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
-    PeersRequest, PeersResponse, RoutingTableUpdate, SnapshotHostInfoVerificationError,
-    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
+    Edge, EdgeState, MAX_TRACKED_SHARDS_PER_PEER, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2,
+    PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RoutingTableUpdate,
+    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
+    TieredMessageBody, from_unix_nanos, to_unix_nanos,
 };
 use crate::peer::stream;
 use crate::peer::stream::IncomingFrame;
@@ -457,6 +458,9 @@ impl PeerActor {
         tracing::trace!(target: "network", msg_len = bytes_len);
         let frame = stream::Frame::with_permit(bytes, permit);
         self.framed.send(frame);
+        if let PeerStatus::Ready(conn) = &self.peer_status {
+            conn.last_time_sent_message.store(self.clock.now());
+        }
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         let msg_type = msg.msg_variant();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
@@ -490,7 +494,7 @@ impl PeerActor {
                 OwnedAccount {
                     account_key: signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
-                    timestamp: self.clock.now_utc(),
+                    timestamp: to_unix_nanos(self.clock.now_utc()),
                 }
                 .sign(&signer)
             }),
@@ -527,6 +531,16 @@ impl PeerActor {
             PeerStatus::Connecting(_, it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
         };
+        if handshake.sender_chain_info.tracked_shards.len() > MAX_TRACKED_SHARDS_PER_PEER {
+            tracing::debug!(
+                target: "network",
+                peer_id = %handshake.sender_peer_id,
+                tracked_shards = handshake.sender_chain_info.tracked_shards.len(),
+                "handshake has too many tracked shards, dropping message",
+            );
+            self.stop(ClosingReason::HandshakeFailed);
+            return;
+        }
         match cs {
             ConnectingStatus::Outbound { handshake_spec: spec, .. } => {
                 if handshake.protocol_version != spec.protocol_version {
@@ -615,7 +629,7 @@ impl PeerActor {
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
-            if let Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+            if let Err(_) = owned_account.verify() {
                 self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
                 return;
             }
@@ -623,7 +637,9 @@ impl PeerActor {
                 self.stop(ClosingReason::OwnedAccountMismatch);
                 return;
             }
-            if (owned_account.timestamp - self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {
+            if (from_unix_nanos(owned_account.timestamp) - self.clock.now_utc()).abs()
+                >= MAX_CLOCK_SKEW
+            {
                 self.stop(ClosingReason::TooLargeClockSkew);
                 return;
             }
@@ -652,11 +668,14 @@ impl PeerActor {
         // we still should do the check against the PeerStore::blacklist.
         // Currently PeerManager is rejecting connections with peer_info.addr == None
         // preemptively.
+        let maybe_peer_addr = match handshake.sender_listen_port {
+            None => None,
+            Some(0) => None, // Protobuf serialization mapped 0 to None, keep for compatibility.
+            Some(port) => Some(SocketAddr::new(self.peer_addr.ip(), port)),
+        };
         let peer_info = PeerInfo {
             id: handshake.sender_peer_id.clone(),
-            addr: handshake
-                .sender_listen_port
-                .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
+            addr: maybe_peer_addr,
             account_id: None,
         };
 
@@ -682,6 +701,7 @@ impl PeerActor {
                 .new_point(&metrics::Connection { tier, type_: self.peer_type }),
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
+            last_time_sent_message: AtomicCell::new(now),
             established_time: now,
         });
 
@@ -1146,19 +1166,12 @@ impl PeerActor {
                 let node_id = self.network_state.config.node_id();
 
                 // Record our own IP address as observed by the peer.
-                if self.network_state.my_public_addr.read().is_none() {
-                    if let Some(my_peer_info) =
-                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
-                    {
-                        if let Some(addr) = my_peer_info.addr {
-                            let mut my_public_addr = self.network_state.my_public_addr.write();
-                            *my_public_addr = Some(addr);
-                            tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
-                            metrics::TIER3_PUBLIC_ADDR
-                                .with_label_values(&[&addr.to_string()])
-                                .set(1);
-                        }
-                    }
+                if let Some(addr) = direct_peers
+                    .iter()
+                    .find(|peer_info| peer_info.id == node_id)
+                    .and_then(|peer_info| peer_info.addr)
+                {
+                    self.network_state.record_my_reported_ip(&conn.peer_info.id, addr.ip());
                 }
                 // Add received indirect peers to the peer store
                 self.network_state.peer_store.add_indirect_peers(
@@ -1327,20 +1340,18 @@ impl PeerActor {
                     "received routed message");
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                if let Some(signature) = msg.signature() {
-                    let key = (msg.author().clone(), msg.target().clone(), signature.clone());
-                    let now = self.clock.now();
-                    if let Some(&t) = self.routed_message_cache.get(&key) {
-                        if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                            metrics::MessageDropped::Duplicate.inc(msg.body());
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                            tracing::debug!(target: "network", author = ?msg.author(), target = ?msg.target(), "dropping duplicated message");
-                            return;
-                        }
+                let key = (msg.author().clone(), msg.target().clone(), msg.signature().clone());
+                let now = self.clock.now();
+                if let Some(&t) = self.routed_message_cache.get(&key) {
+                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        metrics::MessageDropped::Duplicate.inc(msg.body());
+                        #[cfg(test)]
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
+                        tracing::debug!(target: "network", author = ?msg.author(), target = ?msg.target(), "dropping duplicated message");
+                        return;
                     }
-                    self.routed_message_cache.put(key, now);
                 }
+                self.routed_message_cache.put(key, now);
 
                 if let TieredMessageBody::T2(t2) = msg.body() {
                     if let T2MessageBody::ForwardTx(_) = t2.as_ref() {

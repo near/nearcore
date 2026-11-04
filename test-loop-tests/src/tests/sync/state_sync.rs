@@ -23,17 +23,17 @@
 // - Manual genesis pattern: required because `TestEpochConfigBuilder::from_genesis(&genesis)` needs
 //   the genesis to derive the epoch config with shuffling enabled. Can't use the auto-setup path.
 
-use super::util::collect_distinct_epoch_ids;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::epoch_ids_since_genesis;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_network::client::StateRequestHeader;
+use near_network::client::{StateRequestHeader, StateRequestResponse};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -101,7 +101,7 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 /// (`get_prev_shard_id_from_prev_hash`, `cared_about_shard_prev_epoch_from_prev_block`).
 pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
-    let epoch_ids = collect_distinct_epoch_ids(client);
+    let epoch_ids = epoch_ids_since_genesis(client);
 
     assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
 
@@ -160,8 +160,9 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let epoch_manager = client.epoch_manager.as_ref();
         let chain = &client.chain;
         let head = node.head();
-        let genesis_height = chain.genesis().height();
-        let epoch_ids = collect_distinct_epoch_ids(client);
+        // GC deletes the `BlockInfo` of blocks at and below the tail.
+        let start_height = chain.tail() + 1;
+        let epoch_ids = epoch_ids_since_genesis(client);
 
         'validator: for w in 1..epoch_ids.len() {
             let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
@@ -195,7 +196,7 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                 }
 
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                for height in (genesis_height + 1)..=head.height {
+                for height in start_height..=head.height {
                     let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
                     if epoch_manager.get_epoch_id(&hash).unwrap() != *new_epoch {
                         continue;
@@ -725,13 +726,13 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 
     for _ in 0..30 {
         let res = state_request.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
-        assert!(res.is_some());
+        assert!(!matches!(res, StateRequestResponse::Busy));
     }
 
     // Immediately query again, should be rejected due to rate limit.
     let shard_id = ShardId::new(0);
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
-    assert!(res.is_none());
+    assert!(matches!(res, StateRequestResponse::Busy));
 
     env.test_loop.run_for(Duration::seconds(40));
 
@@ -739,14 +740,14 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
     let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
-    // After the rate limit window resets, requests should succeed again.
+    // After the rate limit window resets, requests shouldn't be throttled anymore.
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
-    assert!(res.is_some());
+    assert!(!matches!(res, StateRequestResponse::Busy));
 }
 
-// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (should all
-// succeed), then one more (should be rejected), waits for the rate limit to reset, then
-// sends one more (should succeed again).
+// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (none should be
+// throttled), then one more (should be throttled), waits for the rate limit to reset, then
+// sends one more (shouldn't be throttled).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

@@ -624,7 +624,7 @@ fn update_epoch_sync_proof(
     // First we move any existing epoch sync proof to the compressed format
     // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
-    // ProtocolFeature::ContinuousEpochSync being enabled
+    // continuous epoch sync being unconditionally enabled
     if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]) {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);

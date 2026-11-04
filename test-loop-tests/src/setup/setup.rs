@@ -196,7 +196,7 @@ pub fn setup_client(
         validator_signer.clone(),
         true,
         [0; 32],
-        Some(snapshot_callbacks),
+        Some(snapshot_callbacks.clone()),
         multi_spawner,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
@@ -428,7 +428,6 @@ pub fn setup_client(
         Arc::new(test_loop.future_spawner(identifier)),
         client_config.cloud_archival_writer.clone(),
         genesis.config.genesis_height,
-        runtime_adapter.clone(),
         storage.hot_store,
         storage.cloud_storage.as_ref(),
         shard_tracker.clone(),
@@ -492,6 +491,7 @@ pub fn setup_client(
             save_receipt_to_tx: client_config.save_receipt_to_tx,
             save_state_changes: client_config.save_state_changes,
         },
+        Some(snapshot_callbacks),
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(

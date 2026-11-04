@@ -6,8 +6,8 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
-use near_chain::BlockHeader;
-use near_network::client::StateResponse;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
+use near_network::client::StateRequestUpdate;
 use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
@@ -18,9 +18,11 @@ use near_primitives::state_sync::{
     PartOrHeader, ShardStateSyncResponse, ShardStateSyncResponseHeader, StateRequestAckBody,
 };
 use near_primitives::types::ShardId;
-use near_store::{DBCol, Store};
+use near_store::Store;
+use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::oneshot;
@@ -53,7 +55,11 @@ struct PendingPeerRequestKey {
 }
 
 struct PendingPeerRequestValue {
-    peer_id: PeerId,
+    /// The peer the request was sent to, once the network has named it.
+    peer_id: Option<PeerId>,
+    /// `NotSent` reports which arrived before the network named the peer, each with the host it is
+    /// about. They are handled once the network has.
+    early_messages: Vec<(PeerId, StateRequestUpdate)>,
     sender: oneshot::Sender<ShardStateSyncResponse>,
 }
 
@@ -61,13 +67,13 @@ impl StateSyncDownloadSourcePeerSharedState {
     pub fn receive_peer_message(
         &mut self,
         peer_id: PeerId,
-        msg: StateResponse,
+        msg: StateRequestUpdate,
     ) -> Result<(), near_chain::Error> {
         let shard_id = msg.shard_id();
         let part_or_header = msg.part_or_header();
 
         match msg {
-            StateResponse::Ack(ref ack) => {
+            StateRequestUpdate::Ack(ref ack) => {
                 metrics::STATE_SYNC_PEER_MSGS
                     .with_label_values::<&str>(&[
                         shard_id.to_string().as_str(),
@@ -76,7 +82,7 @@ impl StateSyncDownloadSourcePeerSharedState {
                     ])
                     .inc();
             }
-            StateResponse::State(_) => {
+            StateRequestUpdate::State(_) => {
                 metrics::STATE_SYNC_PEER_MSGS
                     .with_label_values::<&str>(&[
                         shard_id.to_string().as_str(),
@@ -85,29 +91,73 @@ impl StateSyncDownloadSourcePeerSharedState {
                     ])
                     .inc();
             }
+            StateRequestUpdate::NotSent { .. } => {
+                metrics::STATE_SYNC_PEER_MSGS
+                    .with_label_values::<&str>(&[
+                        shard_id.to_string().as_str(),
+                        part_or_header.into(),
+                        "not_sent",
+                    ])
+                    .inc();
+            }
         };
 
         let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_or_header };
+        self.handle_peer_message(&key, peer_id, msg)
+    }
 
-        let Some(request) = self.pending_requests.get_mut(&key) else {
+    /// Records the peer the network sent the request for `key` to, and handles the `NotSent`
+    /// reports which arrived before it did.
+    fn set_peer(&mut self, key: &PendingPeerRequestKey, peer_id: PeerId) {
+        let Some(request) = self.pending_requests.get_mut(key) else {
+            return;
+        };
+        request.peer_id = Some(peer_id);
+        for (sender, msg) in mem::take(&mut request.early_messages) {
+            if let Err(err) = self.handle_peer_message(key, sender, msg) {
+                tracing::error!(target: "sync", ?err, "error applying state sync response");
+            }
+        }
+    }
+
+    fn handle_peer_message(
+        &mut self,
+        key: &PendingPeerRequestKey,
+        peer_id: PeerId,
+        msg: StateRequestUpdate,
+    ) -> Result<(), near_chain::Error> {
+        let Some(request) = self.pending_requests.get_mut(key) else {
             tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request may have timed out");
             return Ok(());
         };
 
-        if request.peer_id != peer_id {
+        let Some(expected_peer_id) = &request.peer_id else {
+            // The network can report that it could not send the request before `try_download`
+            // learns which peer it was sent to, so keep the report until then. Don't keep messages
+            // from peers, which anyone could send to fill the buffer. The host's replies don't
+            // arrive this early in practice, as they take a round trip to the host.
+            if let StateRequestUpdate::NotSent { .. } = msg {
+                request.early_messages.push((peer_id, msg));
+            } else {
+                tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request not sent yet");
+            }
+            return Ok(());
+        };
+
+        if *expected_peer_id != peer_id {
             return Err(near_chain::Error::Other(
                 "Unexpected state response (wrong sender)".to_owned(),
             ));
         }
 
         match msg {
-            StateResponse::Ack(ack) => {
+            StateRequestUpdate::Ack(ack) => {
                 match ack.body {
                     StateRequestAckBody::Busy | StateRequestAckBody::Error => {
                         // We received a message indicating that the peer won't send a response.
                         // Removing the entry from pending_requests drops the sender channel
                         // so that the node will stop awaiting the state response.
-                        let _ = self.pending_requests.remove(&key).unwrap();
+                        let _ = self.pending_requests.remove(key).unwrap();
                     }
                     StateRequestAckBody::WillRespond => {
                         // Do nothing with positive responses for now.
@@ -116,30 +166,20 @@ impl StateSyncDownloadSourcePeerSharedState {
                     }
                 }
             }
-            StateResponse::State(state) => {
-                let value = self.pending_requests.remove(&key).unwrap();
+            StateRequestUpdate::State(state) => {
+                let value = self.pending_requests.remove(key).unwrap();
                 let _ = value.sender.send(state.take_state_response());
+            }
+            StateRequestUpdate::NotSent { .. } => {
+                // The request never reached the peer. As for a negative ack, removing the entry
+                // drops the sender channel, so that the request is retried without waiting for
+                // it to time out.
+                let _ = self.pending_requests.remove(key).unwrap();
             }
         };
 
         Ok(())
     }
-}
-
-/// The hash a peer's snapshot serving `sync_hash` is advertised under: the sync block's prev
-/// prev block, which is what `snapshot_hash_for_block` names for the snapshot a host takes at
-/// the sync block's prev block.
-fn snapshot_hash_for_sync_hash(
-    store: &Store,
-    sync_hash: &CryptoHash,
-) -> Result<CryptoHash, near_chain::Error> {
-    let prev_hash = |hash: &CryptoHash| {
-        store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_bytes())
-            .map(|header| *header.prev_hash())
-            .ok_or_else(|| near_chain::Error::DBNotFoundErr(format!("No block header {hash}")))
-    };
-    prev_hash(&prev_hash(sync_hash)?)
 }
 
 impl StateSyncDownloadSourcePeer {
@@ -158,10 +198,11 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
-        // Peers advertise their snapshots by the block the snapshot was taken at, which is the
-        // prev prev block of the sync hash. We compute it here to pass as part of the request.
-        // TODO(saketh): it would be nice to migrate the network layer to the same hash.
-        let snapshot_hash = snapshot_hash_for_sync_hash(&store, &key.sync_hash)?;
+        // Peers advertise their snapshots by the block the snapshot was taken at. We compute it
+        // here to pass as part of the network request.
+        // TODO(saketh): it would be nice to migrate the network layer to the same hash. Under
+        // spice it already is the sync hash; before spice it is still the prev prev block.
+        let snapshot_hash = snapshot_hash_for_sync_hash(&store.chain_store(), &key.sync_hash)?;
 
         let network_request = match &key.part_or_header {
             PartOrHeader::Part { part_idx } => {
@@ -190,6 +231,18 @@ impl StateSyncDownloadSourcePeer {
         let _timer = metrics::STATE_SYNC_P2P_REQUEST_DELAY
             .with_label_values(&[key.shard_id.to_string().as_str(), &typ])
             .start_timer();
+
+        // Register the request before sending it: the network may report that it could not send
+        // it before we process its reply naming the peer.
+        let state_value = PendingPeerRequestValue { peer_id: None, early_messages: vec![], sender };
+
+        // Ensures that the key is removed from the map of pending requests when this scope exits,
+        // whether on success or timeout.
+        let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
+        {
+            let mut state_lock = state.lock();
+            state_lock.pending_requests.insert(key.clone(), state_value);
+        }
 
         handle.set_status("Sending network request");
         let network_response = match request_sender.send_async(network_request).await {
@@ -222,15 +275,7 @@ impl StateSyncDownloadSourcePeer {
 
         tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request sent");
 
-        let state_value = PendingPeerRequestValue { peer_id: request_sent_to_peer.clone(), sender };
-
-        // Ensures that the key is removed from the map of pending requests when this scope exits,
-        // whether on success or timeout.
-        let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
-        {
-            let mut state_lock = state.lock();
-            state_lock.pending_requests.insert(key.clone(), state_value);
-        }
+        state.lock().set_peer(&key, request_sent_to_peer.clone());
 
         handle.set_status("Waiting for peer response");
         select! {
@@ -342,17 +387,36 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
 
 #[cfg(test)]
 mod tests {
-    use super::snapshot_hash_for_sync_hash;
-    use near_async::time::Clock;
-    use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+    use super::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
+    use crate::sync::state::StateSyncDownloadSource;
+    use crate::sync::state::task_tracker::TaskTracker;
+    use futures::FutureExt;
+    use futures::future::BoxFuture;
+    use near_async::messaging::AsyncSender;
+    use near_async::time::{Clock, Duration, FakeClock};
+    use near_chain::state_snapshot_actor::{snapshot_hash_for_block, snapshot_hash_for_sync_hash};
     use near_chain::test_utils::get_chain_with_genesis;
     use near_chain::{BlockHeader, ChainStoreAccess as _};
     use near_chain_configs::test_genesis::TestGenesisBuilder;
+    use near_crypto::{KeyType, SecretKey};
+    use near_network::client::StateRequestUpdate;
+    use near_network::types::{
+        NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    };
     use near_primitives::hash::CryptoHash;
+    use near_primitives::network::PeerId;
+    use near_primitives::state_part::StatePart;
+    use near_primitives::state_sync::{PartOrHeader, StateRequestAck, StateRequestAckBody};
+    use near_primitives::types::ShardId;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+    use near_store::adapter::StoreAdapter as _;
     use near_store::{DBCol, Store};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
 
-    /// A store holding `len` headers on top of a test genesis, and the headers, genesis first.
+    /// A chain store holding `len` headers on top of a test genesis, and the headers, genesis
+    /// first.
     fn header_chain(protocol_version: ProtocolVersion, len: usize) -> (Store, Vec<BlockHeader>) {
         let genesis = TestGenesisBuilder::new()
             .genesis_time_from_clock(&Clock::real())
@@ -384,7 +448,10 @@ mod tests {
     fn test_snapshot_hash_for_sync_hash_is_sync_prev_prev() {
         let (store, headers) = header_chain(non_spice_protocol_version(), 4);
         let sync_hash = headers[4].hash();
-        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), *headers[2].hash());
+        assert_eq!(
+            snapshot_hash_for_sync_hash(&store.chain_store(), sync_hash).unwrap(),
+            *headers[2].hash()
+        );
     }
 
     /// The host snapshots the sync block's prev block and advertises it under
@@ -394,13 +461,138 @@ mod tests {
         let (store, headers) = header_chain(non_spice_protocol_version(), 4);
         let sync_hash = headers[4].hash();
         let host = snapshot_hash_for_block(&headers[3]);
-        assert_eq!(snapshot_hash_for_sync_hash(&store, sync_hash).unwrap(), host);
+        assert_eq!(snapshot_hash_for_sync_hash(&store.chain_store(), sync_hash).unwrap(), host);
     }
 
     #[test]
     fn test_snapshot_hash_for_sync_hash_missing_header() {
         let (store, _) = header_chain(non_spice_protocol_version(), 1);
-        let err = snapshot_hash_for_sync_hash(&store, &CryptoHash::hash_bytes(b"unknown"));
+        let err =
+            snapshot_hash_for_sync_hash(&store.chain_store(), &CryptoHash::hash_bytes(b"unknown"));
         assert!(matches!(err, Err(near_chain::Error::DBNotFoundErr(_))), "{err:?}");
+    }
+
+    #[cfg(feature = "protocol_feature_spice")]
+    #[test]
+    fn test_snapshot_hash_for_sync_hash_spice_is_sync_hash() {
+        let (store, headers) = header_chain(ProtocolFeature::Spice.protocol_version(), 4);
+        assert!(headers[4].is_spice());
+        let sync_hash = headers[4].hash();
+        assert_eq!(
+            snapshot_hash_for_sync_hash(&store.chain_store(), sync_hash).unwrap(),
+            *sync_hash
+        );
+    }
+
+    /// Under spice the host snapshots the sync block itself.
+    #[cfg(feature = "protocol_feature_spice")]
+    #[test]
+    fn test_snapshot_hash_agrees_between_host_and_requester_spice() {
+        let (store, headers) = header_chain(ProtocolFeature::Spice.protocol_version(), 4);
+        let sync_hash = headers[4].hash();
+        let host = snapshot_hash_for_block(&headers[4]);
+        assert_eq!(snapshot_hash_for_sync_hash(&store.chain_store(), sync_hash).unwrap(), host);
+    }
+
+    fn peer(seed: &str) -> PeerId {
+        PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
+    }
+
+    /// A source downloading from peers over a fake network. For each request, `network` is given
+    /// the source's shared state, e.g. to deliver messages, and returns the peer it sends the
+    /// request to. Time never passes, so requests can't time out.
+    fn peer_source<F>(store: Store, network: F) -> StateSyncDownloadSourcePeer
+    where
+        F: Fn(&mut StateSyncDownloadSourcePeerSharedState) -> PeerId + Send + Sync + 'static,
+    {
+        let state = Arc::new(Mutex::new(StateSyncDownloadSourcePeerSharedState::default()));
+        let request_sender = AsyncSender::from_fn({
+            let state = state.clone();
+            move |_: PeerManagerMessageRequest| -> PeerManagerMessageResponse {
+                NetworkResponses::SelectedDestination(network(&mut state.lock())).into()
+            }
+        });
+        StateSyncDownloadSourcePeer {
+            clock: FakeClock::default().clock(),
+            store,
+            request_sender,
+            request_timeout: Duration::seconds(10),
+            state,
+        }
+    }
+
+    /// Starts downloading part 0 of shard 0 at `sync_hash`.
+    fn download_part(
+        source: &StateSyncDownloadSourcePeer,
+        sync_hash: CryptoHash,
+    ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>> {
+        let handle = TaskTracker::new(1).get_handle("part").now_or_never().unwrap();
+        source.download_shard_part(ShardId::new(0), sync_hash, 0, handle, CancellationToken::new())
+    }
+
+    /// The network's report that it could not send the request for part 0 of shard 0.
+    fn part_not_sent(sync_hash: CryptoHash) -> StateRequestUpdate {
+        StateRequestUpdate::NotSent {
+            shard_id: ShardId::new(0),
+            sync_hash,
+            part_or_header: PartOrHeader::Part { part_idx: 0 },
+        }
+    }
+
+    /// A host's ack saying it is too busy to send part 0 of shard 0.
+    fn part_busy(sync_hash: CryptoHash) -> StateRequestUpdate {
+        StateRequestUpdate::Ack(StateRequestAck {
+            shard_id: ShardId::new(0),
+            sync_hash,
+            part_or_header: PartOrHeader::Part { part_idx: 0 },
+            body: StateRequestAckBody::Busy,
+        })
+    }
+
+    /// A download stops waiting as soon as the network reports its request as not sent, even if
+    /// the report arrives before the network's reply naming the peer.
+    #[test]
+    fn test_not_sent_request_stops_waiting() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 2);
+        let sync_hash = *headers[2].hash();
+        let source = peer_source(store, move |state| {
+            state.receive_peer_message(peer("host"), part_not_sent(sync_hash)).unwrap();
+            peer("host")
+        });
+        let result = download_part(&source, sync_hash).now_or_never();
+        assert!(result.expect("download should stop waiting").is_err());
+    }
+
+    /// Unlike the network's reports, messages from peers which arrive before the network names the
+    /// peer are dropped, so that peers can't fill the buffer with them. Had the busy ack been kept,
+    /// the download would stop waiting once the network named the host.
+    #[test]
+    fn test_early_peer_message_is_dropped() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 2);
+        let sync_hash = *headers[2].hash();
+        let source = peer_source(store, move |state| {
+            state.receive_peer_message(peer("host"), part_busy(sync_hash)).unwrap();
+            peer("host")
+        });
+        assert!(download_part(&source, sync_hash).now_or_never().is_none());
+    }
+
+    /// A report that a request to another host was not sent, e.g. from an earlier attempt which
+    /// timed out, leaves the download waiting for its own host, whether the report arrives before
+    /// or after the network names the host.
+    #[test]
+    fn test_not_sent_from_other_host_is_ignored() {
+        let (store, headers) = header_chain(non_spice_protocol_version(), 2);
+        let sync_hash = *headers[2].hash();
+        let source = peer_source(store, move |state| {
+            state.receive_peer_message(peer("other"), part_not_sent(sync_hash)).unwrap();
+            peer("host")
+        });
+        let mut download = download_part(&source, sync_hash);
+        assert!((&mut download).now_or_never().is_none());
+        let report =
+            source.state.lock().receive_peer_message(peer("other"), part_not_sent(sync_hash));
+        assert!(report.is_err());
+        assert!(download.now_or_never().is_none());
     }
 }

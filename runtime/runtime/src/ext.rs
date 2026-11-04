@@ -12,7 +12,7 @@ use near_primitives::universal_state_init::{
     state_init_send_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
@@ -633,7 +633,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn post_quantum_keys_enabled(&self) -> bool {
-        ProtocolFeature::PostQuantumSignatures.enabled(self.protocol_version())
+        true
     }
 }
 

@@ -300,12 +300,6 @@ pub struct CallResult {
     pub logs: Vec<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct QueryError {
-    pub error: String,
-    pub logs: Vec<String>,
-}
-
 /// Describes information about an access key including its on-trie
 /// identifier. For ed25519/secp256k1 access keys the `public_key` field
 /// is the full public key (string form unchanged from before); for
@@ -634,20 +628,6 @@ pub struct NetworkGraphView {
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ShardSyncDownloadView {
-    pub downloads: Vec<DownloadStatusView>,
-    pub status: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DownloadStatusView {
-    pub error: bool,
-    pub done: bool,
-}
-
 /// Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -707,15 +687,6 @@ impl PartElapsedTimeView {
     pub fn new(part_id: &StatePartIndex, elapsed_ms: u128) -> PartElapsedTimeView {
         Self { part_id: *part_id, elapsed_ms }
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct BlockByChunksView {
-    pub height: BlockHeight,
-    pub hash: CryptoHash,
-    pub block_status: String,
-    pub chunk_status: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -1858,24 +1829,6 @@ impl fmt::Debug for FinalExecutionStatus {
             }
         }
     }
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum ServerError {
-    TxExecutionError(TxExecutionError) = 0,
-    Timeout = 1,
-    Closed = 2,
 }
 
 #[serde_as]
@@ -3227,7 +3180,7 @@ mod tests {
         EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
-    use crate::version::ProtocolFeature;
+    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_crypto::InMemorySigner;
@@ -3269,7 +3222,7 @@ mod tests {
             1,
             0.into(),
             CryptoHash::default(),
-            ProtocolFeature::DynamicResharding.protocol_version(),
+            MIN_SUPPORTED_PROTOCOL_VERSION,
         ))
         .into();
         // Missing, present-null and present-value distinguish header versions.

@@ -295,27 +295,12 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
 
-    // Flag to enable gas key host functions
-    GasKeyHostFns,
-
-    // Flag to allow 1 yoctoNEAR on promise function calls without balance
-    OneYoctoOnPromise,
-
-    // Flag to enable the P-256 verification host function
-    P256VerifyHostFn,
-
     // Flag to enable the ML-DSA-65 verification host function
     MlDsaVerifyHostFn,
 
     // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
     #[strum(serialize = "sha3_host_fns")]
     Sha3HostFns,
-
-    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
-    YieldWithIdHostFns,
-
-    // Flag to enable chain_id host function (NEP-638)
-    ChainIdHostFn,
 
     // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
     // functions (NEP-488). These points lie on the curve but outside the G1/G2

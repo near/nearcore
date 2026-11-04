@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::partial_witness::{
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
 
@@ -233,10 +232,7 @@ pub fn validate_contract_code_response(
 ) -> Result<ChunkRelevance, Error> {
     let key = response.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
-    if ProtocolFeature::SignedContractCodeResponse.enabled(protocol_version) {
-        validate_witness_contract_code_response_signature(epoch_manager, response)?;
-    }
+    validate_witness_contract_code_response_signature(epoch_manager, response)?;
 
     Ok(ChunkRelevance::Relevant)
 }

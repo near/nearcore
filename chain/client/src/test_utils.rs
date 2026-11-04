@@ -230,7 +230,6 @@ pub fn create_chunk(
                 None,
                 &*signer,
                 &rs,
-                PROTOCOL_VERSION,
             )
         };
         let mut new_encoded_chunk = new_chunk.into_parts().1;

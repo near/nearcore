@@ -1455,7 +1455,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         "openrpc": "1.3.2",
         "info": {
             "title": "NEAR Protocol JSON-RPC API",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "JSON-RPC API for interacting with the NEAR Protocol blockchain",
             "license": {
                 "name": "Apache-2.0",

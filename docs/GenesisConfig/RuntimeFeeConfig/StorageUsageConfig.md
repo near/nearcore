@@ -1,28 +1,18 @@
 # StorageUsageConfig
 
-Describes cost of storage per block
+Describes how the storage that an account uses is counted for storage staking.
 
-## account_cost
+## num_bytes_account
 
-_type: Gas_
-Base storage usage for an account
+_type: u64_
+Number of bytes counted for the account record, including rounding up for the account ID.
+The value is 100.
 
-## data_record_cost
+## num_extra_bytes_record
 
-_type: Gas_
-Base cost for a k/v record
+_type: u64_
+Number of bytes counted for each key/value record, such as a contract data entry or an access key, in addition to the bytes of its key and value.
+The value is 40.
 
-## key_cost_per_byte
-
-_type: Gas_
-Cost per byte of key
-
-## value_cost_per_byte: Gas
-
-_type: Gas_
-Cost per byte of value
-
-## code_cost_per_byte: Gas
-
-_type: Gas_
-Cost per byte of contract code
+The balance that an account must hold for each byte of storage is `storage_amount_per_byte` in [RuntimeConfig](../RuntimeConfig.md).
+It is not part of this struct.

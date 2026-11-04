@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use std::collections::HashMap;
@@ -16,10 +15,6 @@ use std::collections::HashMap;
 /// must seed a proof, not defer), then runs forward so the runtime extends it.
 #[test]
 fn test_migration_48_to_49_epoch_sync_proof_min_gc() {
-    // The 48 -> 49 proof machinery only exists with ContinuousEpochSync.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     init_test_logger();
     for blocks_past_boundary in [0, 5, 9] {
         check_migration_seeds_extendable_proof(blocks_past_boundary);

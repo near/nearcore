@@ -1,4 +1,5 @@
 use super::sharding::shard_was_split;
+use crate::utils::epoch_ids_since_genesis;
 use crate::utils::sharding::{
     get_memtrie_for_shard, get_tracked_shards, get_tracked_shards_from_prev_block,
 };
@@ -157,18 +158,11 @@ impl TrieSanityCheck {
     /// Look through all the epochs before the current one (because the current one will be early into the epoch,
     /// and we won't have checked it yet) and make sure that for all accounts, all expected shards were checked at least once
     pub fn check_epochs(&self, client: &Client) {
-        let tip = client.chain.head().unwrap();
-        let mut block_info = client.epoch_manager.get_block_info(&tip.last_block_hash).unwrap();
-
-        loop {
-            let epoch_id = client
-                .epoch_manager
-                .get_prev_epoch_id_from_prev_block(block_info.prev_hash())
-                .unwrap();
-            if epoch_id == EpochId::default() {
-                break;
-            }
-            let check = self.checks.get(&epoch_id).unwrap_or_else(|| {
+        let epoch_ids = epoch_ids_since_genesis(client);
+        let (_current_epoch_id, past_epoch_ids) = epoch_ids.split_last().unwrap();
+        // The first epoch has no checks: assert_state_sanity() skips EpochId::default().
+        for epoch_id in past_epoch_ids.iter().skip(1) {
+            let check = self.checks.get(epoch_id).unwrap_or_else(|| {
                 panic!("No trie comparison checks made for epoch {}", &epoch_id.0)
             });
             for (account_id, checked_shards) in check {
@@ -180,10 +174,6 @@ impl TrieSanityCheck {
                     );
                 }
             }
-
-            block_info =
-                client.epoch_manager.get_block_info(block_info.epoch_first_block()).unwrap();
-            block_info = client.epoch_manager.get_block_info(block_info.prev_hash()).unwrap();
         }
     }
 }
