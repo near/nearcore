@@ -25,10 +25,15 @@ Writes key-value into storage.
 
 ###### Panics
 
-- If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container or points to an unused register it panics
-  with `MemoryAccessViolation`. (When we say that something panics with the given error we mean that we use Wasmer API to
-  create this error and terminate the execution of VM. For mocks of the host that would only cause a non-name panic.)
+- If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container it panics with `MemoryAccessViolation`.
+  (When we say that something panics with the given error, it means that the host function returns this error and the
+  execution of the contract stops. For mocks of the host that would only cause a non-name panic.)
+- If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`. The same applies to
+  `value_len` and `value_ptr`;
 - If returning the preempted value into the registers exceed the memory container it panics with `MemoryAccessViolation`;
+- If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
+- If the value is longer than `max_length_storage_value` (4,194,304 bytes) it panics with `ValueLengthExceeded`;
+- If called in a view call it panics with `ProhibitedInView`;
 
 ###### Current bugs
 
@@ -59,8 +64,10 @@ Reads the value stored under the given key.
 
 ###### Panics
 
-- If `key_len + key_ptr` exceeds the memory container or points to an unused register it panics with `MemoryAccessViolation`;
+- If `key_len + key_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
+- If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`;
 - If returning the preempted value into the registers exceed the memory container it panics with `MemoryAccessViolation`;
+- If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
 
 ###### Current bugs
 
@@ -90,9 +97,12 @@ Very similar to `storage_read`:
 
 ###### Panics
 
-- If `key_len + key_ptr` exceeds the memory container or points to an unused register it panics with `MemoryAccessViolation`;
+- If `key_len + key_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
+- If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`;
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
 - If returning the preempted value into the registers exceed the memory container it panics with `MemoryAccessViolation`;
+- If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
+- If called in a view call it panics with `ProhibitedInView`;
 
 ###### Current bugs
 
@@ -116,6 +126,8 @@ Checks if there is a key-value pair.
 ###### Panics
 
 - If `key_len + key_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
+- If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`;
+- If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
 
 ---
 

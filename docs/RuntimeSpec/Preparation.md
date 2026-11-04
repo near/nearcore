@@ -34,14 +34,49 @@ errors relevant to itself, as described in the specification for [`DeployContrac
 
 ## Validation
 
-A number of limits are imposed on the WebAssembly module that is being parsed:
+The table below lists the limits that apply to a contract deployed at protocol version 88
+(nearcore 2.14.0). When the parser and a later check both limit the same thing, the table gives
+the lower limit.
 
-* The length of the wasm code must not exceed `max_contract_size` genesis configuration parameter;
-* The wasm module must be a valid module according to the WebAssembly core 1.0 specification (this
-  means no extensions such as multi value returns or SIMD; this limitation may be relaxed in the
-  future).
+| What is limited | Limit | Runtime parameter |
+| --- | --- | --- |
+| Size of the wasm code | `4_194_304` bytes | `max_contract_size` |
+| Types (signatures) in the module | `1_024` | `max_types_per_contract` |
+| Function imports and functions defined in the module | `10_000` | `max_functions_number_per_contract` |
+| Parameters of one function defined in the module | `64` | `max_params_per_function` |
+| Parameters of all functions defined in the module | `50_000` | `max_params_per_contract` |
+| Parameters of one signature, for example of an imported function | `1_000` | None (parser limit) |
+| Results of one signature | `1` | None (multi-value is not enabled) |
+| Locals of one function | `50_000` | None (parser limit) |
+| Locals of all functions | `1_000_000`, and at most the code size in bytes divided by `2` | `max_locals_per_contract`, `min_contract_size_per_local` |
+| Size of one function body | `196_608` bytes | `max_function_body_size` |
+| `block`, `loop` and `if` instructions in one function | `5_000` | `max_blocks_per_function` |
+| `block`, `loop` and `if` instructions in the module | `50_000` | `max_blocks_per_contract` |
+| Operand stack of one function | `8_192` bytes | `max_operand_stack_bytes_per_function` |
+| Size of the module after instrumentation | `16_777_216` bytes | `max_instrumented_code_size` |
+| Tables | `1` | `max_tables_per_contract` |
+| Initial size of a table | `10_000` entries | `max_elements_per_contract_table` |
+| Imports | Function imports from the `env` module only | None |
+
+The parser also limits the number of imports, exports, globals and data segments, and the length
+of names. Only the first violation is reported, so the order of the checks matters. The checks run
+in the four steps below, one step after another.
+
+Before preparation starts, the validation of the deploy action rejects code longer than the
+`max_contract_size` runtime parameter.
+
+Then the module is parsed. The parser reads the sections in the order of the binary encoding and
+reports the first violation that it finds. So within this step, the order of the checks depends on
+the module, not on the order of this list. These limits are checked while parsing:
+
+* The wasm module must be a valid module according to the WebAssembly core 1.0 specification with
+  these extensions enabled: sign-extension operators, non-trapping float-to-int conversions, and,
+  from protocol version 84, reference types and bulk memory operations. Other extensions, such as
+  multi-value returns, SIMD, threads, tail calls, multiple memories, memory64 and exception
+  handling, are rejected;
 * The wasm module may contain no more than:
-  * `1_000_000` distinct signatures;
+  * `1_024` types (signatures), set by the `max_types_per_contract` runtime parameter from protocol
+    version 84;
   * `1_000_000` function imports and local function definitions;
   * `100_000` imports;
   * `100_000` exports;
@@ -53,29 +88,44 @@ A number of limits are imposed on the WebAssembly module that is being parsed:
   bytes each;
 * Function definitions may not specify more than `50_000` locals;
 * Signatures may not specify more than `1_000` parameters;
-* Signatures may not specify more than `1_000` results;
-* Tables may not specify more than `10_000_000` entries;
+* Signatures may not specify more than `1` result, because the multi-value proposal is not enabled;
+* All imports must be function imports from the `env` module. A module that imports a table, a
+  global or a memory is rejected. The runtime provides the contract memory itself, as described in
+  [Memory normalization](#memory-normalization);
+* Tables may not specify an initial size of more than `10_000` entries (the
+  `max_elements_per_contract_table` runtime parameter, from protocol version 82);
+* The wasm module may contain no more function imports and local function definitions than the
+  `max_functions_number_per_contract` runtime parameter (`10_000`);
+* Each function body may not exceed `max_function_body_size` (`196_608` bytes), from protocol
+  version 84;
+* The total number of locals declared in all functions may not exceed `max_locals_per_contract`
+  (`1_000_000`). From protocol version 87 (nearcore 2.14.0), the total also may not exceed the
+  contract size in bytes divided by `min_contract_size_per_local` (`2`).
 
-If the contract code is invalid, the first violation in the binary encoding of the WebAssembly
-module shall be reported. These additional requirements are imposed after the module is parsed:
+Then preparation instruments the module. It checks the functions one by one. For each function it
+checks the parameters first, then the operand stack, then the blocks. These limits apply from
+protocol version 84:
 
-* The wasm module may contain no more function imports and local definitions than specified in the
-  `max_functions_number_per_contract` genesis configuration parameter; and
+* Functions defined in the module may not have more than `64` parameters each
+  (`max_params_per_function`). All functions defined in the module together may not have more than
+  `50_000` parameters (`max_params_per_contract`).
+* The operand stack of each function may not exceed `max_operand_stack_bytes_per_function`
+  (`8_192` bytes).
+* Each function may contain no more than `max_blocks_per_function` (`5_000`) `block`, `loop` and
+  `if` instructions. The whole module may contain no more than `max_blocks_per_contract`
+  (`50_000`) of these instructions.
 
-These additional requirements are imposed after the instrumentation, as documented in the later
-sections:
-
-* All imports may only import from the `env` module.
+Last, the module after instrumentation may not exceed `max_instrumented_code_size` (`16_777_216`
+bytes), from protocol version 84.
 
 ## Memory normalization
 
 All near contracts have the same amount of memory made available for execution. The exact amount is
-specified specified by the `initial_memory_pages` and `max_memory_pages` genesis configuration
-parameters. In order to ensure a level playing field, any module-local memory definitions are
-transparently replaced with an import of a standard memory instance from `env.memory`.
-
-If the original memory instance definition specified limits different from those specified by the
-genesis configuration parameters, the limits are reset to the configured parameters.
+specified by the `initial_memory_pages` (`1_024`) and `max_memory_pages` (`2_048`) runtime
+parameters, in pages of 64 KiB. In order to ensure a level playing field, preparation removes any
+memory definition of the module and adds one memory definition with these limits. A module without
+a memory definition gets the same memory. The limits that the module declared are not used. A
+module that imports a memory is rejected.
 
 ## Gas instrumentation
 
@@ -118,7 +168,7 @@ also means that calling the `used_gas` host function at different points of the 
 would return the same value if the `base` cost was `0`.
 
 All the instructions covered by a metered block are assigned a fee based on the `regular_op_cost`
-genesis parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
+runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
 then charged by instrumentation inserted at the beginning of each metered block.
 
 ### Examples
@@ -222,51 +272,58 @@ body is only executed conditionally:
   nop)
 ```
 
-## Operand stack depth instrumentation
+## Consensus stack metering
 
-The `max_stack_height` genesis parameter imposes a limit on the number of entries the wasm
-operand stack may contain during the contract execution.
+This limit does not measure the native stack that Wasmtime uses. For each function, preparation
+computes its maximum WebAssembly operand stack size and a frame charge. Instrumentation
+subtracts their sum from a budget when the function is entered, and adds it back when the
+function returns. The budget is a protocol parameter, so all nodes stop a contract at the same
+point.
 
-The maximum operand stack height required for a function to execute successfully is computed
-statically by simulating the operand stack operations executed by each instruction. For example,
-`i32.const 1` pushes 1 entry on the operand stack, whereas `i32.add` pops two entries and pushes 1
-entry containing the result value. The maximum operand stack height of the `if..else..end` control
-block is the larger of the heights for two bodies of the conditional. Stack operations for each
-instruction are otherwise specified in the section 4 of the WebAssembly core 1.0 specification.
+The operand stack holds the values that WebAssembly instructions push and pop, as defined in
+section 4 of the WebAssembly core 1.0 specification. Each value uses 4 bytes (`i32`, `f32`) or 8
+bytes (`i64`, `f64`, references). The frame charge of a function is 64 bytes plus the size of its
+locals.
 
-Before the `call` or `call_indirect` instructions are executed, the callee's required stack is
-added to the current stack height counter and is compared with the `max_stack_height` parameter. A
-trap is raised if the counter exceeds the limit. The instruction is executed, otherwise.
+The `max_stack_height` runtime parameter (`262_144` bytes) is the budget. If entering a function
+would take the budget below zero, the execution of the contract stops with a
+`MemoryAccessViolation` error. From protocol version 84, a function whose maximum operand stack
+size exceeds `max_operand_stack_bytes_per_function` (`8_192` bytes) is rejected at preparation.
 
-Note that the stack depth instrumentation runs after the gas instrumentation. At each point where
-gas is charged one entry worth of operand stack space is considered to be used.
+The maximum operand stack size of each function, in bytes, is computed statically by simulating
+the operand stack operations executed by each instruction. For example, `i32.const 1` pushes one
+4-byte value on the operand stack, whereas `i32.add` pops two values and pushes one value containing
+the result. The maximum operand stack size of the `if..else..end` control block is the larger of the
+sizes for the two bodies of the conditional. Stack operations for each instruction are otherwise
+specified in the section 4 of the WebAssembly core 1.0 specification and in the enabled extensions.
+
+Both the operand stack sizes and the gas fees are computed from the code before any
+instrumentation is added.
 
 ### Examples
 
 **This section is not normative.**
 
-Picking the example from the gas instrumentation section, we can tell that this function will use
-just 1 operand slot. Lets annotate the operand stack operations at each of the instructions:
+Picking the example from the gas instrumentation section, without the gas charges, we can tell
+that this function needs 4 bytes of operand stack. Let's annotate the operand stack operations at
+each of the instructions:
 
 ```wat
 (func
-  (; charge_gas(...) ;)    (; [] => [gas] => [] ;)
   i32.const 42             (; [] => [i32]       ;)
   if                       (; [i32] => []       ;)
-    (; charge_gas(...) ;)    (; [] => [gas] => [] ;)
     nop                      (; []                ;)
     nop                      (; []                ;)
   else
-    (; charge_gas(...) ;)    (; [] => [gas] => [] ;)
     unreachable              (; []                ;)
   end
   nop                      (; [] ;)
 )
 ```
 
-We can see that at no point in time the operand stack contained more than 1 entry. As a result,
-the runtime will check that 1 entry is available in the operand stack before the function is
-invoked.
+At no point does the operand stack contain more than one `i32` value. As a
+result, the maximum operand stack size of this function is 4 bytes. When the function starts, the
+runtime takes these 4 bytes plus the frame size of the function from the stack budget.
 
 <!-- TODO: describe the ahead-of-time compilation details and the errors it may cause or limits it
      may impose -->
