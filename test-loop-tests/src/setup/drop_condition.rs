@@ -1,7 +1,8 @@
+use super::network_rules::{Action, NetworkRules};
 use super::state::NodeExecutionData;
 use crate::utils::network::{
-    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-    spice_data_request_dropper, spice_designated_endorsement_dropper,
+    blocks_at_heights_matcher, chunk_endorsements_matcher, designated_spice_endorsement_matcher,
+    endorsements_from_matcher, spice_data_request_matcher,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -9,6 +10,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::types::NetworkRequests;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
@@ -32,16 +34,16 @@ pub enum DropCondition {
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
-    // Drops Block broadcast messages with height in `self.0`
+    /// Drops the broadcast of every block at a height in the set, through a network rule
+    /// on every node. The rules swallow the requests other nodes make for a block it
+    /// dropped, so the skip holds even when the dropped block's producer builds the next
+    /// block on it.
     BlocksByHeight(HashSet<BlockHeight>),
     /// Drop every chunk of the given shards produced in any of the listed epoch
     /// heights. Unlike `ChunksProducedByHeight` (keyed on height-within-epoch),
     /// this is keyed on the absolute epoch height, so it silences a shard for
     /// whole specific epochs, including the first block of each such epoch.
-    ChunksForShardsInEpochs {
-        shards: HashSet<ShardId>,
-        epoch_heights: HashSet<u64>,
-    },
+    ChunksForShardsInEpochs { shards: HashSet<ShardId>, epoch_heights: HashSet<u64> },
     /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk,
     /// disabling the designated certification path so chunks can certify only via the all-stake
     /// fallback.
@@ -50,6 +52,9 @@ pub enum DropCondition {
     /// it.
     SpiceDataRequests,
 }
+
+/// The tag of the network rule each drop condition installs on a node's account.
+pub(crate) const DROP_CONDITION_RULE: &str = "drop_condition";
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
 /// dropped within a test loop.
@@ -76,6 +81,11 @@ impl TestLoopChunksStorage {
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {
         self.storage.get(chunk_hash)
+    }
+
+    /// The headers of every chunk produced so far that `selects`, in no particular order.
+    pub fn find(&self, selects: impl Fn(&ShardChunkHeader) -> bool) -> Vec<ShardChunkHeader> {
+        self.storage.values().filter(|header| selects(header)).cloned().collect()
     }
 
     /// If chunk height is too low, don't drop chunk, allow the chain to warm
@@ -112,180 +122,76 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
 impl NodeExecutionData {
     pub fn register_drop_condition(
         &self,
-        test_loop_data: &mut TestLoopData,
+        test_loop_data: &TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+        network_rules: &NetworkRules,
         drop_condition: &DropCondition,
     ) {
-        match drop_condition {
+        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+        let matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync> = match drop_condition {
             DropCondition::ChunksValidatedBy(account_id) => {
-                self.register_drop_chunks_validated_by(test_loop_data, chunks_storage, account_id)
+                let inner_epoch_manager = epoch_manager.clone();
+                let account_id = account_id.clone();
+                Box::new(chunk_endorsements_matcher(chunks_storage, epoch_manager, move |chunk| {
+                    is_chunk_validated_by(inner_epoch_manager.as_ref(), chunk, account_id.clone())
+                }))
             }
             DropCondition::EndorsementsFrom(account_id) => {
-                self.register_drop_endorsements_from(test_loop_data, account_id);
+                Box::new(endorsements_from_matcher(account_id.clone()))
             }
             DropCondition::ProtocolUpgradeChunkRange(protocol_version, chunk_ranges) => {
-                self.register_drop_protocol_upgrade_chunks(
-                    test_loop_data,
-                    chunks_storage,
-                    *protocol_version,
-                    chunk_ranges.clone(),
-                );
+                let inner_epoch_manager = epoch_manager.clone();
+                let protocol_version = *protocol_version;
+                let chunk_ranges = chunk_ranges.clone();
+                Box::new(chunk_endorsements_matcher(chunks_storage, epoch_manager, move |chunk| {
+                    should_drop_chunk_for_protocol_upgrade(
+                        inner_epoch_manager.as_ref(),
+                        chunk,
+                        protocol_version,
+                        chunk_ranges.clone(),
+                    )
+                }))
             }
             DropCondition::ChunksProducedByHeight(chunks_produced) => {
-                self.register_drop_chunks_by_height(
-                    test_loop_data,
-                    chunks_storage,
-                    chunks_produced.clone(),
-                );
+                let inner_epoch_manager = epoch_manager.clone();
+                let chunks_produced = chunks_produced.clone();
+                Box::new(chunk_endorsements_matcher(chunks_storage, epoch_manager, move |chunk| {
+                    should_drop_chunk_by_height(
+                        inner_epoch_manager.as_ref(),
+                        chunk,
+                        chunks_produced.clone(),
+                    )
+                }))
             }
             DropCondition::BlocksByHeight(heights) => {
-                self.register_drop_blocks_by_height(test_loop_data, heights);
+                Box::new(blocks_at_heights_matcher(heights.clone()))
             }
             DropCondition::ChunksForShardsInEpochs { shards, epoch_heights } => {
-                self.register_drop_chunks_for_shards_in_epochs(
-                    test_loop_data,
-                    chunks_storage,
-                    shards.clone(),
-                    epoch_heights.clone(),
-                );
+                let inner_epoch_manager = epoch_manager.clone();
+                let shards = shards.clone();
+                let epoch_heights = epoch_heights.clone();
+                Box::new(chunk_endorsements_matcher(chunks_storage, epoch_manager, move |chunk| {
+                    if !shards.contains(&chunk.shard_id()) {
+                        return false;
+                    }
+                    let epoch_height = inner_epoch_manager
+                        .get_epoch_height_from_prev_block(chunk.prev_block_hash())
+                        .unwrap();
+                    epoch_heights.contains(&epoch_height)
+                }))
             }
             DropCondition::DesignatedSpiceEndorsements => {
-                self.register_drop_designated_spice_endorsements(test_loop_data);
+                Box::new(designated_spice_endorsement_matcher(epoch_manager))
             }
-            DropCondition::SpiceDataRequests => {
-                self.register_override_handler(test_loop_data, spice_data_request_dropper());
-            }
-        }
-    }
-
-    fn register_drop_chunks_for_shards_in_epochs(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        shards: HashSet<ShardId>,
-        epoch_heights: HashSet<u64>,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            if !shards.contains(&chunk.shard_id()) {
-                return false;
-            }
-            let epoch_height = inner_epoch_manager
-                .get_epoch_height_from_prev_block(chunk.prev_block_hash())
-                .unwrap();
-            epoch_heights.contains(&epoch_height)
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+            DropCondition::SpiceDataRequests => Box::new(spice_data_request_matcher()),
+        };
+        network_rules.add_tagged(
+            self.account_id.clone(),
+            DROP_CONDITION_RULE,
+            matches,
+            Action::Drop,
         );
-    }
-
-    fn register_drop_designated_spice_endorsements(&self, test_loop_data: &mut TestLoopData) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-        self.register_override_handler(
-            test_loop_data,
-            spice_designated_endorsement_dropper(epoch_manager),
-        );
-    }
-
-    fn register_drop_chunks_validated_by(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        account_id: &AccountId,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let account_id = account_id.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            is_chunk_validated_by(inner_epoch_manager.as_ref(), chunk, account_id.clone())
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
-    }
-
-    fn register_drop_endorsements_from(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        account_id: &AccountId,
-    ) {
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper(account_id.clone()),
-        );
-    }
-
-    fn register_drop_protocol_upgrade_chunks(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardIndex, Range<i64>>,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_for_protocol_upgrade(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                protocol_version,
-                chunk_ranges.clone(),
-            )
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
-    }
-
-    fn register_drop_chunks_by_height(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        chunks_produced: HashMap<ShardId, Vec<bool>>,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_by_height(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                chunks_produced.clone(),
-            )
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager.clone(),
-                drop_chunks_condition.clone(),
-            ),
-        );
-    }
-
-    fn register_drop_blocks_by_height(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        heights: &HashSet<BlockHeight>,
-    ) {
-        self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
     }
 }
 

@@ -1,18 +1,23 @@
 use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
+use super::network_rules::{Action, RuleHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{archival_account_id, rpc_account_id};
+use crate::utils::network::chunk_parts_matcher;
 use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_network::types::NetworkRequests;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::AccountId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -31,15 +36,84 @@ impl TestLoopEnv {
     /// While adding a new node to the environment, we can iterate through all the drop_conditions
     /// and register them with the new node's peer_manager_actor.
     pub fn drop(mut self, drop_condition: DropCondition) -> Self {
-        for data in &self.node_datas {
+        self.add_drop_condition(drop_condition);
+        self
+    }
+
+    /// Same as [`Self::drop`], but borrows the environment.
+    pub fn add_drop_condition(&mut self, drop_condition: DropCondition) {
+        // Rules are keyed by account and a restarted node is a new entry with the account of
+        // the old one, so each account gets the rule once, through its latest entry.
+        let mut seen = HashSet::new();
+        for data in self.node_datas.iter().rev() {
+            if !seen.insert(&data.account_id) {
+                continue;
+            }
             data.register_drop_condition(
-                &mut self.test_loop.data,
+                &self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
+                &self.shared_state.network_rules,
                 &drop_condition,
             );
         }
         self.shared_state.drop_conditions.push(drop_condition);
-        self
+    }
+
+    /// From now on `action` applies to every request node `index` sends that `matches`, until
+    /// the handle is lifted. The rule is keyed by the node's account, so it stays on a node
+    /// that is killed and restarted. See [`super::network_rules`].
+    pub fn network_rule(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        self.network_rule_for_account(&self.node_datas[index].account_id, matches, action)
+    }
+
+    /// [`Self::network_rule`] for the node of `account_id`.
+    pub fn network_rule_for_account(
+        &self,
+        account_id: &AccountId,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        self.shared_state.network_rules.add(account_id.clone(), matches, action)
+    }
+
+    /// [`Self::network_rule`] on the messages that carry the parts of the chunks `selects` where inclusion
+    /// checks no endorsements. Covers the parts a producer pushes, the parts owners forward,
+    /// and the request and response pair a node falls back to See
+    /// [`crate::utils::network::chunk_parts_matcher`].
+    pub fn chunk_parts_rule(
+        &self,
+        index: usize,
+        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        let matches = chunk_parts_matcher(self.shared_state.chunks_storage.clone(), selects);
+        self.network_rule(index, matches, action)
+    }
+
+    /// From now on `observe` reports every request node `index` sends that `matches`, as
+    /// the node sent it.
+    pub fn observe_messages_from(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
+    ) -> RuleHandle {
+        let account_id = self.node_datas[index].account_id.clone();
+        self.shared_state.network_rules.observe_first(account_id, matches, observe)
+    }
+
+    /// From now on node `index` drops every request it sends that `matches`.
+    pub fn drop_messages_from(
+        &self,
+        index: usize,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+    ) -> RuleHandle {
+        self.network_rule(index, matches, Action::Drop)
     }
 
     /// Reach block with height `genesis_height + 3`. Check that it can be done

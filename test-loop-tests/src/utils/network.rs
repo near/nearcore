@@ -1,147 +1,120 @@
+//! Predicates on outgoing requests for the network rules.
+
 use crate::setup::drop_condition::TestLoopChunksStorage;
-use crate::setup::peer_manager_actor::HandlerResult;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
-
-/// Handler to drop all endorsement messages relevant to chunk body, based on
-/// `drop_chunks_condition` result.
-pub fn chunk_endorsement_dropper_by_hash(
+/// Matches every pre-spice chunk endorsement of a chunk `selects`, so that dropping them
+/// keeps the chunk out of the block.
+pub fn chunk_endorsements_matcher(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    drop_chunk_condition: DropChunkCondition,
-) -> impl Fn(NetworkRequests) -> HandlerResult {
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    selects: impl Fn(ShardChunkHeader) -> bool + Send + Sync + 'static,
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static {
     move |request| {
-        // Filter out only messages related to distributing chunk in the
-        // network; extract `chunk_hash` from the message.
-        let chunk_hash = match &request {
-            NetworkRequests::ChunkEndorsement(_, endorsement) => Some(endorsement.chunk_hash()),
-            _ => None,
+        let NetworkRequests::ChunkEndorsement(_, endorsement) = request else {
+            return false;
         };
-
-        let Some(chunk_hash) = chunk_hash else {
-            return HandlerResult::Unhandled(request);
-        };
-
         let chunk = {
             let chunks_storage = chunks_storage.lock();
-            let chunk = chunks_storage.get(&chunk_hash).unwrap().clone();
-            let can_drop_chunk = chunks_storage.can_drop_chunk(&chunk);
-
-            if !can_drop_chunk {
-                return HandlerResult::Unhandled(request);
+            let chunk = chunks_storage.get(&endorsement.chunk_hash()).unwrap().clone();
+            if !chunks_storage.can_drop_chunk(&chunk) {
+                return false;
             }
-
             chunk
         };
-
-        // If we don't have block on top of which chunk is built, we can't
-        // retrieve epoch id.
-        // This case appears to be too rare to interfere with the goal of
-        // dropping chunk.
-        if epoch_manager_adapter.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
-            return HandlerResult::Unhandled(request);
-        };
-
-        if drop_chunk_condition(chunk) {
-            return HandlerResult::Handled(NetworkResponses::NoResponse);
+        if epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
+            return false;
         }
-
-        HandlerResult::Unhandled(request)
+        selects(chunk)
     }
 }
 
-/// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk, so chunks
-/// can only certify via the all-stake fallback. Non-designated endorsements pass through.
-pub fn spice_designated_endorsement_dropper(
+/// Matches every SPICE chunk endorsement whose sender is designated for the endorsed chunk, so
+/// that dropping them lets chunks certify only via the all-stake fallback.
+pub fn designated_spice_endorsement_matcher(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> impl Fn(NetworkRequests) -> HandlerResult {
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync {
     move |request| {
-        let NetworkRequests::SpiceChunkEndorsement(_target, endorsement) = &request else {
-            return HandlerResult::Unhandled(request);
+        let NetworkRequests::SpiceChunkEndorsement(_target, endorsement) = request else {
+            return false;
         };
         let Ok(block_info) = epoch_manager.get_block_info(endorsement.block_hash()) else {
-            return HandlerResult::Unhandled(request);
+            return false;
         };
-        let Ok(assignments) = epoch_manager.get_chunk_validator_assignments(
-            block_info.epoch_id(),
-            endorsement.shard_id(),
-            block_info.height(),
-        ) else {
-            return HandlerResult::Unhandled(request);
-        };
-        if assignments.contains(endorsement.account_id()) {
-            return HandlerResult::Handled(NetworkResponses::NoResponse);
-        }
-        HandlerResult::Unhandled(request)
+        epoch_manager
+            .get_chunk_validator_assignments(
+                block_info.epoch_id(),
+                endorsement.shard_id(),
+                block_info.height(),
+            )
+            .is_ok_and(|assignments| assignments.contains(endorsement.account_id()))
     }
 }
 
-/// Handler to drop every request for spice data, leaving only pushed data to arrive.
-pub fn spice_data_request_dropper() -> impl Fn(NetworkRequests) -> HandlerResult {
-    move |request| match &request {
-        NetworkRequests::SpiceDataRequest { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    }
+/// Matches every request for spice data, so that dropping them leaves only pushed data to
+/// arrive.
+pub fn spice_data_request_matcher() -> impl Fn(&NetworkRequests) -> bool + Send + Sync {
+    |request| matches!(request, NetworkRequests::SpiceDataRequest { .. })
 }
 
-/// Handler to drop all network messages containing chunk endorsements sent
-/// from a given chunk-validator account.
-pub fn chunk_endorsement_dropper(
+/// Matches every chunk endorsement, pre-spice or spice, from `validator`.
+pub fn endorsements_from_matcher(
     validator: AccountId,
-) -> impl Fn(NetworkRequests) -> HandlerResult {
-    move |request| {
-        match &request {
-            NetworkRequests::ChunkEndorsement(_target, endorsement)
-                if endorsement.validator_account() == &validator =>
-            {
-                return HandlerResult::Handled(NetworkResponses::NoResponse);
-            }
-            NetworkRequests::SpiceChunkEndorsement(_target, endorsement)
-                if endorsement.account_id() == &validator =>
-            {
-                return HandlerResult::Handled(NetworkResponses::NoResponse);
-            }
-            _ => {}
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync {
+    move |request| match request {
+        NetworkRequests::ChunkEndorsement(_target, endorsement) => {
+            endorsement.validator_account() == &validator
         }
-        HandlerResult::Unhandled(request)
+        NetworkRequests::SpiceChunkEndorsement(_target, endorsement) => {
+            endorsement.account_id() == &validator
+        }
+        _ => false,
     }
 }
 
-/// Handler to drop all block broadcasts at certain heights.
-/// A few things to note:
-/// - This will not fully prevent the blocks from being distributed if they are explicitly requested with
-/// a `NetworkRequests::BlockRequest`, because that case isn't handled here. For example, this can happen
-/// if the producer for a height, `h`, in `heights` is also the producer for `h+1`, and then distributes `h+1`
-/// with prev block equal to the one with height `h`. Then a node that receives that block with height `h+1` will
-/// record it as an orphan and request the block with height `h`. We don't handle it here because it's a bit more
-/// complicated since the BlockRequest just references the hash and not the height, so we would need to do something
-/// like the `TestLoopChunksStorage` but for blocks. For now we only use this in a test setup with enough block
-/// producers so that this will not come up.
-/// - Using this when there are too few validators will lead to the chain stalling rather than the intended behavior
-/// of a skip being generated.
-/// - Only the producer of the skipped block will receive it, so we only observe the behavior when we see two different
-/// descendants of the same block on one node. This could be improved, though.
-pub fn block_dropper_by_height(
+/// Matches the broadcast of every block at a height in `heights`. Dropping them on every
+/// node skips the heights: only the producer of a dropped block has it, the others time out
+/// and build on the block below. A few things to note:
+/// - Using this when there are too few validators will lead to the chain stalling rather
+///   than the intended behavior of a skip being generated.
+/// - Only the producer of the skipped block will receive it, so we only observe the
+///   behavior when we see two different descendants of the same block on one node.
+pub fn blocks_at_heights_matcher(
     heights: HashSet<BlockHeight>,
-) -> impl Fn(NetworkRequests) -> HandlerResult {
-    move |request| match &request {
-        NetworkRequests::Block { block } => {
-            if !heights.contains(&block.header().height()) {
-                HandlerResult::Unhandled(request)
-            } else {
-                HandlerResult::Handled(NetworkResponses::NoResponse)
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync {
+    move |request| match request {
+        NetworkRequests::Block { block } => heights.contains(&block.header().height()),
+        _ => false,
+    }
+}
+
+/// Matches every message that carries parts of a chunk `selects`.
+pub fn chunk_parts_matcher(
+    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static {
+    move |request| {
+        let by_hash = |hash| chunks_storage.lock().get(hash).is_some_and(&selects);
+        match request {
+            NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } => {
+                selects(&partial_encoded_chunk.header)
             }
+            NetworkRequests::PartialEncodedChunkForward { forward, .. } => {
+                by_hash(&forward.chunk_hash)
+            }
+            NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                by_hash(&request.chunk_hash)
+            }
+            NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
+                by_hash(&response.chunk_hash)
+            }
+            _ => false,
         }
-        _ => HandlerResult::Unhandled(request),
     }
 }

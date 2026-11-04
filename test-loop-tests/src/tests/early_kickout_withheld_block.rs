@@ -5,19 +5,16 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use crate::utils::node::TestLoopNode;
-use near_async::messaging::CanSend as _;
-use near_client::BlockResponse;
-use near_network::types::{NetworkRequests, NetworkResponses};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger_with_directives;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
-use parking_lot::Mutex;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const EPOCH_LENGTH: u64 = 1100;
 /// Past both the kickout grace period and the `BlockInfo` cache capacity.
@@ -25,41 +22,39 @@ const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
 /// Deliver the withheld block after its canonical sibling and before the sibling's child.
 /// Every head is then on the sibling, so a node that cannot record the child cannot progress.
-fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
-    let late: Arc<Mutex<Option<Arc<Block>>>> = Arc::new(Mutex::new(None));
-    let client_senders: Vec<_> =
-        env.node_datas.iter().map(|data| data.client_sender.clone()).collect();
-    for data in &env.node_datas {
-        let late = late.clone();
-        let client_senders = client_senders.clone();
-        let peer_id = data.peer_id.clone();
-        data.register_override_handler(&mut env.test_loop.data, move |request| {
-            let NetworkRequests::Block { block } = &request else {
-                return HandlerResult::Unhandled(request);
-            };
-            if block.header().height() == withheld {
-                *late.lock() = Some(block.clone());
-                return HandlerResult::Handled(NetworkResponses::NoResponse);
-            }
-            if block.header().height() > withheld + 1 {
-                if let Some(late) = late.lock().take() {
-                    for sender in &client_senders {
-                        let response = BlockResponse {
-                            block: late.clone(),
-                            peer_id: peer_id.clone(),
-                            was_requested: false,
-                        };
-                        sender.send(response.span_wrap());
-                    }
+fn deliver_late(env: &TestLoopEnv, withheld: BlockHeight) {
+    let network = env.shared_state.network_shared_state.clone();
+    let accounts: Vec<AccountId> =
+        env.node_datas.iter().map(|data| data.account_id.clone()).collect();
+    for account in &accounts {
+        network.withhold_block_delivery(account, withheld..withheld + 1);
+    }
+    // The first block above the sibling hands the withheld one to everyone, ahead of itself: a
+    // rule runs before the block it matched is routed.
+    let delivered = Arc::new(AtomicBool::new(false));
+    for index in 0..env.node_datas.len() {
+        let network = network.clone();
+        let accounts = accounts.clone();
+        let delivered = delivered.clone();
+        env.network_rule(
+            index,
+            move |request| {
+                matches!(request, NetworkRequests::Block { block } if block.header().height() > withheld + 1)
+            },
+            Action::Observe(Box::new(move |_| {
+                if delivered.swap(true, Ordering::SeqCst) {
+                    return;
                 }
-            }
-            HandlerResult::Unhandled(request)
-        });
+                for account in &accounts {
+                    network.deliver_withheld_blocks(account);
+                }
+            })),
+        );
     }
 }
 
 fn withhold_block(mut env: TestLoopEnv, withheld: BlockHeight) -> (TestLoopEnv, CryptoHash) {
-    deliver_late(&mut env, withheld);
+    deliver_late(&env, withheld);
     env.node_runner(0).run_until_head_height(withheld - 1);
     let parent = env.node(0).client().chain.get_block_hash_by_height(withheld - 1).unwrap();
 

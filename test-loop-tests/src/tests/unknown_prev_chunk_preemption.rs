@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use near_async::messaging::{IntoSender, Sender};
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -64,14 +64,20 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
         .map(|data| (data.account_id.clone(), data.shards_manager_sender.clone().into_sender()))
         .collect();
 
-    for node_data in &env.node_datas {
+    for index in 0..env.node_datas.len() {
         let shards_manager_senders = shards_manager_senders.clone();
-        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
-            if let NetworkRequests::PartialEncodedChunkMessage {
-                account_id: ref to,
-                partial_encoded_chunk: ref genuine,
-            } = request
-            {
+        // The genuine chunk goes through unchanged, after the injected one.
+        env.network_rule(
+            index,
+            |request| matches!(request, NetworkRequests::PartialEncodedChunkMessage { .. }),
+            Action::Observe(Box::new(move |request| {
+                let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: to,
+                    partial_encoded_chunk: genuine,
+                } = request
+                else {
+                    return;
+                };
                 let header = &genuine.header;
                 if header.shard_id() == target_shard {
                     let preempting =
@@ -83,10 +89,8 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
                         ));
                     }
                 }
-            }
-            // Pass the genuine chunk through unchanged.
-            HandlerResult::Unhandled(request)
-        });
+            })),
+        );
     }
 
     let start_height = env.node(0).head().height;

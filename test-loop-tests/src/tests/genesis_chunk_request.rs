@@ -1,10 +1,10 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::types::{NetworkRequests, NetworkResponses, PartialEncodedChunkRequestMsg};
+use near_network::types::{NetworkRequests, PartialEncodedChunkRequestMsg};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use parking_lot::Mutex;
@@ -22,15 +22,17 @@ fn test_genesis_chunk_request_does_not_panic() {
 
     let response_seen = Arc::new(Mutex::new(None));
     let response_seen_handler = response_seen.clone();
-    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
-        match request {
-            NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
-                *response_seen_handler.lock() = Some(response);
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+    env.network_rule(
+        0,
+        |request| matches!(request, NetworkRequests::PartialEncodedChunkResponse { .. }),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedChunkResponse { response, .. } = request else {
+                unreachable!("the rule matches chunk responses only");
+            };
+            *response_seen_handler.lock() = Some(response);
+            Vec::new()
+        })),
+    );
 
     let genesis_chunk_hash = env
         .validator()

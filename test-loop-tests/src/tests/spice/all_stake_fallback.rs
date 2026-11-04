@@ -503,7 +503,7 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_execution_lags() {
     let epoch_length = 25;
     let (accounts, genesis, epoch_config_store) =
         FallbackSetup::new().epoch_length(epoch_length).build();
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts)

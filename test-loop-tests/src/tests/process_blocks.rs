@@ -1,18 +1,14 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
-use near_async::messaging::CanSend as _;
-use near_client::BlockResponse;
+use crate::setup::network_rules::Action;
 use near_crypto::{KeyType, PublicKey};
-use near_network::types::NetworkResponses;
 use near_network::types::{NetworkRequests, ReasonForBan};
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{Balance, validator_stake::ValidatorStake};
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone)]
 enum InvalidBlockMode {
@@ -32,67 +28,75 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
 
     let ban_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
     let bad_block_send_height = 8;
-    for node in &env.node_datas {
+    // Every node rewrites the block at `bad_block_send_height` on its way out, and swallows
+    // the bans the receivers answer with, counting them.
+    for index in 0..env.node_datas.len() {
         let ban_counter = ban_counter.clone();
         let epoch_manager = epoch_manager.clone();
         let mode = mode.clone();
 
-        node.register_override_handler(&mut env.test_loop.data, move |request| {
-            let mut ban_counter = ban_counter.write();
-            match request {
-                NetworkRequests::Block { mut block } => {
-                    let epoch_id = block.header().epoch_id();
-                    let height = block.header().height();
-                    if height == bad_block_send_height {
-                        let (bp, _) = epoch_manager
-                            .get_block_producer_info(&epoch_id, height)
-                            .unwrap()
-                            .account_and_stake();
-                        let validator_signer = create_test_signer(bp.as_str());
-                        let mut_block = Arc::make_mut(&mut block);
-                        match mode {
-                            InvalidBlockMode::InvalidHeader => {
-                                // produce an invalid block with invalid header.
-                                mut_block.mut_header().set_chunk_mask(vec![]);
-                                mut_block.mut_header().resign(&validator_signer);
-                            }
-                            InvalidBlockMode::IllFormed => {
-                                // produce an ill-formed block
-                                mut_block.mut_header().set_chunk_headers_root(hash(&[1]));
-                                mut_block.mut_header().resign(&validator_signer);
-                            }
-                            InvalidBlockMode::InvalidBlock => {
-                                // produce an invalid block whose invalidity cannot be verified by just
-                                // having its header.
-                                let proposals = vec![ValidatorStake::new(
-                                    bp,
-                                    PublicKey::empty(KeyType::ED25519),
-                                    Balance::ZERO,
-                                )];
+        env.network_rule(
+            index,
+            |request| {
+                matches!(request, NetworkRequests::Block { .. } | NetworkRequests::BanPeer { .. })
+            },
+            Action::Replace(Box::new(move |request| {
+                let mut ban_counter = ban_counter.write();
+                match request {
+                    NetworkRequests::Block { mut block } => {
+                        let epoch_id = block.header().epoch_id();
+                        let height = block.header().height();
+                        if height == bad_block_send_height {
+                            let (bp, _) = epoch_manager
+                                .get_block_producer_info(&epoch_id, height)
+                                .unwrap()
+                                .account_and_stake();
+                            let validator_signer = create_test_signer(bp.as_str());
+                            let mut_block = Arc::make_mut(&mut block);
+                            match mode {
+                                InvalidBlockMode::InvalidHeader => {
+                                    // produce an invalid block with invalid header.
+                                    mut_block.mut_header().set_chunk_mask(vec![]);
+                                    mut_block.mut_header().resign(&validator_signer);
+                                }
+                                InvalidBlockMode::IllFormed => {
+                                    // produce an ill-formed block
+                                    mut_block.mut_header().set_chunk_headers_root(hash(&[1]));
+                                    mut_block.mut_header().resign(&validator_signer);
+                                }
+                                InvalidBlockMode::InvalidBlock => {
+                                    // produce an invalid block whose invalidity cannot be verified by just
+                                    // having its header.
+                                    let proposals = vec![ValidatorStake::new(
+                                        bp,
+                                        PublicKey::empty(KeyType::ED25519),
+                                        Balance::ZERO,
+                                    )];
 
-                                mut_block.mut_header().set_prev_validator_proposals(proposals);
-                                mut_block.mut_header().resign(&validator_signer);
+                                    mut_block.mut_header().set_prev_validator_proposals(proposals);
+                                    mut_block.mut_header().resign(&validator_signer);
+                                }
                             }
                         }
+                        vec![NetworkRequests::Block { block }]
                     }
-                    HandlerResult::Unhandled(NetworkRequests::Block { block })
-                }
-                NetworkRequests::BanPeer { ref peer_id, ref ban_reason } => match mode {
-                    InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                        *ban_counter += 1;
-                        if *ban_counter > 3 {
-                            panic!("more bans than expected");
+                    NetworkRequests::BanPeer { ref peer_id, ref ban_reason } => match mode {
+                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                            *ban_counter += 1;
+                            if *ban_counter > 3 {
+                                panic!("more bans than expected");
+                            }
+                            Vec::new()
                         }
-                        HandlerResult::Handled(NetworkResponses::NoResponse)
-                    }
-                    InvalidBlockMode::InvalidBlock => {
-                        panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
-                    }
-                },
-                _ => HandlerResult::Unhandled(request),
-            }
-        });
+                        InvalidBlockMode::InvalidBlock => {
+                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
+                        }
+                    },
+                    _ => vec![request],
+                }
+            })),
+        );
     }
 
     env.node_runner(0).run_until_head_height(25);
@@ -133,14 +137,7 @@ fn test_produce_block_with_approvals_arrived_early() {
     let mut env = TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(100).build();
     let epoch_manager = env.node(0).client().epoch_manager.clone();
 
-    let block_holder: Arc<RwLock<Option<SpanWrapped<BlockResponse>>>> = Arc::new(RwLock::new(None));
-    let approval_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
-    let client_senders: HashMap<_, _> = env
-        .node_datas
-        .iter()
-        .map(|datas| (datas.account_id.clone(), datas.client_sender.clone()))
-        .collect();
-
+    let approval_counter = Arc::new(AtomicUsize::new(0));
     let block_withholding_height = 10;
     let epoch_id = env.node(0).head().epoch_id;
 
@@ -155,62 +152,35 @@ fn test_produce_block_with_approvals_arrived_early() {
     // With the same block producer - block withholding wouldn't test much.
     assert_ne!(block_producer_for_height, block_producer_for_next_height);
 
-    for node in &env.node_datas {
-        let my_account_id = node.account_id.clone();
-        let peer_id = node.peer_id.clone();
-
+    // The next producer gets the block only once the other three have approved its height, so
+    // their approvals arrive before the block they are for.
+    let network = env.shared_state.network_shared_state.clone();
+    network.withhold_block_delivery(
+        &block_producer_for_next_height,
+        block_withholding_height..block_withholding_height + 1,
+    );
+    for index in 0..env.node_datas.len() {
+        let network = network.clone();
         let approval_counter = approval_counter.clone();
-        let block_holder = block_holder.clone();
-        let client_senders = client_senders.clone();
-        let block_producer_for_next_height = block_producer_for_next_height.clone();
-
-        node.register_override_handler(&mut env.test_loop.data, move |request| {
-            let mut approval_counter = approval_counter.write();
-            match &request {
-                NetworkRequests::Block { block } => {
-                    if block.header().height() == block_withholding_height {
-                        for (account, sender) in &client_senders {
-                            if *account == block_producer_for_next_height
-                                || *account == my_account_id
-                            {
-                                continue;
-                            }
-                            sender.send(
-                                BlockResponse {
-                                    block: block.clone(),
-                                    peer_id: peer_id.clone(),
-                                    was_requested: false,
-                                }
-                                .span_wrap(),
-                            );
-                        }
-                        *block_holder.write() = Some(
-                            BlockResponse {
-                                block: block.clone(),
-                                peer_id: peer_id.clone(),
-                                was_requested: false,
-                            }
-                            .span_wrap(),
-                        );
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
-                    HandlerResult::Unhandled(request)
-                }
-                NetworkRequests::Approval { approval_message } => {
-                    if approval_message.target == block_producer_for_next_height
-                        && approval_message.approval.target_height == block_withholding_height + 1
-                    {
-                        *approval_counter += 1;
-                    }
-                    if *approval_counter == 3 {
-                        let block_response = block_holder.read().clone().unwrap();
-                        client_senders[&block_producer_for_next_height].send(block_response);
-                    }
-                    HandlerResult::Unhandled(request)
-                }
-                _ => HandlerResult::Unhandled(request),
+        let next_producer = block_producer_for_next_height.clone();
+        let is_approval_for_next_height = {
+            let next_producer = next_producer.clone();
+            move |request: &NetworkRequests| {
+                matches!(request, NetworkRequests::Approval { approval_message }
+                    if approval_message.target == next_producer
+                        && approval_message.approval.target_height == block_withholding_height + 1)
             }
-        });
+        };
+        env.network_rule(
+            index,
+            is_approval_for_next_height,
+            Action::Observe(Box::new(move |_| {
+                if approval_counter.fetch_add(1, Ordering::SeqCst) + 1 == 3 {
+                    let delivered = network.deliver_withheld_blocks(&next_producer);
+                    assert_eq!(delivered, 1, "the block was not withheld before the approvals");
+                }
+            })),
+        );
     }
 
     env.node_runner(0).run_until_final_head_height(block_withholding_height + 1);

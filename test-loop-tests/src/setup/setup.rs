@@ -1,4 +1,4 @@
-use super::drop_condition::ClientToShardsManagerSender;
+use super::drop_condition::{ClientToShardsManagerSender, DROP_CONDITION_RULE};
 use super::peer_manager_actor::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -70,6 +70,7 @@ pub fn setup_client(
         epoch_config_store,
         runtime_config_store,
         network_shared_state,
+        network_rules,
         upgrade_schedule,
         chunks_storage,
         drop_conditions,
@@ -387,6 +388,7 @@ pub fn setup_client(
             hash: *client_actor.client.chain.genesis().hash(),
         },
         Arc::new(test_loop.future_spawner(identifier)),
+        network_rules.clone(),
     );
 
     let gc_actor = GCActor::new(
@@ -586,6 +588,7 @@ pub fn setup_client(
 
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
+    network_rules.register_peer_manager(&account_id, peer_manager_sender.clone(), peer_id.clone());
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
         shared_state.rpc_config.clone(),
@@ -636,8 +639,16 @@ pub fn setup_client(
     }
 
     // Register all accumulated drop conditions
-    for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+    // A restarted node's account keeps the rules of the conditions added before, so only
+    // the conditions it has no rule for yet, the newest ones, are installed.
+    let installed = network_rules.tagged(&node_data.account_id, DROP_CONDITION_RULE).len();
+    for condition in drop_conditions.iter().skip(installed) {
+        node_data.register_drop_condition(
+            &test_loop.data,
+            chunks_storage.clone(),
+            network_rules,
+            condition,
+        );
     }
 
     node_data

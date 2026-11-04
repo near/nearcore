@@ -49,7 +49,7 @@ fn setup_with_shards(num_shards: usize, num_producers: usize) -> Setup {
     if num_shards > 1 {
         builder = builder.num_shards(num_shards);
     }
-    let mut env = builder.build();
+    let env = builder.build();
     let account_ids = |nodes: &[NodeExecutionData]| {
         nodes.iter().map(|n| n.account_id.clone()).collect::<Vec<_>>()
     };

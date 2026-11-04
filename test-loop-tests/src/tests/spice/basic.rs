@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
+use crate::tests::spice::utils::ENDORSEMENT_DELAY_RULE;
 use crate::utils::account::{
     create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
 };
@@ -308,7 +309,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let clients = validators_spec_clients(&validators_spec);
 
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
+    let env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -459,7 +460,7 @@ fn test_restart_producer_node() {
         shard_layout.account_id_to_shard_id(&receiver)
     );
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(num_producers, num_validators)
         .shard_layout(shard_layout.clone())
         .add_user_account(&sender, Balance::from_near(10))
@@ -509,9 +510,9 @@ fn test_restart_producer_node() {
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 }
 
-/// After `add_node`, call `delay_endorsements_propagation` again so the new
-/// peer manager actor picks up the endorsement-delay handler. Installation is
-/// tracked per node identifier, so existing nodes aren't instrumented twice.
+/// After `add_node`, call `delay_endorsements_propagation` again so the new node's account
+/// gets its endorsement-delay rule. Rules are tracked per account, so existing nodes aren't
+/// instrumented twice, and a restarted node keeps the rule of its account.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_delay_endorsements_propagation_instruments_added_node() {
@@ -519,28 +520,26 @@ fn test_spice_delay_endorsements_propagation_instruments_added_node() {
 
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
+    let env = TestLoopBuilder::new().validators_spec(validators_spec).delay_warmup().build();
 
     env.delay_endorsements_propagation(2);
     let mut env = env.warmup();
     env.node_runner(0).run_until_head_height(5);
 
-    let delay_state = env.shared_state.spice_endorsement_delay.clone();
-    let original_identifier = env.get_node_data_by_account_id(&clients[0]).identifier.clone();
-    assert!(delay_state.lock().installed_for.contains(&original_identifier));
+    let rules = env.shared_state.network_rules.clone();
+    let has_rule = |account: &AccountId| !rules.tagged(account, ENDORSEMENT_DELAY_RULE).is_empty();
+    assert!(has_rule(&clients[0]));
 
     let new_account = create_account_id("new_node");
     let new_identifier = "new_node";
     let node_state = env.node_state_builder().account_id(&new_account).build();
     env.add_node(new_identifier, node_state);
-    assert!(!delay_state.lock().installed_for.contains(new_identifier));
+    assert!(!has_rule(&new_account));
 
-    // Re-run to pick up the new peer; existing identifiers are not
-    // re-registered (idempotent).
+    // Re-run to cover the new account; the accounts covered before keep their one rule.
     env.delay_endorsements_propagation(2);
-    let installed_now = delay_state.lock().installed_for.clone();
-    assert!(installed_now.contains(new_identifier));
-    assert!(installed_now.contains(&original_identifier));
+    assert!(has_rule(&new_account));
+    assert_eq!(rules.tagged(&clients[0], ENDORSEMENT_DELAY_RULE).len(), 1);
 
     // Chain keeps progressing.
     env.node_runner(0).run_for_number_of_blocks(5);
@@ -557,7 +556,7 @@ fn test_restart_validator_node() {
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(num_producers, num_validators)
         .add_user_account(&sender, Balance::from_near(10))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -771,27 +770,27 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
     let num_producers = 2;
     let num_validators = 2;
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(num_producers, num_validators)
         .num_shards(2)
         .delay_warmup()
         .build();
 
-    // Register override handlers on validator-only nodes to track any
+    // Add observing rules on validator-only nodes to track any
     // SpicePartialData messages they attempt to send. These messages are the
     // downstream network effect of handling SpiceDistributorOutgoingReceipts
     // and SpiceDistributorStateWitness, so their absence proves no distribution
     // happened.
     let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
     for i in num_producers..env.node_datas.len() {
-        let node_data = &env.node_datas[i];
         let counter = spice_data_sent_count.clone();
-        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
-            if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
+        env.network_rule(
+            i,
+            |request| matches!(request, NetworkRequests::SpicePartialData { .. }),
+            Action::Observe(Box::new(move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
-            }
-            HandlerResult::Unhandled(request)
-        });
+            })),
+        );
     }
 
     let mut env = env.warmup();
@@ -817,24 +816,24 @@ fn test_spice_validator_only_sends_endorsements() {
     let num_producers = 2;
     let num_validators = 2;
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(num_producers, num_validators)
         .num_shards(2)
         .delay_warmup()
         .build();
 
-    // Register override handlers on validator-only nodes to count outgoing
+    // Add observing rules on validator-only nodes to count outgoing
     // SpiceChunkEndorsement messages.
     let endorsement_count = Arc::new(AtomicUsize::new(0));
     for i in num_producers..env.node_datas.len() {
-        let node_data = &env.node_datas[i];
         let counter = endorsement_count.clone();
-        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
-            if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
+        env.network_rule(
+            i,
+            |request| matches!(request, NetworkRequests::SpiceChunkEndorsement(..)),
+            Action::Observe(Box::new(move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
-            }
-            HandlerResult::Unhandled(request)
-        });
+            })),
+        );
     }
 
     let mut env = env.warmup();
@@ -1006,7 +1005,7 @@ fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
 fn test_spice_chunk_certifying_block_index() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(2, 0).delay_warmup().build();
+    let env = TestLoopBuilder::new().validators(2, 0).delay_warmup().build();
     // Certification lags consensus, so at the final head older chunks are
     // certified by final blocks while recent ones are not certified yet.
     env.delay_endorsements_propagation(4);
