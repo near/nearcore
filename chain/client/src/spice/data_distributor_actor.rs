@@ -6,10 +6,9 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS,
-    PartsOutcome, ProcessedBlockOutput, PullConfig, PullRequest, Push, SenderFault, ServeError,
-    ServeOutcome, ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart,
-    encode,
+    DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, PartsOutcome, ProcessedBlockOutput,
+    PullConfig, PullRequest, Push, RequestedItem, SenderFault, ServeError, ServeOutcome,
+    ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, VerifiedCodedPart, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
 use itertools::Itertools as _;
@@ -78,7 +77,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{TrieDBStorage, TrieStorage};
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
@@ -273,7 +271,7 @@ impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
         for proof in receipt_proofs {
             let data_id =
                 DataId::receipt_proof(block_hash, proof.1.from_shard_id, proof.1.to_shard_id);
-            if let Err(err) = self.push_receipt_proof(&data_id, &SpiceData::ReceiptProof(proof)) {
+            if let Err(err) = self.push_data(&data_id, &SpiceData::ReceiptProof(proof)) {
                 tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute receipt proof");
             }
         }
@@ -297,10 +295,10 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
         }
 
         // TODO(spice): compress witness before distributing.
-        if let Err(err) =
-            self.distribute_witness(&chunk_id, &SpiceData::StateWitness(Box::new(state_witness)))
-        {
-            tracing::error!(target: "spice_data_distribution", ?err, ?chunk_id, "failed to distribute state witness");
+        let data_id = DataId::Witness(chunk_id);
+        let data = SpiceData::StateWitness(Box::new(state_witness));
+        if let Err(err) = self.push_data(&data_id, &data) {
+            tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute state witness");
         }
     }
 }
@@ -444,8 +442,10 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
+        let pull_config = PullConfig::default();
+        let request_limits = pull_config.request_limits;
         let data_manager = SpiceDataManager::new(
-            PullConfig::default(),
+            pull_config,
             chain_store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -454,6 +454,7 @@ impl SpiceDataDistributorActor {
             chain_store.clone(),
             epoch_manager.clone(),
             ServePolicies::new(chain_store.clone(), epoch_manager.clone()),
+            request_limits,
         );
         Self {
             clock,
@@ -529,7 +530,7 @@ impl SpiceDataDistributorActor {
     }
 
     // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
-    fn push_receipt_proof(&mut self, data_id: &DataId, data: &SpiceData) -> Result<(), Error> {
+    fn push_data(&mut self, data_id: &DataId, data: &SpiceData) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             debug_assert!(false);
             return Err(Error::Other("trying to distribute data without validator_signer"));
@@ -542,45 +543,6 @@ impl SpiceDataDistributorActor {
                     SpiceDataIdentifier::from(data_id),
                     commitment,
                     vec![part],
-                    &signer,
-                ),
-                recipients,
-            },
-        ));
-        Ok(())
-    }
-
-    // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
-    fn distribute_witness(
-        &mut self,
-        chunk_id: &SpiceChunkId,
-        data: &SpiceData,
-    ) -> Result<(), Error> {
-        let Some(signer) = self.validator_signer.get() else {
-            debug_assert!(false);
-            return Err(Error::Other("trying to distribute data without validator_signer"));
-        };
-        let me = signer.validator_id();
-        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        let (recipients, producers) =
-            self.witness_recipients_and_producers(&block, chunk_id.shard_id)?;
-        debug_assert!(producers.contains(me));
-        debug_assert!(!recipients.contains(me));
-        let me_ord = producers.iter().position(|p| p == me).unwrap();
-
-        let mut distribution_data = encode(&self.rs_encoders.entry(producers.len()), data);
-
-        let my_part = distribution_data.parts.swap_remove(me_ord);
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpicePartialData {
-                partial_data: SpicePartialData::new(
-                    SpiceDataIdentifier::Witness {
-                        block_hash: chunk_id.block_hash,
-                        shard_id: chunk_id.shard_id,
-                    },
-                    distribution_data.commitment,
-                    vec![my_part],
                     &signer,
                 ),
                 recipients,
@@ -1366,57 +1328,37 @@ impl SpiceDataDistributorActor {
 
     fn handle_data_request(&mut self, request: SpiceDataRequest) -> Result<(), Error> {
         let (wants, requester) = request.into_parts();
-        validate_wants(&wants)?;
-        for (data_id, ordinals) in wants {
+        let request = self.data_server.check_request(wants).map_err(Error::MalformedRequest)?;
+        for item in request.into_items() {
             if !self.spice_gate.should_process_entry(
                 &self.chain_store,
                 self.epoch_manager.as_ref(),
                 SpiceMessageKind::DataRequest,
-                data_id.block_hash(),
+                item.id().block_hash(),
             ) {
                 continue;
             }
-            if let Err(err) = self.serve_data_request(&data_id, &ordinals, &requester) {
+            if let Err(err) = self.serve_requested_item(&item, &requester) {
                 self.record_malformed_data_request(&err);
-                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?requester, "not serving data request");
+                tracing::debug!(target: "spice_data_distribution", ?err, data_id = ?item.id(), ?requester, "not serving data request");
             }
         }
         Ok(())
     }
 
-    fn serve_data_request(
+    fn serve_requested_item(
         &mut self,
-        data_id: &SpiceDataIdentifier,
-        ordinals: &BTreeSet<u64>,
+        item: &RequestedItem,
         requester: &AccountId,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other("without validator signer we cannot handle data requests"));
         };
-        match data_id {
-            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
-                let id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
-                self.serve_receipt_proof(&id, ordinals, requester, &signer)
-            }
-            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
-                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
-                self.serve_witness(&chunk_id, ordinals, requester, &signer)
-            }
-        }
-    }
-
-    fn serve_receipt_proof(
-        &mut self,
-        id: &DataId,
-        ordinals: &BTreeSet<u64>,
-        requester: &AccountId,
-        signer: &ValidatorSigner,
-    ) -> Result<(), Error> {
-        let (commitment, parts) = match self.data_server.requested_parts(
-            signer.validator_id(),
-            id,
-            ordinals,
-        ) {
+        let id = item.id();
+        let (commitment, parts) = match self
+            .data_server
+            .requested_parts(signer.validator_id(), item)
+        {
             Ok(ServeOutcome::Parts { commitment, parts }) => (commitment, parts),
             Ok(ServeOutcome::NotStored) => {
                 // TODO(spice): Make sure we send requests for data only after we know it may be
@@ -1430,85 +1372,30 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that requester is one of the recipients and implement a
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
         // data they require.
-        debug_assert_eq!(parts.len(), ordinals.len());
+        debug_assert_eq!(parts.len(), item.ordinals().len());
+        if let DataId::Witness(chunk_id) = id {
+            // Lets the requester (e.g. a chunk validator catching up after restart) request the
+            // contracts missing from its local cache.
+            let accesses = get_contract_accesses(
+                self.chain_store.store_ref(),
+                &chunk_id.block_hash,
+                chunk_id.shard_id,
+            )
+            .expect("contract accesses should have been written atomically with witness");
+            let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, &signer);
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceChunkContractAccesses(vec![requester.clone()], accesses_msg),
+            ));
+        }
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
                 partial_data: SpicePartialData::new(
                     SpiceDataIdentifier::from(id),
                     commitment,
                     parts,
-                    signer,
+                    &signer,
                 ),
                 recipients: HashSet::from([requester.clone()]),
-            },
-        ));
-        Ok(())
-    }
-
-    fn serve_witness(
-        &mut self,
-        chunk_id: &SpiceChunkId,
-        ordinals: &BTreeSet<u64>,
-        requester: &AccountId,
-        signer: &ValidatorSigner,
-    ) -> Result<(), Error> {
-        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        // Without this an unknown shard would fail deeper in the epoch manager, where the error
-        // is indistinguishable from data we do not have.
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-        if !shard_layout.shard_ids().contains(&chunk_id.shard_id) {
-            return Err(Error::MalformedRequest(MalformedDataRequest::UnknownShard));
-        }
-        let (_recipients, producers) =
-            self.witness_recipients_and_producers(&block, chunk_id.shard_id)?;
-        if !producers.contains(signer.validator_id()) {
-            return Err(Error::MalformedRequest(MalformedDataRequest::NotAProducer));
-        }
-        let total_parts = producers.len();
-        if ordinals.last().is_some_and(|highest| *highest >= total_parts as u64) {
-            return Err(Error::MalformedRequest(MalformedDataRequest::OrdinalOutsideProducerSet));
-        }
-
-        let Some(data) = self.stored_witness_data(chunk_id, total_parts) else {
-            // TODO(spice): Make sure we send requests for data only after we know it may be
-            // available and make this into error.
-            tracing::debug!(target:"spice_data_distribution", ?chunk_id, ?requester, "received request for unknown data");
-            return Ok(());
-        };
-        // TODO(spice): Check that requester is one of the recipients and implement a
-        // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
-        // data they require.
-
-        // Also send contract accesses so that the requester (e.g. a chunk validator catching up
-        // after restart) can request them if not available in their local cache.
-        let accesses = get_contract_accesses(
-            self.chain_store.store_ref(),
-            &chunk_id.block_hash,
-            chunk_id.shard_id,
-        )
-        .expect("contract accesses should have been written atomically with witness");
-        let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, signer);
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpiceChunkContractAccesses(vec![requester.clone()], accesses_msg),
-        ));
-
-        let parts: Vec<_> =
-            data.parts.into_iter().filter(|part| ordinals.contains(&part.part_ord)).collect();
-        debug_assert_eq!(parts.len(), ordinals.len());
-
-        let recipients = HashSet::from([requester.clone()]);
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpicePartialData {
-                partial_data: SpicePartialData::new(
-                    SpiceDataIdentifier::Witness {
-                        block_hash: chunk_id.block_hash,
-                        shard_id: chunk_id.shard_id,
-                    },
-                    data.commitment,
-                    parts,
-                    signer,
-                ),
-                recipients,
             },
         ));
         Ok(())
@@ -1778,27 +1665,6 @@ impl SpiceDataDistributorActor {
             self.deliver_receipt_proof(data_id, data);
         }
     }
-}
-
-/// Checks a request against the caps before any of it is served, so a request that asks for too
-/// much costs nothing beyond this pass. Ordinals are checked against the producer count when
-/// serving the entry, where that count is known.
-pub(crate) fn validate_wants(
-    wants: &BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>,
-) -> Result<(), Error> {
-    if wants.is_empty() {
-        return Err(Error::MalformedRequest(MalformedDataRequest::NoEntries));
-    }
-    if wants.len() > MAX_REQUESTED_DATA_IDS {
-        return Err(Error::MalformedRequest(MalformedDataRequest::TooManyEntries));
-    }
-    if wants.values().any(|ordinals| ordinals.is_empty()) {
-        return Err(Error::MalformedRequest(MalformedDataRequest::EntryWithoutOrdinals));
-    }
-    if wants.values().map(|ordinals| ordinals.len()).sum::<usize>() > MAX_REQUESTED_PARTS {
-        return Err(Error::MalformedRequest(MalformedDataRequest::TooManyOrdinals));
-    }
-    Ok(())
 }
 
 /// The starting producer index is derived from a hash of (data_id, requester), so requests for the

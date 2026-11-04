@@ -1,13 +1,16 @@
 use super::encode::{EncodedData, encode};
+use super::pull::RequestLimits;
 use super::{DATA_PARTS_RATIO, DataId, ServePolicies, ServePolicy, SpiceData, producers_in_epoch};
 use itertools::Itertools as _;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
-use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
+use near_primitives::spice::partial_data::{
+    SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart,
+};
 use near_primitives::types::AccountId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 use strum::IntoStaticStr;
 
@@ -57,6 +60,60 @@ impl MalformedDataRequest {
     }
 }
 
+/// A data request within the request limits: it has items, and each item asks for at least
+/// one ordinal.
+#[derive(Debug)]
+pub(crate) struct CheckedDataRequest {
+    items: Vec<RequestedItem>,
+}
+
+/// One item of a [`CheckedDataRequest`].
+#[derive(Debug)]
+pub(crate) struct RequestedItem {
+    id: DataId,
+    /// Never empty.
+    ordinals: BTreeSet<u64>,
+}
+
+impl CheckedDataRequest {
+    pub(crate) fn new(
+        wants: BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>,
+        limits: &RequestLimits,
+    ) -> Result<Self, MalformedDataRequest> {
+        if wants.is_empty() {
+            return Err(MalformedDataRequest::NoEntries);
+        }
+        if wants.len() > limits.max_ids.get() {
+            return Err(MalformedDataRequest::TooManyEntries);
+        }
+        if wants.values().any(BTreeSet::is_empty) {
+            return Err(MalformedDataRequest::EntryWithoutOrdinals);
+        }
+        if wants.values().map(BTreeSet::len).sum::<usize>() > limits.max_parts.get() {
+            return Err(MalformedDataRequest::TooManyOrdinals);
+        }
+        let items = wants
+            .into_iter()
+            .map(|(id, ordinals)| RequestedItem { id: DataId::from(&id), ordinals })
+            .collect();
+        Ok(Self { items })
+    }
+
+    pub(crate) fn into_items(self) -> Vec<RequestedItem> {
+        self.items
+    }
+}
+
+impl RequestedItem {
+    pub(crate) fn id(&self) -> &DataId {
+        &self.id
+    }
+
+    pub(crate) fn ordinals(&self) -> &BTreeSet<u64> {
+        &self.ordinals
+    }
+}
+
 /// Why serving one requested item failed: malformed request, or a read on this node failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServeError {
@@ -73,6 +130,7 @@ pub(crate) struct SpiceDataServer<P: ServePolicy = ServePolicies> {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     policies: P,
+    request_limits: RequestLimits,
 }
 
 impl<P: ServePolicy> SpiceDataServer<P> {
@@ -80,13 +138,23 @@ impl<P: ServePolicy> SpiceDataServer<P> {
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         policies: P,
+        request_limits: RequestLimits,
     ) -> Self {
         Self {
             encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
             chain_store,
             epoch_manager,
             policies,
+            request_limits,
         }
+    }
+
+    /// Checks a request against the request limits before any of it is served.
+    pub(crate) fn check_request(
+        &self,
+        wants: BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>,
+    ) -> Result<CheckedDataRequest, MalformedDataRequest> {
+        CheckedDataRequest::new(wants, &self.request_limits)
     }
 
     /// The push of `data`, which `me` produced as a producer of `id`.
@@ -115,18 +183,17 @@ impl<P: ServePolicy> SpiceDataServer<P> {
         Ok(Push { recipients, commitment, part: parts.swap_remove(own_ordinal) })
     }
 
-    /// The requested `ordinals` of `id`, re-encoded from the stored data.
+    /// The requested parts of `item`, re-encoded from the stored data.
     pub(crate) fn requested_parts(
         &mut self,
         me: &AccountId,
-        id: &DataId,
-        ordinals: &BTreeSet<u64>,
+        item: &RequestedItem,
     ) -> Result<ServeOutcome, ServeError> {
+        let RequestedItem { id, ordinals } = item;
         let header = self.chain_store.get_block_header(id.block_hash())?;
         let shard_layout =
             self.epoch_manager.get_shard_layout(header.epoch_id()).map_err(Error::from)?;
-        if !id.shard_endpoints().iter().all(|shard_id| shard_layout.shard_ids().contains(shard_id))
-        {
+        if !id.shard_ids().all(|shard_id| shard_layout.shard_ids().contains(&shard_id)) {
             return Err(MalformedDataRequest::UnknownShard.into());
         }
         let epoch_info =

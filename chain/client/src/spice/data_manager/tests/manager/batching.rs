@@ -7,11 +7,19 @@ fn a_producers_wants_are_packed_into_requests_within_the_wire_caps() {
     let unpacked = PullConfig::default();
     let cap = TOTAL_PARTS - 1;
     let packed = PullConfig {
-        max_parts_per_request: NonZeroUsize::new(cap).unwrap(),
+        request_limits: RequestLimits {
+            max_parts: NonZeroUsize::new(cap).unwrap(),
+            ..RequestLimits::default()
+        },
         ..PullConfig::default()
     };
-    let id_capped =
-        PullConfig { max_ids_per_request: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let id_capped = PullConfig {
+        request_limits: RequestLimits {
+            max_ids: NonZeroUsize::new(1).unwrap(),
+            ..RequestLimits::default()
+        },
+        ..PullConfig::default()
+    };
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     let backer = producers()[0].clone();
     let ids = [receipt_id(&blocks[0], 0, 1), receipt_id(&blocks[1], 0, 1)];
@@ -64,7 +72,10 @@ fn an_items_ask_larger_than_one_request_spans_requests() {
     let (chain, blocks) = chain_with_blocks(2);
     let cap = 3;
     let config = PullConfig {
-        max_parts_per_request: NonZeroUsize::new(cap).unwrap(),
+        request_limits: RequestLimits {
+            max_parts: NonZeroUsize::new(cap).unwrap(),
+            ..RequestLimits::default()
+        },
         ..PullConfig::default()
     };
     let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));

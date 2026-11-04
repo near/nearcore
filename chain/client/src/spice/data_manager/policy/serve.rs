@@ -1,4 +1,5 @@
 use super::receipt_proof::ReceiptProofServePolicy;
+use super::witness::WitnessServePolicy;
 use crate::spice::data_manager::{DataId, SpiceData};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -20,6 +21,7 @@ pub(crate) trait ServePolicy {
 /// The serve policies, one per [`DataId`] variant.
 pub(crate) struct ServePolicies {
     receipt_proofs: ReceiptProofServePolicy,
+    witnesses: WitnessServePolicy,
 }
 
 impl ServePolicies {
@@ -27,12 +29,19 @@ impl ServePolicies {
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
-        Self { receipt_proofs: ReceiptProofServePolicy::new(chain_store, epoch_manager) }
+        Self {
+            receipt_proofs: ReceiptProofServePolicy::new(
+                chain_store.clone(),
+                epoch_manager.clone(),
+            ),
+            witnesses: WitnessServePolicy::new(chain_store, epoch_manager),
+        }
     }
 
     fn policy(&self, id: &DataId) -> &dyn ServePolicy {
         match id {
             DataId::ReceiptProof { .. } => &self.receipt_proofs,
+            DataId::Witness(_) => &self.witnesses,
         }
     }
 }

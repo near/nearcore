@@ -16,6 +16,25 @@ pub(crate) struct PullRequest {
     pub(crate) wants: BTreeMap<DataId, BTreeSet<u64>>,
 }
 
+/// Size limits of one data request. Requesters pack within them and servers refuse
+/// requests beyond them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RequestLimits {
+    /// Items one request may carry.
+    pub(crate) max_ids: NonZeroUsize,
+    /// Ordinals one request may carry, summed over its items.
+    pub(crate) max_parts: NonZeroUsize,
+}
+
+impl Default for RequestLimits {
+    fn default() -> Self {
+        Self {
+            max_ids: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
+            max_parts: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
+        }
+    }
+}
+
 /// Pacing and size limits of pulling.
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
@@ -23,10 +42,7 @@ pub(crate) struct Config {
     pub(crate) request_timeout: Duration,
     /// Heights pulled at one trigger: the lowest heights holding pullable items.
     pub(crate) pulled_heights: NonZeroUsize,
-    /// Items one request may carry.
-    pub(crate) max_ids_per_request: NonZeroUsize,
-    /// Ordinals one request may carry, summed over its items.
-    pub(crate) max_parts_per_request: NonZeroUsize,
+    pub(crate) request_limits: RequestLimits,
 }
 
 impl Default for Config {
@@ -34,8 +50,7 @@ impl Default for Config {
         Self {
             request_timeout: Duration::milliseconds(600),
             pulled_heights: const { NonZeroUsize::new(4).unwrap() },
-            max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
-            max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
+            request_limits: RequestLimits::default(),
         }
     }
 }
@@ -117,15 +132,15 @@ impl Pulls {
             .collect()
     }
 
-    /// Splits a producer's wants into requests within `max_ids_per_request` and
-    /// `max_parts_per_request`; one item's ordinals may span requests.
+    /// Splits a producer's wants into requests within the request limits; one item's ordinals
+    /// may span requests.
     fn pack_requests(
         &self,
         producer: AccountId,
         wants: BTreeMap<DataId, BTreeSet<u64>>,
     ) -> Vec<PullRequest> {
-        let max_ids_per_request = self.config.max_ids_per_request.get();
-        let max_parts_per_request = self.config.max_parts_per_request.get();
+        let max_ids_per_request = self.config.request_limits.max_ids.get();
+        let max_parts_per_request = self.config.request_limits.max_parts.get();
         let mut requests = Vec::new();
         let mut current: BTreeMap<DataId, BTreeSet<u64>> = BTreeMap::new();
         let mut current_parts = 0;

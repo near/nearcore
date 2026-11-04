@@ -29,7 +29,9 @@ impl ServePolicy for ReceiptProofServePolicy {
     /// The next block's chunk producers of the destination shard; across a resharding, of the
     /// shards it splits into.
     fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
-        let DataId::ReceiptProof { source, to_shard } = id;
+        let DataId::ReceiptProof { source, to_shard } = id else {
+            unreachable!("the receipt-proof policy serves only receipt proofs");
+        };
         let source_epoch_id = self.epoch_manager.get_epoch_id(&source.block_hash)?;
         let next_block_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
@@ -53,7 +55,9 @@ impl ServePolicy for ReceiptProofServePolicy {
     }
 
     fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
-        let DataId::ReceiptProof { source, to_shard } = id;
+        let DataId::ReceiptProof { source, to_shard } = id else {
+            unreachable!("the receipt-proof policy serves only receipt proofs");
+        };
         get_receipt_proof(
             self.chain_store.store_ref(),
             &source.block_hash,

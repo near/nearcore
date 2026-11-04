@@ -565,7 +565,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
         let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
-        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let DataId::ReceiptProof { source, to_shard } = &data_id else {
+            panic!("the executor receives only receipt proofs");
+        };
         let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
