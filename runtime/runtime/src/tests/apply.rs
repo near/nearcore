@@ -5251,6 +5251,8 @@ fn setup_gas_key_test(
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
+    // Apply transactions after the key creation height, as on a chain.
+    apply_state.block_height = GAS_KEY_BLOCK_HEIGHT + 1;
 
     GasKeyTestSetup {
         runtime,
