@@ -644,7 +644,7 @@ mod tests {
         let created_at = time::Utc::UNIX_EPOCH
             + time::Duration::seconds(1_700_000_000)
             + time::Duration::nanoseconds(250_000_123);
-        let body = T2MessageBody::ForwardTx(data::make_signed_transaction(&mut rng)).into();
+        let body = T2MessageBody::ForwardTx(data::make_signed_transaction(&mut rng).into()).into();
         let target = PeerIdOrHash::PeerId(data::make_peer_id(&mut rng));
         let msg = RawRoutedMessage { target, body }.sign(
             &data::make_secret_key(&mut rng),
