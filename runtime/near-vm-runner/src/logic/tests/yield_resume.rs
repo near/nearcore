@@ -1,6 +1,9 @@
 use crate::logic::HostError;
 use crate::logic::mocks::mock_external::MockAction;
+use crate::logic::tests::helpers::{assert_costs, reset_costs_counter};
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
+use crate::map;
+use near_parameters::ExtCosts;
 use near_primitives_core::types::Balance;
 
 #[test]
@@ -358,12 +361,21 @@ fn test_promise_yield_resume_register_payload() {
         .promise_yield_create(method_name.len, method_name.ptr, args.len, args.ptr, 0, 1, 0)
         .unwrap();
     logic.wrapped_internal_write_register(1, b"payload").unwrap();
+    reset_costs_counter();
 
     // Apply: resume with the payload in register 1.
     let result = logic.promise_yield_resume(u64::MAX, 0, u64::MAX, 1);
 
-    // Check: the resume succeeds and submits the register content as the payload.
+    // Check: the resume succeeds, pays for each payload byte, and submits the register content
+    // as the payload.
     assert_eq!(result, Ok(1));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::yield_resume_byte: 7,
+        ExtCosts::read_register_base: 2,
+        ExtCosts::read_register_byte: 32 + 7,
+    });
     drop(logic);
     assert!(matches!(
         logic_builder.ext.action_log.last(),
@@ -430,12 +442,23 @@ fn test_promise_yield_resume_with_yield_id_register_payload() {
         )
         .unwrap();
     logic.wrapped_internal_write_register(1, b"payload").unwrap();
+    reset_costs_counter();
 
     // Apply: resume with the payload in register 1.
     let result = logic.promise_yield_resume_with_yield_id(yield_id.len, yield_id.ptr, u64::MAX, 1);
 
-    // Check: the resume succeeds and submits the register content as the payload.
+    // Check: the resume succeeds, pays for each payload byte, and submits the register content
+    // as the payload.
     assert_eq!(result, Ok(1));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::yield_resume_byte: 7,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 7,
+    });
     drop(logic);
     assert!(matches!(
         logic_builder.ext.action_log.last(),
