@@ -508,13 +508,13 @@ fn test_pairwise_presets_cover_the_allowed_pairs() {
         "\"data_before_block,bad_first_spice_block\"",
         "\"data_before_block,fork_at_boundary\"",
         "\"bad_first_spice_block,fork_at_boundary\"",
+        "\"late_chunk,fork_at_boundary\"",
     ];
     assert_eq!(printed.len(), all_pairs - conflicts.len(), "{printed:?}");
     for conflict in conflicts {
         assert!(!printed.contains(&conflict.to_string()), "{conflict} is a conflict");
     }
     assert!(printed.contains(&"\"missing_chunk,shard_skip\"".to_string()));
-    assert!(printed.contains(&"\"late_chunk,fork_at_boundary\"".to_string()));
     assert!(printed.contains(&"\"node_crash,fork_at_boundary\"".to_string()));
     // Slowing a task `track_all` leaves running is no conflict.
     let slowed_apply = SlowNode::new().task(task_names::APPLY_CHUNKS_NORMAL);

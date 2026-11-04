@@ -1,7 +1,8 @@
 //! Profile choice and the conflict list: turns a scenario into the setup it runs on.
 
 use super::faults::{
-    BadBoundaryWitness, DataBeforeBlock, LateChunk, MissingChunk, NodeCrash, SlowNode,
+    BadBoundaryWitness, DataBeforeBlock, ForkAtBoundary, LateChunk, MissingChunk, NodeCrash,
+    SlowNode,
 };
 use super::loads;
 use super::scenario::{Fault as _, Scenario};
@@ -413,6 +414,22 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
     if has("gc_tight") && has("node_crash") {
         errors.push(
             "gc_tight with node_crash: catch-up needs the blocks GC would remove".to_string(),
+        );
+    }
+    // The held last pre-spice block is meant to arrive as a losing fork, but with a delayed
+    // chunk shifting the timing it reaches the driver's node first and is canonical until the
+    // chain built on its parent overtakes it.
+    if has("late_chunk")
+        && faults
+            .iter()
+            .filter_map(|fault| fault.as_any().downcast_ref::<ForkAtBoundary>())
+            .any(ForkAtBoundary::holds_last_pre_spice)
+    {
+        errors.push(
+            "late_chunk with fork_at_boundary holding the last pre-spice block: the held block \
+             can be canonical for a while, and the loads' transactions signed against it are \
+             rejected once it loses, since their base block is no ancestor of the chain"
+                .to_string(),
         );
     }
     if has("track_all") && has("late_tracker") {

@@ -76,6 +76,11 @@ impl ForkAtBoundary {
         self
     }
 
+    /// Whether the held block is a last pre-spice block, which ends up on a losing fork.
+    pub fn holds_last_pre_spice(&self) -> bool {
+        self.kind == Kind::LastPreSpice
+    }
+
     fn held(&self) -> Option<(BlockHeight, CryptoHash)> {
         *self.held.lock()
     }
