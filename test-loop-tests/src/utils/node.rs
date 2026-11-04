@@ -16,6 +16,7 @@ use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
+use near_pool::InsertTransactionResult;
 use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
@@ -303,22 +304,29 @@ impl<'a> TestLoopNode<'a> {
 
     /// Insert a signed transaction directly into this node's chunk producer pool,
     /// bypassing RPC validation. The shard is resolved from the signer account
-    /// using the current epoch's shard layout.
+    /// using the shard layout for the *next* block's epoch (matching the chunk
+    /// producer's view), so the tx lands in the pool a chunk at `head+1` will
+    /// draw from even across an epoch boundary with a shard-layout change.
     ///
     /// Intended for adversarial / malicious chunk producer tests that need
     /// to bypass the normal admission checks (e.g. to include a transaction
-    /// that would be rejected by `check_valid_for_config`).
+    /// that would be rejected by `check_valid_for_config`). Panics if the pool
+    /// rejects the transaction so a silent `NoSpaceLeft`/`Duplicate` can't
+    /// let a regression test pass vacuously (producer ships an empty chunk).
     pub fn submit_tx_pool(&self, tx: SignedTransaction) -> CryptoHash {
         let tx_hash = tx.get_hash();
         let client = self.client();
-        let epoch_id = client.chain.head().unwrap().epoch_id;
-        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let head = client.chain.head().unwrap();
+        let next_epoch_id =
+            client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
         let shard_uid = shard_layout.account_id_to_shard_uid(tx.transaction.signer_id());
-        client
+        let result = client
             .chunk_producer
             .sharded_tx_pool
             .lock()
             .insert_transaction(shard_uid, ValidatedTransaction::new_for_test(tx));
+        assert_eq!(result, InsertTransactionResult::Success, "tx pool rejected submission");
         tx_hash
     }
 

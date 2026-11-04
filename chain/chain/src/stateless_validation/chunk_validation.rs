@@ -321,10 +321,10 @@ pub fn pre_validate_chunk_state_witness(
     state_witness.chunk_header().validate_version(protocol_version)?;
 
     // Reject chunks whose newly proposed transactions cannot exist at the
-    // active protocol version (e.g. `Transaction::V1` before `GasKeys` is
-    // enabled). Without this gate, pre-upgrade nodes would still endorse a
-    // chunk containing such a transaction but be unable to deserialize the
-    // chunk body, causing them to stall.
+    // active protocol version (e.g. an `EccTransaction` before
+    // `ExternalContractCalls` is enabled). Without this gate, pre-upgrade
+    // nodes would still endorse a chunk containing such a transaction but
+    // be unable to deserialize the chunk body, causing them to stall.
     //
     // Signature verification is intentionally skipped here — it is performed
     // later when the transaction is applied; we only need a cheap, signature-

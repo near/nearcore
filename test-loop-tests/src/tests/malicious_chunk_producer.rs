@@ -158,8 +158,8 @@ fn test_producer_with_expired_transactions() {
 ///
 /// The gate's broader purpose is to defend against a malicious producer
 /// smuggling a transaction whose wire format isn't enabled at the active
-/// protocol version yet (e.g. `Transaction::V1` before `GasKeys`, an ECC
-/// before `ExternalContractCalls`). Pre-upgrade validators would fail to
+/// protocol version yet (e.g. an `EccTransaction` before
+/// `ExternalContractCalls`). Pre-upgrade validators would fail to
 /// deserialize the chunk body and stall. We also shrink
 /// `max_transaction_size` so the "oversized" tx stays small and the test
 /// stays fast.
@@ -181,7 +181,7 @@ fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
     let user_account = create_account_id("user0");
     let mut env = TestLoopBuilder::new()
         .validators(1, 2)
-        .add_user_accounts(&[user_account.clone()], Balance::from_near(1_000_000))
+        .add_user_accounts(std::slice::from_ref(&user_account), Balance::from_near(1_000_000))
         .runtime_config_store(runtime_config_store)
         .build();
 
@@ -200,7 +200,7 @@ fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
     let oversized_tx = SignedTransaction::from_actions(
         1,
         user_account.clone(),
-        user_account.clone(),
+        user_account,
         &signer,
         vec![Action::DeployContract(DeployContractAction {
             code: vec![0u8; (MAX_TX_SIZE * 2) as usize],
