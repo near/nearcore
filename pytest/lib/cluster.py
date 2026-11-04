@@ -33,7 +33,6 @@ from configured_logger import logger
 from key import Key
 import state_sync_lib
 
-# cspell:ignore nretry pmap preemptible proxify uefi useragent
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
