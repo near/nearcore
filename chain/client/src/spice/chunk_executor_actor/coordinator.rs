@@ -1,6 +1,6 @@
 //! The chunk-executor coordinator: owns the per-shard executor registry, routes
 //! upstream events to the per-shard executors, and runs the disk-driven
-//! execution-head advance / block-execution completion.
+//! execution-head advance / block postprocessing.
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
@@ -261,9 +261,9 @@ impl ChunkExecutorActor {
             executor.handle_processed_block(&block);
         }
         // A node tracking zero shards schedules no applies, so the apply-done
-        // completion trigger never fires; complete the block's execution here instead.
+        // postprocess trigger never fires; postprocess the block here instead.
         if self.all_tracked_shards_applied(block_hash)? {
-            self.complete_block_execution(block_hash)?;
+            self.postprocess_block(block_hash)?;
         }
         Ok(())
     }
@@ -296,19 +296,19 @@ impl ChunkExecutorActor {
     }
 
     /// After a shard applies, progress its receiving shards (their incoming
-    /// receipts are now on disk — local-path fanout), then complete the block's
-    /// execution once all its tracked shards are applied.
+    /// receipts are now on disk — local-path fanout), then postprocess the block
+    /// once all its tracked shards are applied.
     pub(crate) fn coordinator_post_apply(
         &mut self,
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
         self.try_progress_receiving_shards(outgoing_proofs);
-        // Each tracked shard's apply-done lands here; complete the block's execution
-        // once all of them are applied. `complete_block_execution` is idempotent, so
-        // being driven here repeatedly is harmless.
+        // Each tracked shard's apply-done lands here; postprocess the block once all
+        // of them are applied. `postprocess_block` is idempotent, so being driven here
+        // repeatedly is harmless.
         if self.all_tracked_shards_applied(block_hash)? {
-            self.complete_block_execution(block_hash)?;
+            self.postprocess_block(block_hash)?;
         }
         Ok(())
     }
@@ -326,10 +326,10 @@ impl ChunkExecutorActor {
     }
 
     /// Disk-driven head recovery: walk canonical-next from `spice_execution_head`
-    /// and complete the execution of each block whose tracked shards all have
-    /// `ChunkExtra` on disk. Used on startup to recover from a crash between
-    /// apply-commit and block-execution completion; the hot path completes blocks
-    /// directly in `coordinator_post_apply`.
+    /// and postprocess each block whose tracked shards all have `ChunkExtra` on
+    /// disk. Used on startup to recover from a crash between apply-commit and
+    /// block postprocessing; the hot path postprocesses directly in
+    /// `coordinator_post_apply`.
     fn advance_execution_head(&mut self) -> Result<(), Error> {
         loop {
             let head = self.chain_store.spice_execution_head()?.last_block_hash;
@@ -349,11 +349,11 @@ impl ChunkExecutorActor {
             if !self.all_tracked_shards_applied(&next)? {
                 return Ok(());
             }
-            self.complete_block_execution(&next)?;
+            self.postprocess_block(&next)?;
         }
     }
 
-    fn complete_block_execution(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn postprocess_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         // Before `apply_block_postprocessing`, which is what advances the flat head: the
         // snapshot request freezes the flat heads where they are, at or below the sync block,
@@ -543,9 +543,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
             }
             return;
         }
-        // Recover after a crash between apply-commit and block-execution completion:
-        // walk forward past anything already-applied on disk before scheduling fresh
-        // applies. Idempotent — a clean restart with no pending completion is a no-op.
+        // Recover after a crash between apply-commit and block postprocessing: walk
+        // forward past anything already-applied on disk before scheduling fresh applies.
+        // Idempotent — a clean restart with no pending postprocessing is a no-op.
         if let Err(err) = self.advance_execution_head() {
             tracing::error!(
                 target: "chunk_executor",

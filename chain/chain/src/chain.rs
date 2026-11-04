@@ -3885,7 +3885,7 @@ impl Chain {
         // Spice snapshots the state the epoch's first block leaves behind, which only exists
         // once that block's chunks have executed - after this block-processing path has run.
         // The spice chunk executor drives it instead, from
-        // `ChunkExecutorActor::complete_block_execution`.
+        // `ChunkExecutorActor::postprocess_block`.
         if self.get_block_header(&head.last_block_hash)?.is_spice() {
             return Ok(SnapshotAction::None);
         }
