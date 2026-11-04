@@ -160,12 +160,9 @@ fn test_producer_with_expired_transactions() {
 /// smuggling a transaction whose wire format isn't enabled at the active
 /// protocol version yet (e.g. `Transaction::V1` before `GasKeys`, an ECC
 /// before `ExternalContractCalls`). Pre-upgrade validators would fail to
-/// deserialize the chunk body and stall. With `GasKeys` stabilized and
-/// ECCs not yet packed by the chunk producer, `TransactionSizeExceeded`
-/// is the only rejection in `check_valid_for_config` reachable from
-/// stable master today, so we use an oversized transaction as a stand-in
-/// for that attack class. We also shrink `max_transaction_size` so the
-/// "oversized" tx stays small and the test stays fast.
+/// deserialize the chunk body and stall. We also shrink
+/// `max_transaction_size` so the "oversized" tx stays small and the test
+/// stays fast.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
