@@ -1,6 +1,7 @@
 // cspell:ignore bendian, blst, cofactor, enot, goperations, multipoint
 // cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
+    use crate::logic::HostError;
     use crate::logic::MemSlice;
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
@@ -1790,4 +1791,314 @@ mod tests {
         map_fp2tog2_return_value,
         error_check
     );
+
+    #[test]
+    fn test_bls12381_p1_sum_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: one positive G1 point at infinity in register 1.
+        let mut input = vec![0u8; 1 + 96];
+        input[1] = 0x40;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(logic.bls12381_p1_sum(u64::MAX, 1, 0), Err(HostError::IntegerOverflow.into()));
+    }
+
+    #[test]
+    fn test_bls12381_p1_sum_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: one positive G1 point at infinity, once in memory and once in register 1.
+        let mut input = vec![0u8; 1 + 96];
+        input[1] = 0x40;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_p1_sum(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_p1_sum(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_p2_sum_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: one positive G2 point at infinity in register 1.
+        let mut input = vec![0u8; 1 + 192];
+        input[1] = 0x40;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(logic.bls12381_p2_sum(u64::MAX, 1, 0), Err(HostError::IntegerOverflow.into()));
+    }
+
+    #[test]
+    fn test_bls12381_p2_sum_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: one positive G2 point at infinity, once in memory and once in register 1.
+        let mut input = vec![0u8; 1 + 192];
+        input[1] = 0x40;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_p2_sum(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_p2_sum(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_g1_multiexp_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the G1 point at infinity times zero in register 1.
+        let mut input = vec![0u8; 96 + 32];
+        input[0] = 0x40;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_g1_multiexp(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_g1_multiexp_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the G1 point at infinity times zero, once in memory and once in register 1.
+        let mut input = vec![0u8; 96 + 32];
+        input[0] = 0x40;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_g1_multiexp(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_g1_multiexp(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_g2_multiexp_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the G2 point at infinity times zero in register 1.
+        let mut input = vec![0u8; 192 + 32];
+        input[0] = 0x40;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_g2_multiexp(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_g2_multiexp_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the G2 point at infinity times zero, once in memory and once in register 1.
+        let mut input = vec![0u8; 192 + 32];
+        input[0] = 0x40;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_g2_multiexp(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_g2_multiexp(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_map_fp_to_g1_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the zero Fp element in register 1.
+        let input = vec![0u8; 48];
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_map_fp_to_g1(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_map_fp_to_g1_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the zero Fp element, once in memory and once in register 1.
+        let input = vec![0u8; 48];
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_map_fp_to_g1(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_map_fp_to_g1(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_map_fp2_to_g2_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the zero Fp2 element in register 1.
+        let input = vec![0u8; 96];
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_map_fp2_to_g2(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_map_fp2_to_g2_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the zero Fp2 element, once in memory and once in register 1.
+        let input = vec![0u8; 96];
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_map_fp2_to_g2(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_map_fp2_to_g2(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_p1_decompress_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the compressed G1 point at infinity in register 1.
+        let mut input = vec![0u8; 48];
+        input[0] = 0xc0;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_p1_decompress(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_p1_decompress_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the compressed G1 point at infinity, once in memory and once in register 1.
+        let mut input = vec![0u8; 48];
+        input[0] = 0xc0;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_p1_decompress(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_p1_decompress(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
+
+    #[test]
+    fn test_bls12381_p2_decompress_register_input_without_fix() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = false;
+        let mut logic = logic_builder.build();
+
+        // Setup: the compressed G2 point at infinity in register 1.
+        let mut input = vec![0u8; 96];
+        input[0] = 0xc0;
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
+        // register.
+        assert_eq!(
+            logic.bls12381_p2_decompress(u64::MAX, 1, 0),
+            Err(HostError::IntegerOverflow.into())
+        );
+    }
+
+    #[test]
+    fn test_bls12381_p2_decompress_register_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: the compressed G2 point at infinity, once in memory and once in register 1.
+        let mut input = vec![0u8; 96];
+        input[0] = 0xc0;
+        let memory_input = logic.internal_mem_write(&input);
+        logic.wrapped_internal_write_register(1, &input).unwrap();
+
+        // Apply: call the host function with each input.
+        assert_eq!(logic.bls12381_p2_decompress(memory_input.len, memory_input.ptr, 0), Ok(0));
+        assert_eq!(logic.bls12381_p2_decompress(u64::MAX, 1, 2), Ok(0));
+
+        // Check: register input gives the same result as memory input.
+        let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
+        assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
+    }
 }
