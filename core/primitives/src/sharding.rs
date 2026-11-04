@@ -1520,7 +1520,7 @@ impl ShardChunkWithEncoding {
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the pool can hold them (#16473)
+        // TODO(ecc): include ECCs once the producer packs them
         let signed_txs = validated_txs
             .into_iter()
             .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))
@@ -1572,7 +1572,7 @@ impl ShardChunkWithEncoding {
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
-        // TODO(ecc): include ECCs once the pool can hold them (#16473)
+        // TODO(ecc): include ECCs once the producer packs them
         let signed_txs = validated_txs
             .into_iter()
             .map(|validated_tx| TransactionEnvelope::from(validated_tx.into_signed_tx()))

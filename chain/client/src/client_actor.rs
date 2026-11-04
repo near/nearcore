@@ -533,7 +533,6 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
-                self.adv.set_disable_doomslug(true);
                 self.client.doomslug.adv_disable();
                 self.client.chain.adv_disable_doomslug();
                 None

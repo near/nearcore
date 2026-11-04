@@ -8,7 +8,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
-/// Block-level finalize. Owns the entire commit lifecycle because the work
+/// Block-level postprocessing. Owns the entire commit lifecycle because the work
 /// straddles the commit boundary, unlike `apply_chunk_postprocessing` which
 /// takes `&mut StoreUpdate` and lets the caller commit.
 ///

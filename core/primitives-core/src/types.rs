@@ -9,12 +9,8 @@ use std::str::FromStr;
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = u64;
-/// Mask which validators participated in multi sign.
-pub type ValidatorMask = Vec<bool>;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
-/// StorageUsageChange is used to count the storage usage within a single contract call.
-pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 /// Nonce index for gas keys.
@@ -43,9 +39,6 @@ pub type NumShards = u64;
 pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;
-
-pub type ReceiptIndex = usize;
-pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 

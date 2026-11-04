@@ -10,7 +10,7 @@ use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -32,7 +32,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -1203,8 +1203,8 @@ fn slow_test_process_block_after_state_sync() {
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
     let state_root = header.synced_state_root();
-    let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+    let snapshot_hash =
+        snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
 
     let state_part = env.clients[0]
         .runtime_adapter
@@ -3039,6 +3039,7 @@ fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
     let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
     let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
     while let Some(group) = iter.next() {
+        let PooledGroup::Signed(group) = group else { continue };
         while let Some(tx) = group.next() {
             hashes.insert(tx.get_hash());
         }
@@ -3437,9 +3438,8 @@ mod contract_precompilation_tests {
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
         let state_root = state_sync_header.synced_state_root();
-        let sync_prev_header =
-            env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
         let state_part = env.clients[0]
             .runtime_adapter
             .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))

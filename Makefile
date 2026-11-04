@@ -88,10 +88,14 @@ neard-sandbox-release:
 test-features-release:
 	cargo build -p neard --release --features test_features
 
+#? spice-release: build release version of neard with protocol_feature_spice feature
+spice-release:
+	cargo build -p neard --release --features protocol_feature_spice
+
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
 .PHONY: nightly-release nightly-debug assertions-release sandbox
-.PHONY: sandbox-release
+.PHONY: sandbox-release spice-release
 
 #? help: get this help message
 help: Makefile

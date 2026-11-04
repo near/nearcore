@@ -300,9 +300,24 @@ fn min_chunk_prev_height(
 /// The hash a snapshot of `block`'s state is keyed by, and advertised under. Spice snapshots
 /// the state `block`'s own chunks left behind, so the snapshot sits at `block`; non-spice
 /// snapshots the state as of the block before it. `StateSnapshot` moves the snapshot's flat head
-/// to the same block. Syncing peers derive the same hash from the sync hash to find a host.
+/// to the same block. Syncing peers derive the same hash from the sync hash, through
+/// `snapshot_hash_for_sync_hash`, to find a host.
 pub fn snapshot_hash_for_block(block: &BlockHeader) -> CryptoHash {
     if block.is_spice() { *block.hash() } else { *block.prev_hash() }
+}
+
+/// The hash of the snapshot serving state sync at `sync_hash`: what `snapshot_hash_for_block`
+/// names for the snapshot a host takes for that sync hash. Spice snapshots at the sync block
+/// itself; non-spice snapshots at the sync block's prev block, keyed by its prev prev.
+pub fn snapshot_hash_for_sync_hash(
+    chain_store: &ChainStoreAdapter,
+    sync_hash: &CryptoHash,
+) -> Result<CryptoHash, Error> {
+    let sync_header = chain_store.get_block_header(sync_hash)?;
+    if sync_header.is_spice() {
+        return Ok(*sync_hash);
+    }
+    Ok(*chain_store.get_block_header(sync_header.prev_hash())?.prev_hash())
 }
 
 /// Sends a request to make a state snapshot.

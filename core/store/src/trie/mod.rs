@@ -28,8 +28,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives_core::code::ContractCode;
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::ContractCode;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};

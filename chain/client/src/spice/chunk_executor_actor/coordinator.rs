@@ -1,6 +1,6 @@
 //! The chunk-executor coordinator: owns the per-shard executor registry, routes
 //! upstream events to the per-shard executors, and runs the disk-driven
-//! execution-head advance / finalize.
+//! execution-head advance / block postprocessing.
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
@@ -51,9 +51,11 @@ pub struct ChunkExecutorActor {
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
     /// Used to snapshot the state left behind by an epoch's first block, which is what state
-    /// sync hands out for that epoch. `None` when the node makes no snapshots.
+    /// sync hands out for that epoch. `None` where the executor runs without a snapshot actor,
+    /// as in some tests; whether the node takes snapshots at all is up to `StateSnapshotConfig`.
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    /// The last snapshot this node has announced.
+    /// The last snapshot announced since this actor started. It is not persisted, so after a
+    /// restart the current snapshot is announced again once its chunks are certified.
     advertised_snapshot: Option<CryptoHash>,
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
@@ -259,9 +261,9 @@ impl ChunkExecutorActor {
             executor.handle_processed_block(&block);
         }
         // A node tracking zero shards schedules no applies, so the apply-done
-        // finalize trigger never fires; finalize here instead.
+        // postprocess trigger never fires; postprocess the block here instead.
         if self.all_tracked_shards_applied(block_hash)? {
-            self.finalize_block(block_hash)?;
+            self.postprocess_block(block_hash)?;
         }
         Ok(())
     }
@@ -294,19 +296,19 @@ impl ChunkExecutorActor {
     }
 
     /// After a shard applies, progress its receiving shards (their incoming
-    /// receipts are now on disk — local-path fanout), then finalize the block once
-    /// all its tracked shards are applied.
+    /// receipts are now on disk — local-path fanout), then postprocess the block
+    /// once all its tracked shards are applied.
     pub(crate) fn coordinator_post_apply(
         &mut self,
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
         self.try_progress_receiving_shards(outgoing_proofs);
-        // Each tracked shard's apply-done lands here; finalize the block once all of
-        // them are applied. `finalize_block` is idempotent, so being driven here
+        // Each tracked shard's apply-done lands here; postprocess the block once all
+        // of them are applied. `postprocess_block` is idempotent, so being driven here
         // repeatedly is harmless.
         if self.all_tracked_shards_applied(block_hash)? {
-            self.finalize_block(block_hash)?;
+            self.postprocess_block(block_hash)?;
         }
         Ok(())
     }
@@ -324,9 +326,10 @@ impl ChunkExecutorActor {
     }
 
     /// Disk-driven head recovery: walk canonical-next from `spice_execution_head`
-    /// and finalize each block whose tracked shards all have `ChunkExtra` on
+    /// and postprocess each block whose tracked shards all have `ChunkExtra` on
     /// disk. Used on startup to recover from a crash between apply-commit and
-    /// finalize; the hot path finalizes directly in `coordinator_post_apply`.
+    /// block postprocessing; the hot path postprocesses directly in
+    /// `coordinator_post_apply`.
     fn advance_execution_head(&mut self) -> Result<(), Error> {
         loop {
             let head = self.chain_store.spice_execution_head()?.last_block_hash;
@@ -346,15 +349,16 @@ impl ChunkExecutorActor {
             if !self.all_tracked_shards_applied(&next)? {
                 return Ok(());
             }
-            self.finalize_block(&next)?;
+            self.postprocess_block(&next)?;
         }
     }
 
-    fn finalize_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn postprocess_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         // Before `apply_block_postprocessing`, which is what advances the flat head: the
-        // snapshot request pins the flat head at this block, and pinning it after the advance
-        // has begun would leave the snapshot unable to reach the state it is meant to hold.
+        // snapshot request freezes the flat heads where they are, at or below the sync block,
+        // and once they have moved past it the snapshot could no longer reach the state it is
+        // meant to hold.
         if let Err(err) = self.process_snapshot(&block) {
             tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to request a state snapshot");
         }
@@ -421,10 +425,11 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Requests a state snapshot of the epoch's sync block, if `block` is about to move the
-    /// final execution head past it.
+    /// Requests a state snapshot of the sync block of the epoch containing `block`'s last final
+    /// block, unless that snapshot is already wanted or taken, or a flat head has already moved
+    /// past the sync block.
     ///
-    /// State sync for an epoch hands out the state as of that epoch's first block.
+    /// State sync for an epoch hands out the state that epoch's first block left behind.
     /// The snapshot is created here and announced to the network later, once
     /// the chunks are certified.
     fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
@@ -538,9 +543,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
             }
             return;
         }
-        // Recover after a crash between apply-commit and finalize: walk forward
-        // past anything already-applied on disk before scheduling fresh applies.
-        // Idempotent — a clean restart with no pending finalize is a no-op.
+        // Recover after a crash between apply-commit and block postprocessing: walk
+        // forward past anything already-applied on disk before scheduling fresh applies.
+        // Idempotent — a clean restart with no pending postprocessing is a no-op.
         if let Err(err) = self.advance_execution_head() {
             tracing::error!(
                 target: "chunk_executor",

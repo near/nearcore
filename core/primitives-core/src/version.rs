@@ -27,6 +27,8 @@ pub enum ProtocolFeature {
     FixContractLoadingError,
     /// Bound the combined size of the promise inputs a single receipt consumes.
     ReceiptPromiseInputSizeLimit,
+    /// Raise `per_receipt_storage_proof_size_limit` to 4'500'000.
+    RaisePerReceiptStorageProofLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     /// Reject `Action::DelegateV2`. This disables meta transactions from gas
@@ -126,6 +128,7 @@ impl ProtocolFeature {
             ProtocolFeature::UpdatedEthWalletContract => 89,
             ProtocolFeature::FixContractLoadingCost => 89,
             ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
+            ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

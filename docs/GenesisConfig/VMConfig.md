@@ -1,6 +1,8 @@
 # VMConfig
 
 Config of wasm operations.
+The fields from `max_gas_burnt` to `max_total_log_length` belong to the limit config.
+In the JSON view they are nested under the `limit_config` key of `wasm_config`.
 
 ## ext_costs
 
@@ -80,8 +82,9 @@ Maximum number of registers that can be used simultaneously.
 
 Maximum number of log entries.
 
-## max_log_len
+## max_total_log_length
 
-`type: u64
+`type: u64`
 
-Maximum length of a single log, in bytes.
+Maximum total length, in bytes, of all log messages emitted by one function call execution.
+The value is 16384.

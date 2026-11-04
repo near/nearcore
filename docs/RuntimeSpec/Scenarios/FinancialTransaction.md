@@ -67,9 +67,12 @@ with the secret key, resulting in a `SignedTransaction` object.
 
 ## Sending the transaction
 
-To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it.
-If users wants to wait until the transaction is processed they can use `send_tx_commit` JSONRPC method which waits for the
-transaction to appear in a block. Otherwise the user can use `send_tx_async`.
+To send the transaction, near-shell connects through the RPC to any Near Protocol node and submits it with the `send_tx`
+JSON-RPC method. The `wait_until` parameter sets which execution status the call waits for. For example, `NONE` returns right away.
+`EXECUTED_OPTIMISTIC`, the default, waits until the transaction and all non-refund receipts it creates are executed.
+`FINAL` waits until the execution of all receipts, including refunds, is final. The older methods `broadcast_tx_async`
+and `broadcast_tx_commit` still work. `broadcast_tx_async` returns the transaction hash right away, and
+`broadcast_tx_commit` waits like `EXECUTED_OPTIMISTIC`.
 
 ## Transaction to receipt
 
