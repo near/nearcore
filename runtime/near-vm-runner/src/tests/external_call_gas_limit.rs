@@ -39,7 +39,6 @@ fn run_external_call(budget: Gas, code: &[u8]) -> VMOutcome {
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        // Enough balance to pay for `Gas::MAX` at the gas price below.
         account_balance: Balance::from_near(1_000_000),
         account_locked_balance: Balance::ZERO,
         storage_usage: 12,
@@ -47,7 +46,7 @@ fn run_external_call(budget: Gas, code: &[u8]) -> VMOutcome {
         attached_deposit: Balance::ZERO,
         prepaid_gas: Gas::ZERO,
         random_seed: vec![0, 1, 2],
-        execution_mode: ExecutionMode::External { gas_price: Balance::from_yoctonear(1) },
+        execution_mode: ExecutionMode::External { fee_gas: Gas::ZERO },
         output_data_receivers: vec![],
     };
 

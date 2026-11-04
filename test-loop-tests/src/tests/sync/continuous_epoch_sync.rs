@@ -4,7 +4,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 use std::cell::RefCell;
@@ -14,11 +13,6 @@ use std::rc::Rc;
 // Validate the updated proof against derive_epoch_sync_proof_from_last_block.
 #[test]
 fn test_epoch_sync_proof_update() {
-    // This test is only relevant when ContinuousEpochSync is enabled.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let epoch_length = 10;
     // validate_epoch_sync_proof uses derive_epoch_sync_proof_from_last_block which
@@ -46,11 +40,6 @@ fn test_epoch_sync_proof_update() {
 #[test]
 fn test_epoch_sync_proof_update_with_forks() {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
-
-    // This test is only relevant when ContinuousEpochSync is enabled.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     init_test_logger();
     let epoch_length = 10;
@@ -100,11 +89,6 @@ fn test_epoch_sync_proof_update_with_forks() {
 // network) triggers a data reset shutdown signal when it detects it needs epoch sync.
 #[test]
 fn test_epoch_sync_stale_node_triggers_reset() {
-    // This test is only relevant when ContinuousEpochSync is enabled.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let epoch_length = 10;
     // Use 4 validators so 3 remaining can continue after node 0 is killed.
@@ -148,11 +132,6 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_epoch_sync_bootstrap_fresh_node() {
-    // This test is only relevant when ContinuousEpochSync is enabled.
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let epoch_length = 10;
     let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
@@ -229,10 +208,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
 //   - Updated proof matches a from-scratch derivation
 #[test]
 fn test_epoch_sync_proof_update_after_multi_epoch_gap() {
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let epoch_length = 10;
     // Keep enough epochs for from-scratch proof derivation in validate_epoch_sync_proof.

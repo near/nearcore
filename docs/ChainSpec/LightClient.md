@@ -1,5 +1,12 @@
 # Light Client
 
+> **Note:** This page is out of date and may contain errors. Do not use it as the only reference
+> when you build a light client. Have any light client implementation reviewed independently before
+> you use it in production.
+>
+> The [near/near-light-client](https://github.com/near/near-light-client) implementation is archived
+> and no longer maintained. Avoid using it.
+
 The state of the light client is defined by:
 
 1. `BlockHeaderInnerLiteView` for the current head (which contains `height`, `epoch_id`, `next_epoch_id`, `prev_state_root`, `outcome_root`, `timestamp`, the hash of the block producers set for the next epoch `next_bp_hash`, and the merkle root of all the block hashes `block_merkle_root`);

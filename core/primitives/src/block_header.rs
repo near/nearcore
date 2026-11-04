@@ -1183,7 +1183,7 @@ impl BlockHeader {
                 signature,
                 hash,
             })
-        } else if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
+        } else {
             let inner_rest = BlockHeaderInnerRestV6 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -1207,38 +1207,6 @@ impl BlockHeader {
             let (hash, signature) =
                 Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV6(BlockHeaderV6 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            })
-        } else {
-            #[allow(deprecated)]
-            let inner_rest = BlockHeaderInnerRestV5 {
-                block_body_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root: Default::default(),
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                total_supply,
-                challenges_result: vec![],
-                last_final_block,
-                last_ds_final_block,
-                block_ordinal,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version,
-                chunk_endorsements,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV5(BlockHeaderV5 {
                 prev_hash,
                 inner_lite,
                 inner_rest,

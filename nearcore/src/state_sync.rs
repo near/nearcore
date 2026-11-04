@@ -5,7 +5,7 @@ use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::time::{Clock, Duration, Interval};
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
@@ -669,8 +669,11 @@ impl StateDumper {
             .epoch_manager
             .get_epoch_info(sync_header.epoch_id())
             .with_context(|| format!("Failed getting epoch info {:?}", sync_header.epoch_id()))?;
-        let sync_prev_header = self.get_block_header(sync_header.prev_hash())?;
-        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(self.chain.chain_store(), sync_header.hash())
+                .with_context(|| {
+                    format!("Failed getting snapshot hash for {}", sync_header.hash())
+                })?;
         let shard_ids = self
             .epoch_manager
             .shard_ids(sync_header.epoch_id())

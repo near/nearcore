@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{total_send_fees, tx_cost};
+use crate::config::{ecc_cost, total_send_fees, tx_cost};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
@@ -49,8 +49,8 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, EccTransaction,
-    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ECC_METHOD_NAME,
+    EccTransaction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransactionEnvelope, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
@@ -62,7 +62,9 @@ use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateIn
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
+};
 use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
@@ -289,7 +291,7 @@ fn test_apply_validator_update_uninitialized_account() {
     set_account(
         &mut state,
         uninitialized.clone(),
-        &Account::new_uninitialized(balance, 100, initial_nonce_value(1)),
+        &Account::new_uninitialized(balance, 100, initial_nonce_value(1, PROTOCOL_VERSION)),
     );
     state.commit(StateChangeCause::InitialState);
     let trie_changes = state.finalize().unwrap().trie_changes;
@@ -718,6 +720,400 @@ fn test_apply_ecc_in_chunk_fails_without_panic() {
     assert_matches!(transfer_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
 }
 
+/// Apply a chunk with an ECC to `contract_id`, where `bob` has `bob_balance`. Checks that the
+/// ECC fails without burning anything and leaves `bob`'s balance as it was, and returns the
+/// error it fails with.
+fn apply_ecc(contract_id: AccountId, bob_balance: Balance) -> InvalidTxError {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        bob_balance,
+        Balance::ZERO,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
+    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc.clone())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let [ecc_outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    assert_eq!(ecc_outcome.id, ecc.get_hash());
+    assert_eq!(ecc_outcome.outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(ecc_outcome.outcome.tokens_burnt, Balance::ZERO);
+    let ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) =
+        ecc_outcome.outcome.status.clone()
+    else {
+        panic!("expected the ECC to fail, got {:?}", ecc_outcome.outcome.status);
+    };
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    assert_eq!(bob.amount(), bob_balance);
+    err
+}
+
+/// The fees of the ECC that `apply_ecc` sends to `bob`.
+fn ecc_fee() -> Balance {
+    let ecc = EccTransaction::new(bob_account(), vec![1, 2, 3]);
+    ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap().burnt_amount
+}
+
+/// An ECC to an account that does not exist is rejected.
+#[test]
+fn test_apply_ecc_missing_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contract_id: AccountId = "missing.near".parse().unwrap();
+    let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
+    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+}
+
+/// An ECC to a contract that can't pay for its fees is rejected.
+#[test]
+fn test_apply_ecc_not_enough_balance() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let fee = ecc_fee();
+    let balance = fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let err = apply_ecc(bob_account(), balance);
+    assert_eq!(
+        err,
+        InvalidTxError::NotEnoughBalance { signer_id: bob_account(), balance, cost: fee }
+    );
+}
+
+/// An ECC to a contract that can pay for its fees still fails, since nothing executes it yet,
+/// and pays nothing.
+/// TODO(ecc): update this test with a check for successful execution after ECC processing logic is in place.
+#[test]
+fn test_apply_ecc_funded_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let err = apply_ecc(bob_account(), ecc_fee());
+    assert_eq!(err, InvalidTxError::InvalidTransactionVersion);
+}
+
+/// A contract whose ECC method returns `b"ecc"`.
+fn ecc_method_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "ecc")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $value_return (i64.const 3) (i64.const 0))
+  )
+)"#
+    ))
+}
+
+/// Apply a chunk with the given receipts and transactions on top of `root`, without committing
+/// it.
+fn apply_chunk(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> ApplyResult {
+    let num_transactions = transactions.len();
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            apply_state,
+            receipts,
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// Apply a chunk with the given receipts and transactions, commit it, and return the new state
+/// root and the result.
+fn apply_and_commit(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> (CryptoHash, ApplyResult) {
+    let apply_result =
+        apply_chunk(runtime, tries, root, apply_state, receipts, transactions, epoch_info_provider);
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    (root, apply_result)
+}
+
+/// The only receipt in `apply_result` sent to bob.
+fn receipt_to_bob(apply_result: &ApplyResult) -> &Receipt {
+    let mut receipts = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.receiver_id() == &bob_account());
+    let (Some(receipt), None) = (receipts.next(), receipts.next()) else {
+        panic!("expected one receipt to bob, got {:?}", apply_result.outgoing_receipts);
+    };
+    receipt
+}
+
+/// The status of the outcome with the given id.
+fn outcome_status(apply_result: &ApplyResult, id: &CryptoHash) -> ExecutionStatus {
+    let outcome = apply_result.outcomes.iter().find(|outcome| &outcome.id == id);
+    outcome.unwrap_or_else(|| panic!("no outcome for {id}")).outcome.status.clone()
+}
+
+/// The status of a receipt whose only action called the ECC method and was refused.
+fn ecc_method_refused() -> ExecutionStatus {
+    ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+        index: Some(0),
+        kind: ActionErrorKind::ReservedMethodName { method_name: ECC_METHOD_NAME.to_string() },
+    }))
+}
+
+/// A transaction from alice that calls the ECC method of bob.
+fn ecc_method_tx(signer: &Signer) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        bob_account(),
+        signer,
+        vec![Action::function_call(ECC_METHOD_NAME, vec![], Gas::from_teragas(30))],
+        CryptoHash::default(),
+    )
+}
+
+/// A receipt that calls the ECC method and was created before `ExternalContractCalls` is still
+/// refused if it runs after the upgrade.
+#[test]
+fn test_ecc_method_receipt_from_before_upgrade_refused() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = feature_version - 1;
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let (root, _) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![],
+        &epoch_info_provider,
+    );
+
+    // Before the upgrade, the transaction creates a receipt that calls the ECC method of bob.
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[],
+        vec![ecc_method_tx(&signers[0])],
+        &epoch_info_provider,
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    // Before the upgrade, the receipt runs the ECC method like any other method.
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(
+        outcome_status(&apply_result, receipt.receipt_id()),
+        ExecutionStatus::SuccessValue(b"ecc".to_vec())
+    );
+
+    // After the upgrade, the same receipt is refused.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A function call access key that allows the ECC method doesn't let a transaction call it:
+/// the transaction is accepted, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_with_function_call_access_key() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+
+    // Replace the full access key of alice with a function call key for the ECC method of bob.
+    let mut state = tries.new_trie_update(shard_uid, root);
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![ECC_METHOD_NAME.to_string()],
+        }),
+    };
+    set_access_key(&mut state, alice_account(), signers[0].public_key(), &access_key);
+    state.commit(StateChangeCause::InitialState);
+    let trie_changes = state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let tx = ecc_method_tx(&signers[0]);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy],
+        vec![tx.clone()],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, &tx.get_hash()),
+        ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
+/// A contract can't call the ECC method of another contract with a promise: the promise is
+/// created, and its receipt is refused.
+#[test]
+fn test_ecc_method_refused_in_promise() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+    let deploy = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: ecc_method_contract() })],
+    );
+    let call_promise_args = serde_json::json!([
+        {"create": {
+            "account_id": bob_account(),
+            "method_name": ECC_METHOD_NAME,
+            "arguments": [],
+            "amount": "0",
+            "gas": Gas::from_teragas(30).as_gas(),
+        }, "id": 0}
+    ]);
+    let call = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::function_call(
+            "call_promise",
+            serde_json::to_vec(&call_promise_args).unwrap(),
+            Gas::from_teragas(100),
+        )],
+    );
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &[deploy, call.clone()],
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, call.receipt_id()),
+        ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_)
+    );
+    let receipt = receipt_to_bob(&apply_result);
+
+    let apply_result = apply_chunk(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_eq!(outcome_status(&apply_result, receipt.receipt_id()), ecc_method_refused());
+}
+
 #[test]
 fn test_apply_delayed_receipts_local_tx() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -933,9 +1329,8 @@ fn test_apply_delayed_receipts_local_tx() {
     );
 }
 
-// Under AccountCostIncrease the runtime caps gas_burn_price at the receipt's gas_price (no
-// deficit ever) and refunds price_surplus through a refund receipt (instead of adding it to
-// tx_burnt). The tests below assert on both flavors.
+// The runtime caps gas_burn_price at the receipt's gas_price (no deficit ever) and refunds
+// price_surplus through a refund receipt (instead of adding it to tx_burnt).
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -966,16 +1361,9 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is
-        // burnt at exactly what the user paid and no deficit accumulates.
-        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
-    } else {
-        assert_eq!(
-            result.stats.balance.gas_deficit_amount,
-            result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
-        )
-    }
+    // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is burnt
+    // at exactly what the user paid and no deficit accumulates.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -1020,19 +1408,12 @@ fn test_apply_surplus_gas_for_transfer() {
         .gas;
 
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
-        // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
-        let expected_burnt_amount =
-            apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 1);
-    } else {
-        // price_surplus is burnt (added to tx_burnt_amount) and no refund is produced.
-        let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-        assert_eq!(result.outgoing_receipts.len(), 0);
-    }
+    // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
+    // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
+    let expected_burnt_amount =
+        apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+    assert_eq!(result.outgoing_receipts.len(), 1);
 }
 
 #[test]
@@ -1110,17 +1491,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
-    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1176,15 +1548,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        Balance::ZERO
-    } else {
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
+    // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+    let expected_deficit = Balance::ZERO;
 
     let result = runtime
         .apply(
@@ -1281,23 +1646,17 @@ fn test_apply_surplus_gas_for_function_call() {
     let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
     // The unspent gas is refunded at the price it was purchased at (the receipt's `gas_price`).
     let unspent_refund = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap();
-    let expected_refund = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-        // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
-        // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
-        // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
-        let penalty =
-            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        let price_surplus = gas_price
-            .checked_sub(apply_state.gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap();
-        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
-    } else {
-        // The refund penalty is charged at the receipt's gas price.
-        let penalty = gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
-        unspent_refund.checked_sub(penalty).unwrap()
-    };
+    // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
+    // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
+    // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
+    let penalty = apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+    let price_surplus = gas_price
+        .checked_sub(apply_state.gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
+    let expected_refund =
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap();
 
     let result = runtime
         .apply(
@@ -2450,7 +2809,7 @@ fn test_named_account_old_wallet_hash_with_missing_replacement() {
     for chain_id in [MAINNET, TESTNET] {
         let old_version = ProtocolFeature::UpdatedEthWalletContract.protocol_version() - 1;
         let old_hash = eth_wallet_global_contract_hash(chain_id, old_version);
-        for protocol_version in [feature_version - 1, feature_version] {
+        for protocol_version in [feature_version, feature_version + 1] {
             assert!(is_earlier_eth_wallet_global_contract_hash(
                 &old_hash,
                 chain_id,
@@ -4691,8 +5050,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
-
     // [T, U, T]: the repeat of T is non-adjacent to the original.
     let signed_valid_period_txs =
         SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
@@ -4720,54 +5077,6 @@ fn test_duplicate_transaction_in_chunk_skipped() {
 }
 
 #[test]
-fn test_duplicate_transaction_in_chunk_prior_behavior() {
-    let alice_signer = InMemorySigner::test_signer(&alice_account());
-    let tx = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        bob_account(),
-        &alice_signer,
-        Balance::from_near(1),
-        CryptoHash::default(),
-    );
-    let tx_hash = tx.get_hash();
-    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        Balance::from_near(1_000_000),
-        Balance::from_near(500_000),
-        Gas::from_teragas(1000),
-    );
-    apply_state.current_protocol_version =
-        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
-
-    let signed_valid_period_txs =
-        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            signed_valid_period_txs,
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .expect("apply should succeed");
-
-    // Without the feature both copies are processed: the second records a
-    // conflicting InvalidNonce failure under the same id as the success.
-    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
-    assert_eq!(tx_outcomes.len(), 2);
-    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
-    assert_matches!(
-        tx_outcomes[1].outcome.status,
-        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidNonce { .. }
-        ))
-    );
-}
-
-#[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -4775,7 +5084,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     let gas_key_pk =
         InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas_key").public_key();
@@ -4901,7 +5210,7 @@ fn setup_gas_key_test(
         shard_uid,
         &shard_layout,
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -4942,6 +5251,8 @@ fn setup_gas_key_test(
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
+    // Apply transactions after the key creation height, as on a chain.
+    apply_state.block_height = GAS_KEY_BLOCK_HEIGHT + 1;
 
     GasKeyTestSetup {
         runtime,
@@ -4976,7 +5287,8 @@ fn test_apply_gas_key_transaction() {
         gas_key_balance,
     );
 
-    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let initial_nonce =
+        initial_nonce_value(GAS_KEY_BLOCK_HEIGHT, apply_state.current_protocol_version);
     let nonce_index = 1;
 
     // Create a gas key transaction
@@ -5111,7 +5423,7 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.current_protocol_version = MIN_SUPPORTED_PROTOCOL_VERSION;
 
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
@@ -5161,7 +5473,8 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         gas_key_balance,
     );
 
-    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let initial_nonce =
+        initial_nonce_value(GAS_KEY_BLOCK_HEIGHT, apply_state.current_protocol_version);
     let nonce_index: NonceIndex = 0;
 
     // Transfer more than account can cover
@@ -6084,7 +6397,7 @@ mod self_signed_state_init {
             &Account::new_uninitialized(
                 balance,
                 config.fees.storage_usage_config.num_bytes_account,
-                initial_nonce_value(CREATION_HEIGHT),
+                initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION),
             ),
         );
         initial_state.commit(StateChangeCause::InitialState);
@@ -6124,7 +6437,7 @@ mod self_signed_state_init {
 
     /// The only nonce a bootstrap may carry, since the check is forced Strict.
     fn expected_nonce() -> Nonce {
-        initial_nonce_value(CREATION_HEIGHT) + 1
+        initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION) + 1
     }
 
     fn bootstrap_tx(
@@ -6349,7 +6662,10 @@ mod self_signed_state_init {
         let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let account = get_account(&state, &account_id).unwrap().unwrap();
         assert!(!account.is_initialized(), "a rejected bootstrap must not install state");
-        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+        assert_eq!(
+            account.bootstrap_nonce(),
+            Some(initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION))
+        );
     }
 
     /// A state init whose storage the account cannot stake for. The action fails
@@ -6432,7 +6748,7 @@ mod self_signed_state_init {
         account.initialize().unwrap();
         set_account(&mut state, account_id.clone(), &account);
         let mut access_key = AccessKey::full_access();
-        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION);
         set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
         state.commit(StateChangeCause::InitialState);
         let trie_changes = state.finalize().unwrap().trie_changes;
@@ -6478,7 +6794,7 @@ mod self_signed_state_init {
         account.set_amount(stake.checked_add(deposit).unwrap().checked_add(slack).unwrap());
         set_account(&mut state, account_id.clone(), &account);
         let mut access_key = AccessKey::full_access();
-        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION);
         set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
         state.commit(StateChangeCause::InitialState);
         let trie_changes = state.finalize().unwrap().trie_changes;
@@ -6602,7 +6918,7 @@ mod self_signed_state_init {
         for height in [5, 10] {
             assert_eq!(
                 seeded_at(height),
-                initial_nonce_value(height),
+                initial_nonce_value(height, PROTOCOL_VERSION),
                 "the nonce must come from the height the funding receipt ran at"
             );
         }
@@ -6643,7 +6959,7 @@ mod self_signed_state_init {
             &Account::new_uninitialized(
                 Balance::from_near(10),
                 apply_state.config.fees.storage_usage_config.num_bytes_account,
-                initial_nonce_value(recreated_at),
+                initial_nonce_value(recreated_at, PROTOCOL_VERSION),
             ),
         );
         state.commit(StateChangeCause::InitialState);
@@ -6913,7 +7229,10 @@ mod self_signed_state_init {
         let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let account = get_account(&state, &victim_id).unwrap().unwrap();
         assert_eq!(account.amount(), balance, "the victim must not be charged");
-        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+        assert_eq!(
+            account.bootstrap_nonce(),
+            Some(initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION))
+        );
     }
 
     /// Two self-signed state inits for one account, signed by two different keys
@@ -7628,5 +7947,162 @@ fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() 
         congestion_gas.as_gas() * 5 < cap.as_gas(),
         "one state-init receipt reserves {congestion_gas}, over a fifth of the whole-shard \
          outgoing cap of {cap}"
+    );
+}
+
+#[test]
+fn test_re_added_key_replays_tx_before_raise_initial_access_key_nonce() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::RaiseInitialAccessKeyNonce.protocol_version() - 1;
+    let shard_uid = ShardUId::single_shard();
+    let signer = &signers[0];
+
+    // Setup: a tx whose nonce is in the top nonce band of height 10, which deletes
+    // and re-adds its own signing key.
+    let height = 10;
+    let tx = SignedTransaction::from_actions(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        alice_account(),
+        alice_account(),
+        signer.as_ref(),
+        vec![
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    // Apply: the tx and its local receipt both run at height 10.
+    apply_state.block_height = height;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    // Check: the re-added key starts at `(height - 1) * 1e6`, below the tx nonce.
+    let key = get_access_key(
+        &tries.new_trie_update(shard_uid, root),
+        &alice_account(),
+        &signer.public_key(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(key.nonce, (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER);
+
+    // Check: the same signed tx is accepted again at height 11, so two
+    // executed transactions share one hash.
+    apply_state.block_height = height + 1;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_re_added_key_rejects_replayed_tx() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+    let signer = &signers[0];
+
+    // Setup: a tx whose nonce is in the top nonce band of height 10, which deletes
+    // and re-adds its own signing key.
+    let height = 10;
+    let tx = SignedTransaction::from_actions(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        alice_account(),
+        alice_account(),
+        signer.as_ref(),
+        vec![
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    // Apply: the tx and its local receipt both run at height 10.
+    apply_state.block_height = height;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    // Check: the re-added key starts at `height * 1e6 - 1`, above every nonce
+    // a tx executed at or before height 10 can have.
+    let key = get_access_key(
+        &tries.new_trie_update(shard_uid, root),
+        &alice_account(),
+        &signer.public_key(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(key.nonce, height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER - 1);
+
+    // Check: the same signed tx is rejected at height 11.
+    apply_state.block_height = height + 1;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
     );
 }

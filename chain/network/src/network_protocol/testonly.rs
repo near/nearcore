@@ -352,7 +352,7 @@ pub fn make_account_data(
         },
         account_key,
         version,
-        timestamp,
+        timestamp: to_unix_nanos(timestamp),
     }
 }
 

@@ -5,7 +5,6 @@ mod adv {
     #[derive(Default)]
     struct Inner {
         disable_header_sync: std::sync::atomic::AtomicBool,
-        disable_doomslug: std::sync::atomic::AtomicBool,
         is_archival: bool,
     }
 
@@ -25,14 +24,6 @@ mod adv {
             self.0.disable_header_sync.store(value, Ordering::SeqCst);
         }
 
-        pub fn disable_doomslug(&self) -> bool {
-            self.0.disable_doomslug.load(Ordering::SeqCst)
-        }
-
-        pub fn set_disable_doomslug(&self, value: bool) {
-            self.0.disable_doomslug.store(value, Ordering::SeqCst);
-        }
-
         pub fn is_archival(&self) -> bool {
             self.0.is_archival
         }
@@ -50,10 +41,6 @@ mod adv {
         }
 
         pub const fn disable_header_sync(&self) -> bool {
-            false
-        }
-
-        pub const fn disable_doomslug(&self) -> bool {
             false
         }
     }

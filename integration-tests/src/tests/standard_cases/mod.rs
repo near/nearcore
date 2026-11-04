@@ -29,6 +29,7 @@ use near_primitives::views::{
     FinalExecutionStatus,
 };
 use near_primitives_core::types::Balance;
+use near_runtime::initial_nonce_value;
 use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
@@ -41,7 +42,7 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwra
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
@@ -542,7 +543,13 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let view_access_key = node_user.get_access_key(&receiver_id, &public_key);
     match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
+            // The first receipt creates the account and its access key.
+            let height = node_user
+                .get_outcome_height(&transaction_result.receipts_outcome[0])
+                .expect("receipt outcome must have an execution height");
+            let mut access_key = AccessKey::full_access();
+            access_key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
+            assert_eq!(view_access_key.unwrap(), access_key.into());
         }
         AccountType::NearDeterministicAccount => {
             // A transfer to NEAR deterministic address does not create access key.
@@ -1203,11 +1210,12 @@ fn assert_access_key(
     result: &FinalExecutionOutcomeView,
     user: &dyn User,
 ) {
+    // The first receipt runs the `AddKey` action.
+    let height = user
+        .get_outcome_height(&result.receipts_outcome[0])
+        .expect("receipt outcome must have an execution height");
     let mut key = access_key.clone();
-    let block = user.get_block(result.transaction_outcome.block_hash);
-    if let Some(b) = block {
-        key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    }
+    key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
     assert_eq!(access_key_view, key.into());
 }
 

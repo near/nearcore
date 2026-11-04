@@ -1061,7 +1061,6 @@ impl ActionSize {
 mod tests {
     use super::{ActionSize, MAX_TRANSACTION_SIZE, deploy_action};
     use genesis_populate::get_account_id;
-    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_deploy_contract_tx_max_size() {
@@ -1079,10 +1078,10 @@ mod tests {
         let mut tb = crate::TransactionBuilder::new(test_accounts);
 
         let tx_0 = tb.transaction_from_actions(sender_0, receiver_0, vec![deploy_action.clone()]);
-        assert_eq!(tx_0.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
+        assert_eq!(tx_0.size_for_limits(), MAX_TRANSACTION_SIZE, "TX size changed");
 
         let tx_1 = tb.transaction_from_actions(sender_1, receiver_1, vec![deploy_action]);
-        assert_eq!(tx_1.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
+        assert_eq!(tx_1.size_for_limits(), MAX_TRANSACTION_SIZE, "TX size changed");
     }
 }
 

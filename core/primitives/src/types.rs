@@ -1357,7 +1357,8 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
-/// Merkle leaf committing to a single chunk's certified execution roots.
+/// Merkle leaf committing to a single chunk's certified execution result: its roots, and the
+/// hash of the whole result for the fields the roots do not cover.
 /// The `chunk_execution_root` in a spice block header is the merkle root over
 /// these leaves, sorted by `chunk_id`.
 #[derive(
@@ -1393,6 +1394,9 @@ pub struct ChunkExecutionRootsV1 {
     pub state_root: CryptoHash,
     pub outcome_root: CryptoHash,
     pub outgoing_receipts_root: CryptoHash,
+    /// `ChunkExecutionResult::compute_hash` of the result the roots above come from, so the
+    /// leaf also commits to the rest of it.
+    pub execution_result_hash: CryptoHash,
 }
 
 impl ChunkExecutionRoots {
@@ -1411,6 +1415,7 @@ impl ChunkExecutionRoots {
             state_root: *execution_result.chunk_extra.state_root(),
             outcome_root: *execution_result.chunk_extra.outcome_root(),
             outgoing_receipts_root: execution_result.outgoing_receipts_root,
+            execution_result_hash: execution_result.compute_hash().0,
         })
     }
 }
@@ -1574,12 +1579,14 @@ mod tests {
                 state_root: *result_0.chunk_extra.state_root(),
                 outcome_root: *result_0.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_0.outgoing_receipts_root,
+                execution_result_hash: result_0.compute_hash().0,
             }),
             ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
                 chunk_id: chunk_id_1.clone(),
                 state_root: *result_1.chunk_extra.state_root(),
                 outcome_root: *result_1.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_1.outgoing_receipts_root,
+                execution_result_hash: result_1.compute_hash().0,
             }),
         ];
         let expected = merklize(&expected_leaves).0;

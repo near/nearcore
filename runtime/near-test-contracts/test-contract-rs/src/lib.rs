@@ -2203,9 +2203,9 @@ fn promise_batch_action_add_gas_key_with_function_call(
 // Stubs for yield_with_id host functions, so `call_promise` compiles when the
 // contract is built without the `latest_protocol` feature (the
 // backwards-compatible build targeting the oldest supported protocol version).
-// The host functions are gated on `ProtocolFeature::YieldWithId` (enabled at
-// protocol version 85), so reaching these on an older protocol means a test is
-// exercising the wrong build. Panic loudly rather than returning a
+// The host functions were gated on a protocol feature that is now unconditionally
+// enabled on supported versions, so reaching these on an older protocol means a
+// test is exercising the wrong build. Panic loudly rather than returning a
 // plausible-looking value that would let the test silently succeed.
 #[cfg(not(feature = "latest_protocol"))]
 fn promise_yield_create_with_id(

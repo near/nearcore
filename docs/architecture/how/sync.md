@@ -137,7 +137,11 @@ forward. This is needed to find a valid state sync hash for the current epoch.
 Headers are requested in batches of up to 512 at a time.
 
 Header sync continues until the header chain is close to the network tip
-(within ~50 blocks).
+(within ~50 blocks). Under spice it also continues until a final header records
+that the sync block's chunks are certified (its
+`prev_last_certified_block_epoch_id` reaches the sync block's epoch): the state
+sync header is proven against the block that certifies them, which has to be
+final in this node's header chain, and header sync stops once state sync starts.
 
 #### Step 3: state sync
 
@@ -145,16 +149,33 @@ After headers are synced, the node downloads the full state snapshot at a
 sync hash (near the beginning of the most recent epoch). For each shard the
 node tracks, it downloads state parts from peers and assembles the full state.
 
-State header and part requests are routed to snapshot hosts over Tier 2. Hosts
-return acknowledgements over Tier 2, then connect back to the requester over
-Tier 3 to send the state headers and parts. State response payloads are accepted
-only on Tier 3 connections.
+State header and part requests are sent to snapshot hosts over Tier 3. The
+requester opens a Tier 3 connection to the address the host advertises and
+sends its requests over it, and the host sends the acknowledgements and the
+state headers and parts back over the same connection. Concurrent requests to a
+host share one connection. A host accepts up to
+`network.max_inbound_tier3_connections` (64 by default) connections from
+requesters at a time.
 
-Hosts also accept requests sent directly over a Tier 3 connection opened by the
-requester, and send the acknowledgement and the response back over that
-connection. A node accepts up to `network.max_inbound_tier3_connections`
-(64 by default) such connections at a time. Requesters do not send direct
-requests yet.
+Requests to hosts whose advertisement carries no address, such as hosts on
+older releases, are routed over Tier 2 along with the requester's own public
+address. A node routes its requests to all hosts this way if
+`network.experimental.direct_state_requests_disabled` is set. The hosts return
+acknowledgements over Tier 2, then connect back to the requester over Tier 3 to
+send the state headers and parts. State response payloads are accepted only on
+Tier 3 connections.
+
+A node puts its own public address into the state requests it routes, so that
+hosts can connect back to it, and into its snapshot advertisements, described
+below. It is `network.experimental.tier3_public_addr` if configured. Otherwise
+the node learns it from its Tier 2 peers, each of which reports the IP at which
+it sees the node. Reports of non-public IPs are ignored, and so are reports of
+IPs in the other address family than the listen address, unless the node listens
+on `[::]`, which accepts both. The node uses its listen port and the IP reported
+from the most network groups of peers (/16 for IPv4, /32 for IPv6). Reports stop
+counting when their peer disconnects. With
+`network.allow_private_ip_in_public_addrs`, meant for local test networks,
+private IPs are accepted.
 
 Snapshot host advertisements are versioned, and version 2 adds the host's own
 listening address: its public address as observed by its peers, or
@@ -166,8 +187,7 @@ snapshot. Version 2 advertisements keep a legacy signature over the snapshot
 fields alone, which is the only one older nodes verify. Older nodes relay them
 as version 1, without the address, and a version 2 copy replaces a version 1
 copy of the same snapshot. Until every node accepts advertisements without the
-legacy signature, nodes drop them instead of relaying. State requests do not
-yet use these addresses.
+legacy signature, nodes drop them instead of relaying.
 
 State sync creates a gap in the chain data on this node — blocks between the
 epoch sync boundary and the sync point are not processed. This is fine for
@@ -181,6 +201,42 @@ If state sync takes too long and the network advances past the sync hash's
 epoch, state parts become unavailable from peers. When the node detects this
 (the network tip is more than one epoch ahead of the sync hash), it triggers
 the same data-reset-and-restart flow used for stale nodes.
+
+##### State sync under spice
+
+Spice picks a different sync point and a different state to sync to.
+
+The sync hash is the epoch's **first** block, recorded once that block is
+final. Without spice the node waits for two new chunks in every shard, because
+a chunk that is missing leaves that shard's state trailing the previous epoch.
+Spice blocks can miss chunks too, but the chunk executor applies every shard at
+every block and treats a missing chunk as an empty one: no transactions,
+incoming receipts still processed. Every shard advances at every height, and
+every (block, shard) gets an execution result that a later block certifies, so
+the epoch's first block is already a well-defined anchor for all of them.
+
+The state synced is the state that block's chunk *left behind*, not the state
+before it. A spice chunk executes after the block that carries it, so its
+post-execution state root reaches the chain only through the
+`ChunkExecutionResult` a later block certifies, committing it in the
+`chunk_execution_root` field of its own header. State sync therefore serves a
+`V3` header carrying that execution result and a merkle path from its leaf,
+which holds the chunk id and the hash of the whole result, to the certifying
+block's `chunk_execution_root`. The syncing node already holds that block's
+header from header sync and accepts the result only if the block is final and
+descends from the sync block. `ShardStateSyncResponseHeaderV3` describes the
+fields.
+
+Because the state is the post-state, nothing is applied after the download:
+finalization records the certified `ChunkExtra` for the sync block — which is
+what the chunk executor reads to carry on from the next block — moves the flat
+head to the sync block, and sets the spice execution heads to it.
+
+The snapshot that serves all this is taken by the chunk executor once the
+epoch's first block is final, before it moves the flat head past that block,
+and is keyed by that block rather than by an earlier one. It is announced to
+the network only once the block's chunks are certified, since before that no
+peer could prove the roots it serves.
 
 #### Step 4: block sync
 

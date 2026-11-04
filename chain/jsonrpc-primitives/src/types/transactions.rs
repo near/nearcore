@@ -94,12 +94,6 @@ impl Default for TimeoutErrorCause {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RpcBroadcastTxSyncResponse {
-    pub transaction_hash: near_primitives::hash::CryptoHash,
-}
-
 impl TransactionInfo {
     pub fn from_signed_tx(signed_tx: near_primitives::transaction::SignedTransaction) -> Self {
         Self::Transaction { signed_tx }

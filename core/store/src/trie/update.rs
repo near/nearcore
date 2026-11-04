@@ -11,7 +11,7 @@ use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
 };
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use std::collections::BTreeMap;
 
 mod iterator;

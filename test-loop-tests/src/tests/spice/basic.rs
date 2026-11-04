@@ -1,10 +1,14 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use crate::utils::account::{
+    create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
+};
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+use crate::utils::transactions::{
+    TransactionRunner, execute_money_transfers_with_delay, get_anchor_hash,
+};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
@@ -23,7 +27,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, Gas, SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, Gas, ShardId, SpiceChunkId,
 };
 use near_primitives::views::QueryRequest;
 use parking_lot::Mutex;
@@ -159,6 +163,43 @@ fn test_spice_chain() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
+}
+
+/// Layout order differs from numeric shard id order.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chain_with_shard_ids_256_and_1() {
+    test_spice_chain_with_shard_ids_impl(vec![ShardId::new(256), ShardId::new(1)]);
+}
+
+/// Layout order differs from storage key order: little-endian keys sort 256 before 1.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chain_with_shard_ids_1_and_256() {
+    test_spice_chain_with_shard_ids_impl(vec![ShardId::new(1), ShardId::new(256)]);
+}
+
+/// Checks that chunk application and witness validation apply incoming receipts in the same
+/// shard order, which does not depend on storage key order or numeric shard id order.
+fn test_spice_chain_with_shard_ids_impl(shard_ids_in_layout_order: Vec<ShardId>) {
+    init_test_logger();
+
+    let accounts = create_account_ids(["account0", "account1", "account2", "account3"]).to_vec();
+    let shard_layout = ShardLayout::v2(vec![accounts[2].clone()], shard_ids_in_layout_order, None);
+    let mut env = TestLoopBuilder::new()
+        .shard_layout(shard_layout)
+        .validators(2, 0)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    let delay_between_transfers = Duration::ZERO;
+    execute_money_transfers_with_delay(
+        &mut env.test_loop,
+        &env.node_datas,
+        &accounts,
+        delay_between_transfers,
+    )
+    .unwrap();
 }
 
 #[test]

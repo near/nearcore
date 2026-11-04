@@ -25,7 +25,6 @@ use pretty_assertions::assert_eq;
 use rand::Rng;
 use rand::seq::IteratorRandom;
 use std::collections::HashSet;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Create an instance of SnapshotHostInfo for testing purposes
@@ -595,14 +594,22 @@ async fn no_public_addr_not_broadcast() {
     let _: () = pm.actor.send_async(snapshot_created()).await.unwrap();
 
     tracing::info!(target:"test", "connect a peer, expect initial sync to be empty");
+    let mut pm_events = pm.events.from_now();
     let mut peer1 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "learn the public address, expect the snapshot to be advertised with it");
-    let addr: SocketAddr = "192.0.2.1:24567".parse().unwrap();
-    pm.with_state(move |s| async move { *s.my_public_addr.write() = Some(addr) }).await;
+    tracing::info!(target:"test", "learn the public address from the peer, expect the snapshot to be advertised with it");
+    pm_events
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(tcp::Tier::T2, PeerMessage::PeersResponse(_)) => Some(()),
+            _ => None,
+        })
+        .await;
+    // The peer reports the address it dialed.
+    let addr = **pm.cfg.node_addr.as_ref().unwrap();
+    assert_eq!(pm.with_state(|s| async move { *s.my_public_addr.read() }).await, Some(addr));
     let _: () = pm.actor.send_async(snapshot_created()).await.unwrap();
     let want = SnapshotHostInfo::new(
         pm.peer_info().id,

@@ -605,7 +605,7 @@ mod tests {
 
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let header = test_chunk_header(prev_block_hash, &signer, 0);
+        let header = test_chunk_header(prev_block_hash, &signer);
         let epoch_id = EpochId(CryptoHash::default());
 
         let v1 = PartialEncodedStateWitness::new(

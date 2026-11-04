@@ -2,7 +2,7 @@ use crate::{TrieStorage, metrics};
 use near_primitives::errors::{MissingTrieValue, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use parking_lot::Mutex;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -250,7 +250,7 @@ mod tests {
         hash::CryptoHash,
         stateless_validation::contract_distribution::CodeHash,
     };
-    use near_vm_runner::ContractCode;
+    use near_primitives_core::code::ContractCode;
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,

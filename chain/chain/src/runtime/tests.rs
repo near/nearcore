@@ -34,8 +34,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeleteAccountAction, SignedTransaction, StakeAction, Transaction, TransactionNonce,
-    TransactionV0, TransferAction,
+    Action, DeleteAccountAction, EccTransaction, SignedTransaction, StakeAction, Transaction,
+    TransactionNonce, TransactionV0, TransferAction, ValidatedEcc,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
@@ -206,7 +206,6 @@ impl TestEnv {
                     vec![],
                     genesis_total_supply,
                     genesis_protocol_version,
-                    genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![
@@ -221,6 +220,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         Self {
             epoch_manager,
@@ -386,7 +386,6 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
-                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
                     None,
@@ -394,6 +393,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
@@ -900,7 +900,6 @@ fn test_state_sync() {
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![true; num_nodes as usize];
@@ -912,6 +911,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
@@ -1751,13 +1751,74 @@ fn prepare_transactions_extra_with_time_limit(
     )
 }
 
+/// The producer does not pack ECCs yet: it prepares the signed transactions around
+/// them and leaves the ECCs in the pool.
+#[test]
+fn test_prepare_transactions_leaves_eccs_in_pool() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let ecc = ValidatedEcc::new_for_test(EccTransaction::new("test1".parse().unwrap(), vec![1]));
+    assert_eq!(transaction_pool.insert_transaction(ecc.clone()), InsertTransactionResult::Success);
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    let mut iter = transaction_pool.pool_iterator();
+    let prepared = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+    drop(iter);
+
+    assert!(!prepared.transactions.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+    let mut iter = transaction_pool.pool_iterator();
+    let mut eccs_in_pool = vec![];
+    while let Some(group) = iter.next() {
+        if let PooledGroup::Ecc(group) = group {
+            eccs_in_pool.extend(group.next().map(|ecc| ecc.get_hash()));
+        }
+    }
+    assert_eq!(eccs_in_pool, vec![ecc.get_hash()]);
+}
+
+/// Visiting the groups of ECCs that are skipped is bounded by the same limits as everything
+/// else: a cancelled preparation stops at the first of them.
+#[test]
+fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for contract_id in ["test1", "test2"] {
+        let ecc =
+            ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![1]));
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
+    }
+
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        Some(Arc::new(AtomicBool::new(true))),
+    )
+    .unwrap();
+
+    assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Cancelled);
+    assert_eq!(pool.len(), 2);
+}
+
 #[test]
 fn test_prepare_transactions_duplicate_nonces() {
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
 
     // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
     let mut iter = transaction_pool.pool_iterator();
-    let group = iter.next().unwrap();
+    let PooledGroup::Signed(group) = iter.next().unwrap() else {
+        panic!("expected a group of signed transactions")
+    };
     let first_tx = group.peek_next().unwrap();
     let duplicate_nonce_tx = SignedTransaction::send_money(
         first_tx.nonce().nonce(),
@@ -1894,7 +1955,7 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // Stands in for `initial_nonce_value(creation_height)`. The account is
+    // Stands in for `initial_nonce_value(creation_height, ..)`. The account is
     // written straight into the trie, so only its relation to the transaction
     // nonce matters, and it has to stay under the height-derived upper bound.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
@@ -1991,7 +2052,7 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // As in the test above: stands in for `initial_nonce_value(creation_height)`.
+    // As in the test above: stands in for `initial_nonce_value(creation_height, ..)`.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
 
     let block_hash = env.head.prev_block_hash;

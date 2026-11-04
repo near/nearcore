@@ -181,7 +181,6 @@ impl ChunkTestFixture {
             None,
             &signer,
             &rs,
-            protocol_version,
         );
 
         let mock_encoded_chunk = mock_chunk.into_parts().1;
@@ -301,7 +300,6 @@ impl ChunkTestFixture {
             BandwidthRequests::empty(),
             None,
             &signer,
-            self.protocol_version,
         ));
         let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();

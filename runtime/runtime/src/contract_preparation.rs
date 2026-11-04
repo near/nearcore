@@ -7,7 +7,7 @@ use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::Account;
 use near_primitives::gas::Gas;
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::types::{AccountId, Balance, ProtocolVersion};
+use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieUpdate};
@@ -49,7 +49,7 @@ pub(crate) fn prepare_contract_metadata(
     access: AccessOptions,
     protocol_version: ProtocolVersion,
 ) -> Result<ContractPreparation, StorageError> {
-    let gas_counter = gas_counter(config, execution_mode, function_call.gas, account.amount());
+    let gas_counter = gas_counter(config, execution_mode, function_call.gas);
     let account_contract = account.contract().into_owned();
     if !config.wasm_config.fix_contract_loading_cost {
         let identifier = RuntimeContractIdentifier::resolve(
@@ -102,14 +102,9 @@ pub(crate) fn prepare_function_call(
     prepare_with_priority(code_ext, config, cache, *gas_counter, method_name, priority)
 }
 
-fn gas_counter(
-    config: &RuntimeConfig,
-    execution_mode: &ExecutionMode,
-    gas: Gas,
-    balance: Balance,
-) -> GasCounter {
+fn gas_counter(config: &RuntimeConfig, execution_mode: &ExecutionMode, gas: Gas) -> GasCounter {
     let GasLimits { max_gas_burnt, prepaid_gas } =
-        execution_mode.gas_limits(&config.wasm_config.limit_config, gas, balance);
+        execution_mode.gas_limits(&config.wasm_config.limit_config, gas);
     GasCounter::new(
         config.wasm_config.ext_costs.clone(),
         max_gas_burnt,

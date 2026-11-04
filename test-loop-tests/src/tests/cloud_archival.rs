@@ -1186,6 +1186,29 @@ fn test_cloud_archival_single_skipped_slot() {
     h.shutdown();
 }
 
+/// A writer restarted while its bucket head is a height with no block resumes archiving.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_restart_with_head_at_skipped_height() {
+    let batch_size = BlockHeight::from(CloudArchiveHarness::TEST_BATCH_SIZE);
+    let dropped_height = 4 * batch_size - 1;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[dropped_height])
+        .disable_gc()
+        .build();
+    // Stop after the batch ending at the dropped height is archived and before the next one is.
+    h.run_until(dropped_height + batch_size + 1);
+    assert_eq!(h.cloud_block_head(), dropped_height, "setup: bucket head is the dropped height");
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+    assert!(h.local_min_head() > dropped_height, "archiving must resume after the restart");
+    h.assert_heads_ok_before_gc();
+
+    h.shutdown();
+}
+
 /// At cadence 2, `start` (epoch 3) has no snapshot, so the reader resolves the
 /// snapshot to an earlier epoch whose sync block is below the downloaded block
 /// range. Reconstruction loads that snapshot from cloud state parts, so it works
@@ -1228,7 +1251,8 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
     let (start, target) = (12, 18);
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     let own_snapshot_height = get_state_header_for_epoch(&cloud_storage, start_epoch_id, shard_id)
-        .chunk_height_included();
+        .chunk_height_included()
+        .unwrap();
     assert!(
         own_snapshot_height > start,
         "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
@@ -1505,7 +1529,9 @@ fn test_cloud_archival_anchor_below_sync_prev() {
         (shard_missing_early_chunks, snapshot_height),
     ];
     let reconstruction_start_of = |shard_id| {
-        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id).chunk_height_included()
+        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id)
+            .chunk_height_included()
+            .unwrap()
     };
     let has_chunk_at = |height, shard_id| {
         cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().new_chunk().is_some()

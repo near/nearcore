@@ -8,7 +8,6 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_body::SpiceCoreStatement;
-use near_primitives::block_header::BlockHeader;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::SpiceDataPart;
 use near_primitives::test_utils::pre_spice_protocol_version;
@@ -24,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod batching;
 mod delivery;
 mod lifecycle;
+mod orphans;
 mod recovery;
 mod retries;
 
@@ -45,69 +45,17 @@ fn certifying_block(prev: &Block, chunk_ids: &[SpiceChunkId]) -> Arc<Block> {
         .build()
 }
 
-/// Writes `block` and its header to the chain's store, as block processing would.
-fn save_block(chain: &mut Chain, block: &Arc<Block>) {
-    let mut store_update = chain.mut_chain_store().store_update();
-    store_update.save_block_header(block.header().clone()).unwrap();
-    store_update.save_block(block.clone());
-    store_update.commit().unwrap();
-}
-
-/// The chain's policies with fixed producer lists in place of the chain's single
-/// chunk producer.
-struct TestPolicy {
-    chain_policies: FetchPolicies,
-    producers: Vec<AccountId>,
-    /// Producers for items from these shards, in place of `producers`.
-    producers_by_from_shard: HashMap<u64, Vec<AccountId>>,
-    /// Blocks whose `needed_items` fails.
-    failing_blocks: HashSet<CryptoHash>,
-}
-
-impl TestPolicy {
-    /// The chain's policies for a node that applies `shard`, with the fixed producers.
-    fn applying(chain: &Chain, shard: u64) -> Self {
-        Self {
-            chain_policies: chain_fetch_policies(chain, shard),
-            producers: producers(),
-            producers_by_from_shard: HashMap::new(),
-            failing_blocks: HashSet::new(),
-        }
-    }
-
-    fn producers_of(&self, id: &DataId) -> Vec<AccountId> {
-        let DataId::ReceiptProof { source, .. } = id;
-        let from_shard: u64 = source.shard_id.into();
-        self.producers_by_from_shard.get(&from_shard).unwrap_or(&self.producers).clone()
-    }
-}
-
-impl FetchPolicy for TestPolicy {
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
-        if self.failing_blocks.contains(block.hash()) {
-            return Err(Error::Other("no items".to_string()));
-        }
-        Ok(self
-            .chain_policies
-            .needed_items(block)?
-            .into_iter()
-            .map(|(id, _)| {
-                let producers = self.producers_of(&id);
-                (id, producers)
-            })
-            .collect())
-    }
-
-    fn is_done(&self, id: &DataId) -> bool {
-        self.chain_policies.is_done(id)
-    }
-
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        self.chain_policies.made_pullable_by(block)
-    }
-
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        Ok(self.producers_of(id))
+impl SpiceDataManager {
+    /// Receives `parts` for `id` in a message `sender`'s test signer signed.
+    fn receive_from(
+        &mut self,
+        sender: &AccountId,
+        id: &DataId,
+        commitment: &SpiceDataCommitment,
+        parts: Vec<SpiceDataPart>,
+    ) -> Result<PartsOutcome, SenderFault> {
+        let signer = create_test_signer(sender.as_str());
+        self.on_parts_received(signed_by(&signer, id, commitment, parts))
     }
 }
 
@@ -148,7 +96,7 @@ fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTr
 /// `certify_up_to` says so, and nothing is finally executed until
 /// `set_final_execution_head` says so. Time stands still until `clock` is advanced.
 struct TestManager {
-    manager: SpiceDataManager<TestPolicy>,
+    manager: SpiceDataManager,
     clock: FakeClock,
     store: Store,
     /// The highest height `certify_up_to` certified.
@@ -172,7 +120,8 @@ impl TestManager {
             manager: SpiceDataManager::new(
                 pull_config,
                 store.chain_store(),
-                TestPolicy::applying(chain, shard),
+                chain.epoch_manager.clone(),
+                applying_shard_tracker(chain, shard),
             ),
             clock: FakeClock::default(),
             store,
@@ -230,17 +179,13 @@ impl TestManager {
         assert!(!self.is_pullable(id));
         assert!(!self.manager.pulls.holds_state_for(id));
         assert!(!self.manager.delivered_items.contains(id));
+        assert!(!self.manager.done_items.contains(id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
     fn track_needed_proof(&mut self, block: &Block) -> DataId {
         self.track_block(block);
         receipt_id(block, 0, 1)
-    }
-
-    /// Items from `from_shard` are served by `producers` instead of the default list.
-    fn set_producers_for(&mut self, from_shard: u64, producers: Vec<AccountId>) {
-        self.manager.policies.producers_by_from_shard.insert(from_shard, producers);
     }
 
     /// `block` was processed at the clock's current time.
@@ -252,7 +197,7 @@ impl TestManager {
             block.header().height(),
             self.certified_height
         );
-        self.manager.on_block_processed(block.hash(), self.clock.now())
+        self.manager.on_block_processed(block.hash(), self.clock.now()).pull_requests
     }
 
     /// Delivers `parts` and asserts the item keeps collecting.
@@ -263,8 +208,7 @@ impl TestManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
     ) {
-        let result =
-            self.manager.on_parts_received(sender, id, commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.receive_from(sender, id, commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Collecting);
     }
 
@@ -272,8 +216,7 @@ impl TestManager {
     fn deliver(&mut self, sender: &AccountId, id: &DataId, data: &SpiceData) {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
-        let result =
-            self.manager.on_parts_received(sender, id, &commitment, parts, TOTAL_PARTS).unwrap();
+        let result = self.manager.receive_from(sender, id, &commitment, parts).unwrap();
         assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
     }
 
@@ -282,13 +225,11 @@ impl TestManager {
     }
 
     fn bound_commitment(&self, id: &DataId, producer: &AccountId) -> Option<&SpiceDataCommitment> {
-        let (_, bound) = self
-            .item(id)
-            .producers
-            .iter()
-            .find(|(account, _)| account == producer)
+        let item = self.item(id);
+        let index = item
+            .producer_index(producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
-        bound.as_ref()
+        item.producers[index].commitment.as_ref()
     }
 
     fn tracker(&self, id: &DataId, commitment: &SpiceDataCommitment) -> &CodedTracker {
@@ -313,7 +254,14 @@ fn encode_garbage_to_wire(encoded_length: usize) -> (SpiceDataCommitment, Vec<Sp
     wire_parts(parts, encoded_length as u64, CryptoHash::default())
 }
 
-/// The ids of the receipt proofs `policies` needs from `block`.
-fn needed_receipt_ids(policies: &FetchPolicies, block: &Block) -> HashSet<DataId> {
-    policies.needed_items(block.header()).unwrap().into_iter().map(|(id, _)| id).collect()
+/// The ids of the receipt proofs a node with `shard_tracker` needs from `block`.
+fn needed_receipt_ids(
+    chain: &Chain,
+    shard_tracker: &ShardTracker,
+    block: &Block,
+) -> HashSet<DataId> {
+    receipt_proof::needed_items(chain.epoch_manager.as_ref(), shard_tracker, block.header())
+        .unwrap()
+        .into_iter()
+        .collect()
 }
