@@ -1,6 +1,7 @@
 use crate::client::{
     ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
-    StateRequestHeader, StateRequestPart, StateRequestUpdate, StateRequestUpdateMessage,
+    StateRequestHeader, StateRequestPart, StateRequestResponse, StateRequestUpdate,
+    StateRequestUpdateMessage,
 };
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config;
@@ -1645,12 +1646,16 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             (StateRequestAckBody::Busy, None)
                         } else {
                             match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
-                                Ok(Some(client_response)) => {
+                                Ok(StateRequestResponse::Respond(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }
-                                Ok(None) => {
+                                Ok(StateRequestResponse::Busy) => {
                                     tracing::debug!(target: "network", ?request, "client declined to respond");
                                     (StateRequestAckBody::Busy, None)
+                                }
+                                Ok(StateRequestResponse::Error) => {
+                                    tracing::debug!(target: "network", ?request, "client can't serve the request");
+                                    (StateRequestAckBody::Error, None)
                                 }
                                 Err(err) => {
                                     tracing::error!(target: "network", ?request, ?err, "client failed to respond");
@@ -1677,12 +1682,16 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             (StateRequestAckBody::Busy, None)
                         } else {
                             match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_idx }).await {
-                                Ok(Some(client_response)) => {
+                                Ok(StateRequestResponse::Respond(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }
-                                Ok(None) => {
+                                Ok(StateRequestResponse::Busy) => {
                                     tracing::debug!(target: "network", ?request, "client declined to respond");
                                     (StateRequestAckBody::Busy, None)
+                                }
+                                Ok(StateRequestResponse::Error) => {
+                                    tracing::debug!(target: "network", ?request, "client can't serve the request");
+                                    (StateRequestAckBody::Error, None)
                                 }
                                 Err(err) => {
                                     tracing::error!(target: "network", ?err, ?request, "client failed to respond");

@@ -33,7 +33,7 @@ use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_network::client::StateRequestHeader;
+use near_network::client::{StateRequestHeader, StateRequestResponse};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -726,13 +726,13 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 
     for _ in 0..30 {
         let res = state_request.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
-        assert!(res.is_some());
+        assert!(!matches!(res, StateRequestResponse::Busy));
     }
 
     // Immediately query again, should be rejected due to rate limit.
     let shard_id = ShardId::new(0);
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
-    assert!(res.is_none());
+    assert!(matches!(res, StateRequestResponse::Busy));
 
     env.test_loop.run_for(Duration::seconds(40));
 
@@ -740,14 +740,14 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
     let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
-    // After the rate limit window resets, requests should succeed again.
+    // After the rate limit window resets, requests shouldn't be throttled anymore.
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
-    assert!(res.is_some());
+    assert!(!matches!(res, StateRequestResponse::Busy));
 }
 
-// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (should all
-// succeed), then one more (should be rejected), waits for the rate limit to reset, then
-// sends one more (should succeed again).
+// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (none should be
+// throttled), then one more (should be throttled), waits for the rate limit to reset, then
+// sends one more (shouldn't be throttled).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

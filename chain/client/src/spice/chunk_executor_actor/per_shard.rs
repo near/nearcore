@@ -3,9 +3,7 @@
 
 use super::coordinator::{ExecutorApplyChunksDone, FailedToApplyChunkError};
 use super::receipt_tracker::UnverifiedReceiptTracker;
-use super::storage::{
-    get_receipt_proofs_for_shard, save_receipt_proof, save_witness_and_contract_accesses,
-};
+use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
@@ -33,6 +31,7 @@ use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
@@ -289,18 +288,18 @@ impl PerShardChunkExecutor {
         };
 
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(&prev_block_hash)?;
-        let prev_block_shard_uids = self.epoch_manager.shard_uids(&prev_block_epoch_id)?;
+        let prev_block_shard_layout = self.epoch_manager.get_shard_layout(&prev_block_epoch_id)?;
         let incoming_receipts = if prev_block.header().is_genesis() {
             // Genesis block has no outgoing receipts.
             vec![]
         } else {
-            let proofs = get_receipt_proofs_for_shard(
-                &self.chain_store.store(),
+            let proofs = self.get_receipt_proofs_for_shard(
                 &prev_block_hash,
+                &prev_block_shard_layout,
                 prev_block_shard_uid.shard_id(),
             );
-            if proofs.len() != prev_block_shard_uids.len() {
-                tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_uids.len(), "not ready: missing incoming receipts");
+            if proofs.len() != prev_block_shard_layout.num_shards() as usize {
+                tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_layout.num_shards(), "not ready: missing incoming receipts");
                 return Ok(ApplyOutcome::NotReady);
             }
             proofs
@@ -321,6 +320,22 @@ impl PerShardChunkExecutor {
         )?;
         self.blocks_in_execution.insert(*block_hash);
         Ok(ApplyOutcome::Scheduled)
+    }
+
+    /// The stored proofs from shards of `source_shard_layout`, in layout order, which is
+    /// the order of chunks in the block.
+    fn get_receipt_proofs_for_shard(
+        &self,
+        block_hash: &CryptoHash,
+        source_shard_layout: &ShardLayout,
+        to_shard_id: ShardId,
+    ) -> Vec<ReceiptProof> {
+        source_shard_layout
+            .shard_ids()
+            .filter_map(|from_shard_id| {
+                self.chain_store.get_receipt_proof(block_hash, to_shard_id, from_shard_id)
+            })
+            .collect()
     }
 
     /// Build this shard's apply job and submit it to the spawner. The on-done
@@ -619,11 +634,11 @@ impl PerShardChunkExecutor {
         let pre_state = apply_result.proof.clone().unwrap().nodes;
         let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = {
             let prev_block_hash = block.header().prev_hash();
-            let (_, prev_block_shard_id, _) =
+            let (prev_block_shard_layout, prev_block_shard_id, _) =
                 self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
-            let receipt_proofs = get_receipt_proofs_for_shard(
-                &self.chain_store.store(),
+            let receipt_proofs = self.get_receipt_proofs_for_shard(
                 prev_block_hash,
+                &prev_block_shard_layout,
                 prev_block_shard_id,
             );
             receipt_proofs

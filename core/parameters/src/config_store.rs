@@ -380,6 +380,23 @@ mod tests {
         assert_ne!(after.fees.fee(per_entry).send_sir.gas(), Gas::ZERO);
     }
 
+    #[test]
+    fn test_max_storage_value_fits_receipt_storage_proof() {
+        // Room for the trie path to the value and the receipt's other reads.
+        const MARGIN: u64 = 128 * 1024;
+
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let feature_version = ProtocolFeature::RaisePerReceiptStorageProofLimit.protocol_version();
+        for version in feature_version..=feature_version.max(PROTOCOL_VERSION) {
+            let limits = &store.get_config(version).wasm_config.limit_config;
+            assert!(
+                limits.max_length_storage_value + limits.max_length_storage_key + MARGIN
+                    <= limits.per_receipt_storage_proof_size_limit as u64,
+                "max storage value does not fit at protocol version {version}"
+            );
+        }
+    }
+
     /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions
     #[test]
     fn test_no_deprecated_config() {

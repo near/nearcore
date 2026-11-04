@@ -1,25 +1,21 @@
 # RuntimeConfig
 
 The structure that holds the parameters of the runtime, mostly economics.
+It is not part of genesis.
+Each nearcore release contains the runtime config for every protocol version (`core/parameters/res/runtime_configs/`), and the node uses the config of the current protocol version.
+The `EXPERIMENTAL_protocol_config` RPC method returns it as `runtime_config`.
+This page describes only some of the fields.
+The others are `account_creation_config`, `congestion_control_config`, `witness_config`, `min_gas_purchase_price` and `account_creation_charge`.
 
-## storage_cost_byte_per_block
+## storage_amount_per_byte
 
 `type: Balance`
 
-The cost to store one byte of storage per block.
-
-### storage_cost_byte_per_block
-
-`type: Balance`
-
-Costs of different actions that need to be performed when sending and processing transaction
-and receipts.
-
-## poke_threshold
-
-`type: BlockIndex`
-
-The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
+The balance, in yoctoNEAR, that an account must hold for each byte of storage it uses.
+The value is 10^19 yoctoNEAR (1 NEAR per 100 kB).
+The balance stays on the account.
+A transaction or receipt that would leave the account balance (amount plus locked) below the required amount fails with `LackBalanceForState`.
+Accounts that use 770 bytes of storage or less are exempt (zero balance accounts, NEP-448).
 
 ## transaction_costs
 
@@ -32,11 +28,3 @@ Costs of different actions that need to be performed when sending and processing
 `type: VMConfig` [VMConfig](VMConfig.md)
 
 Config of wasm operations.
-
-## account_length_baseline_cost_per_block
-
-`type: Balance`
-
-The baseline cost to store account_id of short length per block.
-The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
-This value represents `1,000` above adjusted to use per block
