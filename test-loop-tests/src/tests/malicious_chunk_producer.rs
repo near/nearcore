@@ -15,6 +15,7 @@ use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{Action, DeployContractAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -163,17 +164,28 @@ fn test_producer_with_expired_transactions() {
 /// ECCs not yet packed by the chunk producer, `TransactionSizeExceeded`
 /// is the only rejection in `check_valid_for_config` reachable from
 /// stable master today, so we use an oversized transaction as a stand-in
-/// for that attack class.
+/// for that attack class. We also shrink `max_transaction_size` so the
+/// "oversized" tx stays small and the test stays fast.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
     init_test_logger();
 
+    // Shrink `max_transaction_size` so the "oversized" transaction we craft
+    // below (and the chunk carrying it) stays tiny. The default 1.5 MiB
+    // limit would force a multi-MiB transaction whose borsh serialization
+    // dominates the test's runtime.
+    const MAX_TX_SIZE: u64 = 10 * 1024;
+    let mut runtime_config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
+    Arc::make_mut(&mut runtime_config.wasm_config).limit_config.max_transaction_size = MAX_TX_SIZE;
+    let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
+
     let user_account = create_account_id("user0");
     let mut env = TestLoopBuilder::new()
         .validators(1, 2)
         .add_user_accounts(&[user_account.clone()], Balance::from_near(1_000_000))
+        .runtime_config_store(runtime_config_store)
         .build();
 
     // Tell the malicious chunk producer to skip runtime verification of
@@ -183,9 +195,9 @@ fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
         AdvProduceChunksMode::ProduceWithoutTxVerification,
     ));
 
-    // Craft a transaction whose borsh-serialized size exceeds the default
-    // `max_transaction_size` of 1_572_864 bytes. Only the size matters;
-    // the payload content is otherwise irrelevant.
+    // Craft a transaction whose borsh-serialized size exceeds
+    // `max_transaction_size`. Only the size matters; the payload content is
+    // otherwise irrelevant.
     let signer = create_user_test_signer(&user_account);
     let block_hash = env.validator().head().last_block_hash;
     let oversized_tx = SignedTransaction::from_actions(
@@ -193,7 +205,9 @@ fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
         user_account.clone(),
         user_account.clone(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 2 * 1024 * 1024] })],
+        vec![Action::DeployContract(DeployContractAction {
+            code: vec![0u8; (MAX_TX_SIZE * 2) as usize],
+        })],
         block_hash,
     );
     env.validator().submit_tx_pool(oversized_tx);
