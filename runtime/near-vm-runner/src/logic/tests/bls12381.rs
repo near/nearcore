@@ -2240,4 +2240,27 @@ mod tests {
         let from_memory = logic.registers().get_for_free(0).unwrap().to_vec();
         assert_eq!(logic.registers().get_for_free(2).unwrap(), from_memory);
     }
+
+    #[test]
+    fn test_bls12381_p1_sum_out_of_bounds_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        logic_builder.config.fix_register_input_charging = true;
+        let mut logic = logic_builder.build();
+
+        // Setup: an input range past the end of guest memory.
+        let input_len = 1 + 96;
+        let input_ptr = 1 << 40;
+        reset_costs_counter();
+
+        // Apply: call the host function with the out-of-bounds input.
+        let result = logic.bls12381_p1_sum(input_len, input_ptr, 0);
+
+        // Check: the call fails on the read and does not pay for elements.
+        assert_eq!(result, Err(HostError::MemoryAccessViolation.into()));
+        assert_costs(map! {
+            ExtCosts::bls12381_p1_sum_base: 1,
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: input_len,
+        });
+    }
 }

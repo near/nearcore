@@ -465,3 +465,58 @@ fn test_promise_yield_resume_with_yield_id_register_payload() {
         Some(MockAction::YieldResume { data, .. }) if data == b"payload"
     ));
 }
+
+#[test]
+fn test_promise_yield_resume_out_of_bounds_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: a data id in memory and a payload range past the end of guest memory.
+    let data_id = logic.internal_mem_write(&[1u8; 32]);
+    let payload_len = 7;
+    let payload_ptr = 1 << 40;
+    reset_costs_counter();
+
+    // Apply: resume with the out-of-bounds payload.
+    let result = logic.promise_yield_resume(data_id.len, data_id.ptr, payload_len, payload_ptr);
+
+    // Check: the resume fails on the payload read and does not pay for payload bytes.
+    assert_eq!(result, Err(HostError::MemoryAccessViolation.into()));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 32 + payload_len,
+    });
+}
+
+#[test]
+fn test_promise_yield_resume_with_yield_id_out_of_bounds_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: a yield id in memory and a payload range past the end of guest memory.
+    let yield_id = logic.internal_mem_write(&[1u8; 32]);
+    let payload_len = 7;
+    let payload_ptr = 1 << 40;
+    reset_costs_counter();
+
+    // Apply: resume with the out-of-bounds payload.
+    let result = logic.promise_yield_resume_with_yield_id(
+        yield_id.len,
+        yield_id.ptr,
+        payload_len,
+        payload_ptr,
+    );
+
+    // Check: the resume fails on the payload read and does not pay for payload bytes.
+    assert_eq!(result, Err(HostError::MemoryAccessViolation.into()));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 32 + payload_len,
+    });
+}
