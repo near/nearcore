@@ -21,29 +21,31 @@ runs:
       name: Install sccache
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
 
-    # Start the daemon eagerly so a flaky GCS backend fails this guarded
-    # step rather than failing the first compile step. Without this, sccache
-    # starts lazily on the first `sccache rustc …` invocation and a startup
-    # timeout there takes down whatever build step happened to be first.
+    # Start the daemon eagerly and only wire up RUSTC_WRAPPER if it reports
+    # healthy. Without this, sccache starts lazily on the first
+    # `sccache rustc …` invocation and a startup timeout there (e.g. a flaky
+    # GCS backend) takes down whatever build step happens to be first.
+    #
+    # `timeout-minutes` is used instead of the shell `timeout` binary so this
+    # works uniformly on Linux / macOS / Windows runners (BSD macOS doesn't
+    # ship GNU `timeout`). Keep the "start" and "export" in one step: the
+    # `SCCACHE_GCS_*` triple then lives in exactly one place.
     - if: steps.gcp-auth.outcome == 'success'
       id: sccache-start
-      name: Start sccache daemon
+      name: Start sccache daemon and enable wrapper
       continue-on-error: true
+      timeout-minutes: 1
       shell: bash
       env:
         SCCACHE_GCS_BUCKET: nearone-sccache
         SCCACHE_GCS_RW_MODE: READ_WRITE
         SCCACHE_GCS_KEY_PREFIX: nearcore/ci
-      run: timeout 30 sccache --start-server
-
-    - if: steps.sccache-start.outcome == 'success'
-      name: Enable sccache as RUSTC_WRAPPER
-      shell: bash
       run: |
+        sccache --start-server
         {
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache"
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE"
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci"
+          echo "SCCACHE_GCS_BUCKET=$SCCACHE_GCS_BUCKET"
+          echo "SCCACHE_GCS_RW_MODE=$SCCACHE_GCS_RW_MODE"
+          echo "SCCACHE_GCS_KEY_PREFIX=$SCCACHE_GCS_KEY_PREFIX"
           echo "RUSTC_WRAPPER=sccache"
         } >> "$GITHUB_ENV"
 
