@@ -80,7 +80,7 @@ use testlib::runtime_utils::{alice_account, bob_account};
 
 const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
-fn setup_runtime(
+pub(super) fn setup_runtime(
     initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
@@ -3614,7 +3614,7 @@ fn test_congestion_buffering() {
 
 // Apply trie changes in `ApplyResult` and update `ApplyState` with new
 // congestion info for the next call to apply().
-fn commit_apply_result(
+pub(super) fn commit_apply_result(
     apply_result: &ApplyResult,
     apply_state: &mut ApplyState,
     tries: &ShardTries,

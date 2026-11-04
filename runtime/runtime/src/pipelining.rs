@@ -92,11 +92,20 @@ struct PrepareTask {
     status: Mutex<PrepareTaskStatus>,
     condvar: Condvar,
     created: Instant,
-    /// Hash of the contract identifier captured at submit time.
+    /// Contract identifier the receiver resolved to at submit time.
     ///
-    /// Defense in depth: if the receiver's code hash unexpectedly changes between
-    /// preparation and execution, the stale prepared artifact is discarded.
-    expected_hash: CryptoHash,
+    /// `get_contract` uses the task only for a call that resolves to the same
+    /// identifier. Equal code hashes are not enough. The pool thread reads
+    /// the code by hash as soon as the task is submitted. If the receiver
+    /// switches within the chunk to another identifier, and a deploy later
+    /// in the chunk puts the same bytes under it, the hashes match but the
+    /// read ran before the deploy. A chunk validator has that code only from
+    /// the deploy: `record_contract_call` announces no code that the
+    /// pre-chunk trie lacks under the call's identifier. So on a validator
+    /// whose compiled contract cache lacks the code, the read fails, and the
+    /// failure is stored in the task. Rejecting the task prepares the call
+    /// inline, after the deploy.
+    identifier: RuntimeContractIdentifier,
 }
 
 enum PrepareTaskStatus {
@@ -249,7 +258,6 @@ impl ReceiptPreparationPipeline {
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let created = Instant::now();
-                    let expected_hash = identifier.hash();
                     // Pre-warm the next epoch's compiled-contract cache if an upgrade approaches.
                     if let (Some(next_config), Some(cache_for_warming)) =
                         (self.next_wasm_config.as_ref(), self.contract_cache.as_ref())
@@ -265,7 +273,7 @@ impl ReceiptPreparationPipeline {
                         status,
                         condvar: Condvar::new(),
                         created,
-                        expected_hash,
+                        identifier: identifier.clone(),
                     });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
@@ -349,8 +357,7 @@ impl ReceiptPreparationPipeline {
             panic!("referenced receipt action is not a function call!");
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-        // Double-check contract hash matches as defense-in-depth.
-        let Some(task) = self.map.get(&key).filter(|t| t.expected_hash == identifier.hash()) else {
+        let Some(task) = self.map.get(&key).filter(|t| t.identifier == identifier) else {
             let start = Instant::now();
             let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
             if !self.block_accounts.contains(account_id) {
