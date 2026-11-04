@@ -481,9 +481,11 @@ fn find_chunk_execution_result(
     panic!()
 }
 
-fn record_endorsements(actors: &mut [TestActor], block: &Block) {
+/// Endorsements of every chunk of `block` by every actor with a signer.
+fn chunk_endorsements(actors: &mut [TestActor], block: &Block) -> Vec<SpiceChunkEndorsement> {
     let epoch_id = block.header().epoch_id();
     let shard_layout = actors[0].actor.epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let mut endorsements = Vec::new();
     for chunk in block.chunks().iter_raw() {
         let shard_id = chunk.shard_id();
         let execution_result =
@@ -493,18 +495,29 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
             let Some(signer) = actor.actor.validator_signer.get() else {
                 continue;
             };
-            let endorsement = SpiceChunkEndorsement::new(
+            endorsements.push(SpiceChunkEndorsement::new(
                 SpiceChunkId { block_hash: *block.hash(), shard_id },
                 execution_result.clone(),
                 &signer,
-            );
-            for actor in actors.iter() {
-                actor.actor.core_writer_sender.send(SpiceChunkEndorsementMessage(
-                    endorsement.clone(),
-                    RecvMessagePermit::none(),
-                ));
-            }
+            ));
         }
+    }
+    endorsements
+}
+
+fn send_endorsements(actor: &TestActor, endorsements: &[SpiceChunkEndorsement]) {
+    for endorsement in endorsements {
+        actor
+            .actor
+            .core_writer_sender
+            .send(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+    }
+}
+
+fn record_endorsements(actors: &mut [TestActor], block: &Block) {
+    let endorsements = chunk_endorsements(actors, block);
+    for actor in actors.iter() {
+        send_endorsements(actor, &endorsements);
     }
 }
 
@@ -844,6 +857,81 @@ fn test_final_execution_head_is_updated_when_tracking_no_shards() {
         actors[0].chain.chain_store.spice_final_execution_head().unwrap(),
         actors[1].chain.chain_store.spice_final_execution_head().unwrap()
     );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_final_execution_head_moves_only_to_certified_block_when_tracking_no_shards() {
+    init_test_logger();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let producer_signer = Arc::new(create_test_signer("producer"));
+    let validator_signer = Arc::new(create_test_signer("validator"));
+    let shard_layout = ShardLayout::single_shard();
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(shard_layout.clone())
+        .validators_spec(ValidatorsSpec::desired_roles(&["producer"], &["validator"]))
+        .build();
+
+    let mut actors = [
+        TestActor::new(
+            genesis.clone(),
+            MutableConfigValue::new(Some(producer_signer), "validator_signer"),
+            shard_layout.shard_uids().collect(),
+            outgoing_sc.clone(),
+        ),
+        TestActor::new(
+            genesis,
+            MutableConfigValue::new(Some(validator_signer), "validator_signer"),
+            vec![],
+            outgoing_sc,
+        ),
+    ];
+    let genesis_block = actors[0].chain.genesis_block();
+    assert!(
+        actors[1].actor.shard_tracker.tracked_shard_uids(genesis_block.hash()).unwrap().is_empty()
+    );
+
+    // Only the producer learns of certification, so blocks become final on both
+    // nodes while staying uncertified on the stateless one.
+    let mut prev_block = genesis_block.clone();
+    let mut blocks = Vec::new();
+    let mut withheld_endorsements = Vec::new();
+    for _ in 0..6 {
+        let block = produce_block(&mut actors, &prev_block);
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        let endorsements = chunk_endorsements(&mut actors, &block);
+        send_endorsements(&actors[0], &endorsements);
+        withheld_endorsements.push(endorsements);
+        prev_block = block.clone();
+        blocks.push(block);
+    }
+    let producer_final_head = actors[0].chain.chain_store.spice_final_execution_head().unwrap();
+    assert!(producer_final_head.height > genesis_block.header().height());
+    let stateless_final_head = actors[1].chain.chain_store.spice_final_execution_head().unwrap();
+    assert_eq!(stateless_final_head.last_block_hash, *genesis_block.hash());
+
+    // Certifying a prefix moves the head to the end of the prefix, short of the last final block.
+    send_endorsements(&actors[1], &withheld_endorsements[0]);
+    send_endorsements(&actors[1], &withheld_endorsements[1]);
+    let block = produce_block(&mut actors, &prev_block);
+    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    let last_final = actors[1].chain.get_block_header(block.header().last_final_block()).unwrap();
+    assert!(last_final.height() > blocks[1].header().height());
+    let stateless_final_head = actors[1].chain.chain_store.spice_final_execution_head().unwrap();
+    assert_eq!(stateless_final_head.last_block_hash, *blocks[1].hash());
+
+    for endorsements in &withheld_endorsements[2..] {
+        send_endorsements(&actors[1], endorsements);
+    }
+    let block = produce_block(&mut actors, &block);
+    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    let stateless_final_head = actors[1].chain.chain_store.spice_final_execution_head().unwrap();
+    assert_eq!(stateless_final_head.last_block_hash, *block.header().last_final_block());
 }
 
 #[test]

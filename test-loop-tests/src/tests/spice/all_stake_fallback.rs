@@ -23,6 +23,7 @@ use near_primitives::types::{
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Shards in [`FallbackSetup`].
 const NUM_SHARDS: NumShards = 6;
@@ -176,6 +177,75 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
     );
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_final_execution_head_stays_certified_on_stateless_validators_during_fallback() {
+    init_test_logger();
+
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    let stateless_nodes = (0..env.node_datas.len())
+        .filter(|&idx| {
+            let node = env.node(idx);
+            let head_hash = node.head().last_block_hash;
+            let shard_tracker = &node.client().shard_tracker;
+            shard_tracker.tracked_shard_uids_this_or_next_epoch(&head_hash).unwrap().is_empty()
+        })
+        .collect_vec();
+    assert!(!stateless_nodes.is_empty(), "no validator tracks zero shards");
+
+    // Certification lags consensus finality by a fallback window per height, so a final
+    // execution head that followed finality would pass uncertified blocks.
+    let node_datas = env.node_datas.clone();
+    let initial_final_execution_heads = stateless_nodes
+        .iter()
+        .map(|&idx| final_execution_head(&env.node(idx)).height())
+        .collect_vec();
+    let target = env.node(0).last_certified_block_header().height() + 4;
+    let mut finality_ahead_of_certification = false;
+    env.test_loop.run_until(
+        |test_loop_data| {
+            for &idx in &stateless_nodes {
+                let node = TestLoopNode { data: test_loop_data, node_data: &node_datas[idx] };
+                let core_reader = &node.client().chain.spice_core_reader;
+                let final_execution_head = final_execution_head(&node);
+                assert!(
+                    core_reader.all_execution_results_exist(&final_execution_head).unwrap(),
+                    "node {idx}: final execution head {} is not certified",
+                    final_execution_head.height(),
+                );
+                let final_head = node.block(node.final_head().last_block_hash);
+                finality_ahead_of_certification |=
+                    !core_reader.all_execution_results_exist(final_head.header()).unwrap();
+            }
+            let node = TestLoopNode { data: test_loop_data, node_data: &node_datas[0] };
+            node.last_certified_block_header().height() >= target
+        },
+        Duration::seconds(300),
+    );
+    assert!(finality_ahead_of_certification, "certification never lagged finality");
+    for (idx, initial_height) in stateless_nodes.into_iter().zip(initial_final_execution_heads) {
+        let height = final_execution_head(&env.node(idx)).height();
+        assert!(
+            height > initial_height,
+            "node {idx}: final execution head stuck at {height} while certification advanced",
+        );
+    }
+}
+
+fn final_execution_head(node: &TestLoopNode) -> Arc<BlockHeader> {
+    let chain_store = node.client().chain.chain_store();
+    let head = chain_store.spice_final_execution_head().unwrap();
+    chain_store.get_block_header(&head.last_block_hash).unwrap()
 }
 
 #[test]

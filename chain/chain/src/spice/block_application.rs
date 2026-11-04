@@ -1,12 +1,16 @@
 use crate::Block;
 use crate::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD;
+use crate::spice::boundary::is_last_pre_spice_block;
+use crate::spice::core::get_execution_result_from_store;
 use crate::types::{RuntimeAdapter, Tip};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use std::sync::Arc;
 
 /// Block-level finalize. Owns the entire commit lifecycle because the work
 /// straddles the commit boundary, unlike `apply_chunk_postprocessing` which
@@ -14,7 +18,8 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 ///
 /// **Pre-commit phase.** Forward-only writes to `spice_execution_head` and
 /// `spice_final_execution_head`, both into one `StoreUpdate` so the heads
-/// advance atomically. Forward-only setters make the writes idempotent.
+/// advance atomically. Forward-only setters make the writes idempotent. The
+/// final execution head moves only to a fully certified block.
 ///
 /// **Post-commit phase.** Flat-storage advance and memtrie GC. These touch
 /// subsystems outside the spice `StoreUpdate` — flat storage commits its own
@@ -30,19 +35,76 @@ pub fn apply_block_postprocessing(
     block: &Block,
 ) -> Result<(), Error> {
     let mut store_update = chain_store.store().store_update();
-    let new_final = store_update.chain_store_update().update_spice_final_execution_head(block)?;
+    let new_final = certified_final_execution_head(epoch_manager, chain_store, block.header())?;
+    if let Some(new_final) = &new_final {
+        store_update.chain_store_update().set_spice_final_execution_head(new_final);
+    }
     store_update
         .chain_store_update()
         .set_spice_execution_head(&Tip::from_header(block.header()))?;
     BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.set(block.header().height() as i64);
     store_update.commit();
 
-    let Some(new_final) = new_final else { return Ok(()) };
+    let final_head = match new_final {
+        Some(new_final) => Arc::new(new_final),
+        None => chain_store.spice_final_execution_head()?,
+    };
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash())?;
-    update_flat_storage_head(runtime_adapter, &shard_layout, &new_final)?;
-    gc_memtrie_roots(runtime_adapter, chain_store, &shard_layout, &new_final);
+    update_flat_storage_head(runtime_adapter, &shard_layout, &final_head)?;
+    gc_memtrie_roots(runtime_adapter, chain_store, &shard_layout, &final_head);
     Ok(())
+}
+
+/// The highest fully certified block above the current final execution head and at or
+/// below `header`'s last final block, if any. Walks forward from the current head, so
+/// each block is checked once it becomes final.
+fn certified_final_execution_head(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chain_store: &ChainStoreAdapter,
+    header: &BlockHeader,
+) -> Result<Option<Tip>, Error> {
+    let last_final_hash = header.last_final_block();
+    if last_final_hash == &CryptoHash::default() {
+        return Ok(None);
+    }
+    let last_final_height = chain_store.get_block_header(last_final_hash)?.height();
+    let mut head = chain_store.spice_final_execution_head()?.last_block_hash;
+    let mut new_head = None;
+    loop {
+        // Final blocks are canonical, so the canonical successor leads to the last final block.
+        let next_hash = match chain_store.get_next_block_hash(&head) {
+            Ok(hash) => hash,
+            Err(Error::DBNotFoundErr(_)) => return Ok(new_head),
+            Err(err) => return Err(err),
+        };
+        let next = chain_store.get_block_header(&next_hash)?;
+        if next.height() > last_final_height
+            || !is_fully_certified(epoch_manager, chain_store, &next)?
+        {
+            return Ok(new_head);
+        }
+        head = *next.hash();
+        new_head = Some(Tip::from_header(&next));
+    }
+}
+
+/// Whether every chunk of `header`'s block is certified. Genesis and pre-spice blocks
+/// other than the last one are certified by definition.
+fn is_fully_certified(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chain_store: &ChainStoreAdapter,
+    header: &BlockHeader,
+) -> Result<bool, Error> {
+    if header.is_genesis()
+        || (!header.is_spice() && !is_last_pre_spice_block(epoch_manager, header.hash())?)
+    {
+        return Ok(true);
+    }
+    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
+    Ok(shard_layout.shard_ids().all(|shard_id| {
+        get_execution_result_from_store(chain_store, header.hash(), shard_id).is_some()
+    }))
 }
 
 fn update_flat_storage_head(

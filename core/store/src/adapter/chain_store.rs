@@ -618,11 +618,8 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     /// this update, and return the (possibly advanced) head.
     ///
     /// The "current head" comparison reads the committed `Store`, not pending writes
-    /// queued in this `StoreUpdate`. That's intentional: this setter is called at
-    /// most once per `apply_block_postprocessing` invocation, which owns its own
-    /// `StoreUpdate` and commits before the next finalize runs. The forward-only
-    /// check guards against inter-update races (a concurrent finalize already
-    /// committed a higher head), not intra-update races.
+    /// queued in this `StoreUpdate`, so callers issue at most one write per
+    /// `StoreUpdate`.
     pub fn update_spice_final_execution_head(
         &mut self,
         block: &Block,
