@@ -1659,7 +1659,8 @@ fn check_borsh_frames(
     if encoding != Encoding::Borsh {
         return Ok(());
     }
-    let header = header.ok_or(stream::NetworkProtocolViolation::MissingHeader(msg.kind()))?;
+    let header =
+        header.ok_or_else(|| stream::NetworkProtocolViolation::MissingHeader(msg.kind()))?;
     if header.kind() != msg.kind() {
         return Err(stream::NetworkProtocolViolation::KindMismatch {
             header: header.kind(),
@@ -1869,7 +1870,7 @@ mod tests {
             Err(stream::NetworkProtocolViolation::KindMismatch { .. })
         ));
 
-        let mut frames_without_header = frames.clone();
+        let mut frames_without_header = frames;
         frames_without_header.header = None;
         let (header, decoded) = PeerMessage::deserialize_frames(&frames_without_header).unwrap();
         assert!(header.is_none());
