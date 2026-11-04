@@ -24,7 +24,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction, ValidatedTransaction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality, Nonce, ProtocolVersion,
@@ -298,6 +298,27 @@ impl<'a> TestLoopNode<'a> {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
+        tx_hash
+    }
+
+    /// Insert a signed transaction directly into this node's chunk producer pool,
+    /// bypassing RPC validation. The shard is resolved from the signer account
+    /// using the current epoch's shard layout.
+    ///
+    /// Intended for adversarial / malicious chunk producer tests that need
+    /// to bypass the normal admission checks (e.g. to include a transaction
+    /// that would be rejected by `check_valid_for_config`).
+    pub fn submit_tx_pool(&self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
+        let client = self.client();
+        let epoch_id = client.chain.head().unwrap().epoch_id;
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uid = shard_layout.account_id_to_shard_uid(tx.transaction.signer_id());
+        client
+            .chunk_producer
+            .sharded_tx_pool
+            .lock()
+            .insert_transaction(shard_uid, ValidatedTransaction::new_for_test(tx));
         tx_hash
     }
 
