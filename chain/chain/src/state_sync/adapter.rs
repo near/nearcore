@@ -394,14 +394,19 @@ impl ChainStateSyncAdapter {
         // Consider chunk itself is valid.
 
         // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
-        // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash
+        // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash,
+        // at the index of `shard_id`
         // 3aa. Also checking chunk.height_included
         let sync_prev_block_header =
             self.chain_store.get_block_header(sync_block_header.prev_hash())?;
-        if !verify_path(
+        let sync_prev_shard_layout =
+            self.epoch_manager.get_shard_layout(sync_prev_block_header.epoch_id())?;
+        if !verify_path_with_index(
             *sync_prev_block_header.chunk_headers_root(),
             shard_state_header.chunk_proof(),
             &ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()),
+            sync_prev_shard_layout.get_shard_index(shard_id)? as u64,
+            sync_prev_shard_layout.num_shards(),
         ) {
             byzantine_assert!(false);
             return Err(Error::Other(
@@ -414,16 +419,21 @@ impl ChainStateSyncAdapter {
             &sync_hash,
             chunk.height_included(),
         )?;
-        // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
+        // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included,
+        // at the index of `shard_id`
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
             (Some(prev_chunk_header), Some(prev_chunk_proof)) => {
                 let prev_block_header =
                     self.chain_store.get_block_header(block_header.prev_hash())?;
-                if !verify_path(
+                let prev_block_shard_layout =
+                    self.epoch_manager.get_shard_layout(prev_block_header.epoch_id())?;
+                if !verify_path_with_index(
                     *prev_block_header.chunk_headers_root(),
                     prev_chunk_proof,
                     &ChunkHashHeight(prev_chunk_header.chunk_hash().clone(), prev_chunk_header.height_included()),
+                    prev_block_shard_layout.get_shard_index(shard_id)? as u64,
+                    prev_block_shard_layout.num_shards(),
                 ) {
                     byzantine_assert!(false);
                     return Err(Error::Other(
