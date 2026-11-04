@@ -26,10 +26,13 @@ use near_chain::{Block, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_f
 use near_primitives::block::BlockHeader;
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::transaction::ExecutionStatus;
-use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, SpiceChunkId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, ChunkExecutionResult, ShardId, SpiceChunkId,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -416,7 +419,8 @@ fn check_supply_subtracts_certified_burn_once(
 // -- boundary_results, stateless_endorser --
 
 fn boundary_results(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(), String> {
-    check_boundary_results(env, run.last_pre_spice())
+    let applied = run.boundary_inputs.applied.clone()?;
+    compare_boundary_results(env, run.last_pre_spice(), &applied)
 }
 
 fn stateless_endorser(
@@ -446,11 +450,46 @@ pub fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Blo
 /// The certified results of the last pre-spice block equal the local pre-spice apply, for
 /// every shard.
 fn check_boundary_results(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(), String> {
+    let applied = read_pre_spice_applies(env, last_pre_spice)?;
+    compare_boundary_results(env, last_pre_spice, &applied)
+}
+
+/// The rpc node tracks every shard, so it applied the last pre-spice block in full the
+/// pre-spice way; this is the result of each shard the boundary attests.
+fn read_pre_spice_applies(
+    env: &TestLoopEnv,
+    last_pre_spice: &Block,
+) -> Result<HashMap<ShardId, ChunkExecutionResult>, String> {
     let rpc_node = env.rpc_node();
     let client = rpc_node.client();
     let epoch_manager = client.epoch_manager.as_ref();
-    let core_reader = &client.chain.spice_core_reader;
     let shard_layout = epoch_manager
+        .get_shard_layout(last_pre_spice.header().epoch_id())
+        .map_err(|err| format!("no shard layout at the last pre-spice block: {err}"))?;
+    let mut applied = HashMap::new();
+    for shard_id in shard_layout.shard_ids() {
+        let (result, _) = execution_result_and_receipt_proofs_from_pre_spice_apply(
+            &client.chain.chain_store,
+            epoch_manager,
+            last_pre_spice,
+            shard_id,
+        )
+        .map_err(|err| format!("no pre-spice apply result for shard {shard_id}: {err}"))?;
+        applied.insert(shard_id, result);
+    }
+    Ok(applied)
+}
+
+fn compare_boundary_results(
+    env: &TestLoopEnv,
+    last_pre_spice: &Block,
+    applied: &HashMap<ShardId, ChunkExecutionResult>,
+) -> Result<(), String> {
+    let rpc_node = env.rpc_node();
+    let client = rpc_node.client();
+    let core_reader = &client.chain.spice_core_reader;
+    let shard_layout = client
+        .epoch_manager
         .get_shard_layout(last_pre_spice.header().epoch_id())
         .map_err(|err| format!("no shard layout at the last pre-spice block: {err}"))?;
 
@@ -466,17 +505,11 @@ fn check_boundary_results(env: &TestLoopEnv, last_pre_spice: &Block) -> Result<(
 
     for shard_id in shard_layout.shard_ids() {
         let certified = certified[&shard_id].as_ref();
-        // The rpc node tracks every shard, so it applied the last pre-spice block in
-        // full the pre-spice way; this is the result the boundary attests.
-        let (applied, _) = execution_result_and_receipt_proofs_from_pre_spice_apply(
-            &client.chain.chain_store,
-            epoch_manager,
-            last_pre_spice,
-            shard_id,
-        )
-        .map_err(|err| format!("no pre-spice apply result for shard {shard_id}: {err}"))?;
+        let applied = applied
+            .get(&shard_id)
+            .ok_or_else(|| format!("no pre-spice apply result for shard {shard_id}"))?;
         ensure!(
-            certified == &applied,
+            certified == applied,
             "certified result of shard {shard_id} differs from the pre-spice apply",
         );
     }
@@ -1032,6 +1065,7 @@ fn code_requested(
 /// block says which chunks were missing, whatever made them so. When every chunk is new it
 /// asserts that nothing is undelivered.
 fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> Result<(), String> {
+    let inputs = run.boundary_inputs.undelivered.as_ref().map_err(Clone::clone)?;
     let node = env.rpc_node();
     let chain = &node.client().chain;
     let epoch_manager = chain.epoch_manager.as_ref();
@@ -1051,16 +1085,7 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
     let mut undelivered_receipt_ids_by_receiving_shard: HashMap<ShardId, Vec<CryptoHash>> =
         HashMap::new();
     for &source_shard_id in &shard_ids {
-        let source_shard_index = shard_layout.get_shard_index(source_shard_id).unwrap();
-        let undelivered_receipt_proofs = get_undelivered_receipt_proofs(
-            &chain.chain_store,
-            epoch_manager,
-            last_pre_spice,
-            source_shard_id,
-        )
-        .map_err(|err| {
-            format!("no undelivered receipt proofs of shard {source_shard_id}: {err}")
-        })?;
+        let undelivered_receipt_proofs = &inputs.proofs[&source_shard_id];
         for &target_shard_id in &shard_ids {
             if target_shard_id == source_shard_id {
                 continue;
@@ -1069,15 +1094,7 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
             // missed, each with one proof to the target. When the target's chunk at the
             // boundary is new there are none.
             let target_last_included_height = last_included_height(target_shard_id);
-            let expected_carriers: HashSet<ChunkHash> = (target_last_included_height + 1
-                ..=last_pre_spice_height)
-                .filter_map(|height| {
-                    let block = chain.get_block_by_height(height).ok()?;
-                    let chunks = block.chunks();
-                    let chunk_header = &chunks[source_shard_index];
-                    chunk_header.is_new_chunk(height).then(|| chunk_header.chunk_hash().clone())
-                })
-                .collect();
+            let expected_carriers = &inputs.expected_carriers[&(source_shard_id, target_shard_id)];
             let carriers: HashSet<ChunkHash> = undelivered_receipt_proofs
                 .iter()
                 .filter(|(_, proofs)| {
@@ -1086,12 +1103,12 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
                 .map(|(chunk_hash, _)| chunk_hash.clone())
                 .collect();
             ensure!(
-                carriers == expected_carriers,
+                &carriers == expected_carriers,
                 "the carriers of shard {source_shard_id} for shard {target_shard_id} are \
                  {carriers:?}, they must be its chunks after shard {target_shard_id}'s last one at \
                  height {target_last_included_height}: {expected_carriers:?}",
             );
-            for (chunk_hash, proofs) in &undelivered_receipt_proofs {
+            for (chunk_hash, proofs) in undelivered_receipt_proofs {
                 let to_target =
                     proofs.iter().filter(|proof| proof.1.to_shard_id == target_shard_id).count();
                 ensure!(
@@ -1102,14 +1119,7 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
             }
         }
 
-        let undelivered_receipts = get_undelivered_receipts(
-            &chain.chain_store,
-            epoch_manager,
-            last_pre_spice,
-            source_shard_id,
-        )
-        .map_err(|err| format!("no undelivered receipts of shard {source_shard_id}: {err}"))?;
-        for receipt in &undelivered_receipts {
+        for receipt in &inputs.receipts[&source_shard_id] {
             let receipt_id = receipt.receipt_id();
             let receiving_shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
             let receipt_outcome = chain
@@ -1161,21 +1171,8 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
             "receipts are undelivered to shard {receiving_shard_id}, whose chunk at the last \
              pre-spice block is new",
         );
-        let pending_receipt_ids: HashSet<CryptoHash> = get_incoming_receipts_for_shard(
-            &chain.chain_store,
-            epoch_manager,
-            receiving_shard_id,
-            &shard_layout,
-            *last_pre_spice.hash(),
-            receiving_last_included_height,
-            ReceiptFilter::TargetShard,
-        )
-        .map_err(|err| format!("no pending receipts of shard {receiving_shard_id}: {err}"))?
-        .iter()
-        .flat_map(|response| response.1.iter())
-        .flat_map(|proof| proof.0.iter())
-        .map(|receipt| *receipt.receipt_id())
-        .collect();
+        let pending_receipt_ids =
+            inputs.pending[&receiving_shard_id].as_ref().map_err(Clone::clone)?;
         for receipt_id in &undelivered_receipt_ids {
             ensure!(
                 pending_receipt_ids.contains(receipt_id),
@@ -1185,6 +1182,129 @@ fn undelivered_receipts(env: &TestLoopEnv, run: &RunRecord, _: &Relaxations) -> 
         }
     }
     Ok(())
+}
+
+/// What the oracles read of the pre-spice chain, read once when the driver finds the last
+/// pre-spice block. The blocks they walk back through are the ones `gc_tight` collects
+/// before `done`, so reading them then would fail on a chain that is fine. A failure to read
+/// is kept as the message the oracle reports at `done`.
+pub struct BoundaryInputs {
+    /// The pre-spice apply result of every shard of the last pre-spice block.
+    applied: Result<HashMap<ShardId, ChunkExecutionResult>, String>,
+    undelivered: Result<UndeliveredInputs, String>,
+}
+
+/// What `undelivered_receipts` needs of the pre-spice chain.
+struct UndeliveredInputs {
+    /// Per source shard, the undelivered receipt proofs by carrying chunk.
+    proofs: HashMap<ShardId, HashMap<ChunkHash, Vec<ReceiptProof>>>,
+    /// Per source shard, its undelivered receipts.
+    receipts: HashMap<ShardId, Vec<Receipt>>,
+    /// Per (source, target) shard pair, the source's new chunks after the target's last
+    /// included one.
+    expected_carriers: HashMap<(ShardId, ShardId), HashSet<ChunkHash>>,
+    /// Per receiving shard of an undelivered receipt, the receipts pending for it at the
+    /// boundary.
+    pending: HashMap<ShardId, Result<HashSet<CryptoHash>, String>>,
+}
+
+/// Reads [`BoundaryInputs`] from the rpc node.
+pub fn read_boundary_inputs(env: &TestLoopEnv, last_pre_spice: &Block) -> BoundaryInputs {
+    BoundaryInputs {
+        applied: read_pre_spice_applies(env, last_pre_spice),
+        undelivered: read_undelivered_inputs(env, last_pre_spice),
+    }
+}
+
+fn read_undelivered_inputs(
+    env: &TestLoopEnv,
+    last_pre_spice: &Block,
+) -> Result<UndeliveredInputs, String> {
+    let node = env.rpc_node();
+    let chain = &node.client().chain;
+    let epoch_manager = chain.epoch_manager.as_ref();
+    let last_pre_spice_height = last_pre_spice.header().height();
+    let shard_layout = epoch_manager
+        .get_shard_layout(last_pre_spice.header().epoch_id())
+        .map_err(|err| format!("no shard layout at the last pre-spice block: {err}"))?;
+    let shard_ids: Vec<ShardId> = shard_layout.shard_ids().collect();
+    let last_included_height = |shard_id: ShardId| {
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        last_pre_spice.chunks()[shard_index].height_included()
+    };
+
+    let mut inputs = UndeliveredInputs {
+        proofs: HashMap::new(),
+        receipts: HashMap::new(),
+        expected_carriers: HashMap::new(),
+        pending: HashMap::new(),
+    };
+    for &source_shard_id in &shard_ids {
+        let source_shard_index = shard_layout.get_shard_index(source_shard_id).unwrap();
+        let proofs = get_undelivered_receipt_proofs(
+            &chain.chain_store,
+            epoch_manager,
+            last_pre_spice,
+            source_shard_id,
+        )
+        .map_err(|err| {
+            format!("no undelivered receipt proofs of shard {source_shard_id}: {err}")
+        })?;
+        inputs.proofs.insert(source_shard_id, proofs);
+        for &target_shard_id in &shard_ids {
+            if target_shard_id == source_shard_id {
+                continue;
+            }
+            let target_last_included_height = last_included_height(target_shard_id);
+            let expected_carriers: HashSet<ChunkHash> = (target_last_included_height + 1
+                ..=last_pre_spice_height)
+                .filter_map(|height| {
+                    let block = chain.get_block_by_height(height).ok()?;
+                    let chunks = block.chunks();
+                    let chunk_header = &chunks[source_shard_index];
+                    chunk_header.is_new_chunk(height).then(|| chunk_header.chunk_hash().clone())
+                })
+                .collect();
+            inputs.expected_carriers.insert((source_shard_id, target_shard_id), expected_carriers);
+        }
+        let receipts = get_undelivered_receipts(
+            &chain.chain_store,
+            epoch_manager,
+            last_pre_spice,
+            source_shard_id,
+        )
+        .map_err(|err| format!("no undelivered receipts of shard {source_shard_id}: {err}"))?;
+        inputs.receipts.insert(source_shard_id, receipts);
+    }
+    let receiving_shards: HashSet<ShardId> = inputs
+        .receipts
+        .values()
+        .flatten()
+        .map(|receipt| shard_layout.account_id_to_shard_id(receipt.receiver_id()))
+        .collect();
+    for receiving_shard_id in receiving_shards {
+        let receiving_last_included_height = last_included_height(receiving_shard_id);
+        let pending = get_incoming_receipts_for_shard(
+            &chain.chain_store,
+            epoch_manager,
+            receiving_shard_id,
+            &shard_layout,
+            *last_pre_spice.hash(),
+            receiving_last_included_height,
+            ReceiptFilter::TargetShard,
+        )
+        .map(|responses| {
+            responses
+                .iter()
+                .flat_map(|response| response.1.iter())
+                .flat_map(|proof| proof.0.iter())
+                .map(|receipt| *receipt.receipt_id())
+                .collect::<HashSet<CryptoHash>>()
+        })
+        .map_err(|err| format!("no pending receipts of shard {receiving_shard_id}: {err}"));
+        inputs.pending.insert(receiving_shard_id, pending);
+    }
+    Ok(inputs)
 }
 
 // -- node_agreement --

@@ -144,8 +144,9 @@ impl Fault for ValidatorChurn {
     fn setup(&self, resolved: Resolved, mut builder: TestLoopBuilder) -> TestLoopBuilder {
         let profile = resolved.profile;
         if self.joins() {
-            // The joiner is the client right after the validators.
-            let joiner_index = profile.num_validators();
+            // The joiner is the client right after the validators, or after the archival node
+            // that the builder puts there.
+            let joiner_index = profile.num_validators() + usize::from(resolved.archival_node);
             builder = builder
                 .add_non_validator_client(&self.joiner)
                 .add_user_account(&self.joiner, Balance::from_near(20_000))

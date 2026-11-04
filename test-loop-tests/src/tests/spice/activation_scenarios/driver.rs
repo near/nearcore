@@ -3,7 +3,7 @@
 //! checks everything the oracles and the preconditions say at the end.
 
 use super::loads::{self, Loads};
-use super::oracles::{Relaxations, always_on_oracles};
+use super::oracles::{BoundaryInputs, Relaxations, always_on_oracles, read_boundary_inputs};
 use super::resolve::{ACTIVATION_EPOCH_HEIGHT, Profile, Resolved, resolve};
 use super::scenario::{Fault, FaultEvent, Progress, Scenario, Timeline};
 use crate::setup::env::TestLoopEnv;
@@ -63,6 +63,9 @@ pub struct RunRecord {
     /// Per node index, the gates' drop counts when that node's head first reached the last
     /// pre-spice block.
     pub gate_snapshots: BTreeMap<usize, GateCounts>,
+    /// What the oracles read of the pre-spice chain, read when the last pre-spice block was
+    /// found, before garbage collection could take it.
+    pub boundary_inputs: BoundaryInputs,
 }
 
 impl RunRecord {
@@ -151,6 +154,8 @@ struct Driver {
     /// The epoch the driver's last observed spice block is in.
     spice_epoch_id: Option<EpochId>,
     gate_snapshots: BTreeMap<usize, GateCounts>,
+    /// Read when the last pre-spice block is found, see [`RunRecord::boundary_inputs`].
+    boundary_inputs: Option<BoundaryInputs>,
 }
 
 impl Driver {
@@ -164,6 +169,7 @@ impl Driver {
             code_requests: Arc::default(),
             spice_epoch_id: None,
             gate_snapshots: BTreeMap::new(),
+            boundary_inputs: None,
         }
     }
 
@@ -265,6 +271,7 @@ impl Driver {
         let found_last_pre_spice = is_last_pre_spice && self.timeline.last_pre_spice.is_none();
         if found_last_pre_spice {
             self.check_boundary(env, block);
+            self.boundary_inputs = Some(read_boundary_inputs(env, block));
             self.timeline.last_pre_spice = Some(block.clone());
         }
         let found_first_spice = block.is_spice_block() && self.timeline.first_spice.is_none();
@@ -448,6 +455,7 @@ impl Driver {
             agreement_height,
             code_requests: self.code_requests.lock().clone(),
             gate_snapshots: self.gate_snapshots,
+            boundary_inputs: self.boundary_inputs.expect("the run found the last pre-spice block"),
         };
         let mut failures = collect_failures(env, self.resolved.profile, &self.faults, &record);
         // A fault whose check needs the chain to run on past `done` runs it now; only its

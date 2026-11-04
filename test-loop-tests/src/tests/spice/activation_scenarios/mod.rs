@@ -427,6 +427,27 @@ fn under_investigation_presets() -> Vec<Scenario> {
         // never certifies and the chain never leaves the first spice epoch.
         Scenario::new().fault(BadBoundaryWitness::new().producer(0)),
         Scenario::new().fault(BadBoundaryWitness::new().producer(1)),
+        // Shard 0 silent through the last pre-spice epoch and the late trackers starting to
+        // track a shard at activation: the late trackers' heads stop at the last pre-spice
+        // block for good and certification stops with them, so the run fails with "the
+        // terminal condition was not reached within 462 blocks, the head is at height 485
+        // with 2 spice epochs still to leave". The late trackers sit in block sync, which
+        // reports the next block `KnownInOrphan` over and over. The late tracker's own shard
+        // does not matter: `LateTracker::new().shard(1)` with the default `shard_skip` hangs
+        // too. Seen first as the pair `shard_skip,late_tracker`. Suspected, not shown: with
+        // no new chunk of shard 0 in the epoch there is no sync hash, so the catch-up of any
+        // newly tracked shard never starts.
+        Scenario::new()
+            .fault(ShardSkip::new().epochs(Epochs::LastPreSpice))
+            .fault(LateTracker::new()),
+        // The same stall with a joining validator in place of the late trackers: the joiner
+        // starts tracking shards at activation, its state sync repeats without finishing, and
+        // it never reaches the agreement height ("joiner did not reach the agreement height
+        // 113"). `kind=join` alone and `kind=leave` alone fail the same way with the default
+        // `shard_skip`. Seen first as the pair `shard_skip,validator_churn`.
+        Scenario::new()
+            .fault(ShardSkip::new().epochs(Epochs::LastPreSpice))
+            .fault(ValidatorChurn::new()),
     ]
 }
 

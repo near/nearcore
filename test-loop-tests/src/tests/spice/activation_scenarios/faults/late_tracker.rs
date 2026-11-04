@@ -233,12 +233,21 @@ impl Fault for LateTracker {
                         self.processed_without_apply[position] = Some(!applied(*index));
                     }
                 }
-                // Their endorsements land while their catch-up has still not applied it.
+                // Their endorsements exist while their catch-up has still not applied it. Each
+                // is read from the late tracker's own store: the rpc node only learns an
+                // endorsement from a block, and a slowed tracker's comes after the chunk
+                // certified through the others, so no block carries it.
                 if self.endorsed_before_catchup.is_none() {
-                    let core_reader = &env.rpc_node().client().chain.spice_core_reader;
-                    let all_endorsed = self.late_accounts(env).iter().all(|account_id| {
-                        core_reader
-                            .get_endorsement(last_pre_spice.hash(), self.shard_id(), account_id)
+                    let all_endorsed = self.late.iter().all(|index| {
+                        let node = env.node(*index);
+                        node.client()
+                            .chain
+                            .spice_core_reader
+                            .get_endorsement(
+                                last_pre_spice.hash(),
+                                self.shard_id(),
+                                &env.node_datas[*index].account_id,
+                            )
                             .is_some()
                     });
                     if all_endorsed {

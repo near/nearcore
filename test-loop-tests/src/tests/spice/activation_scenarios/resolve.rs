@@ -270,10 +270,14 @@ pub(crate) fn fallback_validators_spec() -> ValidatorsSpec {
     )
 }
 
-/// What a scenario resolved to: the profile it runs on.
+/// What a scenario resolved to: the profile it runs on, and whether an archival node is
+/// added to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Resolved {
     pub profile: Profile,
+    /// The builder puts the archival node right after the validators, which shifts the
+    /// index of every client added after them by one.
+    pub archival_node: bool,
 }
 
 impl Resolved {
@@ -316,7 +320,8 @@ fn resolved_of(scenario: &Scenario) -> Resolved {
             Profile::A
         }
     });
-    Resolved { profile }
+    let archival_node = scenario.faults().iter().any(|fault| fault.tag() == "archival");
+    Resolved { profile, archival_node }
 }
 
 /// The faults that skip a height at the boundary, by holding, dropping or rewriting a block
