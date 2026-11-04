@@ -237,7 +237,7 @@ pub struct AddKeyAction {
 
 - Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
 - If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](/DataStructures/AccessKey.md#gas-keys) with a balance of 0.
-  The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `(block_height - 1) * 1_000_000`.
+  The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `block_height * 1_000_000 - 1` (`(block_height - 1) * 1_000_000` before protocol version 89).
   These records add to the storage usage of the account, see [Gas Key Nonces](/DataStructures/AccessKey.md#gas-key-nonces).
 
 ### Errors

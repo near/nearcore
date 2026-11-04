@@ -111,7 +111,7 @@ An account with a NEAR-implicit or ETH-implicit account ID can only be created b
 
 - The account will be created with the account ID.
 - The account balance will have a transfer balance deposited to it.
-- If this is NEAR-implicit account, it will have a new full access key with the ED25519-curve public key of `decode_hex(account_id)` and nonce `(block_height - 1) * MULTIPLIER` (to address an issues discussed [here](https://gov.near.org/t/issue-with-access-key-nonce/749)).
+- If this is NEAR-implicit account, it will have a new full access key with the ED25519-curve public key of `decode_hex(account_id)` and nonce `block_height * MULTIPLIER - 1` (`(block_height - 1) * MULTIPLIER` before protocol version 89) (to address an issues discussed [here](https://gov.near.org/t/issue-with-access-key-nonce/749)).
 - If this is ETH-implicit account, it will have the [Wallet Contract](#wallet-contract) deployed, which can only be used by the owner of the Secp256K1 private key where `'0x' + keccak256(public_key)[12:32].hex()` matches the account ID.
 
 Implicit account can not be created using `CreateAccount` action to avoid being able to hijack the account without having the corresponding private key.
