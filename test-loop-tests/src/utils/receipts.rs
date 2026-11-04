@@ -12,7 +12,7 @@ use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    ReceiptEnum, ReceiptV0, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
@@ -168,14 +168,8 @@ fn check_promise_yield_receipts_exist_in_memtrie(
 
 /// Takes an action receipt of any version and converts it to the latest version.
 pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
-    let versioned = match input.receipt() {
-        near_primitives::receipt::ReceiptEnum::Action(action_receipt) => {
-            VersionedActionReceipt::from(action_receipt)
-        }
-        near_primitives::receipt::ReceiptEnum::ActionV2(action_receipt_v2) => {
-            VersionedActionReceipt::from(action_receipt_v2)
-        }
-        _ => panic!("must be action receipt"),
+    let VersionedReceiptEnum::Action(versioned) = input.versioned_receipt() else {
+        panic!("must be action receipt")
     };
 
     let action_receipt = ReceiptEnum::ActionV2(ActionReceiptV2 {

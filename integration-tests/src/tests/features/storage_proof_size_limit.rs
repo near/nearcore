@@ -9,7 +9,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction};
 use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::Gas;
@@ -171,9 +171,9 @@ fn count_transfer_receipts(receipts: &[Receipt]) -> usize {
     receipts.iter().filter(|r| matches!(receipt_action(r), Action::Transfer(_))).count()
 }
 
-fn receipt_action(receipt: &Receipt) -> &Action {
-    match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) => &action_receipt.actions[0],
+fn receipt_action(receipt: &Receipt) -> Action {
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt) => action_receipt.actions()[0].clone(),
         _ => panic!("Expected Action receipt"),
     }
 }

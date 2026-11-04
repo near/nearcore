@@ -222,7 +222,19 @@ pub fn map_receipt(
                 default_key,
             );
         }
-        _ => {}
+        ReceiptEnum::ActionV3(r) | ReceiptEnum::PromiseYieldV3(r) => {
+            map_action_receipt(
+                &mut r.signer_id,
+                &mut r.signer_public_key,
+                &mut r.output_data_receivers,
+                &mut r.actions,
+                secret,
+                default_key,
+            );
+        }
+        ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_)
+        | ReceiptEnum::GlobalContractDistribution(_) => {}
     }
 }
 

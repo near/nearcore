@@ -8,7 +8,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
@@ -426,11 +426,11 @@ impl RuntimeGroup {
                 receipt.predecessor_id().is_system(),
                 "expected a system refund receipt, got {receipt:?}",
             );
-            match receipt.receipt() {
-                ReceiptEnum::Action(ActionReceipt { actions, .. })
-                | ReceiptEnum::ActionV2(ActionReceiptV2 { actions, .. }) => {
+            match receipt.versioned_receipt() {
+                VersionedReceiptEnum::Action(action_receipt) => {
+                    let actions = action_receipt.actions();
                     assert!(
-                        matches!(actions.as_slice(), [Action::Transfer(_)]),
+                        matches!(actions, [Action::Transfer(_)]),
                         "expected a single transfer refund, got {actions:?}",
                     );
                 }
@@ -447,28 +447,25 @@ macro_rules! assert_receipts {
         transaction_log.outcome.receipt_ids
     }};
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
-    $receipt_pat:pat,
+    $action_receipt:ident,
     $receipt_assert:block,
-    $actions_name:ident,
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+ ) => {{
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
-        match r.receipt() {
-            $receipt_pat => {
-                $receipt_assert
-                let [$($action_name),* ] = &$actions_name[..] else { panic!("Incorrect number of actions") };
-                $(
-                    match $action_name {
-                        $action_pat => {
-                            $action_assert
-                        }
-                        _ => panic!("Action {:#?} does not satisfy the pattern {}", $action_name, stringify!($action_pat)),
-                    }
-                )*
+        let VersionedReceiptEnum::Action($action_receipt) = r.versioned_receipt() else {
+            panic!("Receipt {:#?} is not an action receipt", r)
+        };
+        $receipt_assert
+        let [$($action_name),* ] = $action_receipt.actions() else { panic!("Incorrect number of actions") };
+        $(
+            match $action_name {
+                $action_pat => {
+                    $action_assert
+                }
+                _ => panic!("Action {:#?} does not satisfy the pattern {}", $action_name, stringify!($action_pat)),
             }
-            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
-        }
+        )*
         let receipt_log = $group.get_transaction_log(&r.get_hash());
         receipt_log.outcome.receipt_ids
     }};
@@ -481,8 +478,7 @@ macro_rules! assert_receipts {
 /// expands into:
 /// ```
 /// assert_receipts!(group, "system" => ref1 @ "near_0",
-///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-///                  actions,
+///                  action_receipt, {},
 ///                  a0, Action::Transfer(TransferAction{..}), {}
 ///                  );
 /// ```
@@ -490,8 +486,7 @@ macro_rules! assert_receipts {
 macro_rules! assert_refund {
  ($group:ident, $receipt:ident @ $to:expr) => {
         assert_receipts!($group, "system" => $receipt @ $to,
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                         actions,
+                         action_receipt, {},
                          a0, Action::Transfer(TransferAction{..}), {}
                         );
  }
