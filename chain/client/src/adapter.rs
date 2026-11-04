@@ -19,7 +19,7 @@ pub fn client_sender_for_network(
         block_headers_request: view_client_addr.clone().into_async_sender(),
         block_request: view_client_addr.clone().into_async_sender(),
         network_info: client_addr.clone().into_async_sender(),
-        state_response: client_addr.clone().into_async_sender(),
+        state_request_update: client_addr.clone().into_async_sender(),
         tx_status_request: view_client_addr.clone().into_async_sender(),
         tx_status_response: view_client_addr.clone().into_async_sender(),
         transaction: rpc_handler.into_async_sender(),

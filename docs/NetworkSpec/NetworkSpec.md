@@ -26,7 +26,9 @@ To establish a new connections between pair of nodes, they will follow the follo
 When a node receives a handshake from other node it will decline this connection if one of the following situations happens:
 
 1. Other node has different genesis.
-2. Edge nonce is too low
+2. The edge nonce is even, or it is 20 minutes or more away from the current time on the node's clock.
+
+If the edge nonce is not greater than the nonce of the latest edge between the two nodes, the node does not decline the connection. It replies with a `LastEdge` message, and the other node retries with a higher nonce. See [Edge](#edge).
 
 #### Edge
 
@@ -38,10 +40,15 @@ When two nodes successfully connect to each other, they broadcast the new edge t
 
 A removed connection will be valid, if it contains valid information from the added edge it is invalidating. This prevents peers bump nonce by more than one when deleting an edge.
 
-When node A proposes an edge to B with nonce X, it will only accept it and sign it iff:
+When a node opens a connection, it picks the nonce of the new edge from the current Unix time in seconds. If that number is even, the node adds 1, so the nonce is odd. If the node already knows an edge with the other peer, it uses the larger of this value and the next odd number after that edge's nonce.
 
-- X = 1 and B doesn't know about any previous edge between A and B
-- X is odd and X > Y where Y is the nonce of the edge with the highest nonce between A and B known to B.
+When node A proposes an edge to B with nonce X in a handshake, B accepts it and signs it only if all of the following hold:
+
+- X is odd.
+- X, read as a Unix time in seconds, is less than 20 minutes away from the current time on B's clock.
+- If B knows an edge between A and B, X is greater than Y, the highest nonce among the edges between A and B that B knows.
+
+If X is not greater than Y, B does not sign the edge. B replies with a `LastEdge` message that holds its edge with nonce Y. A then proposes a new nonce: the larger of the next odd number after Y and a fresh nonce from the current time.
 
 <!-- TODO: What is a valid edge: pseudo code -->
 

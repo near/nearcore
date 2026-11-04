@@ -31,7 +31,7 @@ use near_primitives::state::PartialState;
 use near_primitives::state_part::StatePartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

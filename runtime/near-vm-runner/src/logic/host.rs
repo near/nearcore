@@ -2213,6 +2213,13 @@ pub fn p256_verify(
         }
     };
 
+    // Reject a prehash shorter than half the field size, as `p256` 0.13 does
+    // in `bits2field`; 0.14 zero-pads it instead. Pinned by
+    // `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`.
+    if message.len() < 16 {
+        return Ok(false as u64);
+    }
+
     match public_key.verify_prehash(&message, &signature) {
         Err(_) => Ok(false as u64),
         Ok(()) => Ok(true as u64),

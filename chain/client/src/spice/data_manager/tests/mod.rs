@@ -3,19 +3,25 @@ use super::*;
 use crate::spice::chunk_executor_actor::save_receipt_proof;
 use assert_matches::assert_matches;
 use near_async::time::Clock;
-use near_chain::test_utils::{get_chain_with_num_shards, process_block_sync};
+use near_chain::test_utils::{get_chain_with_genesis, process_block_sync};
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
+use near_crypto::KeyType;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Tip;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{Direction, MerklePathItem, merklize};
 use near_primitives::reed_solomon::{ReedSolomonEncoder, reed_solomon_part_length};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ReceiptProof, ShardProof};
-use near_primitives::spice::partial_data::SpiceDataCommitment;
+use near_primitives::spice::partial_data::{
+    SpiceDataCommitment, SpiceDataIdentifier, SpicePartialData,
+};
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::EpochId;
 use near_primitives::types::{AccountId, ShardId};
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{ShardUId, Store};
 use std::collections::{BTreeSet, HashSet};
@@ -25,7 +31,7 @@ use std::sync::Arc;
 
 mod item;
 mod manager;
-mod pending;
+mod sender;
 mod serve;
 
 /// Data parts of the encoder every test here uses: `max((5 * DATA_PARTS_RATIO) as usize, 1)`.
@@ -125,7 +131,8 @@ fn producer(index: usize) -> AccountId {
 
 /// An item whose producers are `producer(0)` to `producer(count - 1)`.
 fn item_with_producers(count: usize) -> FetchItem {
-    FetchItem::new(1, (0..count).map(producer).collect())
+    let producers = (0..count).map(producer).collect();
+    FetchItem::new(1, EpochId::default(), EpochId::default(), producers)
 }
 
 /// Inserts the first `DATA_PARTS` of `parts`, one from each of `senders`, and returns the
@@ -168,9 +175,30 @@ fn chain_with_blocks(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
 }
 
 /// A chain with `num_shards` shards and `num_blocks` processed empty blocks; `blocks[i]` is
-/// at height `i + 1`.
+/// at height `i + 1`. Each shard's chunk producers are `shard_producers(shard)`.
 fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
-    let mut chain = get_chain_with_num_shards(Clock::real(), num_shards);
+    // The epoch manager assigns the validators to shards round-robin, last shard first.
+    let validators: Vec<String> = (0..TOTAL_PARTS)
+        .flat_map(|index| {
+            (0..num_shards).rev().map(move |shard| shard_producer(shard, index).to_string())
+        })
+        .collect();
+    let validators: Vec<&str> = validators.iter().map(String::as_str).collect();
+    let genesis = TestGenesisBuilder::new()
+        .genesis_height(0)
+        .shard_layout(ShardLayout::multi_shard(num_shards, 0))
+        .epoch_length(10)
+        .validators_spec(ValidatorsSpec::desired_roles(&validators, &[]))
+        .build();
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+    let epoch_id = *chain.genesis_block().header().epoch_id();
+    for shard in 0..num_shards {
+        let chunk_producers = chain
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&epoch_id, ShardId::new(shard))
+            .unwrap();
+        assert_eq!(chunk_producers, shard_producers(shard), "shard {shard}");
+    }
     let genesis_hash = chain.chain_store.head().unwrap().last_block_hash;
     let mut prev = chain.chain_store.get_block(&genesis_hash).unwrap();
     let mut blocks = Vec::new();
@@ -185,9 +213,7 @@ fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, V
 /// Builds and processes a block on top of `prev` at `height`; the chain keeps it
 /// whether or not it becomes the head.
 fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
-    let signer = Arc::new(create_test_signer("test1"));
-    let block =
-        TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build();
+    let block = build_block_at(chain, prev, height);
     process_block_sync(
         chain,
         block.clone().into(),
@@ -198,9 +224,42 @@ fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc
     block
 }
 
-/// The producers of every item here; one per part.
+/// A block on top of `prev` at `height`, signed by its block producer. Not processed.
+fn build_block_at(chain: &Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let producer = chain.epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
+    let signer = Arc::new(create_test_signer(producer.account_id().as_str()));
+    TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build()
+}
+
+/// The test chains' chunk producer `index` of `shard`.
+fn shard_producer(shard: u64, index: usize) -> AccountId {
+    account(&format!("shard{shard}-producer{index}.near"))
+}
+
+/// The test chains' chunk producers of `shard`, one per part.
+fn shard_producers(shard: u64) -> Vec<AccountId> {
+    (0..TOTAL_PARTS).map(|index| shard_producer(shard, index)).collect()
+}
+
+/// The producers of every item from shard 0.
 fn producers() -> Vec<AccountId> {
-    (0..TOTAL_PARTS).map(|i| account(&format!("producer{i}.near"))).collect()
+    shard_producers(0)
+}
+
+/// A message of `parts` for `id` signed by `signer`.
+fn signed_by(
+    signer: &ValidatorSigner,
+    id: &DataId,
+    commitment: &SpiceDataCommitment,
+    parts: Vec<SpiceDataPart>,
+) -> SpicePartialData {
+    SpicePartialData::new(SpiceDataIdentifier::from(id), commitment.clone(), parts, signer)
+}
+
+/// A signer for `account` with a key other than its test signer's.
+fn other_key_signer(account: &AccountId) -> ValidatorSigner {
+    InMemoryValidatorSigner::from_seed(account.clone(), KeyType::ED25519, "other key")
 }
 
 fn ordinals(ordinals: &[u64]) -> BTreeSet<u64> {
@@ -262,18 +321,22 @@ fn set_final_execution_head(store: &Store, block: &Block) {
     store_update.commit();
 }
 
-/// The chain's fetch policies for a node that applies `shard`.
-fn chain_fetch_policies(chain: &Chain, shard: u64) -> FetchPolicies {
+/// A server on `chain`.
+fn test_server(chain: &Chain) -> SpiceDataServer {
+    SpiceDataServer::new(
+        chain.chain_store.store().chain_store(),
+        chain.epoch_manager.clone(),
+        ServePolicies::new(chain.chain_store.store().chain_store(), chain.epoch_manager.clone()),
+    )
+}
+
+/// A shard tracker for a node that applies `shard`.
+fn applying_shard_tracker(chain: &Chain, shard: u64) -> ShardTracker {
     let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
     let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
-    let shard_tracker = ShardTracker::new(
+    ShardTracker::new(
         TrackedShardsConfig::Shards(vec![tracked]),
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
-    );
-    FetchPolicies::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        shard_tracker,
     )
 }

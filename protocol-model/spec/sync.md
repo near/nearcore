@@ -231,7 +231,7 @@ source is chosen per attempt by cycling `num_prior_attempts %
   computes `sync_prev_prev_hash` (peers advertise snapshots by it, `network.rs:145`),
   sends `StateRequestHeader`/`StateRequestPart` (`network.rs:161`), registers a
   pending request keyed by `(shard_id, sync_hash, part_id_or_header)`
-  (`network.rs:227`), and awaits the peer's `StateResponse` (delivered via
+  (`network.rs:227`), and awaits the peer's `StateRequestUpdate` (delivered via
   `apply_peer_message`→`receive_peer_message`, `network.rs:61`) with a timeout.
   An `Ack(Busy|Error)` drops the pending request (`network.rs:106`).
 - **External source** (`external.rs:69`): builds an

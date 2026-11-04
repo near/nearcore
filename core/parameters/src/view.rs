@@ -1,5 +1,4 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
-use crate::vm::StorageGetMode;
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -242,14 +241,6 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// Deprecated: custom sections are always discarded, so this is always `true`.
-    pub discard_custom_sections: bool,
-    /// Deprecated: the global contract host functions are always enabled, so this is
-    /// always `true`.
-    pub global_contract_host_fns: bool,
-    /// Deprecated: reference types and bulk memory wasm extensions are always
-    /// enabled, so this is always `true`.
-    pub reftypes_bulk_memory: bool,
     /// See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).
     pub ml_dsa_verify_host_fn: bool,
     /// See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).
@@ -257,15 +248,8 @@ pub struct VMConfigView {
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
 
-    /// Deprecated: contract storage is always read through flat storage, so this is
-    /// always `FlatStorage`.
-    pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// Deprecated
-    pub implicit_account_creation: bool,
-    /// Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.
-    pub eth_implicit_accounts: bool,
     /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
     pub universal_accounts: bool,
 
@@ -284,16 +268,10 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: true,
             limit_config: config.limit_config,
-            storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
-            implicit_account_creation: true,
             vm_kind: config.vm_kind,
-            eth_implicit_accounts: true,
             universal_accounts: config.universal_accounts,
-            global_contract_host_fns: true,
-            reftypes_bulk_memory: true,
             ml_dsa_verify_host_fn: config.ml_dsa_verify_host_fn,
             sha3_host_fns: config.sha3_host_fns,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
@@ -480,10 +458,6 @@ pub struct ExtCostsConfigView {
     /// Cost of calling `validator_total_stake`.
     pub validator_total_stake_base: Gas,
 
-    // Removed parameters, only here for keeping the output backward-compatible.
-    pub contract_compile_base: Gas,
-    pub contract_compile_bytes: Gas,
-
     // #############
     // # Alt BN128 #
     // #############
@@ -650,9 +624,6 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             bls12381_p2_decompress_base: config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
             bls12381_p2_decompress_element: config
                 .gas_cost(ExtCosts::bls12381_p2_decompress_element),
-            // removed parameters
-            contract_compile_base: Gas::ZERO,
-            contract_compile_bytes: Gas::ZERO,
         }
     }
 }

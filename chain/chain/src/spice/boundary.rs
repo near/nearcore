@@ -85,10 +85,11 @@ pub fn seed_activation_boundary(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
     prev_header: &BlockHeader,
+    is_last_pre_spice_block: bool,
 ) -> Result<(), Error> {
     if block.is_spice_block() {
         seed_execution_heads_at_activation(store_update, block, prev_header)
-    } else if is_last_pre_spice_block(epoch_manager, block.hash())? {
+    } else if is_last_pre_spice_block {
         write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())
     } else {
         Ok(())
@@ -185,7 +186,7 @@ pub(crate) fn get_uncertified_chunks_of_pre_spice_block(
 mod tests {
     use super::{
         boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
-        seed_activation_boundary,
+        is_last_pre_spice_block, seed_activation_boundary,
     };
     use crate::Chain;
     use crate::spice::core::record_uncertified_chunks_for_block;
@@ -242,13 +243,20 @@ mod tests {
         let chain_store = chain.chain_store.store().chain_store();
 
         let mut store_update = chain.chain_store.store().store_update();
-        seed_activation_boundary(&mut store_update, epoch_manager.as_ref(), &parent, &grandparent)
-            .unwrap();
+        seed_activation_boundary(
+            &mut store_update,
+            epoch_manager.as_ref(),
+            &parent,
+            &grandparent,
+            is_last_pre_spice_block(epoch_manager.as_ref(), parent.hash()).unwrap(),
+        )
+        .unwrap();
         seed_activation_boundary(
             &mut store_update,
             epoch_manager.as_ref(),
             &last_pre_spice,
             parent.header(),
+            is_last_pre_spice_block(epoch_manager.as_ref(), last_pre_spice.hash()).unwrap(),
         )
         .unwrap();
         store_update.commit();
@@ -285,6 +293,7 @@ mod tests {
             epoch_manager.as_ref(),
             &first_spice,
             parent.header(),
+            false,
         )
         .unwrap();
         store_update.commit();
@@ -311,6 +320,7 @@ mod tests {
             epoch_manager.as_ref(),
             &last_pre_spice,
             parent.header(),
+            is_last_pre_spice_block(epoch_manager.as_ref(), last_pre_spice.hash()).unwrap(),
         )
         .unwrap();
         store_update.commit();
@@ -323,6 +333,7 @@ mod tests {
             epoch_manager.as_ref(),
             &first_spice,
             last_pre_spice.header(),
+            false,
         )
         .unwrap();
         chain_store_update.merge(boundary_update);

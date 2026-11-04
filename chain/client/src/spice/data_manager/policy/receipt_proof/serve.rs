@@ -1,4 +1,3 @@
-use super::source_producers;
 use crate::spice::chunk_executor_actor::get_receipt_proof;
 use crate::spice::data_manager::policy::ServePolicy;
 use crate::spice::data_manager::{DataId, SpiceData};
@@ -27,10 +26,6 @@ impl ReceiptProofServePolicy {
 }
 
 impl ServePolicy for ReceiptProofServePolicy {
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        source_producers(&self.chain_store, self.epoch_manager.as_ref(), id)
-    }
-
     /// The next block's chunk producers of the destination shard; across a resharding, of the
     /// shards it splits into.
     fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {

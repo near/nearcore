@@ -1,6 +1,7 @@
 use super::*;
 use near_chain::test_utils::{
-    get_chain_with_genesis_and_epoch_config_store, produce_spice_block_certifying_parent,
+    get_chain_with_genesis_and_epoch_config_store, get_chain_with_num_shards,
+    produce_spice_block_certifying_parent,
 };
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
@@ -8,40 +9,6 @@ use near_chain_configs::test_genesis::{
 use near_chain_configs::{GCConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_primitives::shard_layout::ShardLayout;
 use num_rational::Rational32;
-
-/// The chain's serve policy with the fixed producers in place of the chain's single chunk
-/// producer.
-struct TestPolicy {
-    chain_policies: ServePolicies,
-}
-
-impl ServePolicy for TestPolicy {
-    fn producers(&self, _id: &DataId) -> Result<Vec<AccountId>, Error> {
-        Ok(producers())
-    }
-
-    fn recipients(&self, id: &DataId) -> Result<HashSet<AccountId>, Error> {
-        self.chain_policies.recipients(id)
-    }
-
-    fn stored_data(&self, id: &DataId) -> Option<SpiceData> {
-        self.chain_policies.stored_data(id)
-    }
-}
-
-/// A server for the producers of every item here.
-fn test_server(chain: &Chain) -> SpiceDataServer<TestPolicy> {
-    SpiceDataServer::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        TestPolicy {
-            chain_policies: ServePolicies::new(
-                chain.chain_store.store().chain_store(),
-                chain.epoch_manager.clone(),
-            ),
-        },
-    )
-}
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -85,17 +52,22 @@ fn a_push_carries_only_the_pushing_producers_own_part() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_push_never_goes_to_a_producer() {
-    let (chain, blocks) = chain_with_blocks(1);
-    let id = receipt_id(&blocks[0], 0, 1);
+    // For this test we need a node that is a chunk producer of both shard 0 (so it produces the
+    // proof) and shard 1 (so it is a recipient), because we want to test that a push skips it.
+    // `get_chain_with_num_shards` has a single validator, so `me` is that node.
+    let mut chain = get_chain_with_num_shards(Clock::real(), 2);
+    let genesis_block = chain.genesis_block();
+    let block = process_block_at(&mut chain, &genesis_block, 1);
+    let id = receipt_id(&block, 0, 1);
+    let me = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), ShardId::new(0))
+        .unwrap()
+        .remove(0);
+    let mut server = test_server(&chain);
     let policies =
         ServePolicies::new(chain.chain_store.store().chain_store(), chain.epoch_manager.clone());
-    let me = policies.producers(&id).unwrap().remove(0);
     assert!(policies.recipients(&id).unwrap().contains(&me));
-    let mut server = SpiceDataServer::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        policies,
-    );
 
     let pushed = server.build_push(&me, &id, &receipt_data(0, 1)).unwrap();
 
@@ -222,11 +194,7 @@ fn a_proof_from_an_epochs_first_block_is_served_through_the_next_epoch_until_gc_
         .get_epoch_chunk_producers_for_shard(proof_block.header().epoch_id(), ShardId::new(0))
         .unwrap()
         .swap_remove(0);
-    let mut server = SpiceDataServer::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        ServePolicies::new(chain.chain_store.store().chain_store(), chain.epoch_manager.clone()),
-    );
+    let mut server = test_server(&chain);
     let gc_config = GCConfig { gc_blocks_limit: 100, ..GCConfig::default() };
 
     // Served while the head is in the next epoch, as far as a node syncing into the proof's

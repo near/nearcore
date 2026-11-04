@@ -1,5 +1,5 @@
 use super::encode::{EncodedData, encode};
-use super::{DATA_PARTS_RATIO, DataId, ServePolicies, ServePolicy, SpiceData};
+use super::{DATA_PARTS_RATIO, DataId, ServePolicies, ServePolicy, SpiceData, producers_in_epoch};
 use itertools::Itertools as _;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -96,7 +96,10 @@ impl<P: ServePolicy> SpiceDataServer<P> {
         id: &DataId,
         data: &SpiceData,
     ) -> Result<Push, Error> {
-        let producers = self.policies.producers(id)?;
+        let header = self.chain_store.get_block_header(id.block_hash())?;
+        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
+        let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
         let recipients = self
             .policies
             .recipients(id)?
@@ -126,7 +129,9 @@ impl<P: ServePolicy> SpiceDataServer<P> {
         {
             return Err(MalformedDataRequest::UnknownShard.into());
         }
-        let producers = self.policies.producers(id)?;
+        let epoch_info =
+            self.epoch_manager.get_epoch_info(header.epoch_id()).map_err(Error::from)?;
+        let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
         if !producers.contains(me) {
             return Err(MalformedDataRequest::NotAProducer.into());
         }

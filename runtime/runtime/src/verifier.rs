@@ -601,7 +601,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     // Strict regardless of what the transaction asked for, so that exactly one
     // nonce is ever admissible. Monotonic would let the signer pick any value
     // above the floor, and the keys the state init installs start at
-    // `initial_nonce_value(execution_height)`, which can sit *below* such a
+    // `initial_nonce_value(execution_height, ..)`, which can sit *below* such a
     // choice: the same signed bytes would then replay through the ordinary path
     // once the account is initialized. Forcing Strict also lets a V0
     // transaction bootstrap, since V0 cannot express a nonce mode at all.
@@ -1153,7 +1153,7 @@ mod tests {
             signer,
             tries.new_trie_update(ShardUId::single_shard(), root),
             Balance::from_yoctonear(100),
-            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT),
+            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT, PROTOCOL_VERSION),
         )
     }
 
@@ -2564,7 +2564,7 @@ mod tests {
     fn test_bootstrap_nonce_floor_is_account_scoped() {
         let config = RuntimeConfig::test();
         let gas_price = Balance::from_yoctonear(5000);
-        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // Stands in for `initial_nonce_value(creation_height, ..)`; only its relation
         // to the transaction nonce matters, since no block height is passed.
         const BOOTSTRAP_NONCE: Nonce = 1_000;
 

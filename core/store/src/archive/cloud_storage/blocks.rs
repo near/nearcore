@@ -12,6 +12,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_schema_checker_lib::ProtocolSchema;
+use std::sync::Arc;
 
 /// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -54,7 +55,7 @@ pub fn build_block_data(
         Err(other) => return Err(other),
     };
     let block = (*store.get_block(&block_hash)?).clone();
-    let block_info = store.epoch_store().get_block_info(&block_hash)?;
+    let block_info = Arc::unwrap_or_clone(store.epoch_store().get_block_info(&block_hash)?);
     let next_block_hash = store.get_next_block_hash(&block_hash)?;
     let block_merkle_tree = store.get_block_merkle_tree(&block_hash)?;
     // `read_chunk_producers` needs the base `Store`, not the chain-store adapter

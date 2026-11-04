@@ -34,7 +34,6 @@ pub mod test;
 mod types;
 mod utils;
 
-pub const BASE_PATH: &str = "";
 pub const API_VERSION: &str = "1.4.4";
 pub const BLOCKCHAIN: &str = "nearprotocol";
 

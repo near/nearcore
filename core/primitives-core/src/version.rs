@@ -27,6 +27,8 @@ pub enum ProtocolFeature {
     FixContractLoadingError,
     /// Bound the combined size of the promise inputs a single receipt consumes.
     ReceiptPromiseInputSizeLimit,
+    /// Raise `per_receipt_storage_proof_size_limit` to 4'500'000.
+    RaisePerReceiptStorageProofLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     /// Reject `Action::DelegateV2`. This disables meta transactions from gas
@@ -96,6 +98,11 @@ pub enum ProtocolFeature {
     /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
     /// accepts it there and the header is handled like `BlockHeaderV6`.
     RejectBlockHeaderV7BeforeSpice,
+    /// A new access key, gas key nonce, NEAR implicit account key or universal account bootstrap
+    /// nonce starts at `h * 1e6 - 1` instead of `(h - 1) * 1e6`, where `h` is the creation height. A transaction executed at `h` that deletes and re-adds
+    /// its own key can then not run again with the same hash. See `initial_nonce_value` in
+    /// `near-runtime`.
+    RaiseInitialAccessKeyNonce,
 }
 
 impl ProtocolFeature {
@@ -119,9 +126,11 @@ impl ProtocolFeature {
             ProtocolFeature::FailCallToMissingGlobalContract => 89,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
+            ProtocolFeature::FixContractLoadingCost => 89,
+            ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
+            ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
 
             // Nightly features:
-            ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
