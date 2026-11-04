@@ -3152,6 +3152,63 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_code_request_with_repeated_hash_is_not_served() {
+    let (_genesis, chain) = setup(1, 1);
+    let block = latest_block(&chain);
+    let state_witness = new_test_witness(&block);
+    let chunk_id = state_witness.chunk_id().clone();
+
+    let contract_bytes = b"fake-contract-wasm-bytes";
+    let contract_hash = CodeHash(hash(contract_bytes));
+
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        chunk_id.shard_id,
+        &state_witness,
+        &HashSet::from([contract_hash.clone()]),
+    );
+
+    let epoch_id = block.header().epoch_id();
+    let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
+    let trie_store = TrieStoreAdapter::new(chain.chain_store.store());
+    {
+        let mut update = trie_store.store_update();
+        update.increment_refcount_by(
+            shard_uid,
+            &contract_hash.0,
+            contract_bytes,
+            NonZero::new(1).unwrap(),
+        );
+        update.commit();
+    }
+
+    let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
+    let validator = witness_validators(&chain, &block, &state_witness)
+        .into_iter()
+        .find(|v| v != &producer)
+        .unwrap();
+    let validator_signer = create_test_signer(validator.as_str());
+
+    // The hash is admissible; only the repeat makes the request invalid.
+    let repeats = 8;
+    let request = SpiceContractCodeRequest::new_with_contract_list(
+        chunk_id,
+        vec![contract_hash; repeats],
+        &validator_signer,
+    );
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    actor.handle(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
+
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_contract_code_request_happy_path() {
     let (_genesis, chain) = setup(1, 1);
     let block = latest_block(&chain);

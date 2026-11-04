@@ -64,7 +64,7 @@ use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
     BoundedContractCodes, CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
     SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
-    split_contracts_for_response,
+    has_repeated_contracts, split_contracts_for_response,
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
@@ -1470,12 +1470,22 @@ impl SpiceDataDistributorActor {
             );
             return Ok(());
         }
+        if has_repeated_contracts(request.contracts()) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                num_contracts = request.contracts().len(),
+                "contract code request repeats a hash, not serving"
+            );
+            return Ok(());
+        }
 
         // Fetch block header early — needed for both validation and storage lookup below.
         let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = block_header.epoch_id();
 
-        // Verify request signature before any other checks to prevent cache pollution.
+        // Verify the request signature before any check that touches the cache.
         let public_keys = self
             .epoch_manager
             .get_validator_signing_keys_for_block(&chunk_id.block_hash, &requester)?;

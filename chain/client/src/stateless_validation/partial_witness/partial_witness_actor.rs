@@ -37,9 +37,8 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     BoundedContractCodes, ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash,
-    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST,
-    MainTransitionKey, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
-    split_contracts_for_response,
+    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MainTransitionKey,
+    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart, split_contracts_for_response,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -1181,10 +1180,6 @@ impl PartialWitnessActor {
             return Ok(());
         }
         self.processed_contract_code_requests.push(processed_requests_key, ());
-
-        if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
-            return Ok(());
-        }
 
         let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
             .with_label_values(&[&key.shard_id.to_string()])
