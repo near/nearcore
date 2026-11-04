@@ -2,7 +2,7 @@ use crate::node::Node;
 use crate::user::User;
 use crate::user::rpc_user::RpcUser;
 use near_async::ActorSystem;
-use near_chain_configs::Genesis;
+use near_chain_configs::{AdversarialMode, Genesis};
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
 use nearcore::{NearConfig, start_with_config};
@@ -87,7 +87,10 @@ impl Node for ThreadNode {
 
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
-    pub fn new(config: NearConfig) -> ThreadNode {
+    pub fn new(mut config: NearConfig) -> ThreadNode {
+        // Thread nodes do not use the `adv_*` RPC methods, so they start without
+        // `ADVERSARY_CONSENT`.
+        config.config.adversarial_mode = AdversarialMode::None;
         let account_id = config.validator_signer.get().unwrap().validator_id().clone();
         let signer = Arc::new(InMemorySigner::test_signer(&account_id));
         ThreadNode {

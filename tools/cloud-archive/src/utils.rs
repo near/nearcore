@@ -4,11 +4,9 @@ use near_async::messaging::{Actor, Handler, IntoMultiSender, noop};
 use near_async::time::{Clock, Utc};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::{ClientConfig, GenesisValidationMode};
-#[cfg(feature = "test_features")]
-use near_client::NetworkAdversarialMessage;
-use near_client::ViewClientActor;
+use near_chain_configs::{AdversarialMode, ClientConfig, GenesisValidationMode};
 use near_client::adversarial::Controls;
+use near_client::{NetworkAdversarialMessage, ViewClientActor};
 use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
 use near_client_primitives::types::{
     GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status, StatusError,
@@ -227,12 +225,10 @@ impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ReaderNo
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ReaderNodeActor {
     fn handle(&mut self, _msg: NetworkAdversarialMessage) {}
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ReaderNodeActor {
     fn handle(&mut self, _msg: NetworkAdversarialMessage) -> Option<u64> {
         None
@@ -302,7 +298,7 @@ pub(crate) fn serve_store_while(
         nightshade_runtime,
         noop().into_multi_sender(),
         near_config.client_config.clone(),
-        Controls::new(near_config.client_config.archive),
+        Controls::new(near_config.client_config.archive, AdversarialMode::None),
         near_config.validator_signer.clone(),
     );
 
@@ -329,8 +325,8 @@ pub(crate) fn serve_store_while(
             reader_node.into_multi_sender(),
             noop().into_multi_sender(),
             watch::channel(None).1,
-            #[cfg(feature = "test_features")]
             noop().into_multi_sender(),
+            AdversarialMode::None,
             Arc::new(DummyEntityDebugHandler {}),
             sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),

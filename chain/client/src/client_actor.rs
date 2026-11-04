@@ -5,9 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-#[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
-#[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
@@ -36,7 +34,6 @@ use near_async::time::{Clock, Utc};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
-#[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
@@ -51,7 +48,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner};
+use near_chain_configs::{AdversarialMode, ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
@@ -80,7 +77,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
-#[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_telemetry::TelemetryEvent;
@@ -483,7 +479,6 @@ impl ClientActor {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceBlockHeightSelection {
     /// Place the new block on top of the latest known block. Block's height will be the next
@@ -506,7 +501,6 @@ pub enum AdvProduceBlockHeightSelection {
     },
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
@@ -520,16 +514,18 @@ pub enum NetworkAdversarialMessage {
     AdvCheckStorageConsistency,
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
+        if self.adv.adversarial_mode() == AdversarialMode::None {
+            tracing::warn!(target: "adversary", ?msg, "ignoring adversarial message, adversarial_mode is None");
+            return None;
+        }
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
@@ -2116,7 +2112,6 @@ impl ClientActor {
     ///
     /// The parameter `height_selection` governs the produced blocks' heights and what base block
     /// height they are placed.
-    #[cfg(feature = "test_features")]
     pub fn adv_produce_blocks_on(
         &mut self,
         num_blocks: BlockHeight,

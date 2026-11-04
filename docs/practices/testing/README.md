@@ -158,14 +158,15 @@ launching nodes manually.
 ### Enabling adversarial behavior
 
 To allow testing adversarial behavior, or generally, behaviors that a node should
-not normally exercise, we have certain features in the code decorated with
-`#[cfg(feature="adversarial")]`. The binary normally is compiled with the
-feature disabled, and when compiled with the feature enabled, it traces a
-warning on launch.
+not normally exercise, the node has adversarial controls: the `adv_*` RPC
+methods and `NetworkAdversarialMessage`. They work only when `adversarial_mode`
+in `config.json` is `Rpc`. The default is `None`, or `Rpc` in binaries built with
+`test_features`. A node with `adversarial_mode` other than `None` logs an error
+on launch, and it does not start unless `ADVERSARY_CONSENT=1` is set.
 
 The nightly runner runs all the python tests against the binary compiled with
-the feature enabled, and thus the python tests can make the binary perform
-actions that it normally would not perform.
+`test_features`, and thus the python tests can make the binary perform actions
+that it normally would not perform.
 
 The actions can include lying about the known chain height, producing multiple
 blocks for the same height, or disabling doomslug.

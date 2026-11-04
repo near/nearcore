@@ -16,8 +16,9 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{AdversarialMode, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::adversarial::Controls;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ClientActor;
@@ -250,7 +251,7 @@ pub fn setup_client(
         view_runtime_adapter,
         network_adapter.as_multi_sender(),
         client_config.clone(),
-        near_client::adversarial::Controls::default(),
+        Controls::new(false, AdversarialMode::Rpc),
         validator_signer.clone(),
         Arc::new(RwLock::new(ViewClientRequestManager::new())),
     )
@@ -280,6 +281,7 @@ pub fn setup_client(
         <_>::clone(&header_head),
         Duration::milliseconds(100),
         client_config.chunks_cache_height_horizon,
+        AdversarialMode::Rpc,
     );
 
     let genesis_block = client.chain.genesis_block();
@@ -331,7 +333,7 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         noop().into_sender(),
         Some(shutdown_tx),
-        Default::default(),
+        Controls::new(false, AdversarialMode::Rpc),
         None,
         sync_jobs_adapter.as_multi_sender(),
         chunk_executor_sender,
@@ -398,6 +400,7 @@ pub fn setup_client(
         client_config.gc.clone(),
         // In testloop, we do not use legacy archival node.
         storage.cold_db.is_some(),
+        AdversarialMode::Rpc,
     );
     // We don't send messages to `GCActor` so adapter is not needed.
     let gc_actor_sender = test_loop.data.register_actor(identifier, gc_actor, None);

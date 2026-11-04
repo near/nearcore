@@ -33,6 +33,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -83,20 +84,6 @@ impl NeardCmd {
             commit = crate::NEARD_COMMIT,
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
-
-        #[cfg(feature = "test_features")]
-        {
-            tracing::error!(
-                "this is a node compiled with adversarial behaviors, do not use in production"
-            );
-            if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                tracing::error!(
-                    "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
-                );
-                tracing::error!("ADVERSARY_CONSENT=1");
-                std::process::exit(1);
-            }
-        }
 
         let home_dir = neard_cmd.opts.home.clone();
         let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
@@ -598,16 +585,22 @@ impl RunCmd {
                 UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
+            let start_result = nearcore::start_with_config_and_synchronization(
+                home_dir,
+                near_config,
+                ActorSystem::new(),
+                Some(tx_crash),
+                Some(config_updater),
+            )
+            .await;
+            if let Err(err) = &start_result {
+                if err.is::<nearcore::MissingAdversaryConsentError>() {
+                    tracing::error!(target: "neard", %err, "refusing to start the node");
+                    process::exit(1);
+                }
+            }
             let nearcore::NearNode { cold_store_loop_handle, resharding_handle, .. } =
-                nearcore::start_with_config_and_synchronization(
-                    home_dir,
-                    near_config,
-                    ActorSystem::new(),
-                    Some(tx_crash),
-                    Some(config_updater),
-                )
-                .await
-                .expect("start_with_config");
+                start_result.expect("start_with_config");
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;

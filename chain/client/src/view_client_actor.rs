@@ -17,7 +17,9 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
     retrieve_headers,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
+use near_chain_configs::{
+    AdversarialMode, ClientConfig, MutableValidatorSigner, ProtocolConfigView,
+};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
@@ -1880,25 +1882,26 @@ impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigErro
     }
 }
 
-#[cfg(feature = "test_features")]
 use crate::NetworkAdversarialMessage;
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["NetworkAdversarialMessage"])
             .start_timer();
+        if self.adv.adversarial_mode() == AdversarialMode::None {
+            tracing::warn!(target: "adversary", ?msg, "ignoring adversarial message, adversarial_mode is None");
+            return None;
+        }
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
