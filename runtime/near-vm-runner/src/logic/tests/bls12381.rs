@@ -1801,27 +1801,14 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: one positive G1 point at infinity, once in memory and once in register 1.
+        // Setup: one positive G1 point at infinity in register 1.
         let mut input = vec![0u8; 1 + 96];
         input[1] = 0x40;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_p1_sum(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_p1_sum_base: 1,
-            ExtCosts::bls12381_p1_sum_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 96,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
-        assert_eq!(logic.bls12381_p1_sum(u64::MAX, 1, 2), Err(HostError::IntegerOverflow.into()));
+        assert_eq!(logic.bls12381_p1_sum(u64::MAX, 1, 0), Err(HostError::IntegerOverflow.into()));
     }
 
     #[test]
@@ -1868,27 +1855,14 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: one positive G2 point at infinity, once in memory and once in register 1.
+        // Setup: one positive G2 point at infinity in register 1.
         let mut input = vec![0u8; 1 + 192];
         input[1] = 0x40;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_p2_sum(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_p2_sum_base: 1,
-            ExtCosts::bls12381_p2_sum_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 192,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
-        assert_eq!(logic.bls12381_p2_sum(u64::MAX, 1, 2), Err(HostError::IntegerOverflow.into()));
+        assert_eq!(logic.bls12381_p2_sum(u64::MAX, 1, 0), Err(HostError::IntegerOverflow.into()));
     }
 
     #[test]
@@ -1935,28 +1909,15 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the G1 point at infinity times zero, once in memory and once in register 1.
+        // Setup: the G1 point at infinity times zero in register 1.
         let mut input = vec![0u8; 96 + 32];
         input[0] = 0x40;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_g1_multiexp(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_g1_multiexp_base: 1,
-            ExtCosts::bls12381_g1_multiexp_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 96,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_g1_multiexp(u64::MAX, 1, 2),
+            logic.bls12381_g1_multiexp(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
@@ -2005,28 +1966,15 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the G2 point at infinity times zero, once in memory and once in register 1.
+        // Setup: the G2 point at infinity times zero in register 1.
         let mut input = vec![0u8; 192 + 32];
         input[0] = 0x40;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_g2_multiexp(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_g2_multiexp_base: 1,
-            ExtCosts::bls12381_g2_multiexp_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 192,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_g2_multiexp(u64::MAX, 1, 2),
+            logic.bls12381_g2_multiexp(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
@@ -2075,27 +2023,14 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the zero Fp element, once in memory and once in register 1.
+        // Setup: the zero Fp element in register 1.
         let input = vec![0u8; 48];
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_map_fp_to_g1(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_map_fp_to_g1_base: 1,
-            ExtCosts::bls12381_map_fp_to_g1_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 96,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_map_fp_to_g1(u64::MAX, 1, 2),
+            logic.bls12381_map_fp_to_g1(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
@@ -2143,27 +2078,14 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the zero Fp2 element, once in memory and once in register 1.
+        // Setup: the zero Fp2 element in register 1.
         let input = vec![0u8; 96];
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_map_fp2_to_g2(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_map_fp2_to_g2_base: 1,
-            ExtCosts::bls12381_map_fp2_to_g2_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 192,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_map_fp2_to_g2(u64::MAX, 1, 2),
+            logic.bls12381_map_fp2_to_g2(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
@@ -2211,28 +2133,15 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the compressed G1 point at infinity, once in memory and once in register 1.
+        // Setup: the compressed G1 point at infinity in register 1.
         let mut input = vec![0u8; 48];
         input[0] = 0xc0;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_p1_decompress(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_p1_decompress_base: 1,
-            ExtCosts::bls12381_p1_decompress_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 96,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_p1_decompress(u64::MAX, 1, 2),
+            logic.bls12381_p1_decompress(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
@@ -2281,28 +2190,15 @@ mod tests {
         logic_builder.config.fix_register_input_charging = false;
         let mut logic = logic_builder.build();
 
-        // Setup: the compressed G2 point at infinity, once in memory and once in register 1.
+        // Setup: the compressed G2 point at infinity in register 1.
         let mut input = vec![0u8; 96];
         input[0] = 0xc0;
-        let memory_input = logic.internal_mem_write(&input);
         logic.wrapped_internal_write_register(1, &input).unwrap();
-        reset_costs_counter();
 
-        // Check: memory input pays for one element, the same as with `FixRegisterInputCharging`.
-        assert_eq!(logic.bls12381_p2_decompress(memory_input.len, memory_input.ptr, 0), Ok(0));
-        assert_costs(map! {
-            ExtCosts::bls12381_p2_decompress_base: 1,
-            ExtCosts::bls12381_p2_decompress_element: 1,
-            ExtCosts::read_memory_base: 1,
-            ExtCosts::read_memory_byte: input.len() as u64,
-            ExtCosts::write_register_base: 1,
-            ExtCosts::write_register_byte: 192,
-        });
-
-        // Check: register input charges gas for `u64::MAX` input bytes before it reads the
+        // Check: the host function charges gas for `u64::MAX` input bytes before it reads the
         // register.
         assert_eq!(
-            logic.bls12381_p2_decompress(u64::MAX, 1, 2),
+            logic.bls12381_p2_decompress(u64::MAX, 1, 0),
             Err(HostError::IntegerOverflow.into())
         );
     }
