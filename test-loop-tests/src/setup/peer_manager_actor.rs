@@ -110,10 +110,6 @@ pub enum HandlerResult {
 
 pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 
-/// Sees every outgoing request without consuming it, so several observers coexist and none of them
-/// competes with the handlers above.
-pub type NetworkRequestObserver = Box<dyn Fn(&NetworkRequests)>;
-
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.
 ///
@@ -139,9 +135,7 @@ pub type NetworkRequestObserver = Box<dyn Fn(&NetworkRequests)>;
 /// - Override handler to modify data and simulate malicious behavior.
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
-    observers: Vec<NetworkRequestObserver>,
-    /// The rules of every node, consulted for this node's account after the observers and
-    /// before the handlers.
+    /// The rules of every node, consulted for this node's account before the handlers.
     rules: NetworkRules,
     account_id: AccountId,
 
@@ -208,7 +202,6 @@ impl TestLoopPeerManagerActor {
         ];
         Self {
             handlers,
-            observers: Vec::new(),
             rules,
             account_id: account_id.clone(),
             clock,
@@ -217,12 +210,6 @@ impl TestLoopPeerManagerActor {
             genesis_id,
             last_block_headers: BTreeMap::new(),
         }
-    }
-
-    /// Register an observer of every outgoing request. Observers run before the handlers and cannot
-    /// consume a request, so registering one never changes which handler takes it.
-    pub fn register_observer(&mut self, observer: NetworkRequestObserver) {
-        self.observers.push(observer);
     }
 
     /// Register a new handler to override the default handlers.
@@ -711,10 +698,6 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
             panic!("Unexpected message: {:?}", msg);
         };
 
-        for observer in &self.observers {
-            observer(&request);
-        }
-
         let Applied { released, requests } = self.rules.apply(&self.account_id, request);
         for request in released {
             self.dispatch(request);
@@ -730,7 +713,7 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
 }
 
 /// A request a rule let go later than it was sent: it goes to the handlers directly, past the
-/// observers and the rules it already went through.
+/// rules it already went through.
 #[derive(Debug)]
 pub struct DeferredNetworkRequest(pub NetworkRequests);
 

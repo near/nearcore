@@ -54,6 +54,12 @@ struct RuleState {
     matched: AtomicU64,
 }
 
+impl Default for RuleHandle {
+    fn default() -> Self {
+        Self(Arc::new(RuleState::default()))
+    }
+}
+
 impl RuleHandle {
     /// Switches the rule off: nothing matches it from now on, and whatever it still holds goes
     /// out the next time the node sends anything.
@@ -94,7 +100,7 @@ struct KeptBlock {
 /// [`NetworkRules::kept_blocks`].
 #[derive(Clone, Debug, Default)]
 pub struct KeptBlocks {
-    /// The hashes of the blocks a rule dropped, held or replaced.
+    /// The hashes of the blocks a rule dropped or replaced, or still holds.
     pub hashes: HashSet<CryptoHash>,
     /// How many requests for a kept block were swallowed.
     pub requests_swallowed: u64,
@@ -173,6 +179,22 @@ impl NetworkRules {
         RuleHandle(state)
     }
 
+    /// [`Self::add`] under an existing handle, which the new rule shares with the rules added
+    /// under it before: lifting the handle switches them all off, and its count covers them
+    /// all.
+    pub fn add_with_handle(
+        &self,
+        handle: &RuleHandle,
+        account_id: AccountId,
+        tag: Option<&'static str>,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) {
+        let rule =
+            Rule { account_id, tag, matches: Box::new(matches), action, state: handle.0.clone() };
+        self.0.lock().rules.push(Arc::new(rule));
+    }
+
     fn add_rule(
         &self,
         account_id: AccountId,
@@ -180,10 +202,10 @@ impl NetworkRules {
         matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>,
         action: Action,
     ) -> RuleHandle {
-        let state = Arc::new(RuleState::default());
-        let rule = Rule { account_id, tag, matches, action, state: state.clone() };
+        let handle = RuleHandle::default();
+        let rule = Rule { account_id, tag, matches, action, state: handle.0.clone() };
         self.0.lock().rules.push(Arc::new(rule));
-        RuleHandle(state)
+        handle
     }
 
     /// The handles of the rules of `account_id` tagged `tag`, in the order they were added,
@@ -339,9 +361,7 @@ impl Inner {
         *held = kept;
         for request in &released {
             if let Some(block) = block_of(request) {
-                if let Some(kept) = self.kept.get_mut(block.hash()) {
-                    kept.held = false;
-                }
+                self.kept.remove(block.hash());
             }
         }
         released

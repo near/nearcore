@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::network_rules::RuleHandle;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use itertools::Itertools;
@@ -123,11 +124,20 @@ fn assert_fallback_has_enough_stake(node: &TestLoopNode) {
 /// fallback: the present designated endorsements alone don't meet the designated 2/3 threshold, so
 /// the non-designated remainder must have carried it.
 fn assert_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) {
+    let core_reader = &node.client().chain.spice_core_reader;
+    assert!(core_reader.all_execution_results_exist(header).unwrap(), "block is not certified");
+    assert!(
+        chunks_certified_via_fallback(node, header) > 0,
+        "every chunk met the designated threshold; none certified via the fallback",
+    );
+}
+
+/// How many of the chunks of `header`'s block lack enough designated endorsements to have
+/// certified without the fallback.
+fn chunks_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) -> usize {
     let client = node.client();
     let core_reader = &client.chain.spice_core_reader;
     let epoch_manager = client.epoch_manager.as_ref();
-    assert!(core_reader.all_execution_results_exist(header).unwrap(), "block is not certified");
-
     let epoch_id = header.epoch_id();
     let mut fallback_certified_chunks = 0;
     for shard_id in epoch_manager.get_shard_layout(epoch_id).unwrap().shard_ids() {
@@ -147,9 +157,30 @@ fn assert_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) {
             fallback_certified_chunks += 1;
         }
     }
-    assert!(
-        fallback_certified_chunks > 0,
-        "every chunk met the designated threshold; none certified via the fallback",
+    fallback_certified_chunks
+}
+
+/// Runs until the certified frontier moves past where it is, asserts the new frontier
+/// certified via the fallback, then lifts `drop`, the designated endorsement drop, and runs
+/// until a block certifies on designated endorsements alone again.
+fn certify_via_fallback_then_recover(env: &mut TestLoopEnv, drop: RuleHandle) {
+    let start = env.node(0).last_certified_block_header().height();
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() > start,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    assert!(drop.matched() > 0, "no designated endorsement was dropped");
+
+    drop.lift();
+    let lifted_at = env.node(0).head().height;
+    env.node_runner(0).run_until(
+        |node| {
+            let header = node.last_certified_block_header();
+            header.height() > lifted_at && chunks_certified_via_fallback(node, &header) == 0
+        },
+        Duration::seconds(60),
     );
 }
 
@@ -163,19 +194,13 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts)
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+        .build();
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    // The certified frontier must keep advancing via the all-stake fallback though every designated
-    // endorsement is dropped (slowly: ~1 block per fallback window under a total outage).
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
-    let frontier = env.node(0).last_certified_block_header();
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    // The certified frontier must advance via the all-stake fallback though every designated
+    // endorsement is dropped.
+    certify_via_fallback_then_recover(&mut env, drop);
 }
 
 #[test]
@@ -191,17 +216,11 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
         .epoch_config_store(epoch_config_store)
         .clients(accounts)
         .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements)
         .drop(DropCondition::SpiceDataRequests);
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
-    let frontier = env.node(0).last_certified_block_header();
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    certify_via_fallback_then_recover(&mut env, drop);
 }
 
 #[test]
@@ -216,19 +235,13 @@ fn slow_test_spice_all_stake_fallback_certifies_without_accesses_messages() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+        .build();
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
     let (faults, observed) = env.install_spice_partial_data_faults();
     faults.lock().drop_contract_accesses_from.extend(accounts);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
-    let frontier = env.node(0).last_certified_block_header();
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    certify_via_fallback_then_recover(&mut env, drop);
     assert!(observed.lock().dropped_contract_accesses > 0, "no accesses message was dropped");
 }
 
@@ -249,9 +262,9 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
 
     // Run normally up to just before the epoch boundary, then drop designated endorsements: the
     // all-stake fallback alone must carry certification across into the next epoch.
-    env.node_runner(0).run_until_head_height(epoch_length - 5);
+    env.node_runner(0).run_until_head_height(epoch_length - 3);
     let initial_epoch = env.node(0).head().epoch_id;
-    let mut env = env.drop(DropCondition::DesignatedSpiceEndorsements);
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
 
     // The certified frontier must reach the second epoch (height past the boundary, with a different
     // epoch id), proving the fallback certified the boundary chunks under the new assignments.
@@ -265,6 +278,7 @@ fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     );
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    drop.lift();
 }
 
 #[test]
@@ -281,17 +295,11 @@ fn slow_test_spice_all_stake_fallback_certifies_when_validators_track_all_shards
         .epoch_config_store(epoch_config_store)
         .clients(accounts)
         .track_all_shards()
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+        .build();
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
-    let frontier = env.node(0).last_certified_block_header();
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    certify_via_fallback_then_recover(&mut env, drop);
 }
 
 #[test]
@@ -314,15 +322,16 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
         .clients(accounts)
         .enable_rpc()
         .disable_compiled_contract_cache()
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
+        .build();
     assert_fallback_has_enough_stake(&env.rpc_node());
 
     // Wait for the deploy to be included before submitting the call, so the call runs against an
-    // already-settled contract (`record_contract_call` skips newly-deployed code).
+    // already-settled contract (`record_contract_call` skips newly-deployed code). The deploy
+    // needs no fallback, so designated endorsements are only dropped from here on.
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&contract_user);
     let deploy_hash = env.rpc_node().submit_tx(deploy_tx);
     env.rpc_runner().run_until_included(&[deploy_hash]);
+    let drop = env.add_drop_condition(DropCondition::DesignatedSpiceEndorsements);
 
     // The call's chunk witness omits the code, so a cold non-designated fallback validator must
     // fetch it via a contract-code request.
@@ -345,6 +354,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     );
     let frontier = env.rpc_node().last_certified_block_header();
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
+    drop.lift();
 }
 
 /// The protocol upgrade with every designated endorsement dropped: the last

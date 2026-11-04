@@ -1,5 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
-use super::network_rules::NetworkRules;
+use super::network_rules::{NetworkRules, RuleHandle};
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork, HandlerResult,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
@@ -67,7 +67,7 @@ pub struct SharedState {
     /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// List of drop conditions that apply to all nodes in the network.
-    pub drop_conditions: Vec<DropCondition>,
+    pub drop_conditions: Vec<(DropCondition, RuleHandle)>,
     pub load_memtries_for_tracked_shards: bool,
     /// When set, every node uses a no-op compiled contract cache so validators
     /// must request contract code instead of reusing a precompiled copy.

@@ -1,4 +1,4 @@
-use super::network_rules::{Action, NetworkRules};
+use super::network_rules::{Action, NetworkRules, RuleHandle};
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     blocks_at_heights_matcher, chunk_endorsements_matcher, designated_spice_endorsement_matcher,
@@ -126,6 +126,7 @@ impl NodeExecutionData {
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         network_rules: &NetworkRules,
         drop_condition: &DropCondition,
+        handle: &RuleHandle,
     ) {
         let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
@@ -186,9 +187,10 @@ impl NodeExecutionData {
             }
             DropCondition::SpiceDataRequests => Box::new(spice_data_request_matcher()),
         };
-        network_rules.add_tagged(
+        network_rules.add_with_handle(
+            handle,
             self.account_id.clone(),
-            DROP_CONDITION_RULE,
+            Some(DROP_CONDITION_RULE),
             matches,
             Action::Drop,
         );

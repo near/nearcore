@@ -5,7 +5,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::network_rules::Action;
+use crate::setup::network_rules::{Action, RuleHandle};
 use crate::utils::node::TestLoopNode;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger_with_directives;
@@ -14,7 +14,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 const EPOCH_LENGTH: u64 = 1100;
 /// Past both the kickout grace period and the `BlockInfo` cache capacity.
@@ -31,20 +30,20 @@ fn deliver_late(env: &TestLoopEnv, withheld: BlockHeight) {
     }
     // The first block above the sibling hands the withheld one to everyone, ahead of itself: a
     // rule runs before the block it matched is routed.
-    let delivered = Arc::new(AtomicBool::new(false));
+    // One rule on every node under one handle, which the first match lifts.
+    let deliver_once = RuleHandle::default();
     for index in 0..env.node_datas.len() {
         let network = network.clone();
         let accounts = accounts.clone();
-        let delivered = delivered.clone();
-        env.network_rule(
+        let lift_after_delivering = deliver_once.clone();
+        env.network_rule_with_handle(
             index,
+            &deliver_once,
             move |request| {
                 matches!(request, NetworkRequests::Block { block } if block.header().height() > withheld + 1)
             },
             Action::Observe(Box::new(move |_| {
-                if delivered.swap(true, Ordering::SeqCst) {
-                    return;
-                }
+                lift_after_delivering.lift();
                 for account in &accounts {
                     network.deliver_withheld_blocks(account);
                 }

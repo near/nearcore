@@ -642,12 +642,13 @@ pub fn setup_client(
     // A restarted node's account keeps the rules of the conditions added before, so only
     // the conditions it has no rule for yet, the newest ones, are installed.
     let installed = network_rules.tagged(&node_data.account_id, DROP_CONDITION_RULE).len();
-    for condition in drop_conditions.iter().skip(installed) {
+    for (condition, handle) in drop_conditions.iter().skip(installed) {
         node_data.register_drop_condition(
             &test_loop.data,
             chunks_storage.clone(),
             network_rules,
             condition,
+            handle,
         );
     }
 

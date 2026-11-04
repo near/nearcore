@@ -40,8 +40,11 @@ impl TestLoopEnv {
         self
     }
 
-    /// Same as [`Self::drop`], but borrows the environment.
-    pub fn add_drop_condition(&mut self, drop_condition: DropCondition) {
+    /// Same as [`Self::drop`], but borrows the environment and returns the condition's
+    /// handle: one switch over its rule on every account, the accounts of nodes added later
+    /// included, whose count covers them all. Lifting it ends the condition everywhere.
+    pub fn add_drop_condition(&mut self, drop_condition: DropCondition) -> RuleHandle {
+        let handle = RuleHandle::default();
         // Rules are keyed by account and a restarted node is a new entry with the account of
         // the old one, so each account gets the rule once, through its latest entry.
         let mut seen = HashSet::new();
@@ -54,9 +57,11 @@ impl TestLoopEnv {
                 self.shared_state.chunks_storage.clone(),
                 &self.shared_state.network_rules,
                 &drop_condition,
+                &handle,
             );
         }
-        self.shared_state.drop_conditions.push(drop_condition);
+        self.shared_state.drop_conditions.push((drop_condition, handle.clone()));
+        handle
     }
 
     /// From now on `action` applies to every request node `index` sends that `matches`, until
@@ -79,6 +84,20 @@ impl TestLoopEnv {
         action: Action,
     ) -> RuleHandle {
         self.shared_state.network_rules.add(account_id.clone(), matches, action)
+    }
+
+    /// [`Self::network_rule`] under an existing handle, shared with the rules added under it
+    /// before: one switch over the same rule on several nodes, or a rule whose action lifts
+    /// its own handle once it has done its job.
+    pub fn network_rule_with_handle(
+        &self,
+        index: usize,
+        handle: &RuleHandle,
+        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) {
+        let account_id = self.node_datas[index].account_id.clone();
+        self.shared_state.network_rules.add_with_handle(handle, account_id, None, matches, action);
     }
 
     /// [`Self::network_rule`] on the messages that carry the parts of the chunks `selects` where inclusion
