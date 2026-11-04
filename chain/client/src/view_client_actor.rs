@@ -1902,7 +1902,6 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
-                self.adv.set_disable_doomslug(true);
             }
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
                 tracing::info!(target: "adversary", "blocking header sync");
