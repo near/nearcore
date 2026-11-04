@@ -597,9 +597,7 @@
         "nixpkgs",
         "prebuilds",
         "nretry",
-        "pmap",
-        "uefi",
-        "useragent"
+        "uefi"
     ],
     "import": []
 }
