@@ -123,7 +123,7 @@ feed `delayed_receipts_gas` and `receipt_bytes` in `CongestionInfo`.
 `DelayedReceiptQueueWrapper::pop` (`congestion_control.rs:880`) also breaks *before*
 popping if `trie.check_proof_size_limit_exceed()` (`:889`), and — for
 ReshardingV3 — accounts gas/bytes for every popped receipt but returns only those
-whose `receiver_shard_id` matches the current shard (`receipt_filter_fn`, `:874`),
+whose `receiver_shard_id` matches the current shard (`is_for_this_shard`, `:874`),
 skipping receipts that belong to a sibling shard after a split.
 
 ### 3. Data dependencies: postponed receipts and promise results

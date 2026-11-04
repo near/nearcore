@@ -13,6 +13,7 @@ use std::sync::Arc;
 use testlib::runtime_utils::bob_account;
 
 mod apply;
+mod contract_preparation;
 mod pipelining;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(5000);

@@ -164,7 +164,7 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
 
     // Step 4: Stop saturating. Let the delayed queue drain.
     // If the vulnerability exists, processing the stale GlobalContractDistribution
-    // receipt will panic in receipt_filter_fn() when receiver_shard_id() fails
+    // receipt will panic in is_for_this_shard() when receiver_shard_id() fails
     // to remap the old target_shard after two resharding generations.
     let current_height = {
         let node = env.node_for_account(&chunk_producer);
