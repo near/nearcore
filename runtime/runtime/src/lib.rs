@@ -1197,6 +1197,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -1248,6 +1252,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 if new_receipt.is_instant_receipt() {
@@ -3568,7 +3574,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)
