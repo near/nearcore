@@ -13,6 +13,7 @@ use near_client::ProcessTxResponse;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::InvalidTxError;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
@@ -21,7 +22,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::TxExecutionStatus;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 fn ecc(contract_id: &AccountId) -> EccTransaction {
@@ -315,4 +316,61 @@ fn test_eccs_to_one_contract_land_in_separate_chunks_in_order() {
     for hash in hashes {
         assert_eq!(chunks_with_ecc(&env.rpc_node(), hash, heights[0]).len(), 1);
     }
+}
+
+/// The producer packs no more ECCs than apply takes: with room for two ECCs per chunk, four ECCs
+/// to different contracts go into chunks of two at most, and every one of them gets an outcome.
+#[test]
+fn test_chunks_hold_as_many_eccs_as_apply_takes() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_ids = ["c1", "c2", "c3", "c4"].map(create_account_id);
+    let mut builder =
+        TestLoopBuilder::new().enable_rpc().epoch_length(10).gas_limit(Gas::from_teragas(80));
+    for contract_id in &contract_ids {
+        builder = builder.add_user_account(contract_id, Balance::from_near(1_000));
+    }
+    let mut env = builder.build();
+    for contract_id in &contract_ids {
+        let deploy_tx = env.rpc_node().tx_deploy_test_contract(contract_id);
+        env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+    }
+    let node = env.rpc_node();
+    let config = node.client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+    assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(80)), 2);
+    let first_height = node.head().height;
+
+    let eccs = contract_ids.each_ref().map(|id| EccTransaction::new(id.clone(), vec![1]));
+    let hashes = eccs.each_ref().map(EccTransaction::get_hash);
+    for ecc in eccs {
+        assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+    }
+    env.rpc_runner().run_until(
+        |node| hashes.iter().all(|hash| !chunks_with_ecc(node, *hash, first_height).is_empty()),
+        Duration::seconds(30),
+    );
+    for hash in hashes {
+        env.rpc_runner().run_until_outcome_available(hash, Duration::seconds(10));
+    }
+
+    let node = env.rpc_node();
+    let chain = &node.client().chain;
+    let chunks = (first_height..=node.head().height)
+        .filter_map(|height| chain.get_block_by_height(height).ok())
+        .flat_map(|block| node.block_chunks(&block))
+        .map(|chunk| (chunk.chunk_hash().clone(), chunk))
+        .collect::<HashMap<_, _>>();
+    let eccs_per_chunk = chunks
+        .values()
+        .map(|chunk| chunk.to_transactions().iter().filter(|tx| tx.as_unsigned().is_some()).count())
+        .filter(|num_eccs| *num_eccs > 0)
+        .collect::<Vec<_>>();
+    assert_eq!(eccs_per_chunk.iter().sum::<usize>(), 4, "{eccs_per_chunk:?}");
+    assert!(eccs_per_chunk.iter().all(|num_eccs| *num_eccs <= 2), "{eccs_per_chunk:?}");
 }
