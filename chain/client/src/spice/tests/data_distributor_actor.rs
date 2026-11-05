@@ -85,6 +85,7 @@ use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
+use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
@@ -3271,6 +3272,43 @@ fn test_contract_accesses_served_from_store_on_catchup() {
         }
     }
     assert!(found_accesses, "expected contract accesses message to be sent from store fallback");
+}
+
+/// Witness GC can delete the contract accesses after the witness was read for a request. The
+/// request is then dropped instead of panicking.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handling_data_request_with_contract_accesses_garbage_collected() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let state_witness = new_test_witness(&block);
+    let shard_id = state_witness.chunk_id().shard_id;
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        shard_id,
+        &state_witness,
+        &HashSet::new(),
+    );
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update
+        .delete(DBCol::contract_accesses(), &get_contract_accesses_key(block.hash(), shard_id));
+    store_update.commit();
+
+    let mut producers = witness_producer_accounts(&chain, &block, &state_witness);
+    let total_parts = producers.len();
+    let producer = producers.swap_remove(0);
+    let (_incoming_data, recipient) = witness_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    let data_id = SpiceDataIdentifier::Witness { block_hash: *block.hash(), shard_id };
+    actor.handle(SpiceDataRequestMessage {
+        request: SpiceDataRequest::new(want_all_parts(data_id, total_parts), recipient),
+        recv_permit: RecvMessagePermit::none(),
+    });
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
