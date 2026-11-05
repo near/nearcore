@@ -266,8 +266,9 @@ fn verdict(
         return Ok(Err(ActionError { index: Some(0), kind }.into()));
     }
 
-    // TODO(ecc): turn the receipts the run created into outgoing receipts (promises, yields and
-    // yield resumes) instead of refusing the call.
+    // TODO(ecc): turn the receipts the run created into outgoing receipts (promises and yield
+    // resumes) instead of refusing the call. A run that creates a yielded promise stays refused:
+    // the yield's data id is derived from the height of the chunk that includes the call.
     let created_receipts = !receipt_manager.action_receipts.is_empty()
         || !receipt_manager.data_receipts.is_empty()
         || matches!(outcome.return_data, ReturnData::ReceiptIndex(_));

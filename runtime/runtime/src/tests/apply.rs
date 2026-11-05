@@ -1242,6 +1242,27 @@ fn test_apply_ecc_refused_promise() {
     assert_eq!(err, InvalidTxError::InvalidTransactionVersion.into());
 }
 
+/// An ECC whose run creates a yielded promise is refused. Unlike other promises, this has to stay
+/// so once ECCs can create receipts: the yield's data id is derived from the height of the chunk
+/// that includes the call.
+#[test]
+fn test_apply_ecc_refused_promise_yield_create() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    // Yields to the contract's `cb` method with 10 Tgas, and writes the data id to register 0.
+    let code = ecc_contract(
+        "(call $write_payload)
+    (drop (call $promise_yield_create
+      (i64.const 2) (i64.const 40) (i64.const 0) (i64.const 0) (i64.const 10000000000000)
+      (i64.const 0) (i64.const 0)))",
+    );
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
+    assert_eq!(err, InvalidTxError::InvalidTransactionVersion.into());
+}
+
 /// An ECC whose run resumes a yielded promise is refused, and the promise stays yielded.
 /// TODO(ecc): allow ECC to interact with yield-resume.
 #[test]
