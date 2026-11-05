@@ -63,19 +63,19 @@ pub fn shards_applied_itself(
 
 // A last pre-spice block was applied pre-spice, where a shard the node only tracks
 // next epoch is applied with the block only once caught up. Whether it was is not
-// known here, so this answers with the lower bound, `NotCaughtUp`: a caught-up node
-// then fetches what it actually holds, a wasted fetch, rather than waiting on
-// artifacts it may never have produced. Every other block is answered with
-// `IsCaughtUp`. The two differ only for a node that starts tracking a shard in the
-// first spice epoch.
+// known here, so this answers with the lower bound, `ExcludeCatchupShards`: a
+// caught-up node then fetches what it actually holds, a wasted fetch, rather than
+// waiting on artifacts it may never have produced. Every other block is answered
+// with `IncludeCatchupShards`. The two differ only for a node that starts tracking a
+// shard in the first spice epoch.
 fn own_apply_mode(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &BlockHeader,
 ) -> Result<ApplyChunksMode, Error> {
     Ok(if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        ApplyChunksMode::NotCaughtUp
+        ApplyChunksMode::ExcludeCatchupShards
     } else {
-        ApplyChunksMode::IsCaughtUp
+        ApplyChunksMode::IncludeCatchupShards
     })
 }
 
