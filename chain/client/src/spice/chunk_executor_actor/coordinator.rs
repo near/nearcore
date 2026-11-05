@@ -227,7 +227,7 @@ impl ChunkExecutorActor {
 
     /// Spawn executors for shards tracked this or next epoch and evict ones no
     /// longer tracked. The this-or-next-epoch set matches the
-    /// `should_apply_chunk(IsCaughtUp, ..)` gate the monolithic executor used:
+    /// `should_apply_chunk(IncludeCatchupShards, ..)` gate the monolithic executor used:
     /// a shard rotating in next epoch must keep executing through the boundary
     /// so it can endorse, otherwise certification stalls at the rotation.
     /// Eviction is immediate; the apply-done handler's graceful-drop guard covers

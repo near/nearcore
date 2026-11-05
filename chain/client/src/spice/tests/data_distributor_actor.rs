@@ -2111,7 +2111,11 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
         MutableConfigValue::new(None, "validator_signer"),
     );
     let is_catching_up = |block: &Block| {
-        shard_tracker.should_apply_chunk(ApplyChunksMode::CatchingUp, block.hash(), to_shard_id)
+        shard_tracker.should_apply_chunk(
+            ApplyChunksMode::OnlyCatchupShards,
+            block.hash(),
+            to_shard_id,
+        )
     };
     let genesis_block = chain.genesis_block();
     let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
