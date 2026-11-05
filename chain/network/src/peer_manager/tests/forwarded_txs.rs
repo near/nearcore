@@ -13,7 +13,7 @@ use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
 use std::sync::Arc;
 
 /// The number of forwarded ECCs a node accepts between two blocks.
-const ECC_LIMIT: usize = 500;
+const ECC_LIMIT: usize = 100;
 
 fn ecc(i: usize) -> TransactionEnvelope {
     EccTransaction::new("contract.near".parse().unwrap(), i.to_le_bytes().to_vec()).into()

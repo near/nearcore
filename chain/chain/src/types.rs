@@ -566,13 +566,15 @@ pub trait RuntimeAdapter: Send + Sync {
         pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError>;
 
-    /// Checks against the state that an ECC has something to run: its contract's account holds a
-    /// contract.
+    /// Checks against the state that an ECC has something to run and can be paid for: its
+    /// contract's account holds a contract that can afford the fees of the call.
     fn can_accept_ecc(
         &self,
         shard_layout: &ShardLayout,
+        gas_price: Balance,
         state_root: StateRoot,
         ecc: &ValidatedEcc,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.

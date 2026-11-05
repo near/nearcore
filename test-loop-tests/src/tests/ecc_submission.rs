@@ -67,17 +67,19 @@ fn test_rpc_refuses_ecc_to_account_without_contract() {
     let nobody = create_account_id("nobody");
     let env = setup(PROTOCOL_VERSION, &[&contract_id, &alice], &contract_id);
 
-    // An account that exists but holds no contract, and one that does not exist.
-    for target in [&alice, &nobody] {
-        let response = env.rpc_node().process_tx(ecc(target), false);
-        assert_eq!(
-            response,
-            ProcessTxResponse::InvalidTx(InvalidTxError::ContractNotFound {
-                contract_id: target.clone()
-            }),
-            "target: {target}"
-        );
-    }
+    // An account that exists but holds no contract.
+    let response = env.rpc_node().process_tx(ecc(&alice), false);
+    assert_eq!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::ContractNotFound { contract_id: alice })
+    );
+
+    // An account that does not exist: the error is the one apply gives.
+    let response = env.rpc_node().process_tx(ecc(&nobody), false);
+    assert_eq!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::SignerDoesNotExist { signer_id: nobody })
+    );
 }
 
 /// `send_tx` cannot wait for an ECC to land, since `tx` has no way to find it yet. It still

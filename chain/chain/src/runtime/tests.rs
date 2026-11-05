@@ -27,6 +27,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
@@ -1808,6 +1809,49 @@ fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
     assert!(skipped.0.is_empty());
     assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Cancelled);
     assert_eq!(pool.len(), 2);
+}
+
+/// An ECC is refused for a contract that does not exist, one that holds no code, and one that
+/// cannot pay the fees at the given gas price.
+#[test]
+fn test_can_accept_ecc_checks_contract_and_fees() {
+    let env = TestEnv::new_with_config(
+        vec![vec!["test1".parse().unwrap()]],
+        TestEnvConfig {
+            epoch_length: 5,
+            has_reward: false,
+            minimum_stake_divisor: None,
+            zero_fees: false,
+            create_flat_storage: false,
+            runtime_config_store: None,
+        },
+    );
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let min_gas_price = env.runtime.genesis_config.min_gas_price;
+    let can_accept = |contract_id: &str, gas_price| {
+        let ecc =
+            ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![1]));
+        env.runtime.can_accept_ecc(
+            &shard_layout,
+            gas_price,
+            env.state_roots[0],
+            &ecc,
+            PROTOCOL_VERSION,
+        )
+    };
+
+    assert!(matches!(
+        can_accept("nobody", min_gas_price),
+        Err(InvalidTxError::SignerDoesNotExist { .. })
+    ));
+    assert!(matches!(
+        can_accept("test1", min_gas_price),
+        Err(InvalidTxError::ContractNotFound { .. })
+    ));
+    assert!(matches!(
+        can_accept("test1", Balance::from_near(1)),
+        Err(InvalidTxError::NotEnoughBalance { .. })
+    ));
 }
 
 #[test]

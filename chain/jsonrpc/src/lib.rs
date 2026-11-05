@@ -1158,8 +1158,9 @@ impl JsonRpcHandler {
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
     /// any new side-effects and the result will be the same unless we garbage collected it
-    /// already). An ECC has no nonce to tell a repeat by, so only the pool drops a copy of it,
-    /// for as long as the first one is still pooled.
+    /// already). An ECC has no nonce to tell a repeat by, so only the pool of a chunk producer
+    /// for the contract's shard drops a copy of it, for as long as the first one is still pooled.
+    /// Any other node forwards every repeat.
     async fn send_tx_internal(
         &self,
         tx: TransactionEnvelope,

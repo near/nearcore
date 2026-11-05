@@ -276,9 +276,13 @@ impl RpcHandlerActor {
                         &constraints,
                     )
                 }
-                ValidatedTransactionEnvelope::Unsigned(ecc) => {
-                    self.runtime.can_accept_ecc(&shard_layout, state_root, ecc)
-                }
+                ValidatedTransactionEnvelope::Unsigned(ecc) => self.runtime.can_accept_ecc(
+                    &shard_layout,
+                    gas_price,
+                    state_root,
+                    ecc,
+                    protocol_version,
+                ),
             };
             if let Err(err) = state_check {
                 tracing::debug!(target: "client", ?err, "invalid tx");

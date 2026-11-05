@@ -7,10 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// transactions when we should be focusing on consensus-related messages.
 const MAX_FORWARDED_TXS_PER_BLOCK: usize = 1000;
 
-/// Maximum number of forwarded ECCs we accept between block messages. They count toward
-/// `MAX_FORWARDED_TXS_PER_BLOCK` too, so they can never fill more than this part of it.
-// TODO(ecc): replace with the real limit once it is picked
-const MAX_FORWARDED_ECCS_PER_BLOCK: usize = 500;
+/// Maximum number of forwarded ECCs we accept between block messages: a tenth of the total, like
+/// the share of the ECC pool. They count toward `MAX_FORWARDED_TXS_PER_BLOCK` too.
+const MAX_FORWARDED_ECCS_PER_BLOCK: usize = MAX_FORWARDED_TXS_PER_BLOCK / 10;
 
 /// Counts the forwarded transactions this node accepted since the last block message, shared by
 /// all the peers.
