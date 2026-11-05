@@ -960,12 +960,7 @@ impl SpiceDataDistributorActor {
             }
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
             // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
-            if !applies_chunk_itself(
-                &self.shard_tracker,
-                self.epoch_manager.as_ref(),
-                chunk_block.header(),
-                chunk_id.shard_id,
-            )? {
+            if !applies_chunk_itself(&self.shard_tracker, chunk_block.header(), chunk_id.shard_id) {
                 self.start_waiting_on_fallback_witness(
                     chunk_id,
                     &chunk_block,
@@ -1171,12 +1166,7 @@ impl SpiceDataDistributorActor {
         if assignments.contains(me) {
             return Ok(());
         }
-        if applies_chunk_itself(
-            &self.shard_tracker,
-            self.epoch_manager.as_ref(),
-            chunk_block.header(),
-            *shard_id,
-        )? {
+        if applies_chunk_itself(&self.shard_tracker, chunk_block.header(), *shard_id) {
             return Ok(());
         }
         let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
