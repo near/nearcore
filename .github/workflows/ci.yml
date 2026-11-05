@@ -221,6 +221,7 @@ jobs:
           cache: pip
       - run: pip3 install --user -r pytest/requirements.txt
       - run: just python-style-checks
+      - run: just python-unit-tests
 
   check_fmt:
     name: "Cargo Fmt"

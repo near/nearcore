@@ -49,7 +49,7 @@ def run_tools(*, check: bool) -> str:
         ))
 
     flag = "-pdr" if check else "-pir"
-    args = ("pytest", "scripts", "debug_scripts", SELF_FILE)
+    args = ("pytest", "scripts", "debug_scripts", ".github/scripts", SELF_FILE)
     if not has_yapf or not run((sys.executable, "-m", "yapf", flag) + args):
         langs.append("Python")
 

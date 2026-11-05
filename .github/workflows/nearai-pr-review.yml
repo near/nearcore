@@ -1,0 +1,130 @@
+# cspell:ignore nearai
+name: NEAR AI PR Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]  # When PR is ready for review (not draft)
+  issue_comment:
+    types: [created]  # Listen for /nearai-review in PR comments
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+      dry_run:
+        description: "Upload the review as an artifact instead of posting it"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  nearai-review:
+    # Run if: (PR opened/ready AND not draft) OR /nearai-review in a PR
+    # comment by a repo member OR a manual run.
+    if: |
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.issue.state == 'open' &&
+       contains(github.event.comment.body, '/nearai-review') &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR')) ||
+      github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-latest
+    # Up to 15 minutes waiting for other reviewers, then a 20 minute review.
+    timeout-minutes: 45
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: write
+    # Job level, so an unrelated comment on the PR does not cancel a review.
+    concurrency:
+      group: nearai-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+
+    steps:
+      # Secrets are not allowed in step-level `if:` expressions, so record the
+      # key's presence as a step output. Fork PRs on `pull_request` get no
+      # secrets and stop here.
+      - name: Check for API key
+        id: key-check
+        env:
+          NEARAI_API_KEY: ${{ secrets.NEARAI_API_KEY }}
+        run: echo "present=${NEARAI_API_KEY:+true}" >> "$GITHUB_OUTPUT"
+
+      # Only code from the default branch runs in this job, for every trigger.
+      # The reviewer fetches the PR's commits itself and only reads them as
+      # git objects, so a PR (including one from a fork) cannot change what
+      # runs here.
+      - name: Checkout reviewer from the default branch
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts/
+            .claude/skills/pr-review/
+            AGENTS.md
+            CONTRIBUTING.md
+            docs/practices/style.md
+
+      # Greptile and the Claude review start on the same PR event. Their
+      # comments must exist before the discussions are fetched, because the
+      # model is told not to repeat points that other reviewers already made.
+      - name: Wait for other AI reviewers
+        if: ${{ steps.key-check.outputs.present == 'true' && github.event_name == 'pull_request' }}
+        working-directory: .github/scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Seconds to wait for a reviewer's check to appear. A repository
+          # without Greptile (such as a test fork) can set this lower.
+          WAIT_GRACE: ${{ vars.NEARAI_REVIEW_WAIT_GRACE }}
+        run: >-
+          python3 -m nearai_review.wait
+          --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
+          --grace "${WAIT_GRACE:-180}"
+          --check "greptile-apps:Greptile Review"
+          --check "github-actions:claude-review"
+
+      - name: Fetch PR Comments Context
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: bash .github/scripts/fetch-pr-comments.sh
+
+      - name: Run NEAR AI review
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        working-directory: .github/scripts
+        env:
+          NEARAI_API_KEY: ${{ secrets.NEARAI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
+                --discussions /tmp/pr_comments_context.txt
+                --out "$RUNNER_TEMP/nearai-review")
+          if [ "$DRY_RUN" = "true" ]; then
+            # Hide the other bots' reviews so the output can be compared.
+            args+=(--dry-run --exclude-bot-comments)
+          fi
+          python3 -m nearai_review "${args[@]}"
+
+      - name: Upload review artifacts
+        if: ${{ always() && steps.key-check.outputs.present == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nearai-review-${{ env.PR_NUMBER }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nearai-review
+          retention-days: 14
+          if-no-files-found: ignore

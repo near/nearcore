@@ -16,6 +16,7 @@ You are reviewing a Rust pull request. Produce a thorough, actionable review usi
 - Get the full diff with `gh pr diff <number>` and PR metadata with `gh pr view <number>`.
 - Review existing PR comments and discussions before giving feedback (`gh pr view <number> --comments`). When running in CI, existing discussions are provided inline alongside this rubric — read them there instead.
 
+<!-- ci-rubric:begin: the NEAR AI reviewer (.github/scripts/nearai_review) uses only the text between these markers -->
 **IMPORTANT - CONTEXT AWARENESS:**
 - Do not duplicate points already raised in existing discussions
 - If a resolved thread addressed an issue, do not re-raise it
@@ -114,6 +115,7 @@ The review body must follow this layout:
 ```
 
 Anchor every finding with a `file:line` reference so reviewers can jump to the location.
+<!-- ci-rubric:end -->
 
 Consult the repository's [AGENTS.md] and [CONTRIBUTING.md] for project-specific conventions.
 Don't try to use `gh pr review` you don't have permissions for that and it will fail.
