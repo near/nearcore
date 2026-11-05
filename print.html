@@ -3548,13 +3548,24 @@ execute anyway.</li>
 <p>However there is one reason to not have <code>data_read</code> -- it makes <code>API</code> more human-like which is a general direction Wasm APIs, like WASI are moving towards to.</p>
 <p>Some of the functions below behave differently depending on how the contract execution was initiated:</p>
 <ul>
-<li>an <strong>internal</strong> call executes a receipt, created by a transaction or by a cross-contract call;</li>
-<li>a <strong>view</strong> call is a read-only call made through RPC;</li>
-<li>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
+<li>
+<p>an <strong>internal</strong> call executes a receipt, created by a transaction or by a cross-contract call;</p>
+</li>
+<li>
+<p>a <strong>view</strong> call is a read-only call made through RPC;</p>
+</li>
+<li>
+<p>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
 or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.
 An external call runs the contract method with the reserved name <code>__nightly_external_call</code> (the name will change
 when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
-action to it fails with <code>ReservedMethodName</code>.</li>
+action to it fails with <code>ReservedMethodName</code>. For now, an external call that creates a promise or resumes a
+yielded one is rejected. This limitation will be lifted in future work on this feature.</p>
+<p>A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
+doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
+the call sees the height, the timestamp and the epoch of the parent block, both when the producer runs it and when
+the chunk is applied. An external call can't read the random seed (see <a href="RuntimeSpec/Components/BindingsSpec/MathAPI.html">Math API</a>).</p>
+</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3691,6 +3702,8 @@ be used to read all</li>
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns the current block height from genesis.</p>
+<p>In an external call, returns the height of the chunk's parent block. Heights can be skipped, so this can be more than
+one less than the height of the block the chunk is in.</p>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3698,6 +3711,7 @@ be used to read all</li>
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).</p>
+<p>In an external call, returns the timestamp of the chunk's parent block.</p>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3705,6 +3719,7 @@ be used to read all</li>
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns the current epoch height from genesis.</p>
+<p>In an external call, returns the epoch height of the chunk's parent block.</p>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3733,7 +3748,7 @@ the contract execution starts;</li>
 <p>If contract execution fails <code>prepaid_gas - used_gas</code> is refunded back to <code>signer_account_id</code> and <code>attached_deposit</code>
 is refunded back to <code>predecessor_account_id</code>.</p>
 <p>An external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
-the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
+the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
 calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
 gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
 <code>max_total_prepaid_gas</code>. The contract is charged after the call, and the call is rejected if the balance can't pay.</p>
@@ -3785,9 +3800,13 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns random seed that can be used for pseudo-random number generation in deterministic way.</p>
+<p>An external call can't read the random seed. A chunk producer runs an external call before the block its chunk goes
+into exists (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>), so the seed would be known before the call is included, and whoever
+submits the call could wait for a value that suits them.</p>
 <h6 id="panics-8"><a class="header" href="#panics-8">Panics</a></h6>
 <ul>
 <li>If the size of the registers exceed the set limit <code>MemoryAccessViolation</code>;</li>
+<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <hr />
 <h4 id="sha256"><a class="header" href="#sha256">sha256</a></h4>
@@ -8737,28 +8756,41 @@ work done before the contract has decided to accept the call.</li>
 <code>max_total_prepaid_gas</code>.</li>
 </ul>
 <p>The contract pays for all the gas the call uses from its balance, at the gas
-price of the call: the gas it burns, the gas attached to function calls, and
-the execution fees of all actions and receipts. As in other calls, the VM only
-counts the gas against the fixed limits above; the runtime charges the
-contract after the call, and rejects the call if the balance can't pay. A
-rejected call pays nothing, so the VM doesn't need to stop a call as soon as
-the balance runs out: the call can't do more unpaid work than any call the
-contract rejects. While the call runs, its balance is the real balance of the
-contract, which it can spend on deposits and transfers; if it doesn't leave
-enough to pay for the fees and the gas, the call is rejected. This is the same
-way storage staking is checked after a call. A promise gets
-exactly the gas it was created with: unspent gas is not distributed by weight,
-because there is no prepaid gas to distribute.</p>
+price of the block, the price signed transactions in the chunk pay: the gas it
+burns, the gas attached to function calls, and the execution fees of all
+actions and receipts. As in other calls, the VM only counts the gas against
+the fixed limits above; the runtime charges the contract after the call, and
+rejects the call if the balance can't pay. A rejected call pays nothing, so
+the VM doesn't need to stop a call as soon as the balance runs out: the call
+can't do more unpaid work than any call the contract rejects. While the call
+runs, its balance is the real balance of the contract, which it can spend on
+deposits and transfers; if it doesn't leave enough to pay for the fees and the
+gas, the call is rejected. This is the same way storage staking is checked
+after a call. A promise gets exactly the gas it was created with: unspent gas
+is not distributed by weight, because there is no prepaid gas to distribute.</p>
 <p>Before the method runs, the call burns the fees of a self-addressed function
 call with the same method name and input: receipt creation, the function call
 base fee, and the per-byte fee for the method name and the payload, each with
 its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward <code>max_gas_burnt_external</code>, so a larger
 payload leaves less of the budget to the method. With the largest payload the
-fees are about 8 Tgas. The contract must be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the
-call, the fees are charged after the call, and only if the contract accepts
-it.</p>
+fees are about 8 Tgas. The contract must exist, have a contract deployed and
+be able to afford the fees, or the call is rejected before any contract code is
+loaded. Like the rest of the call, the fees are charged after the call, and
+only if the contract accepts it.</p>
+<p>A rejected call pays nothing, but it isn't free for the chunk. The compute of
+the work validators did on it, fees included, counts toward the chunk's
+compute limit, so that work stays bounded. This holds even for a call rejected
+before any contract code runs, for example because the contract's account
+doesn't exist or has no contract: validators still check it, so the compute of
+its fees counts. A rejected call burns no gas, though, and its outcome reports
+no gas burnt: nobody pays for it, so it doesn't add to the chunk's gas used or
+move the next gas price, which everyone else pays. An honest chunk producer
+runs each call before including it and leaves out the ones that would be
+rejected. An accepted call's fees and gas are burnt, and count toward the
+chunk's gas like any other.</p>
+<p>For now, a call that creates a promise or resumes a yielded one is rejected:
+external calls can't create receipts yet. This will be resolved in future work on this feature.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the
