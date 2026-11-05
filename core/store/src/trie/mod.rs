@@ -676,6 +676,14 @@ impl Trie {
         trie
     }
 
+    /// Adds what `other` recorded to what this trie records. Does nothing if either of them does
+    /// not record.
+    pub fn merge_recorded(&self, other: &Trie) {
+        if let (Some(recorder), Some(other)) = (&self.recorder, &other.recorder) {
+            recorder.merge(other);
+        }
+    }
+
     /// Takes the recorded state proof out of the trie.
     pub fn recorded_storage(self) -> Option<PartialStorage> {
         self.recorder.map(|recorder| recorder.recorded_storage())

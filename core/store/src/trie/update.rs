@@ -127,10 +127,11 @@ impl TrieUpdate {
     /// Clones the `TrieUpdate` for transaction preparation.
     /// The cloned `TrieUpdate` will have a new recorder for trie reads,
     /// while sharing the same underlying committed and prospective changes.
+    /// It sees the contracts deployed in them too, so the producer can run those contracts.
     pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
-            contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            contract_storage: self.contract_storage.clone_deploys(),
             contract_compilations: BTreeMap::new(),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),
