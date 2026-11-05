@@ -265,7 +265,7 @@ fn test_apply_check_balance_validation_rewards() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &Some(validator_accounts_update),
             &apply_state,
-            &[Receipt::new_balance_refund(&alice_account(), small_refund)],
+            &[Receipt::new_balance_refund(&alice_account(), small_refund, PROTOCOL_VERSION)],
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
@@ -626,6 +626,7 @@ fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
             Receipt::new_balance_refund(
                 &alice_account(),
                 small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
+                PROTOCOL_VERSION,
             )
         })
         .collect()
@@ -2626,7 +2627,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => {
             assert!(
                 matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
             );
@@ -2803,7 +2805,8 @@ fn test_apply_surplus_gas_for_function_call() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => match &actions[0] {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => match &actions[0] {
             Action::Transfer(TransferAction { deposit }) => assert_eq!(*deposit, expected_refund),
             other => panic!("Expected transfer action, got {:?}", other),
         },
@@ -6516,8 +6519,12 @@ fn test_gas_refund_to_gas_key() {
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund =
-        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        gas_key_signer.public_key(),
+        PROTOCOL_VERSION,
+    );
 
     // Apply the refund receipt
     let apply_result = runtime
@@ -6562,7 +6569,12 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund = Receipt::new_gas_refund(&alice_account(), refund_amount, unknown_key);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        unknown_key,
+        apply_state.current_protocol_version,
+    );
 
     let shard_uid = ShardUId::single_shard();
     let apply_result = runtime
@@ -8906,7 +8918,7 @@ mod relayer_funded_state_init {
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
-                from_ref(&Receipt::new_balance_refund(&account_id, funding())),
+                from_ref(&Receipt::new_balance_refund(&account_id, funding(), PROTOCOL_VERSION)),
                 SignedValidPeriodTransactions::empty(),
                 &epoch,
                 Default::default(),
