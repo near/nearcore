@@ -32,7 +32,7 @@ use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, StateSyncInfo};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
@@ -42,6 +42,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_runtime::SignedValidPeriodTransactions;
+use near_store::DBCol;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -93,17 +94,21 @@ pub(crate) struct PerShardChunkExecutor {
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
+    /// For a shard the node catches up for the next epoch, the sync block after which the canonical
+    /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
+    pub(super) replayed_after_sync_block: Option<CryptoHash>,
 }
 
 /// Outcome of a per-shard `try_apply` attempt for a single parked block.
 enum ApplyOutcome {
     /// Dispatched to the apply spawner (or already in flight).
     Scheduled,
-    /// Block is no longer relevant for this shard (past the final execution
-    /// head, not in this shard's layout, or already applied on disk).
+    /// Block is no longer relevant for this shard (off the final execution chain, not in this
+    /// shard's layout, or already applied on disk).
     Dropped,
-    /// Inputs not yet on disk (prev chunk execution result, prev chunk extra, or receipts missing).
-    /// Re-driven by a later receipt / endorsement / sibling apply.
+    /// Cannot be applied yet: inputs not yet on disk (prev chunk execution result, prev chunk
+    /// extra, or receipts missing), or the shard's catchup not finished. Re-driven by a later
+    /// processed block / receipt / endorsement / sibling apply.
     NotReady,
 }
 
@@ -152,6 +157,7 @@ impl PerShardChunkExecutor {
             apply_done_sender,
             blocks_in_execution: HashSet::new(),
             parked_blocks: BTreeSet::new(),
+            replayed_after_sync_block: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
     }
@@ -166,10 +172,17 @@ impl PerShardChunkExecutor {
     /// Park `block` and try to drain — the per-shard half of the coordinator
     /// routing a processed block to this shard.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) {
+        self.park_block(block.header());
+        self.try_apply_pending();
+    }
+
+    /// Park the block of `header` without draining, so that a run of blocks can be parked before
+    /// one drain.
+    pub(crate) fn park_block(&mut self, header: &BlockHeader) {
         // The parent's execution results may already be available (e.g. catching
         // up), so verify-drain any receipts buffered against it before parking, so
         // this block can find its incoming receipts on disk.
-        let prev_block_hash = *block.header().prev_hash();
+        let prev_block_hash = *header.prev_hash();
         if let Err(err) = self.unverified_receipts.try_drain(
             &self.chain_store,
             &self.core_reader,
@@ -177,8 +190,7 @@ impl PerShardChunkExecutor {
         ) {
             tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
         }
-        self.parked_blocks.insert((block.header().height(), *block.hash()));
-        self.try_apply_pending();
+        self.parked_blocks.insert((header.height(), *header.hash()));
     }
 
     /// Network receipt arrival for this shard: buffer it, verify-drain if ready,
@@ -205,10 +217,15 @@ impl PerShardChunkExecutor {
         Ok(())
     }
 
-    /// Drop receipts buffered against source blocks at or below the final
-    /// execution head — they can never be applied.
+    /// Drop receipts buffered against source blocks at or below the final execution head.
     pub(crate) fn prune_unverified_receipts_below_final_head(&mut self) -> Result<(), Error> {
         self.unverified_receipts.prune_below_final_head(&self.chain_store)
+    }
+
+    /// Hashes of the parked blocks (test accessor).
+    #[cfg(test)]
+    pub(crate) fn parked_block_hashes(&self) -> Vec<CryptoHash> {
+        self.parked_blocks.iter().map(|(_, block_hash)| *block_hash).collect()
     }
 
     /// Number of source blocks with buffered receipts (test accessor).
@@ -250,7 +267,7 @@ impl PerShardChunkExecutor {
         let shard_uid = self.shard_uid;
         let shard_id = shard_uid.shard_id();
         let block = self.chain_store.get_block(block_hash)?;
-        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+        if !is_on_final_execution_chain(&self.chain_store, block.header()) {
             return Ok(ApplyOutcome::Dropped);
         }
         // Resharding: this shard may be absent from `block`'s layout (split/merged
@@ -266,6 +283,10 @@ impl PerShardChunkExecutor {
         // a crash between per-shard commits.
         if self.chunk_extra_exists(block_hash, &shard_uid)? {
             return Ok(ApplyOutcome::Dropped);
+        }
+        if is_catching_up(&self.chain_store, self.epoch_manager.as_ref(), block.header(), shard_id)?
+        {
+            return Ok(ApplyOutcome::NotReady);
         }
 
         let prev_block_hash = *block.header().prev_hash();
@@ -429,12 +450,12 @@ impl PerShardChunkExecutor {
         result: ShardUpdateResult,
     ) -> Result<Vec<ReceiptProof>, Error> {
         let block = self.chain_store.get_block(&block_hash)?;
-        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+        if !is_on_final_execution_chain(&self.chain_store, block.header()) {
             tracing::warn!(
                 target: "chunk_executor",
                 ?block_hash,
                 block_height=%block.header().height(),
-                "encountered too old block application; discarding",
+                "discarding the application of a block that can no longer become canonical",
             );
             return Ok(Vec::new());
         }
@@ -797,6 +818,20 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
+/// Whether `header` is the final execution head, a block before it on the canonical chain, or a
+/// descendant of it.
+fn is_on_final_execution_chain(chain_store: &ChainStoreAdapter, header: &BlockHeader) -> bool {
+    let final_execution_head = chain_store
+        .spice_final_execution_head()
+        .expect("spice final execution head is seeded at genesis or at spice activation");
+    if header.height() <= final_execution_head.height {
+        return chain_store
+            .get_block_hash_by_height(header.height())
+            .is_ok_and(|hash| &hash == header.hash());
+    }
+    is_descendant_of_final_execution_head(chain_store, header)
+}
+
 pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,
     header: &BlockHeader,
@@ -819,4 +854,19 @@ pub(crate) fn is_descendant_of_final_execution_head(
         height = header.height();
     }
     height == final_execution_head.height
+}
+
+/// Whether `shard_id` is still being caught up for the next epoch in the epoch of `header`. Its
+/// catchup is finished only once `finish_catchup_blocks` deletes the state sync info of the epoch's
+/// first block: a restart before that syncs the shard again, which wipes any state applied on top.
+pub(crate) fn is_catching_up(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+    shard_id: ShardId,
+) -> Result<bool, Error> {
+    let epoch_first_block = *epoch_manager.get_block_info(header.hash())?.epoch_first_block();
+    let state_sync_info: Option<StateSyncInfo> =
+        chain_store.store().get_ser(DBCol::StateDlInfos, epoch_first_block.as_ref());
+    Ok(state_sync_info.is_some_and(|info| info.shards().contains(&shard_id)))
 }
