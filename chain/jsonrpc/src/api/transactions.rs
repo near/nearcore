@@ -12,6 +12,14 @@ use serde_json::Value;
 
 impl RpcRequest for RpcSendTransactionRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
+        // Here, we restrict serde parsing object from the array: the wire struct would take a
+        // positional array of its three fields otherwise.
+        // `wait_until` is a new feature supported only in object
+        if value.as_array().is_some_and(|params| params.len() > 1) {
+            return Err(RpcParseError(
+                "Unable to parse send request: too many params passed".to_string(),
+            ));
+        }
         let tx_request = Params::new(value)
             .try_singleton(|value| {
                 Ok(RpcSendTransactionRequest {
@@ -19,13 +27,6 @@ impl RpcRequest for RpcSendTransactionRequest {
                     // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
                     wait_until: Default::default(),
                 })
-            })
-            .try_pair(|_: String, _: String| {
-                // Here, we restrict serde parsing object from the array
-                // `wait_until` is a new feature supported only in object
-                Err(RpcParseError(
-                    "Unable to parse send request: too many params passed".to_string(),
-                ))
             })
             .unwrap_or_parse()?;
         Ok(tx_request)
@@ -201,6 +202,21 @@ mod tests {
         let wait_until = "EXECUTED";
         let params = serde_json::json!([str_tx, wait_until]);
         assert!(RpcSendTransactionRequest::parse(params).is_err());
+    }
+
+    // The wire struct has three fields, but a positional array still holds the transaction alone
+    #[test]
+    fn test_serialize_send_tx_rejects_positional_arrays_of_several_params() {
+        let (_, str_ecc) = ecc_base64();
+        let str_tx = signed_tx_base64();
+        let invalid = [
+            serde_json::json!([str_tx, null, "FINAL"]),
+            serde_json::json!([null, str_ecc, "FINAL"]),
+            serde_json::json!([str_tx, str_ecc]),
+        ];
+        invalid.into_iter().for_each(|params| {
+            assert!(RpcSendTransactionRequest::parse(params.clone()).is_err(), "{params}");
+        });
     }
 
     fn ecc_base64() -> (EccTransaction, String) {
