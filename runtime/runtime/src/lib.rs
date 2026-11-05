@@ -2281,6 +2281,7 @@ impl Runtime {
                         pubkey.clone(),
                         result.receipt_gas_price,
                         tx.transaction.actions().to_vec(),
+                        processing_state.apply_state.current_protocol_version,
                     );
                     let outcome = ExecutionOutcomeWithId {
                         id: tx.get_hash(),
