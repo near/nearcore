@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.38"
+    "version": "1.3.39"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -13768,6 +13768,42 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "contract_account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   }
@@ -16178,6 +16214,42 @@
               "name": {
                 "enum": [
                   "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
                 ],
                 "type": "string"
               }
@@ -19635,6 +19707,42 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
                   }
@@ -19777,6 +19885,42 @@
               "name": {
                 "enum": [
                   "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
                 ],
                 "type": "string"
               }
@@ -20438,6 +20582,42 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "contract_account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   }
@@ -20653,6 +20833,42 @@
               "name": {
                 "enum": [
                   "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNINITIALIZED_ACCOUNT"
                 ],
                 "type": "string"
               }

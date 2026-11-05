@@ -19,6 +19,7 @@
 
 * Added the opt-in `EXPERIMENTAL_indexer_block` RPC to fetch indexer messages by block hash. Enable it with `rpc.enable_indexer_rpc`; `rpc.indexer_max_concurrent_requests` controls request concurrency.
 * Added an experimental `enable_compiler_daemon` node setting for compiling Wasmtime contracts in isolated, memory-limited subprocesses. It is disabled by default. On Linux, enabling it requires Landlock support and causes startup to fail if the sandbox cannot be activated. ([#16067](https://github.com/near/nearcore/pull/16067))
+* View queries on a funded but uninitialized universal (`0u`) account now fail with the new `UNINITIALIZED_ACCOUNT` error. This covers `call_function`, `view_code`, `view_state`, `view_access_key`, `view_access_key_list` and `view_gas_key_nonces`, which used to answer as if the account had no contract, keys or data. `view_account` is unchanged and still reports `state: "uninitialized"`.
 
 ## [2.14.0]
 

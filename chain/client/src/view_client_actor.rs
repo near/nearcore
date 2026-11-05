@@ -18,7 +18,7 @@ use near_chain::{
     retrieve_headers,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
-use near_chain_primitives::error::EpochErrorResultToChainError;
+use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError as RuntimeQueryError};
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
@@ -460,6 +460,15 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
+                RuntimeQueryError::UninitializedAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::UninitializedAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                },
                 near_chain::near_chain_primitives::error::QueryError::NoContractCode {
                     contract_account_id,
                     block_height,

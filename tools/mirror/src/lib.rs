@@ -360,6 +360,7 @@ impl From<QueryError> for ChainError {
         match err {
             QueryError::UnavailableShard { .. }
             | QueryError::UnknownAccount { .. }
+            | QueryError::UninitializedAccount { .. }
             | QueryError::NoContractCode { .. }
             | QueryError::UnknownAccessKey { .. }
             | QueryError::UnknownGasKey { .. }
@@ -374,6 +375,7 @@ impl From<RuntimeQueryError> for ChainError {
     fn from(err: RuntimeQueryError) -> Self {
         match err {
             RuntimeQueryError::UnknownAccount { .. }
+            | RuntimeQueryError::UninitializedAccount { .. }
             | RuntimeQueryError::NoContractCode { .. }
             | RuntimeQueryError::UnknownAccessKey { .. }
             | RuntimeQueryError::UnknownGasKey { .. } => Self::Unknown,
@@ -836,7 +838,9 @@ async fn fetch_access_key_nonce(
             }
         },
         Err(e) => match &e {
-            QueryError::UnknownAccount { .. } | QueryError::UnknownAccessKey { .. } => Ok(None),
+            QueryError::UnknownAccount { .. }
+            | QueryError::UninitializedAccount { .. }
+            | QueryError::UnknownAccessKey { .. } => Ok(None),
             _ => Err(e.into()),
         },
     }
@@ -870,7 +874,9 @@ async fn fetch_gas_key_nonces(
             }
         },
         Err(e) => match &e {
-            QueryError::UnknownAccount { .. } | QueryError::UnknownGasKey { .. } => Ok(None),
+            QueryError::UnknownAccount { .. }
+            | QueryError::UninitializedAccount { .. }
+            | QueryError::UnknownGasKey { .. } => Ok(None),
             _ => Err(e.into()),
         },
     }
