@@ -59,6 +59,7 @@ pub(crate) fn action_universal_state_init(
                 account_id,
                 receipt,
                 &apply_state.config,
+                apply_state.current_protocol_version,
                 result,
             );
         }
@@ -66,6 +67,7 @@ pub(crate) fn action_universal_state_init(
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 action.deposit,
+                apply_state.current_protocol_version,
             ));
         }
         return Ok(());
@@ -113,6 +115,7 @@ pub(crate) fn action_universal_state_init(
         account_id,
         receipt,
         &apply_state.config,
+        apply_state.current_protocol_version,
         result,
     )
 }

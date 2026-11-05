@@ -8,7 +8,9 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, Receipt, ReceiptEnum};
+use near_primitives::receipt::{
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, Receipt, ReceiptEnum,
+};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
@@ -429,7 +431,8 @@ impl RuntimeGroup {
             );
             match receipt.receipt() {
                 ReceiptEnum::Action(ActionReceipt { actions, .. })
-                | ReceiptEnum::ActionV2(ActionReceiptV2 { actions, .. }) => {
+                | ReceiptEnum::ActionV2(ActionReceiptV2 { actions, .. })
+                | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => {
                     assert!(
                         matches!(actions.as_slice(), [Action::Transfer(_)]),
                         "expected a single transfer refund, got {actions:?}",
@@ -491,7 +494,7 @@ macro_rules! assert_receipts {
 macro_rules! assert_refund {
  ($group:ident, $receipt:ident @ $to:expr) => {
         assert_receipts!($group, "system" => $receipt @ $to,
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}), {},
                          actions,
                          a0, Action::Transfer(TransferAction{..}), {}
                         );

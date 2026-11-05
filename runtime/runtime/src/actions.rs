@@ -2,9 +2,10 @@ use crate::access_keys::initial_nonce_value;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
     delegate_signature_verification_compute, safe_add_compute, storage_removes_compute,
-    total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::receipt_runtime_configs::ReceiptRuntimeConfigs;
 use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -21,7 +22,7 @@ use near_primitives::action::delegate::{
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction, TransactionNonce,
@@ -336,6 +337,7 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     config: &RuntimeConfig,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
     let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
@@ -359,9 +361,12 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        let receipt = Receipt::new_balance_refund(
+            &delete_account.beneficiary_id,
+            account_balance,
+            current_protocol_version,
+        );
+        result.new_receipts.push(receipt);
     }
     let remove_result = remove_account(state_update, account_id)?;
     result.tokens_burnt =
@@ -433,6 +438,7 @@ pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     action_receipt: &VersionedActionReceipt,
+    receipt_runtime_configs: &ReceiptRuntimeConfigs,
     sender_id: &AccountId,
     signed_delegate_action: VersionedSignedDelegateActionRef<'_>,
     result: &mut ActionResult,
@@ -475,20 +481,23 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
+    // For the delegate action, the new receipt should inherit the creation
+    // protocol version from the relayer's receipt that prepaid the static fees.
+    let creation_protocol_version = receipt_runtime_configs.creation_protocol_version();
     // Generate a new receipt from DelegateAction.
+    let receipt = ReceiptEnum::new_action_receipt(
+        apply_state.current_protocol_version,
+        creation_protocol_version,
+        action_receipt.signer_id().clone(),
+        action_receipt.signer_public_key().clone(),
+        action_receipt.gas_price(),
+        delegate_action.get_actions(),
+    );
     let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id().clone(),
         receipt_id: CryptoHash::default(),
-
-        receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
-            gas_price: action_receipt.gas_price(),
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
-        }),
+        receipt,
     });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
@@ -497,8 +506,9 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
-    let required_cost = receipt_required_cost(apply_state, &new_receipt)?;
+    let prepaid_send_fees =
+        receipt_runtime_configs.total_prepaid_send_fees(action_receipt.actions())?;
+    let required_cost = receipt_required_cost(receipt_runtime_configs, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt.
     // Compute costs of that are not relevant at this point, the "used" gas is
     // only reserved for execution later, potentially on a different shard.
@@ -513,15 +523,17 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
-/// Returns the cost required to execute the Receipt and all actions it contains
+/// Returns the cost required to execute the Receipt and all actions it contains, priced with the
+/// creation config of `receipt_runtime_configs`.
 fn receipt_required_cost(
-    apply_state: &ApplyState,
+    receipt_runtime_configs: &ReceiptRuntimeConfigs,
     receipt: &Receipt,
 ) -> Result<ParameterCost, RuntimeError> {
+    let config = receipt_runtime_configs.creation_config();
     Ok(match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
         | VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            action_receipt_required_cost(apply_state, receipt, action_receipt.into())?
+            action_receipt_required_cost(config, receipt, action_receipt.into())?
         }
         VersionedReceiptEnum::GlobalContractDistribution(_)
         | VersionedReceiptEnum::Data(_)
@@ -530,23 +542,19 @@ fn receipt_required_cost(
 }
 
 fn action_receipt_required_cost(
-    apply_state: &ApplyState,
+    config: &RuntimeConfig,
     receipt: &Receipt,
     action_receipt: VersionedActionReceipt,
 ) -> Result<ParameterCost, RuntimeError> {
-    let mut required_gas = total_prepaid_exec_fees(
-        &apply_state.config,
-        &action_receipt.actions(),
-        receipt.receiver_id(),
-    )?;
+    let mut required_gas =
+        total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?;
     let attached_gas = total_prepaid_gas(&action_receipt.actions())?;
     // Gas attached to outgoing function calls have no associated compute costs.
     // Compute costs are only relevant when burning gas.
     let attached_gas_cost = ParameterCost { gas: attached_gas, compute: 0 };
     required_gas = required_gas.checked_add_result(attached_gas_cost)?;
-    required_gas = required_gas.checked_add_result(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-    )?;
+    required_gas = required_gas
+        .checked_add_result(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     Ok(required_gas)
 }
 
@@ -929,6 +937,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
+    use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
@@ -1221,7 +1230,11 @@ mod tests {
         ));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        let receipt = Receipt::new_balance_refund(
+            &"alice.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+        );
         let config = RuntimeConfig::test();
 
         let res = action_delete_account(
@@ -1233,6 +1246,7 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
+            PROTOCOL_VERSION,
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);
@@ -1270,6 +1284,13 @@ mod tests {
         };
 
         (action_receipt, signed_delegate_action)
+    }
+
+    fn receipt_runtime_configs<'a>(
+        apply_state: &'a ApplyState,
+        action_receipt: &ActionReceipt,
+    ) -> ReceiptRuntimeConfigs<'a> {
+        ReceiptRuntimeConfigs::new(apply_state, &action_receipt.into())
     }
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
@@ -1320,6 +1341,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1374,6 +1396,7 @@ mod tests {
                 &mut state_update,
                 &apply_state,
                 &VersionedActionReceipt::from(&action_receipt),
+                &receipt_runtime_configs(&apply_state, &action_receipt),
                 &sender_id,
                 (&sda).into(),
                 &mut result,
@@ -1408,7 +1431,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1434,7 +1458,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1460,7 +1485,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &"www.test.near".parse().unwrap(),
             (&signed_delegate_action).into(),
             &mut result,
@@ -2409,13 +2435,16 @@ mod tests {
     /// only covers storage staking for the action that initializes the account.
     #[test]
     fn repeated_universal_state_init_refunds_whole_deposit() {
-        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
-        let deposit = Balance::from_near(1);
-        let (account, result) = apply_repeated_universal_state_init(
-            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version(),
-            &receipt,
-            deposit,
+        let receipt = Receipt::new_balance_refund(
+            &"refund.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
         );
+        let deposit = Balance::from_near(1);
+        let protocol_version =
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version();
+        let (account, result) =
+            apply_repeated_universal_state_init(protocol_version, &receipt, deposit);
 
         assert!(result.result.is_ok());
         assert_eq!(
@@ -2425,7 +2454,11 @@ mod tests {
         );
         assert_eq!(
             result.new_receipts,
-            vec![Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit)]
+            vec![Receipt::new_balance_refund(
+                receipt.balance_refund_receiver(),
+                deposit,
+                protocol_version
+            )]
         );
     }
 
@@ -2433,7 +2466,11 @@ mod tests {
     /// storage stake, so a deposit short of the missing stake fails the action.
     #[test]
     fn repeated_universal_state_init_settles_storage_before_refund_feature() {
-        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let receipt = Receipt::new_balance_refund(
+            &"refund.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+        );
         let (account, result) = apply_repeated_universal_state_init(
             ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version() - 1,
             &receipt,

@@ -612,6 +612,7 @@ mod tests {
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
@@ -634,8 +635,11 @@ mod tests {
         let shard_uid = shard_layout.shard_uids().next().unwrap();
         let shard_id = shard_uid.shard_id();
 
-        let receipts =
-            vec![Receipt::new_balance_refund(&"user".parse().unwrap(), Balance::from_near(1))];
+        let receipts = vec![Receipt::new_balance_refund(
+            &"user".parse().unwrap(),
+            Balance::from_near(1),
+            PROTOCOL_VERSION,
+        )];
         let extra_with_chunk = ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a"));
         let extra_missing_chunk =
             ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"b"));

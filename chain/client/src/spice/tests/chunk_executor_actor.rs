@@ -62,7 +62,7 @@ use near_primitives::types::{
     AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{PartialStorage, ShardUId};
@@ -871,6 +871,7 @@ fn test_not_executing_with_bad_receipts() {
         receipt_proofs[0].0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
+            PROTOCOL_VERSION,
         ));
         simulate_single_outgoing_message(&mut actors, &message);
     }
@@ -905,6 +906,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         extra_proof.0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
+            PROTOCOL_VERSION,
         ));
         receipt_proofs.push(extra_proof);
         simulate_single_outgoing_message(&mut actors, &message);
@@ -959,6 +961,7 @@ fn test_an_invalid_network_receipt_is_dropped() {
     receipt_proof.0.push(Receipt::new_balance_refund(
         &AccountId::from_str("test1").unwrap(),
         Balance::from_near(1),
+        PROTOCOL_VERSION,
     ));
     let from_shard_id = receipt_proof.1.from_shard_id;
     let id = ReceiptProofId::new(*block.hash(), from_shard_id, to_shard_id);
@@ -1711,6 +1714,7 @@ impl BoundaryActor {
                 vec![Receipt::new_balance_refund(
                     &self.signer.validator_id().clone(),
                     Balance::from_near(1),
+                    PROTOCOL_VERSION,
                 )],
             );
             store_update.save_chunk_extra(

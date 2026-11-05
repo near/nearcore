@@ -397,48 +397,58 @@ impl Receipt {
         }
     }
 
-    /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
+    /// Generates a receipt with a transfer from system for a given balance without a receipt_id,
+    /// created at `protocol_version`.
     /// This should be used for token refunds instead of gas refunds.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
-    pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
+    pub fn new_balance_refund(
+        receiver_id: &AccountId,
+        refund: Balance,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            "system".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            Balance::ZERO,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
             predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: "system".parse().unwrap(),
-                signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-            }),
+            receipt,
         })
     }
 
     /// Generates a receipt with a transfer action from system for a given balance without a
-    /// receipt_id. It contains `signer_id` and `signer_public_key` to indicate this is a gas
-    /// refund. The execution of this receipt will try to refund the allowance of the
-    /// access key with the given public key.
+    /// receipt_id, created at `protocol_version`. It contains `signer_id` and `signer_public_key`
+    /// to indicate this is a gas refund. The execution of this receipt will try to refund the
+    /// allowance of the access key with the given public key.
     /// NOTE: The access key may be replaced by the owner, so the execution can't rely that the
     /// access key is the same and it should use best effort for the refund.
     pub fn new_gas_refund(
         receiver_id: &AccountId,
         refund: Balance,
         signer_public_key: PublicKey,
+        protocol_version: ProtocolVersion,
     ) -> Self {
+        let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            receiver_id.clone(),
+            signer_public_key,
+            Balance::ZERO,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
             predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: receiver_id.clone(),
-                signer_public_key,
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-            }),
+            receipt,
         })
     }
 
@@ -664,7 +674,7 @@ pub struct ActionReceiptV3 {
     ///
     /// The static fees of the receipt were paid with the fees of this version, so they are also
     /// charged and refunded with them, and a receipt that executes after a fee change spends
-    /// exactly the gas that was paid for.
+    /// exactly the gas that was paid for. Refunds are free, but record their version too.
     ///
     /// A receipt created by a contract records the version it was created at, not the version of
     /// the transaction that started the call chain, since the contract paid its static fees from

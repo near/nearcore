@@ -2127,7 +2127,11 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10)),
+            &Receipt::new_balance_refund(
+                &alice_account(),
+                Balance::from_yoctonear(10),
+                PROTOCOL_VERSION,
+            ),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )
