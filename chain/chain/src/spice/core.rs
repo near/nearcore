@@ -3,15 +3,10 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
-<<<<<<< HEAD
-use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate, byzantine_assert};
-=======
 use crate::spice::boundary::{
     boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
 };
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
->>>>>>> 116530adc (prog)
+use crate::{Chain, ChainStoreAccess, ChainStoreUpdate, byzantine_assert};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -1066,10 +1061,7 @@ fn advance_uncertified_chunks(
         if chunk_info.missing_endorsements.is_empty()
             && !is_fallback_only_chunk(
                 epoch_manager,
-                chain_store_update
-                    .chain_store()
-                    .get_block_header(&chunk_info.chunk_id.block_hash)?
-                    .as_ref(),
+                chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?.as_ref(),
                 chunk_info.chunk_id.shard_id,
             )?
         {
