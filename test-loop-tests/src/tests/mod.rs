@@ -67,6 +67,7 @@ mod network_drop;
 mod optimistic_block;
 mod p256_verify;
 mod pending_transaction_queue;
+mod pin_receipt_fees;
 mod process_blocks;
 mod processed_receipts_gc;
 mod promise_input_size_limit;
