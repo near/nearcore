@@ -3,9 +3,9 @@ use crate::{
     GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
     MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
     ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit,
+    default_chunks_cache_height_horizon, default_ecc_pool_size_share, default_ecc_time_share,
+    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
     default_transaction_pool_strict_nonce_ttl_blocks, default_view_access_keys_limit,
 };
 use chrono::{DateTime, Utc};
@@ -343,6 +343,8 @@ impl ClientConfig {
                 default_produce_chunk_add_transactions_time_limit(),
                 "produce_chunk_add_transactions_time_limit",
             ),
+            ecc_time_share: MutableConfigValue::new(default_ecc_time_share(), "ecc_time_share"),
+            ecc_pool_size_share: default_ecc_pool_size_share(),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),

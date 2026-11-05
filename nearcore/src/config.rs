@@ -21,19 +21,19 @@ use near_chain_configs::{
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_block_request_timeout, default_chunk_validation_threads, default_chunk_wait_mult,
-    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
-    default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_request_server_threads, default_state_request_throttle_period,
-    default_state_requests_per_throttle_period, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_access_keys_limit, default_view_client_threads,
-    get_initial_supply,
+    default_chunks_cache_height_horizon, default_ecc_pool_size_share, default_ecc_time_share,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
+    default_state_request_throttle_period, default_state_requests_per_throttle_period,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_access_keys_limit, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -389,6 +389,16 @@ pub struct Config {
     #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// The share of `produce_chunk_add_transactions_time_limit` that ECCs may take when a chunk is
+    /// produced, as `[numerator, denominator]`. Signed transactions go first, and ECCs get what
+    /// they leave of the limit, but no more than this share of it. 1/2 if not set. Zero keeps ECCs
+    /// out of chunks. Can be changed while the node is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ecc_time_share: Option<Rational32>,
+    /// The share of `transaction_pool_size_limit` that ECCs may fill, as `[numerator,
+    /// denominator]`. 1/10 if not set. Zero keeps ECCs out of the pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ecc_pool_size_share: Option<Rational32>,
     /// Optional config for the Chunk Distribution Network feature.
     ///
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
@@ -524,6 +534,8 @@ impl Default for Config {
             disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
+            ecc_time_share: None,
+            ecc_pool_size_share: None,
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
@@ -833,6 +845,13 @@ impl NearConfig {
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
                 ),
+                ecc_time_share: MutableConfigValue::new(
+                    config.ecc_time_share.unwrap_or_else(default_ecc_time_share),
+                    "ecc_time_share",
+                ),
+                ecc_pool_size_share: config
+                    .ecc_pool_size_share
+                    .unwrap_or_else(default_ecc_pool_size_share),
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,

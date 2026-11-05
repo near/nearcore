@@ -212,6 +212,7 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self.config.ecc_time_share.update(update_client_config.ecc_time_share);
         is_updated |= self
             .config
             .block_production_tracking_delay
