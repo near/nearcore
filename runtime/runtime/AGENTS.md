@@ -17,6 +17,7 @@ Important structs:
 struct Receipt
 enum ReceiptEnum
 struct ActionReceiptV2
+struct ActionReceiptV3 (nightly `ReceiptPrepaidFees`: also records `prepaid_fees`)
 enum Action
 struct Account
 

@@ -670,6 +670,7 @@ mod tests {
                 signer.public_key(),
                 Balance::ZERO,
                 vec![action],
+                None,
             )
         };
         let enqueued_before = prefetcher.prefetch_enqueued.get();

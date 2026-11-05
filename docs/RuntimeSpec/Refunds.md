@@ -40,6 +40,12 @@ If the receipt execution failed, the gas amount is equal to `prepaid_gas + execu
 The difference between `burnt_gas` and `used_gas` is the `used_gas` also includes the fees and the prepaid gas of
 newly generated receipts, e.g. from cross-contract calls in function calls actions.
 
+`execution_gas` is the gas the receipt prepaid for its fees. A receipt created with the `ReceiptPrepaidFees`
+protocol feature records it as `prepaid_fees`, and its execution charges the current fees against it. If a fee is
+more than what is left, the protocol pays the difference: the receipt burns only what is left, and its compute
+usage still counts the full fee. For older receipts, the runtime computes
+`execution_gas` from the current fees.
+
 From this unspent gas amount, the network charges a gas refund fee, starting with protocol version 78. The exact fee is calculated as `max(gas_refund_penalty * unspent_gas, min_gas_refund_penalty)`. As of version 78, `gas_refund_penalty` is 0% and `min_gas_refund_penalty` 0 Tgas, always resulting in a zero-cost fee. This is only a stepping stone to give projects time to adapt before the fee is taking effect. The plan is to increase this to 5% and 1 Tgas, as specified in [NEP-536](https://github.com/near/NEPs/blob/master/neps/nep-0536.md). There is no fixed timeline available for this.
 
 The refund for the unspent gas is the unspent gas multiplied by the [`gas_price`](Receipts.md#gas_price) of the receipt, minus the gas refund fee converted to tokens. The `gas_price` of the receipt is the price at which the gas was bought. The refund is never less than 0. Before protocol version 85, the fee is converted at the same `gas_price`. So when the fee is equal to or larger than the unspent gas, nothing is refunded for the unspent gas.

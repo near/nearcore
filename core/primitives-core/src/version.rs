@@ -108,6 +108,11 @@ pub enum ProtocolFeature {
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
     /// including payment for new state)
     ContractCompilationStatus,
+    /// New action receipts record the gas prepaid for their fees. Execution takes
+    /// the current fees out of it and refunds the rest, so a fee change between
+    /// creation and execution neither mints nor loses tokens. If a fee rose above
+    /// what is left, the protocol pays the difference.
+    ReceiptPrepaidFees,
 }
 
 impl ProtocolFeature {
@@ -140,6 +145,9 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExternalContractCalls => 150,
+            // Below `NIGHTLY_PROTOCOL_VERSION`, so that test-loop can upgrade from a
+            // version with this feature to the next one and change a fee across it.
+            ProtocolFeature::ReceiptPrepaidFees => 156,
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             ProtocolFeature::ContractCompilationStatus => 158,

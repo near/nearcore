@@ -159,7 +159,7 @@ At first, we charge fees related to conversion from `SignedTransaction` to `Acti
 - costs of all `SignedTransaction`s passed to `Runtime::apply` are computed in `tx_cost` function during validation;
 - `total_cost` is deducted from signer, which is a sum of:
   - `gas_burnt * gas_price` where `gas_burnt` is action receipt send fee + `total_send_fees(transaction.actions)` + the signature verification cost, and `gas_price` is the gas price of the current block;
-  - `gas_remaining * receipt_gas_price` where `gas_remaining` is `total_prepaid_gas(transaction.actions)` + `total_prepaid_send_fees(transaction.actions)` + action receipt exec fee + `total_prepaid_exec_fees(transaction.actions)` to pay the attached gas and all remaining fees caused by transaction;
+  - `gas_remaining * receipt_gas_price` where `gas_remaining` is `total_prepaid_gas(transaction.actions)` + `total_prepaid_send_fees(transaction.actions)` + action receipt exec fee + `total_prepaid_exec_fees(transaction.actions)` to pay the attached gas and all remaining fees caused by transaction. `receipt_prepaid_fees` computes the fee part; with the `ReceiptPrepaidFees` protocol feature, the receipt records it as `prepaid_fees`;
   - `total_deposit(transaction.actions)`;
 - each transaction is converted to receipt and passed to `Runtime::process_receipt`.
 

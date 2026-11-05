@@ -246,19 +246,33 @@ impl Receipt {
         signer_public_key: PublicKey,
         gas_price: Balance,
         actions: Vec<Action>,
+        prepaid_fees: Option<Gas>,
     ) -> Self {
-        Receipt::V0(ReceiptV0 {
-            predecessor_id: tx_signer_id.clone(),
-            receiver_id: tx_receiver_id,
-            receipt_id,
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx_signer_id,
+        let receipt = match prepaid_fees {
+            None => ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx_signer_id.clone(),
                 signer_public_key,
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,
             }),
+            Some(prepaid_fees) => ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: tx_signer_id.clone(),
+                refund_to: None,
+                signer_public_key,
+                gas_price,
+                prepaid_fees,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        };
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: tx_signer_id,
+            receiver_id: tx_receiver_id,
+            receipt_id,
+            receipt,
         })
     }
 
@@ -545,7 +559,7 @@ pub struct ActionReceiptV2 {
     pub actions: Vec<Action>,
 }
 
-/// ActionReceiptV3 is the next version of action receipts.
+/// ActionReceiptV3 adds the gas prepaid for the fees of the receipt.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -567,6 +581,10 @@ pub struct ActionReceiptV3 {
     pub signer_public_key: PublicKey,
     /// A gas_price which has been used to buy gas in the original transaction
     pub gas_price: Balance,
+    /// Gas prepaid for the fees of this receipt: the exec fees of the receipt and
+    /// its actions, and the send fees of delegate inner actions. Execution takes
+    /// the current fees out of it and refunds what is left.
+    pub prepaid_fees: Gas,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
@@ -649,6 +667,14 @@ impl VersionedActionReceipt<'_> {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.actions,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.actions,
             VersionedActionReceipt::V3(action_receipt) => &action_receipt.actions,
+        }
+    }
+
+    /// Prepaid fees of the receipt, `None` if it was created before `ReceiptPrepaidFees`.
+    pub fn prepaid_fees(&self) -> Option<Gas> {
+        match self {
+            VersionedActionReceipt::V1(_) | VersionedActionReceipt::V2(_) => None,
+            VersionedActionReceipt::V3(action_receipt) => Some(action_receipt.prepaid_fees),
         }
     }
 }

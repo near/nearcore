@@ -527,17 +527,11 @@ pub fn calculate_tx_cost(
     // Calculate `gas_remaining`, which are all gas costs minus what is already
     // burnt in the sending step. Compute is not relevant here, as this gas will
     // be burnt later and has no effect on the current chunk capacity.
-    // Gas attached to function calls
-    let prepaid_gas = total_prepaid_gas(actions)?;
-    // Send/Exec costs for actions inside the receipt
-    let prepaid_send_fee = total_prepaid_send_fees(config, actions)?;
-    let prepaid_exec_fee = total_prepaid_exec_fees(config, actions, receiver_id)?;
-    // Exec cost for the receipt that wraps the actions
-    let receipt_cost = fees.fee(ActionCosts::new_action_receipt).exec_fee();
-    let gas_remaining = prepaid_gas
-        .checked_add_result(prepaid_send_fee.gas)?
-        .checked_add_result(receipt_cost.gas)?
-        .checked_add_result(prepaid_exec_fee.gas)?;
+    let gas_remaining = total_prepaid_gas(actions)?.checked_add_result(receipt_prepaid_fees(
+        config,
+        actions,
+        receiver_id,
+    )?)?;
 
     // Gas burned on converting the transaction to a receipt is burned at the current price.
     let burnt_amount = safe_gas_to_balance(current_gas_price, burnt.gas)?;
@@ -697,6 +691,20 @@ pub fn total_prepaid_exec_fees(
     }
     Ok(result)
 }
+
+/// The `prepaid_fees` that `config` charges the creator of an action receipt
+/// with `actions` to `receiver_id`. Gas attached to function calls is not part of it.
+pub fn receipt_prepaid_fees(
+    config: &RuntimeConfig,
+    actions: &[Action],
+    receiver_id: &AccountId,
+) -> Result<Gas, IntegerOverflowError> {
+    let receipt_exec_gas = config.fees.fee(ActionCosts::new_action_receipt).exec_fee().gas;
+    let actions_exec_gas = total_prepaid_exec_fees(config, actions, receiver_id)?.gas;
+    let inner_send_gas = total_prepaid_send_fees(config, actions)?.gas;
+    receipt_exec_gas.checked_add_result(actions_exec_gas)?.checked_add_result(inner_send_gas)
+}
+
 /// Get the total sum of deposits for given actions.
 pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError> {
     let mut total_balance = Balance::ZERO;
@@ -794,14 +802,9 @@ fn action_receipt_congestion_gas(
     config: &RuntimeConfig,
     action_receipt: VersionedActionReceipt,
 ) -> Result<Gas, IntegerOverflowError> {
-    let prepaid_exec_gas =
-        total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-            .gas
-            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
-            .ok_or(IntegerOverflowError)?;
-    // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_cost = total_prepaid_send_fees(config, &action_receipt.actions())?;
-    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_cost.gas)?;
+    // account for gas guaranteed to be used for executing and creating receipts
+    let prepaid_gas =
+        receipt_prepaid_fees(config, &action_receipt.actions(), receipt.receiver_id())?;
 
     // account for gas potentially used for dynamic execution
     let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions())?;

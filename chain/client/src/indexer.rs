@@ -526,6 +526,8 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             tx.public_key.clone(),
             cost.receipt_gas_price,
             vec![],
+            // `ReceiptView` does not show the prepaid fees.
+            None,
         );
         let mut receipt_view: ReceiptView = receipt.into();
         let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {

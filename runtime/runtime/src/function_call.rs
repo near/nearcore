@@ -5,14 +5,15 @@ use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
+use crate::{ActionResult, ApplyState, metrics, new_receipt_prepaid_fees, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    ActionReceiptV2, ActionReceiptV3, DataReceipt, Receipt, ReceiptEnum, ReceiptV0,
+    VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -207,31 +208,57 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_action_receipt = ActionReceiptV2 {
-                    signer_id: action_receipt.signer_id().clone(),
-                    signer_public_key: action_receipt.signer_public_key().clone(),
-                    refund_to: receipt.refund_to,
-                    gas_price: action_receipt.gas_price(),
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                };
-                let new_receipt = if receipt.is_promise_yield {
-                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                } else {
-                    ReceiptEnum::ActionV2(new_action_receipt)
+                // The VM reserved the fees of the new receipt with the current fees.
+                let new_receipt = match new_receipt_prepaid_fees(
+                    apply_state,
+                    &receipt.actions,
+                    &receipt.receiver_id,
+                )? {
+                    None => {
+                        let new_action_receipt = ActionReceiptV2 {
+                            signer_id: action_receipt.signer_id().clone(),
+                            signer_public_key: action_receipt.signer_public_key().clone(),
+                            refund_to: receipt.refund_to,
+                            gas_price: action_receipt.gas_price(),
+                            output_data_receivers: receipt.output_data_receivers,
+                            input_data_ids: receipt.input_data_ids,
+                            actions: receipt.actions,
+                        };
+                        if receipt.is_promise_yield {
+                            ReceiptEnum::PromiseYieldV2(new_action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV2(new_action_receipt)
+                        }
+                    }
+                    Some(prepaid_fees) => {
+                        let new_action_receipt = ActionReceiptV3 {
+                            signer_id: action_receipt.signer_id().clone(),
+                            signer_public_key: action_receipt.signer_public_key().clone(),
+                            refund_to: receipt.refund_to,
+                            gas_price: action_receipt.gas_price(),
+                            prepaid_fees,
+                            output_data_receivers: receipt.output_data_receivers,
+                            input_data_ids: receipt.input_data_ids,
+                            actions: receipt.actions,
+                        };
+                        if receipt.is_promise_yield {
+                            ReceiptEnum::PromiseYieldV3(new_action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV3(new_action_receipt)
+                        }
+                    }
                 };
 
-                Receipt::V0(ReceiptV0 {
+                Ok(Receipt::V0(ReceiptV0 {
                     predecessor_id: account_id.clone(),
                     receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
                     receipt: new_receipt,
-                })
+                }))
             })
-            .collect();
+            .collect::<Result<_, IntegerOverflowError>>()?;
 
         // Create data receipts for resumed yields
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {

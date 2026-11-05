@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
@@ -244,7 +244,12 @@ fn test_max_receipt_size_yield_resume() {
     let yield_receipt_res =
         env.rpc_runner().execute_tx(yield_receipt_tx, Duration::seconds(10)).unwrap();
 
-    let expected_size = 4194504;
+    // `ActionReceiptV3` adds 8 bytes of prepaid fees.
+    let expected_size = if ProtocolFeature::ReceiptPrepaidFees.enabled(PROTOCOL_VERSION) {
+        4194512
+    } else {
+        4194504
+    };
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             index: Some(0),

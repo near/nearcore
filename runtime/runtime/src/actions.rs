@@ -1,17 +1,15 @@
 use crate::access_keys::initial_nonce_value;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
-    delegate_signature_verification_compute, safe_add_compute, storage_removes_compute,
-    total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    delegate_signature_verification_compute, receipt_prepaid_fees, safe_add_compute,
+    storage_removes_compute, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::wallet_contract::eth_wallet_global_contract_hash;
-use crate::{ActionResult, ApplyState};
+use crate::{ActionResult, ApplyState, PrepaidFees};
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
-use near_parameters::{
-    AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
-};
+use near_parameters::{AccountCreationConfig, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
@@ -21,7 +19,7 @@ use near_primitives::action::delegate::{
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV3, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction, TransactionNonce,
@@ -30,7 +28,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, NonceIndex, StorageUsage,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
@@ -433,6 +431,7 @@ pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     action_receipt: &VersionedActionReceipt,
+    prepaid_fees: &mut PrepaidFees,
     sender_id: &AccountId,
     signed_delegate_action: VersionedSignedDelegateActionRef<'_>,
     result: &mut ActionResult,
@@ -475,21 +474,10 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
-    // Generate a new receipt from DelegateAction.
-    let new_receipt = Receipt::V0(ReceiptV0 {
-        predecessor_id: sender_id.clone(),
-        receiver_id: delegate_action.receiver_id().clone(),
-        receipt_id: CryptoHash::default(),
-
-        receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
-            gas_price: action_receipt.gas_price(),
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
-        }),
-    });
+    let inner_actions = delegate_action.get_actions();
+    let inner_attached_gas = total_prepaid_gas(&inner_actions)?;
+    let inner_receipt_fees =
+        receipt_prepaid_fees(&apply_state.config, &inner_actions, delegate_action.receiver_id())?;
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
     // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
@@ -498,56 +486,54 @@ pub(crate) fn apply_delegate_action(
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
     let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
-    let required_cost = receipt_required_cost(apply_state, &new_receipt)?;
+    // The delegate receipt prepaid the inner send fees and the fees of the inner
+    // receipt. The inner receipt carries only the part of its fees that was paid.
+    let charged_send_gas = prepaid_fees.charge(prepaid_send_fees.gas);
+    let inner_prepaid_fees = prepaid_fees.charge(inner_receipt_fees);
+    // Generate a new receipt from DelegateAction.
+    let inner_receipt =
+        if ProtocolFeature::ReceiptPrepaidFees.enabled(apply_state.current_protocol_version) {
+            ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: action_receipt.signer_id().clone(),
+                refund_to: None,
+                signer_public_key: action_receipt.signer_public_key().clone(),
+                gas_price: action_receipt.gas_price(),
+                prepaid_fees: inner_prepaid_fees,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: inner_actions,
+            })
+        } else {
+            ReceiptEnum::Action(ActionReceipt {
+                signer_id: action_receipt.signer_id().clone(),
+                signer_public_key: action_receipt.signer_public_key().clone(),
+                gas_price: action_receipt.gas_price(),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: inner_actions,
+            })
+        };
+    let new_receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: sender_id.clone(),
+        receiver_id: delegate_action.receiver_id().clone(),
+        receipt_id: CryptoHash::default(),
+        receipt: inner_receipt,
+    });
+
     // This gas will be burnt by the receiver of the created receipt.
     // Compute costs of that are not relevant at this point, the "used" gas is
     // only reserved for execution later, potentially on a different shard.
-    result.gas_used = result.gas_used.checked_add_result(required_cost.gas)?;
+    result.gas_used = result
+        .gas_used
+        .checked_add_result(inner_attached_gas.checked_add_result(inner_prepaid_fees)?)?;
     // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
-    result.gas_used = result.gas_used.checked_add_result(prepaid_send_fees.gas)?;
-    result.gas_burnt = result.gas_burnt.checked_add_result(prepaid_send_fees.gas)?;
+    result.gas_used = result.gas_used.checked_add_result(charged_send_gas)?;
+    result.gas_burnt = result.gas_burnt.checked_add_result(charged_send_gas)?;
     result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.compute)?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
-}
-
-/// Returns the cost required to execute the Receipt and all actions it contains
-fn receipt_required_cost(
-    apply_state: &ApplyState,
-    receipt: &Receipt,
-) -> Result<ParameterCost, RuntimeError> {
-    Ok(match receipt.versioned_receipt() {
-        VersionedReceiptEnum::Action(action_receipt)
-        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            action_receipt_required_cost(apply_state, receipt, action_receipt.into())?
-        }
-        VersionedReceiptEnum::GlobalContractDistribution(_)
-        | VersionedReceiptEnum::Data(_)
-        | VersionedReceiptEnum::PromiseResume(_) => ParameterCost::ZERO,
-    })
-}
-
-fn action_receipt_required_cost(
-    apply_state: &ApplyState,
-    receipt: &Receipt,
-    action_receipt: VersionedActionReceipt,
-) -> Result<ParameterCost, RuntimeError> {
-    let mut required_gas = total_prepaid_exec_fees(
-        &apply_state.config,
-        &action_receipt.actions(),
-        receipt.receiver_id(),
-    )?;
-    let attached_gas = total_prepaid_gas(&action_receipt.actions())?;
-    // Gas attached to outgoing function calls have no associated compute costs.
-    // Compute costs are only relevant when burning gas.
-    let attached_gas_cost = ParameterCost { gas: attached_gas, compute: 0 };
-    required_gas = required_gas.checked_add_result(attached_gas_cost)?;
-    required_gas = required_gas.checked_add_result(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-    )?;
-    Ok(required_gas)
 }
 
 /// Validate access key which was used for signing DelegateAction:
@@ -914,6 +900,7 @@ mod tests {
     use crate::universal_account_id::action_universal_state_init;
     use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
+    use near_parameters::{ActionCosts, ParameterCost};
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
@@ -928,6 +915,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
+    use near_primitives::receipt::VersionedReceiptEnum;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
@@ -1318,6 +1306,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(&action_receipt),
+            &mut PrepaidFees::max(),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1340,6 +1329,111 @@ mod tests {
                     actions: signed_delegate_action.delegate_action.get_actions(),
                 }),
             })]
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_forwards_only_prepaid_fees_left_to_inner_receipt() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+        let mut apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        apply_state.current_protocol_version =
+            ProtocolFeature::ReceiptPrepaidFees.protocol_version();
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Setup: nothing is left of the prepaid fees when the delegate action runs.
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &VersionedActionReceipt::from(&action_receipt),
+            &mut PrepaidFees::new(Gas::ZERO),
+            &sender_id,
+            (&signed_delegate_action).into(),
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        // Check: the action succeeds and burns no gas, since the protocol pays
+        // the inner send fees.
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
+        assert_eq!(result.gas_burnt, Gas::ZERO);
+        // Check: the inner receipt carries no prepaid fees, so its execution
+        // does not refund fees that nobody paid.
+        let [inner_receipt] = result.new_receipts.as_slice() else {
+            panic!("expected one inner receipt, got {:?}", result.new_receipts)
+        };
+        let VersionedReceiptEnum::Action(inner_action_receipt) = inner_receipt.versioned_receipt()
+        else {
+            panic!("expected an action receipt, got {inner_receipt:?}")
+        };
+        assert_eq!(inner_action_receipt.prepaid_fees(), Some(Gas::ZERO));
+    }
+
+    #[test]
+    fn test_delegate_receipt_prepaid_fees_cover_exactly_its_charges() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+        let mut apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        apply_state.current_protocol_version =
+            ProtocolFeature::ReceiptPrepaidFees.protocol_version();
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let fees = &apply_state.config.fees;
+
+        // Setup: the delegate receipt carries the fees its creator was charged,
+        // less the receipt fee and the delegate fee that execution charges before
+        // the delegate action runs.
+        let delegate_receipt_prepaid_fees =
+            receipt_prepaid_fees(&apply_state.config, &action_receipt.actions, &sender_id).unwrap();
+        let charged_before_delegate = fees
+            .fee(ActionCosts::new_action_receipt)
+            .exec_fee()
+            .gas
+            .checked_add(fees.fee(ActionCosts::delegate).exec_fee().gas)
+            .unwrap();
+        let mut prepaid_fees = PrepaidFees::new(
+            delegate_receipt_prepaid_fees.checked_sub(charged_before_delegate).unwrap(),
+        );
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &VersionedActionReceipt::from(&action_receipt),
+            &mut prepaid_fees,
+            &sender_id,
+            (&signed_delegate_action).into(),
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        // Check: the delegate action spends exactly what is left, and the inner
+        // receipt records its own prepaid fees.
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
+        assert_eq!(prepaid_fees.remaining(), Gas::ZERO);
+        let [inner_receipt] = result.new_receipts.as_slice() else {
+            panic!("expected one inner receipt, got {:?}", result.new_receipts)
+        };
+        let VersionedReceiptEnum::Action(inner_action_receipt) = inner_receipt.versioned_receipt()
+        else {
+            panic!("expected an action receipt, got {inner_receipt:?}")
+        };
+        assert_eq!(
+            inner_action_receipt.prepaid_fees(),
+            Some(
+                receipt_prepaid_fees(
+                    &apply_state.config,
+                    &signed_delegate_action.delegate_action.get_actions(),
+                    &signed_delegate_action.delegate_action.receiver_id,
+                )
+                .unwrap()
+            )
         );
     }
 
@@ -1372,6 +1466,7 @@ mod tests {
                 &mut state_update,
                 &apply_state,
                 &VersionedActionReceipt::from(&action_receipt),
+                &mut PrepaidFees::max(),
                 &sender_id,
                 (&sda).into(),
                 &mut result,
@@ -1407,6 +1502,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
+            &mut PrepaidFees::max(),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1433,6 +1529,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
+            &mut PrepaidFees::max(),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1459,6 +1556,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
+            &mut PrepaidFees::max(),
             &"www.test.near".parse().unwrap(),
             (&signed_delegate_action).into(),
             &mut result,

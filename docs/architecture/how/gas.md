@@ -144,7 +144,9 @@ error. No changes are persisted on chain.
 (_Note on naming: If you see `prepaid_fee: Balance` in the nearcore code base,
 this is NOT only the fee for `prepaid_gas`. It also includes prepaid fees for
 other gas costs. However, `prepaid_gas: Gas` is used the same in the code base
-as described in this document._)
+as described in this document. Action receipts created with the
+`ReceiptPrepaidFees` protocol feature also store `prepaid_fees: Gas`: the gas
+their creator paid for the receipt's remaining fees, see `receipt_prepaid_fees`._)
 
 Attaching gas to function calls is the primary way for end-users and contract
 developers to interact with gas. All other gas fees are implicitly computed and

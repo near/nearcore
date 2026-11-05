@@ -6,8 +6,8 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    EccCost, ecc_cost, exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance,
-    total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
+    EccCost, ecc_cost, exec_fee, receipt_prepaid_fees, safe_add_balance, safe_add_compute,
+    safe_gas_to_balance, total_deposit, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::external_call::run_external_call;
@@ -25,7 +25,7 @@ pub use crate::verifier::{
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
-use config::{total_prepaid_send_fees, tx_cost};
+use config::tx_cost;
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use dashmap::DashMap;
@@ -253,6 +253,67 @@ impl ApplyState {
     ) -> CryptoHash {
         create_receipt_id_from_receipt_id(parent_receipt_id, self.block_height, receipt_index)
     }
+}
+
+/// Gas left of the prepaid fees of the receipt being applied. A protocol upgrade
+/// can raise a fee after the receipt was created. The protocol then pays the part
+/// of a fee that is more than what is left, so no gas burns that nobody paid for.
+pub(crate) struct PrepaidFees {
+    remaining: Gas,
+    /// Gas of fees that the protocol paid because they were more than what was left.
+    protocol_paid_gas: Gas,
+}
+
+impl PrepaidFees {
+    pub(crate) fn new(prepaid_fees: Gas) -> Self {
+        Self { remaining: prepaid_fees, protocol_paid_gas: Gas::ZERO }
+    }
+
+    /// The largest prepaid fees, for tests that call action functions directly.
+    #[cfg(test)]
+    pub(crate) fn max() -> Self {
+        Self { remaining: Gas::MAX, protocol_paid_gas: Gas::ZERO }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remaining(&self) -> Gas {
+        self.remaining
+    }
+
+    pub(crate) fn protocol_paid_gas(&self) -> Gas {
+        self.protocol_paid_gas
+    }
+
+    /// Takes `gas` out of the prepaid fees and returns the part they cover.
+    pub(crate) fn charge(&mut self, gas: Gas) -> Gas {
+        let charged = gas.min(self.remaining);
+        self.remaining = self.remaining.saturating_sub(charged);
+        let protocol_paid_gas = gas.saturating_sub(charged);
+        if protocol_paid_gas > Gas::ZERO {
+            self.protocol_paid_gas = self.protocol_paid_gas.saturating_add(protocol_paid_gas);
+            metrics::PREPAID_FEES_SUBSIDIZED_GAS.inc_by(protocol_paid_gas.as_gas());
+            tracing::debug!(
+                target: "runtime",
+                %gas,
+                %charged,
+                "protocol paid the part of a fee that a protocol upgrade raised above the prepaid fees left"
+            );
+        }
+        charged
+    }
+}
+
+/// The prepaid fees to record in a new action receipt whose fees the creator
+/// pays now. `None` before `ReceiptPrepaidFees`.
+pub(crate) fn new_receipt_prepaid_fees(
+    apply_state: &ApplyState,
+    actions: &[Action],
+    receiver_id: &AccountId,
+) -> Result<Option<Gas>, IntegerOverflowError> {
+    if !ProtocolFeature::ReceiptPrepaidFees.enabled(apply_state.current_protocol_version) {
+        return Ok(None);
+    }
+    receipt_prepaid_fees(&apply_state.config, actions, receiver_id).map(Some)
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -606,6 +667,7 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
+        prepaid_fees: &mut PrepaidFees,
         promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
@@ -615,8 +677,9 @@ impl Runtime {
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
-        result.gas_used = exec_fees.gas;
-        result.gas_burnt = exec_fees.gas;
+        let charged_gas = prepaid_fees.charge(exec_fees.gas);
+        result.gas_used = charged_gas;
+        result.gas_burnt = charged_gas;
         result.compute_usage = exec_fees.compute;
         result.current_contract =
             account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
@@ -829,6 +892,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    prepaid_fees,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -840,6 +904,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    prepaid_fees,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -953,9 +1018,24 @@ impl Runtime {
         let account_did_not_exist = account.is_none();
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionReceiptResult::new();
+        // Receipts created before `ReceiptPrepaidFees` do not record their
+        // prepaid fees. Price them with the current fees, as before: a fee change
+        // while such receipts are in flight still mints or loses tokens. The
+        // charges below use the same fees and add up to this total, so they never
+        // fail for such receipts.
+        let total_prepaid_fees = match action_receipt.prepaid_fees() {
+            Some(prepaid_fees) => prepaid_fees,
+            None => receipt_prepaid_fees(
+                &apply_state.config,
+                &action_receipt.actions(),
+                receipt.receiver_id(),
+            )?,
+        };
+        let mut prepaid_fees = PrepaidFees::new(total_prepaid_fees);
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        result.gas_used = exec_fees.gas;
-        result.gas_burnt = exec_fees.gas;
+        let charged_gas = prepaid_fees.charge(exec_fees.gas);
+        result.gas_used = charged_gas;
+        result.gas_burnt = charged_gas;
         result.compute_usage = exec_fees.compute;
 
         if input_size_exceeded {
@@ -1003,6 +1083,7 @@ impl Runtime {
                     &mut actor_id,
                     receipt,
                     &action_receipt,
+                    &mut prepaid_fees,
                     Arc::clone(&promise_results),
                     &action_hash,
                     action_index,
@@ -1103,6 +1184,8 @@ impl Runtime {
                 gas_purchase_price,
                 receipt,
                 &action_receipt,
+                total_prepaid_fees,
+                prepaid_fees.protocol_paid_gas(),
                 &mut result,
                 &apply_state.config,
                 created_new_account,
@@ -1316,31 +1399,21 @@ impl Runtime {
         gas_purchase_price: Balance,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
+        total_prepaid_fees: Gas,
+        protocol_paid_gas: Gas,
         result: &mut ActionReceiptResult,
         config: &RuntimeConfig,
         created_account: bool,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
+            .checked_add(total_prepaid_fees)
             .ok_or(IntegerOverflowError)?;
-        let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
-                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gross_gas_refund = if result.result.is_err() {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas.gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_burnt)
-                .unwrap()
+            prepaid_gas.checked_sub(result.gas_burnt).unwrap()
         } else {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas.gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_used)
-                .unwrap()
+            prepaid_gas.checked_sub(result.gas_used).unwrap()
         };
 
         // NEP-536 also adds a penalty to gas refund.
@@ -1400,9 +1473,17 @@ impl Runtime {
             );
 
             // sanity check: as long as the purchase price is high enough, there should always be
-            // enough refund balance to cover the cost of creating an account.
+            // enough refund balance to cover the cost of creating an account. When the protocol
+            // paid part of the fees, the receipt burnt that much less gas and pays less than
+            // `account_creation_charge`. Adding back the surplus of that gas restores the check.
             if gas_purchase_price >= config.min_gas_purchase_price {
-                debug_assert!(burned_gas_refund >= amount_to_charge);
+                let protocol_paid_surplus = safe_gas_to_balance(
+                    gas_purchase_price.checked_sub(gas_burn_price).unwrap(),
+                    protocol_paid_gas,
+                )?;
+                debug_assert!(
+                    safe_add_balance(burned_gas_refund, protocol_paid_surplus)? >= amount_to_charge
+                );
             }
 
             // Subtract `amount_actually_charged` from the refund.
@@ -2278,6 +2359,11 @@ impl Runtime {
                         pubkey.clone(),
                         result.receipt_gas_price,
                         tx.transaction.actions().to_vec(),
+                        new_receipt_prepaid_fees(
+                            &processing_state.apply_state,
+                            tx.transaction.actions(),
+                            tx.transaction.receiver_id(),
+                        )?,
                     );
                     let outcome = ExecutionOutcomeWithId {
                         id: tx.get_hash(),

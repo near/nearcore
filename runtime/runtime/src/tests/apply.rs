@@ -1,6 +1,9 @@
 use super::GAS_PRICE;
+use crate::SignedValidPeriodTransactions;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
+use crate::config::{
+    ecc_cost, safe_gas_to_balance, total_prepaid_exec_fees, total_send_fees, tx_cost,
+};
 use crate::find_skipped_transactions;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -13,7 +16,6 @@ use crate::{
     ActionResult, ApplyResult, ApplyState, PrevBlockContext, Runtime, ValidatorAccountsUpdate,
     action_add_key,
 };
-use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
@@ -43,8 +45,8 @@ use near_primitives::errors::{
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV3, DataReceipt, GlobalContractDistributionReceipt,
+    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -9237,4 +9239,299 @@ fn test_re_added_key_rejects_replayed_tx() {
             InvalidTxError::InvalidNonce { .. }
         ))
     );
+}
+
+#[test]
+fn test_receipt_burns_only_prepaid_fees_when_fees_rose() {
+    let deposit = Balance::from_near(1);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let fees = &apply_state.config.fees;
+    let receipt_exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee().gas;
+    let transfer_exec_gas = fees.fee(ActionCosts::transfer).exec_fee().gas;
+
+    // Setup: the transfer fee rose by one gas between creation and execution, so
+    // the prepaid fees cover the receipt fee but not the transfer fee.
+    let prepaid_fees = receipt_exec_gas
+        .checked_add(transfer_exec_gas)
+        .unwrap()
+        .checked_sub(Gas::from_gas(1))
+        .unwrap();
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: alice_account(),
+        receipt_id: hash(b"prepaid fees too low"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: bob_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            prepaid_fees,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::Transfer(TransferAction { deposit })],
+        }),
+    });
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            from_ref(&receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Check: the transfer succeeds, and the protocol pays the gas that the
+    // prepaid fees do not cover.
+    let outcome = result.outcomes.iter().find(|o| o.id == *receipt.receipt_id()).unwrap();
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcome.outcome.gas_burnt, prepaid_fees);
+    // Check: the receipt burns exactly its prepaid fees and refunds nothing.
+    assert_eq!(
+        result.stats.balance.tx_burnt_amount,
+        safe_gas_to_balance(GAS_PRICE, prepaid_fees).unwrap()
+    );
+    assert!(result.outgoing_receipts.is_empty());
+    // Check: the compute usage counts the full fees.
+    assert_eq!(
+        outcome.outcome.compute_usage,
+        Some(
+            fees.fee(ActionCosts::new_action_receipt)
+                .exec_fee()
+                .compute
+                .checked_add(fees.fee(ActionCosts::transfer).exec_fee().compute)
+                .unwrap()
+        )
+    );
+}
+
+#[test]
+fn test_receipt_runs_when_its_own_fee_rose_above_prepaid_fees() {
+    let deposit = Balance::from_near(1);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let fees = &apply_state.config.fees;
+    let receipt_exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee().gas;
+
+    // Setup: the receipt fee rose between creation and execution, so the prepaid
+    // fees do not cover even the receipt fee.
+    let prepaid_fees = receipt_exec_gas.checked_sub(Gas::from_gas(1)).unwrap();
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: alice_account(),
+        receipt_id: hash(b"prepaid fees below receipt fee"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: bob_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            prepaid_fees,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::Transfer(TransferAction { deposit })],
+        }),
+    });
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            from_ref(&receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Check: the transfer succeeds, and the receipt burns exactly its prepaid
+    // fees, though they do not cover even the receipt fee.
+    let outcome = result.outcomes.iter().find(|o| o.id == *receipt.receipt_id()).unwrap();
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcome.outcome.gas_burnt, prepaid_fees);
+    assert_eq!(
+        result.stats.balance.tx_burnt_amount,
+        safe_gas_to_balance(GAS_PRICE, prepaid_fees).unwrap()
+    );
+    assert!(result.outgoing_receipts.is_empty());
+}
+
+#[test]
+fn test_receipt_creates_account_when_protocol_paid_its_fees() {
+    let deposit = Balance::from_near(1);
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = ProtocolFeature::ReceiptPrepaidFees.protocol_version();
+    let new_account: AccountId = format!("carol.{}", alice_account()).parse().unwrap();
+
+    // Setup: the fees rose so much that nothing of the prepaid fees is left, and
+    // the gas was bought at the lowest purchase price. The receipt then burns no
+    // gas, so its refund has nothing to pay `account_creation_charge` from.
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: new_account.clone(),
+        receipt_id: hash(b"create account with no prepaid fees"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: alice_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: apply_state.config.min_gas_purchase_price,
+            prepaid_fees: Gas::ZERO,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit }),
+            ],
+        }),
+    });
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            from_ref(&receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Check: the account is created, and the receipt burns no gas.
+    let outcome = result.outcomes.iter().find(|o| o.id == *receipt.receipt_id()).unwrap();
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
+    let root = commit_apply_result(&result, &mut apply_state, &tries, ShardUId::single_shard());
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    let account = get_account(&state, &new_account).unwrap().unwrap();
+    assert_eq!(account.amount(), deposit);
+}
+
+#[test]
+fn test_receipt_refunds_prepaid_fees_left_when_fees_fell() {
+    let deposit = Balance::from_near(1);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let fees = &apply_state.config.fees;
+    let receipt_exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee().gas;
+    let transfer_exec_gas = fees.fee(ActionCosts::transfer).exec_fee().gas;
+
+    // Setup: the fees fell by one Tgas between creation and execution.
+    let fee_drop = Gas::from_teragas(1);
+    let prepaid_fees =
+        receipt_exec_gas.checked_add(transfer_exec_gas).unwrap().checked_add(fee_drop).unwrap();
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: alice_account(),
+        receipt_id: hash(b"prepaid fees too high"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: bob_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            prepaid_fees,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::Transfer(TransferAction { deposit })],
+        }),
+    });
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            from_ref(&receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Check: the transfer succeeds at the current fees.
+    let outcome = result.outcomes.iter().find(|o| o.id == *receipt.receipt_id()).unwrap();
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    // Check: the gas refund returns the fee drop, less the refund penalty.
+    let penalty = fees.gas_penalty_for_gas_refund(fee_drop);
+    let refunded = result
+        .outgoing_receipts
+        .iter()
+        .flat_map(|r| match r.versioned_receipt() {
+            VersionedReceiptEnum::Action(a) => a.actions().to_vec(),
+            _ => vec![],
+        })
+        .map(|a| a.get_deposit_balance())
+        .fold(Balance::ZERO, |sum, d| sum.checked_add(d).unwrap());
+    assert_eq!(
+        refunded,
+        safe_gas_to_balance(GAS_PRICE, fee_drop.checked_sub(penalty).unwrap()).unwrap()
+    );
+    // Check: burnt plus refunded equals the prepaid fees.
+    assert_eq!(
+        result.stats.balance.tx_burnt_amount.checked_add(refunded).unwrap(),
+        safe_gas_to_balance(GAS_PRICE, prepaid_fees).unwrap()
+    );
+}
+
+#[test]
+fn test_transaction_receipt_records_the_fees_its_signer_paid() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = ProtocolFeature::ReceiptPrepaidFees.protocol_version();
+    let transfer = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        signers[0].as_ref(),
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let cost = tx_cost(&apply_state.config, &transfer.transaction, apply_state.gas_price).unwrap();
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![transfer], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Check: the receipt records the gas its signer bought beyond the conversion,
+    // which for a transfer is all fee gas.
+    let [receipt] = result.outgoing_receipts.as_slice() else {
+        panic!("expected one receipt, got {:?}", result.outgoing_receipts)
+    };
+    let VersionedReceiptEnum::Action(action_receipt) = receipt.versioned_receipt() else {
+        panic!("expected an action receipt, got {receipt:?}")
+    };
+    assert_eq!(action_receipt.prepaid_fees(), Some(cost.gas_remaining));
 }

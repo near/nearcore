@@ -87,6 +87,16 @@ pub static COMPILATION_CACHE_WARMING_DROPPED_TOTAL: LazyLock<IntCounter> = LazyL
     .unwrap()
 });
 
+pub(crate) static PREPAID_FEES_SUBSIDIZED_GAS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_prepaid_fees_subsidized_gas_total",
+        "Gas of fees that the protocol paid because a protocol upgrade raised a fee \
+         after the receipt was created, above what was left of its prepaid fees. Every node that applies the chunk \
+         counts it, so a chunk can count more than once",
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_applied_total",

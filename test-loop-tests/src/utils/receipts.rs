@@ -11,11 +11,12 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0, VersionedReceiptEnum,
+    ActionReceiptV2, ActionReceiptV3, BufferedReceiptIndices, DelayedReceiptIndices,
+    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::{ShardUId, get};
 
 pub enum ReceiptKind {
@@ -166,21 +167,36 @@ fn check_promise_yield_receipts_exist_in_memtrie(
     assert_ne!(indices.len(), 0);
 }
 
-/// Takes an action receipt of any version and converts it to the latest version.
+/// Takes an action receipt of any version and converts it to the version the
+/// runtime creates at `PROTOCOL_VERSION`.
 pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
     let VersionedReceiptEnum::Action(versioned) = input.versioned_receipt() else {
         panic!("must be action receipt")
     };
 
-    let action_receipt = ReceiptEnum::ActionV2(ActionReceiptV2 {
-        signer_id: versioned.signer_id().clone(),
-        refund_to: versioned.refund_to().clone(),
-        signer_public_key: versioned.signer_public_key().clone(),
-        gas_price: versioned.gas_price(),
-        output_data_receivers: versioned.output_data_receivers().to_vec(),
-        input_data_ids: versioned.input_data_ids().to_vec(),
-        actions: versioned.actions().to_vec(),
-    });
+    let action_receipt = if ProtocolFeature::ReceiptPrepaidFees.enabled(PROTOCOL_VERSION) {
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: versioned.signer_id().clone(),
+            refund_to: versioned.refund_to().clone(),
+            signer_public_key: versioned.signer_public_key().clone(),
+            gas_price: versioned.gas_price(),
+            // Callers only measure the size of the result, and any value takes 8 bytes.
+            prepaid_fees: versioned.prepaid_fees().unwrap_or(Gas::ZERO),
+            output_data_receivers: versioned.output_data_receivers().to_vec(),
+            input_data_ids: versioned.input_data_ids().to_vec(),
+            actions: versioned.actions().to_vec(),
+        })
+    } else {
+        ReceiptEnum::ActionV2(ActionReceiptV2 {
+            signer_id: versioned.signer_id().clone(),
+            refund_to: versioned.refund_to().clone(),
+            signer_public_key: versioned.signer_public_key().clone(),
+            gas_price: versioned.gas_price(),
+            output_data_receivers: versioned.output_data_receivers().to_vec(),
+            input_data_ids: versioned.input_data_ids().to_vec(),
+            actions: versioned.actions().to_vec(),
+        })
+    };
 
     Receipt::V0(ReceiptV0 {
         predecessor_id: input.predecessor_id().clone(),
