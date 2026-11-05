@@ -2000,7 +2000,7 @@ impl Runtime {
             .gas_limit
             .filter(|_| ProtocolFeature::ExternalContractCalls.enabled(protocol_version))
             .map(|gas_limit| processing_state.apply_state.config.max_eccs_per_chunk(gas_limit));
-        let (maybe_expired_txs, _) =
+        let (maybe_expired_txs, tx_expiration_flags) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         // Decided before anything is read from the state, so that nothing is read for them.
         let skipped = find_skipped_transactions(maybe_expired_txs, max_eccs);
@@ -2008,8 +2008,6 @@ impl Runtime {
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
-                let (maybe_expired_txs, tx_expiration_flags) =
-                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
                 maybe_expired_txs
                     .par_iter()
                     .zip(tx_expiration_flags.par_iter())
@@ -2052,9 +2050,6 @@ impl Runtime {
                     AHashRandomState::new(),
                     128,
                 );
-
-                let (maybe_expired_txs, tx_expiration_flags) =
-                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
 
                 maybe_expired_txs
                     .par_iter()
@@ -2989,10 +2984,11 @@ impl ApplyState {
     }
 }
 
-/// Finds the transactions that apply skips, with no outcome. A transaction hash is its outcome id,
-/// and outcomes are committed keyed by that id, so processing the same hash twice would commit
-/// two conflicting outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the
-/// limit of the chunk, if there is one. Each ECC counts toward it, whether it is valid or not.
+/// Finds the transactions that apply skips, with no outcome. A signed transaction's hash is its
+/// outcome id, and an ECC is planned to get one from its hash and height. Outcomes are committed
+/// keyed by that id, so processing the same hash twice in a chunk would commit two conflicting
+/// outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the limit of the
+/// chunk, if there is one. Each ECC counts toward it, whether it is valid or not.
 fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     let mut num_eccs = 0;
