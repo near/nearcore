@@ -20,7 +20,11 @@ macro_rules! include_config {
 static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
 /// Protocol versions that change the consensus VM generation.
-/// Add a version whenever its VM config changes.
+///
+/// Add a version whenever its VM config changes. Do not immediately remove
+/// deployed versions from this when they fall below `MIN_SUPPORTED_PROTOCOL_VERSION`.
+/// At least one vm generation below `MIN_SUPPORTED_PROTOCOL_VERSION` must be
+/// maintained, older entries may be removed safely. 
 const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 150, 155, 157];
 
 /// Stores pairs of protocol versions for which runtime config was updated and

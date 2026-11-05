@@ -2,6 +2,7 @@
 pub use crate::account::id::AccountId;
 pub use crate::gas::Gas;
 use crate::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
 use std::num::{NonZeroU64, ParseIntError};
 use std::ops::Add;
 use std::str::FromStr;
@@ -58,6 +59,7 @@ pub type ProtocolVersion = u32;
     Ord,
     PartialEq,
     PartialOrd,
+    ProtocolSchema,
 )]
 pub struct VmGeneration(pub ProtocolVersion);
 
