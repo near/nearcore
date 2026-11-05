@@ -89,7 +89,7 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         if: ${{ steps.key-check.outputs.present == 'true' }}
-        uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2 # main @ Claude Code 2.1.128 / Agent SDK 0.2.128 (needed for --effort xhigh)
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # main @ Claude Code 2.1.318 / Agent SDK 0.3.318 (`--model opus` resolves to Opus 5.5)
         env:
           GH_TOKEN: ${{ github.token }}
         with:
