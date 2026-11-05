@@ -219,7 +219,7 @@ near-client-primitives = { path = "chain/client-primitives" }
 near-cloud-archive-tool = { path = "tools/cloud-archive" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
-nearcore = { path = "nearcore" }
+nearcore = { path = "nearcore", default-features = false }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
