@@ -390,7 +390,7 @@ impl ShardTracker {
 
     /// We want to guarantee that transactions are only applied once for each shard,
     /// even though apply_chunks may be called twice, once with
-    /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
+    /// ApplyChunksMode::ExcludeCatchupShards once with ApplyChunksMode::OnlyCatchupShards. Note
     /// that it does not guard whether the children shards are ready or not, see the
     /// comments before `need_to_reshard`
     pub fn should_apply_chunk(
@@ -404,23 +404,22 @@ impl ShardTracker {
         let cared_about_shard_prev_epoch =
             self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         match mode {
-            // next epoch's shard states are not ready, only update this epoch's shards plus shards we will care about in the future
-            // and already have state for
-            ApplyChunksMode::NotCaughtUp => {
+            // this epoch's shards, and next epoch's ones the node has state for, having tracked
+            // them in the epoch before
+            ApplyChunksMode::ExcludeCatchupShards => {
                 cares_about_shard_this_epoch
                     || (cares_about_shard_next_epoch && cared_about_shard_prev_epoch)
             }
-            // update both this epoch and next epoch
-            ApplyChunksMode::IsCaughtUp => {
+            // this epoch's and next epoch's shards
+            ApplyChunksMode::IncludeCatchupShards => {
                 cares_about_shard_this_epoch || cares_about_shard_next_epoch
             }
-            // catching up next epoch's shard states, do not update this epoch's shard state
-            // since it has already been updated through ApplyChunksMode::NotCaughtUp
-            ApplyChunksMode::CatchingUp => {
-                let syncing_shard = !cares_about_shard_this_epoch
+            // next epoch's shards the node has no state for, which catchup applies: block
+            // processing applied the others already, with ApplyChunksMode::ExcludeCatchupShards
+            ApplyChunksMode::OnlyCatchupShards => {
+                !cares_about_shard_this_epoch
                     && cares_about_shard_next_epoch
-                    && !cared_about_shard_prev_epoch;
-                syncing_shard
+                    && !cared_about_shard_prev_epoch
             }
         }
     }

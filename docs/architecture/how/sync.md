@@ -374,18 +374,20 @@ so catchup can finish within an epoch.
 
 In other words, there are three modes for applying chunks and two code paths,
 either through the normal `process_block` (blue) or through `catchup_blocks`
-(orange). When `process_block`, either that the shard states for the next epoch
-are ready, corresponding to `IsCaughtUp` and all shards the node is tracking in
-this, or will be tracking in the next, epoch will be applied, or when the
-states are not ready, corresponding to `NotCaughtUp`, then only the shards for
-this epoch will be applied. When `catchup_blocks`, shards for the next epoch
-will be applied.
+(orange). The catch-up shards are the ones the node will track in the next
+epoch but tracks in neither this epoch nor the one before, so their state comes
+from state sync. When `process_block`, either the state of the catch-up shards
+is ready, corresponding to `IncludeCatchupShards`, and all shards the node is
+tracking in this, or will be tracking in the next, epoch will be applied, or it
+is not ready, corresponding to `ExcludeCatchupShards`, and all of them but the
+catch-up shards will be applied. When `catchup_blocks`, only the catch-up
+shards will be applied, corresponding to `OnlyCatchupShards`.
 
 ```rust
 enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
+    IncludeCatchupShards,
+    ExcludeCatchupShards,
+    OnlyCatchupShards,
 }
 ```
 

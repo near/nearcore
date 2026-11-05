@@ -1435,9 +1435,9 @@ impl Chain {
                 &prev_block,
                 prev_chunk_header,
                 if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
+                    ApplyChunksMode::IncludeCatchupShards
                 } else {
-                    ApplyChunksMode::NotCaughtUp
+                    ApplyChunksMode::ExcludeCatchupShards
                 },
                 incoming_receipts,
                 storage_context,
@@ -2667,7 +2667,11 @@ impl Chain {
             // If we have the state for shards in the next epoch already downloaded, apply the state transition
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
-            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+            if is_caught_up {
+                ApplyChunksMode::IncludeCatchupShards
+            } else {
+                ApplyChunksMode::ExcludeCatchupShards
+            },
             invalid_chunks,
         )?;
 
@@ -3029,7 +3033,7 @@ impl Chain {
                 &block,
                 &prev_block,
                 &receipts_by_shard,
-                ApplyChunksMode::CatchingUp,
+                ApplyChunksMode::OnlyCatchupShards,
                 &mut Vec::new(),
             )?;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
@@ -3526,13 +3530,13 @@ impl Chain {
         for (shard_index, (block_context, cached_shard_update_key)) in
             update_shard_args.into_iter().enumerate()
         {
-            // Take the sandbox patch from the tracker for this shard.  Only
+            // Take the sandbox patch from the tracker for this shard. Only
             // shards with a new chunk receive the patch — old-chunk shards
-            // would silently drop it in the runtime.  The CatchingUp mode
-            // never consumes sandbox patches.
+            // would silently drop it in the runtime. The OnlyCatchupShards
+            // mode never consumes sandbox patches.
             let shard_has_new_chunk =
                 chunk_headers.get(shard_index).map_or(false, |h| h.is_new_chunk(block_height));
-            let state_patch = if mode != ApplyChunksMode::CatchingUp {
+            let state_patch = if mode != ApplyChunksMode::OnlyCatchupShards {
                 self.sandbox_patches.take_for_shard(shard_has_new_chunk)
             } else {
                 SandboxStatePatch::default()
