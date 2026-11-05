@@ -24,14 +24,16 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
-use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
+use near_primitives::types::{
+    Balance, BlockId, BlockReference, EpochId, Finality, ProtocolVersion, ShardId,
+};
 use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
     ReceiptView, StateChangesView, TransactionEnvelopeView,
 };
-use near_runtime::config::calculate_tx_cost;
+use near_runtime::config::{calculate_tx_cost, receipt_prepaid_fees};
 use std::collections::HashMap;
 
 const INDEXER: &str = "indexer";
@@ -171,6 +173,7 @@ pub async fn build_streamer_message(
                 .iter()
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
             &runtime_config,
+            protocol_version,
             gas_price,
         )?;
 
@@ -483,6 +486,7 @@ impl<T: IntoMultiSender<IndexerViewClientSender>> From<T> for IndexerViewClientF
 fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
+    protocol_version: ProtocolVersion,
     gas_price: Balance,
 ) -> Result<Vec<ReceiptView>, FailedToFetchData> {
     let mut local_receipts = Vec::new();
@@ -515,6 +519,13 @@ fn convert_transactions_sir_into_local_receipts<'a>(
         .map_err(|error| {
             FailedToFetchData::String(format!("invalid local transaction cost: {error}"))
         })?;
+        let prepaid_fees = ProtocolFeature::ReceiptPrepaidFees
+            .enabled(protocol_version)
+            .then(|| receipt_prepaid_fees(runtime_config, &actions, &tx.receiver_id))
+            .transpose()
+            .map_err(|error| {
+                FailedToFetchData::String(format!("invalid local receipt prepaid fees: {error}"))
+            })?;
         // Use empty actions here and clone actions from transactions later.
         // Note that we cannot just pass `actions` here since conversion
         // ActionView -> Action -> ActionView does not always preserve the
@@ -526,8 +537,7 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             tx.public_key.clone(),
             cost.receipt_gas_price,
             vec![],
-            // `ReceiptView` does not show the prepaid fees.
-            None,
+            prepaid_fees,
         );
         let mut receipt_view: ReceiptView = receipt.into();
         let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {

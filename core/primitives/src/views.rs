@@ -24,8 +24,9 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, DataReceipt, DataReceiver,
+    GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
@@ -2420,6 +2421,10 @@ pub enum ReceiptEnumView {
         is_promise_yield: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         refund_to: Option<AccountId>,
+        /// Gas prepaid for the fees of the receipt. Absent for receipts created
+        /// before `ReceiptPrepaidFees`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prepaid_fees: Option<Gas>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2514,6 +2519,7 @@ impl ReceiptEnumView {
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
+            prepaid_fees: action_receipt.prepaid_fees(),
         }
     }
 }
@@ -2536,6 +2542,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                     is_promise_yield,
                     refund_to,
+                    prepaid_fees,
                 } => {
                     let output_data_receivers: Vec<_> = output_data_receivers
                         .into_iter()
@@ -2550,11 +2557,26 @@ impl TryFrom<ReceiptView> for Receipt {
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
-                    // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there we always create ActionReceiptV2.
-                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views. This will be fixed with #14709.
-                    if refund_to.is_some() {
+                    if let Some(prepaid_fees) = prepaid_fees {
+                        let action_receipt = ActionReceiptV3 {
+                            signer_id,
+                            refund_to,
+                            signer_public_key,
+                            gas_price,
+                            prepaid_fees,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYieldV3(action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV3(action_receipt)
+                        }
+                    } else if refund_to.is_some() {
+                        // The view does not tell V1 and V2 apart: an ActionReceiptV2
+                        // without refund_to becomes V1 after a roundtrip through
+                        // views. This will be fixed with #14709.
                         let action_receipt = ActionReceiptV2 {
                             signer_id,
                             signer_public_key,
@@ -3174,22 +3196,24 @@ impl CongestionInfoView {
 #[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{
-        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum,
+        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum, ReceiptView,
         TransactionEnvelopeView,
     };
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
+    use crate::receipt::{ActionReceiptV3, Receipt, ReceiptEnum, ReceiptV0};
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::{
-        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+        Action, EccTransaction, ExecutionMetadata, FunctionCallAction, SignedTransaction,
+        TransactionEnvelope, TransferAction,
     };
     use crate::trie_split::TrieSplit;
     use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
-    use near_crypto::InMemorySigner;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::Balance;
+    use near_primitives_core::types::{Balance, Gas};
     use serde_json::json;
 
     /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
@@ -3376,5 +3400,56 @@ mod tests {
         json: serde_json::Value,
     ) -> GlobalContractIdentifierView {
         serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn test_receipt_view_roundtrip_keeps_prepaid_fees() {
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: "alice.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            receipt_id: CryptoHash::hash_bytes(b"receipt"),
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: "alice.near".parse().unwrap(),
+                refund_to: None,
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: Balance::from_yoctonear(100),
+                prepaid_fees: Gas::from_gigagas(223),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+            }),
+        });
+
+        let view = ReceiptView::from(receipt.clone());
+
+        assert_eq!(Receipt::try_from(view).unwrap(), receipt);
+    }
+
+    #[test]
+    fn test_promise_yield_receipt_view_roundtrip_keeps_prepaid_fees() {
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: "alice.near".parse().unwrap(),
+            receiver_id: "alice.near".parse().unwrap(),
+            receipt_id: CryptoHash::hash_bytes(b"receipt"),
+            receipt: ReceiptEnum::PromiseYieldV3(ActionReceiptV3 {
+                signer_id: "alice.near".parse().unwrap(),
+                refund_to: None,
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: Balance::from_yoctonear(100),
+                prepaid_fees: Gas::from_gigagas(223),
+                output_data_receivers: vec![],
+                input_data_ids: vec![CryptoHash::hash_bytes(b"data")],
+                actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "callback".to_string(),
+                    args: vec![],
+                    gas: Gas::from_teragas(5),
+                    deposit: Balance::ZERO,
+                }))],
+            }),
+        });
+
+        let view = ReceiptView::from(receipt.clone());
+
+        assert_eq!(Receipt::try_from(view).unwrap(), receipt);
     }
 }
