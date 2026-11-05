@@ -1001,7 +1001,9 @@ fn test_uninitialized_account_views() {
         }
         match result.unwrap_or_else(|err| panic!("{query:?} failed: {err:?}")).kind {
             QueryResponseKind::CallResult(call) => assert_eq!(call.result, value),
-            QueryResponseKind::ViewCode(code) => assert!(!code.code.is_empty()),
+            QueryResponseKind::ViewCode(code) => {
+                assert_eq!(code.hash, CryptoHash::hash_bytes(near_test_contracts::rs_contract()));
+            }
             QueryResponseKind::ViewState(state) => {
                 let entries: Vec<(Vec<u8>, Vec<u8>)> = state
                     .values
