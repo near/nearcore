@@ -19,6 +19,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance};
+use near_test_contracts::sized_contract;
 use near_vm_runner::ContractCode;
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -32,27 +33,34 @@ const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
-/// Regression test: verifies that a `ContractCodeRequest` with a tampered
-/// `main_transition` field is rejected by the handler.
+/// Enough back-to-back contract calls to produce a stream of
+/// `ChunkContractAccesses` messages with `main_transition`s spaced only ~1
+/// chunk apart, well inside the finality window so the "previous"
+/// `main_transition` is still in storage when the forged request lands on
+/// the producer.
+const NUM_CONTRACT_CALLS: usize = 5;
+
+/// Regression test for the `derive_main_transition_key` check in
+/// `handle_contract_code_request`: a `ContractCodeRequest` whose
+/// `main_transition` does not match the one derived from chain state must
+/// not produce a `ContractCodeResponse`, even when the forged key still
+/// points at valid transition data.
 ///
-/// Without the fix in `derive_main_transition_key`, the handler would blindly
-/// trust the attacker-supplied `main_transition` and perform contract code
-/// retrieval using the attacker's chosen block/shard. With the fix, the
-/// handler derives the expected `main_transition` from chain state and rejects
-/// mismatches.
+/// Mechanism: register an override handler on every node's peer manager.
+/// On every outgoing `ChunkContractAccesses` after the first, replace it
+/// with a `ContractCodeRequest` carrying the *previous* chunk's
+/// `main_transition` (signed by a real chunk validator so admission checks
+/// pass). Since the original accesses message is dropped, no legitimate
+/// request for that chunk's key is ever sent — any observed response
+/// bearing a forged key must be the handler accepting a mismatched
+/// `main_transition`.
 ///
-/// The attack is simulated by:
-/// 1. Deploying a contract and calling it twice to generate successive
-///    `ChunkContractAccesses` messages for the same contract.
-/// 2. Replacing each `ChunkContractAccesses` (after the first) with a
-///    `ContractCodeRequest` that carries the previous chunk's
-///    `main_transition` instead of the correct one, signed by a real chunk
-///    validator so admission checks pass.
-/// 3. Asserting that no `ContractCodeResponse` is produced for any of the
-///    forged `ChunkProductionKey`s. A response bearing a forged key would
-///    mean the fix regressed — the current chunk's `ChunkContractAccesses`
-///    is dropped (replaced) in the handler, so no legitimate request for
-///    that key is ever sent.
+/// Correctness note: the forged `main_transition` must still be in storage
+/// at the moment the producer processes the request, otherwise the request
+/// gets rejected by the storage lookup rather than by the derive check and
+/// the test would pass even without the fix. Using the *immediately
+/// preceding* chunk's `main_transition` keeps the forged key within the
+/// finality window.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_code_request_rejects_tampered_main_transition() {
@@ -62,22 +70,15 @@ fn test_contract_code_request_rejects_tampered_main_transition() {
     let mut env = setup(&accounts);
 
     let contract_id = accounts[NUM_VALIDATORS].clone();
-    let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let contract = ContractCode::new(sized_contract(100), None);
 
     let tx = env.rpc_node().tx_deploy_contract(&contract_id, contract.code().to_vec());
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
     run_until_caches_contain_contract(&mut env, contract.hash());
 
-    // Tracks the most recently observed `main_transition`. The previous
-    // chunk's `main_transition` is used as the stale value when forging a
-    // request for the next chunk: it is still in storage (so the attack
-    // isn't foiled by GC of transition data) but differs from the correct
-    // key, so the derive check must reject it.
-    let last_main_transition: Arc<Mutex<Option<MainTransitionKey>>> =
-        Arc::new(Mutex::new(None));
-    // Set of chunk production keys for which we injected a forged request.
-    // A response bearing one of these keys would mean the fix failed to
-    // reject the forged request.
+    let last_main_transition: Arc<Mutex<Option<MainTransitionKey>>> = Arc::new(Mutex::new(None));
+    // Chunk production keys the handler injected a forged request for. A
+    // response bearing one of these keys means the fix failed.
     let forged_request_keys: Arc<Mutex<HashSet<ChunkProductionKey>>> =
         Arc::new(Mutex::new(HashSet::new()));
     let forged_request_responses = Arc::new(AtomicUsize::new(0));
@@ -101,8 +102,8 @@ fn test_contract_code_request_rejects_tampered_main_transition() {
                 return HandlerResult::Unhandled(request);
             };
 
-            let contract_hashes: Vec<_> = accesses.contracts().to_vec();
-            if contract_hashes.is_empty() {
+            let contracts: HashSet<_> = accesses.contracts().iter().cloned().collect();
+            if contracts.is_empty() {
                 return HandlerResult::Unhandled(request);
             }
 
@@ -115,28 +116,20 @@ fn test_contract_code_request_rejects_tampered_main_transition() {
             let Some(stale_main_transition) = maybe_stale else {
                 return HandlerResult::Unhandled(request);
             };
+            // Nothing to tamper if the key already matches the correct one.
             if stale_main_transition == current_main_transition {
                 return HandlerResult::Unhandled(request);
             }
 
-            // Forge a request that uses the previous chunk's
-            // `main_transition`. The signature is valid (signed by a real
-            // chunk validator) and the `ChunkProductionKey` is the one from
-            // the current accesses message, so the request will pass
-            // admission checks and reach the `derive_main_transition_key`
-            // branch. The current chunk's `ChunkContractAccesses` is dropped
-            // (replaced), so no legitimate request for this chunk's key will
-            // be sent — any response observed against this key would be in
-            // response to the forged one.
+            // Replace the accesses message with a `ContractCodeRequest`
+            // bearing the previous chunk's `main_transition`. The accesses
+            // message is dropped, so the chunk validator never sends its
+            // own legitimate request for this chunk.
             let key = accesses.chunk_production_key().clone();
             forged_keys.lock().insert(key.clone());
             let signer = create_test_signer(forging_validator.as_str());
-            let forged_request = ContractCodeRequest::new(
-                key,
-                contract_hashes.into_iter().collect(),
-                stale_main_transition,
-                &signer,
-            );
+            let forged_request =
+                ContractCodeRequest::new(key, contracts, stale_main_transition, &signer);
             HandlerResult::Unhandled(NetworkRequests::ContractCodeRequest(
                 chunk_producer_account.clone(),
                 forged_request,
@@ -146,35 +139,26 @@ fn test_contract_code_request_rejects_tampered_main_transition() {
 
     clear_compiled_contract_caches(&env);
 
-    // First call: generates the first `ChunkContractAccesses` (captured by the
-    // handler) but is not forged.
-    let tx = env.rpc_node().tx_call(
-        &contract_id,
-        &contract_id,
-        "main",
-        vec![],
-        Balance::ZERO,
-        Gas::from_teragas(300),
-    );
-    env.rpc_node().submit_tx(tx);
-    env.node_runner(0).run_for_number_of_blocks(5);
-
-    clear_compiled_contract_caches(&env);
-
-    // Second call: the handler forges requests using the previous chunk's
-    // `main_transition`. Use `submit_tx` + `run_for_number_of_blocks` rather
-    // than `execute_tx` because the second call may not finalize when the
-    // forged request is rejected.
-    let tx = env.rpc_node().tx_call(
-        &contract_id,
-        &contract_id,
-        "main",
-        vec![],
-        Balance::ZERO,
-        Gas::from_teragas(300),
-    );
-    env.rpc_node().submit_tx(tx);
-    env.node_runner(0).run_for_number_of_blocks(5);
+    // Sequential contract calls, each given a couple of blocks to land in
+    // its own chunk. Spacing them this way yields a stream of
+    // `ChunkContractAccesses` messages with distinct `main_transition`s only
+    // ~1 chunk apart — inside the finality window, so the forged key is
+    // still in storage when the producer processes the request.
+    for _ in 0..NUM_CONTRACT_CALLS {
+        let tx = env.rpc_node().tx_call(
+            &contract_id,
+            &contract_id,
+            "main",
+            vec![],
+            Balance::ZERO,
+            Gas::from_teragas(300),
+        );
+        env.rpc_node().submit_tx(tx);
+        env.node_runner(0).run_for_number_of_blocks(2);
+    }
+    // Extra blocks so the last forged request has a chance to reach the
+    // producer and (without the fix) produce a response before we assert.
+    env.node_runner(0).run_for_number_of_blocks(3);
 
     let forged = forged_request_keys.lock().len();
     let forged_responses = forged_request_responses.load(Ordering::SeqCst);
