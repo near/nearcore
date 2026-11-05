@@ -36,6 +36,10 @@ impl UnverifiedReceiptTracker {
         core_reader: &SpiceCoreReader,
         source_block: &CryptoHash,
     ) -> Result<(), Error> {
+        // Nothing buffered against `source_block`: skip reading its block and execution results.
+        if !self.proofs_by_source_block.contains_key(source_block) {
+            return Ok(());
+        }
         let block = match chain_store.get_block(source_block) {
             Ok(block) => block,
             // Source block not on disk yet — nothing to drain. A later receipt or
