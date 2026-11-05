@@ -455,8 +455,9 @@ impl PreparedTransactions {
     }
 }
 
-/// Transactions that were taken out of the pool in prepare_transactions,
-/// but should be skipped because they were in skip_tx_hashes.
+/// Transactions that were taken out of the pool in prepare_transactions, but are not in the chunk
+/// and should go back to the pool: the ones that were in skip_tx_hashes, and the ECCs that did not
+/// get to run, or that were late and may finish in time next time.
 #[derive(Debug, Clone)]
 pub struct SkippedTransactions(pub Vec<ValidatedTransactionEnvelope>);
 
@@ -543,7 +544,7 @@ impl PrepareTransactionsBlockContext {
 /// How long preparing the transactions of a chunk may take.
 ///
 /// The preparation as a whole may be unlimited in time, but ECCs never are. A run of a contract is
-/// bounded by its gas, not by time. A call refused call costs its sender nothing, so without a
+/// bounded by its gas, not by time. A refused call costs its sender nothing, so without a
 /// limit of their own ECCs could have taken any amount of time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrepareTransactionsTimeLimits {
@@ -646,6 +647,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// update is preserved for validation of next transactions.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
+    /// Also returns the ECCs that were taken out of the pool but are not in the result and should
+    /// go back to it, to be reintroduced after the prepared transactions.
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
@@ -655,7 +658,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         time_limits: PrepareTransactionsTimeLimits,
-    ) -> Result<PreparedTransactions, Error>;
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// `prepare_transactions` with extra options, used in early transaction preparation.
     /// * takes `TrieUpdate` instead of `RuntimeStorageConfig`. The Trie in `TrieUpdate` should have

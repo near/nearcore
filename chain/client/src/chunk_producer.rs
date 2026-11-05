@@ -586,18 +586,16 @@ impl ChunkProducer {
                         prev_block.block_congestion_info(),
                         chunk_extra.gas_limit(),
                     )?;
-                    (
-                        self.runtime_adapter.prepare_transactions(
-                            storage_config,
-                            shard_id,
-                            prev_block_context,
-                            &mut iter,
-                            chain_validate,
-                            validate_tx_ttl,
-                            self.time_limits(),
-                        )?,
-                        Vec::new(),
-                    )
+                    let (prepared, skipped) = self.runtime_adapter.prepare_transactions(
+                        storage_config,
+                        shard_id,
+                        prev_block_context,
+                        &mut iter,
+                        chain_validate,
+                        validate_tx_ttl,
+                        self.time_limits(),
+                    )?;
+                    (prepared, skipped.0)
                 }
             } else {
                 (PreparedTransactions::new(), Vec::new())

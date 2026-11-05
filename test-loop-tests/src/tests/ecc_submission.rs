@@ -7,8 +7,8 @@ use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
-use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
+use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_client::ProcessTxResponse;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -54,13 +54,25 @@ fn ecc_contract() -> Vec<u8> {
     ))
 }
 
+/// Gives the producers plenty of time to prepare a chunk, and so ECCs half of it. A producer runs
+/// an ECC against the wall clock, and it drops an ECC that is late with all the time ECCs get, so
+/// on a slow machine, or at the first run of a contract that compiles it, the default 100 ms could
+/// lose an ECC that the test waits for.
+fn give_eccs_time(client_config: &mut ClientConfig) {
+    client_config.produce_chunk_add_transactions_time_limit = MutableConfigValue::new(
+        Some(Duration::seconds(10)),
+        "produce_chunk_add_transactions_time_limit",
+    );
+}
+
 /// A chain with an RPC node that tracks every shard and produces no chunks, and a contract on it.
 fn setup(protocol_version: u32, accounts: &[&AccountId], contract_id: &AccountId) -> TestLoopEnv {
     let mut builder = TestLoopBuilder::new()
         .enable_rpc()
         .protocol_version(protocol_version)
         .epoch_length(10)
-        .track_all_shards();
+        .track_all_shards()
+        .config_modifier(|client_config, _| give_eccs_time(client_config));
     for account_id in accounts {
         builder = builder.add_user_account(account_id, Balance::from_near(1_000));
     }
@@ -183,15 +195,14 @@ fn setup_two_shards(contracts: &[&AccountId], rpc_tracks_shards: bool) -> TestLo
         .epoch_length(10)
         .validators_spec(ValidatorsSpec::desired_roles(&["cp0", "cp1"], &[]))
         .shard_layout(ShardLayout::multi_shard_custom(vec![create_account_id("bb")], 1))
-        .track_all_shards();
-    if !rpc_tracks_shards {
-        // The RPC node is the client after the two chunk producers.
-        builder = builder.config_modifier(|client_config, idx| {
-            if idx == 2 {
+        .track_all_shards()
+        .config_modifier(move |client_config, idx| {
+            give_eccs_time(client_config);
+            // The RPC node is the client after the two chunk producers.
+            if !rpc_tracks_shards && idx == 2 {
                 client_config.tracked_shards_config = TrackedShardsConfig::NoShards;
             }
         });
-    }
     for contract_id in contracts {
         builder = builder.add_user_account(contract_id, Balance::from_near(1_000));
     }
@@ -384,7 +395,10 @@ fn test_chunks_hold_eccs_within_their_size_share() {
         return;
     }
     let contract_ids = ["c1", "c2", "c3", "c4", "c5", "c6"].map(create_account_id);
-    let mut builder = TestLoopBuilder::new().enable_rpc().epoch_length(10);
+    let mut builder = TestLoopBuilder::new()
+        .enable_rpc()
+        .epoch_length(10)
+        .config_modifier(|client_config, _| give_eccs_time(client_config));
     for contract_id in &contract_ids {
         builder = builder.add_user_account(contract_id, Balance::from_near(1_000));
     }

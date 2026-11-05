@@ -19,6 +19,11 @@ use std::time::Instant;
 
 type Job = Box<dyn FnOnce() + Send>;
 
+/// The stack of the thread, the same as that of the threads that run contracts in apply (see
+/// `neard`'s main). The default one is smaller, and a contract that recurses deeply could overflow
+/// it, which aborts the node.
+const STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
+
 /// What came of a job given to the thread.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EccRun<T> {
@@ -54,6 +59,7 @@ impl EccThread {
             let (sender, receiver) = mpsc::channel::<Job>();
             thread::Builder::new()
                 .name("ecc-runner".to_string())
+                .stack_size(STACK_SIZE_BYTES)
                 .spawn(move || receiver.iter().for_each(|job| job()))
                 .expect("failed to spawn the thread that runs ECCs");
             sender

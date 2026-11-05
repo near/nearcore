@@ -1080,7 +1080,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         time_limits: PrepareTransactionsTimeLimits,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
         let mut trie = match storage_config.source {
@@ -1118,8 +1118,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             &mut PendingTxCheckResult::always_admit(),
             time_limits,
             None,
-        ) // skip_tx_hashes is empty, so there will be no skipped transactions
-        .map(|(prepared, _skipped)| prepared)
+        ) // skip_tx_hashes is empty, so only ECCs that did not run are skipped
     }
 
     #[instrument(

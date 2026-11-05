@@ -1791,6 +1791,19 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
+    let limits = time_limits(default_produce_chunk_add_transactions_time_limit());
+    prepare_transactions_with_limits(env, chain, transaction_groups, storage_config, limits)
+        .map(|(prepared, _skipped)| prepared)
+}
+
+/// Like `prepare_transactions`, with the given time limits, and the skipped transactions.
+fn prepare_transactions_with_limits(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    storage_config: RuntimeStorageConfig,
+    time_limits: PrepareTransactionsTimeLimits,
+) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
     let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
@@ -1810,7 +1823,7 @@ fn prepare_transactions(
                 .is_ok()
         },
         &|_| true,
-        time_limits(default_produce_chunk_add_transactions_time_limit()),
+        time_limits,
     )
 }
 
@@ -2721,6 +2734,12 @@ fn wait_until_ecc_thread_is_free(runtime: &NightshadeRuntime) {
     }
 }
 
+/// How long the producer waits for the run of an ECC that is held, which is late whatever the
+/// time. It is the time the producer has to reach the run, so it is generous, and it is also how
+/// long a test waits.
+#[cfg(feature = "test_features")]
+const HELD_ECC_WAIT: Duration = Duration::milliseconds(500);
+
 /// An ECC that is not done by the deadline is left out of the chunk, and runs on in the
 /// background. If it had the whole time for ECCs to itself it is dropped, as it would not finish
 /// next time either. Until it is done the next chunks take no ECCs, and then they take them again.
@@ -2736,14 +2755,15 @@ fn test_prepare_transactions_leaves_out_a_late_ecc_and_takes_no_others_while_it_
     let held_hash = held.get_hash();
     env.runtime.test_held_eccs.hold(&held_hash);
     let contracts = ["test1", "test2"];
-    let limits = PrepareTransactionsTimeLimits { total: None, ecc: Duration::milliseconds(50) };
-    let prepare = |pool: &mut TransactionPool| {
+    let prepare = |pool: &mut TransactionPool, limits| {
         let change_state = give_contracts(&contracts);
         prepare_eccs_with_limits(&env, &chain, pool, HashSet::new(), limits, change_state, |_| {})
     };
+    // Short, only for the runs that are held. A run that is not must not be late.
+    let held_limits = PrepareTransactionsTimeLimits { total: None, ecc: HELD_ECC_WAIT };
 
     let mut pool = pool_with_eccs([held]);
-    let (prepared, skipped) = prepare(&mut pool);
+    let (prepared, skipped) = prepare(&mut pool, held_limits);
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
     // It had the whole time to itself, so it is not put back.
@@ -2753,7 +2773,7 @@ fn test_prepare_transactions_leaves_out_a_late_ecc_and_takes_no_others_while_it_
 
     // The run is going on, and no other ECC is taken, nor lost.
     let mut pool = pool_with_eccs([ecc("test2", 1)]);
-    let (prepared, skipped) = prepare(&mut pool);
+    let (prepared, skipped) = prepare(&mut pool, held_limits);
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert!(skipped.0.is_empty());
     assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test2".to_string(), vec![1])]);
@@ -2762,7 +2782,7 @@ fn test_prepare_transactions_leaves_out_a_late_ecc_and_takes_no_others_while_it_
     env.runtime.test_held_eccs.release(&held_hash);
     wait_until_ecc_thread_is_free(&env.runtime);
     let mut pool = pool_with_eccs([ecc("test2", 1)]);
-    let (prepared, _) = prepare(&mut pool);
+    let (prepared, _) = prepare(&mut pool, time_limits(None));
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
 }
 
@@ -2780,10 +2800,8 @@ fn test_prepare_transactions_puts_back_a_late_ecc_that_started_late() {
     let held_hash = held.get_hash();
     env.runtime.test_held_eccs.hold(&held_hash);
     // The time of the whole preparation ends before the time for ECCs does.
-    let limits = PrepareTransactionsTimeLimits {
-        total: Some(Duration::milliseconds(50)),
-        ecc: Duration::seconds(60),
-    };
+    let limits =
+        PrepareTransactionsTimeLimits { total: Some(HELD_ECC_WAIT), ecc: Duration::seconds(60) };
     let mut pool = pool_with_eccs([held]);
 
     let (prepared, skipped) = prepare_eccs_with_limits(
@@ -2798,6 +2816,48 @@ fn test_prepare_transactions_puts_back_a_late_ecc_that_started_late() {
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
+    assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![held_hash]);
+    assert_eq!(pool.len(), 0);
+
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+}
+
+/// `prepare_transactions` hands back what it skips, like `prepare_transactions_extra`: the
+/// producer needs it to put back an ECC that was late, or that did not get to run, since it is
+/// the one that takes the ECC out of the pool. Without a list of skipped ECCs it would lose them.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_returns_the_late_ecc_that_started_late() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+    deploy_ecc_contracts(&mut env, &["test1"]);
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    let limits =
+        PrepareTransactionsTimeLimits { total: Some(HELD_ECC_WAIT), ecc: Duration::seconds(60) };
+    let mut pool = pool_with_eccs([held]);
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+
+    let (prepared, skipped) = prepare_transactions_with_limits(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        storage_config,
+        limits,
+    )
+    .unwrap();
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![held_hash]);
     assert_eq!(pool.len(), 0);
 
