@@ -35,7 +35,10 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{StatePart, StatePartId};
-use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{
+    NonceMode, SignedTransaction, TransactionEnvelope, ValidatedEcc, ValidatedTransaction,
+    ValidatedTransactionEnvelope,
+};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -48,12 +51,12 @@ use near_primitives::views::{
 };
 use near_runtime::adapter::ViewRuntimeAdapter;
 use near_runtime::cache_warming::cache_keys_differ;
-use near_runtime::config::tx_cost;
+use near_runtime::config::{ecc_cost, tx_cost};
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_envelope,
+    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -719,10 +722,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        signed_tx: SignedTransaction,
+        tx: TransactionEnvelope,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+    ) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(congestion_info) = receiver_congestion_info {
@@ -734,8 +737,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
-                let shard_id =
-                    shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id()).into();
+                let shard_id = shard_layout.account_id_to_shard_id(tx.receiver_id()).into();
                 let err = match reason {
                     RejectTransactionReason::IncomingCongestion { congestion_level }
                     | RejectTransactionReason::OutgoingCongestion { congestion_level }
@@ -746,11 +748,33 @@ impl RuntimeAdapter for NightshadeRuntime {
                         InvalidTxError::ShardStuck { shard_id, missed_chunks }
                     }
                 };
-                return Err((err, signed_tx));
+                return Err((err, tx));
             }
         }
 
-        validate_transaction(runtime_config, signed_tx, current_protocol_version)
+        validate_envelope(runtime_config, tx, current_protocol_version)
+    }
+
+    fn can_accept_ecc(
+        &self,
+        shard_layout: &ShardLayout,
+        gas_price: Balance,
+        state_root: StateRoot,
+        ecc: &ValidatedEcc,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+        let contract_id = ecc.contract_id();
+        let cost = ecc_cost(runtime_config, ecc.to_ecc(), gas_price)?;
+        let shard_uid = shard_layout.account_id_to_shard_uid(contract_id);
+        let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
+        let account = get_account(&trie, contract_id)?;
+        verify_ecc_ephemeral(account.as_ref(), ecc.to_ecc(), &cost)?;
+        // TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
+        match account {
+            Some(account) if account.contract().is_some() => Ok(()),
+            _ => Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() }),
+        }
     }
 
     fn can_verify_and_charge_tx(

@@ -5145,6 +5145,10 @@
         ],
         "type": "object"
       },
+      "EccTransaction": {
+        "format": "byte",
+        "type": "string"
+      },
       "EccTransactionView": {
         "properties": {
           "contract_id": {
@@ -9821,6 +9825,27 @@
             },
             "required": [
               "NotEnoughBalanceForDeposit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The target of an external contract call has no contract, or no account.",
+            "properties": {
+              "ContractNotFound": {
+                "properties": {
+                  "contract_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ContractNotFound"
             ],
             "type": "object"
           }
@@ -18057,9 +18082,35 @@
         ]
       },
       "RpcSendTransactionRequest": {
+        "description": "On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in `ecc_base64`, so\nrequests with a signed transaction look as they did before ECCs.",
         "properties": {
+          "ecc_base64": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected."
+          },
           "signed_tx_base64": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected."
           },
           "wait_until": {
             "allOf": [
@@ -18070,9 +18121,6 @@
             "default": "EXECUTED_OPTIMISTIC"
           }
         },
-        "required": [
-          "signed_tx_base64"
-        ],
         "title": "RpcSendTransactionRequest",
         "type": "object"
       },

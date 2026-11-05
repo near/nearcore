@@ -53,13 +53,17 @@ pub fn get_block_header_on_chain_by_height(
 }
 
 /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
-/// ahead of the block that has `base_block_hash`.
+/// ahead of the block that has `base_block_hash`. A transaction without a `base_block_hash` (an
+/// ECC) never expires.
 pub fn check_transaction_validity_period(
     chain_store: &ChainStoreAdapter,
     prev_block_header: &BlockHeader,
-    base_block_hash: &CryptoHash,
+    base_block_hash: Option<&CryptoHash>,
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
+    let Some(base_block_hash) = base_block_hash else {
+        return Ok(());
+    };
     let base_header =
         chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
 
@@ -86,14 +90,10 @@ pub fn compute_transaction_validity(
     transactions
         .iter()
         .map(|tx| {
-            let Some(block_hash) = tx.block_hash() else {
-                // An ECC transaction has no block hash and never expires.
-                return true;
-            };
             check_transaction_validity_period(
                 chain_store,
                 prev_block_header,
-                block_hash,
+                tx.block_hash(),
                 transaction_validity_period,
             )
             .is_ok()

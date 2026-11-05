@@ -27,8 +27,10 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, SignedTransaction, TransactionEnvelope, ValidatedEcc,
+    ValidatedTransaction, ValidatedTransactionEnvelope,
+};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -549,10 +551,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        signed_tx: SignedTransaction,
+        tx: TransactionEnvelope,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)>;
+    ) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)>;
 
     fn can_verify_and_charge_tx(
         &self,
@@ -562,6 +564,17 @@ pub trait RuntimeAdapter: Send + Sync {
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
         pending_constraints: &PendingConstraints,
+    ) -> Result<(), InvalidTxError>;
+
+    /// Checks against the state that an ECC has something to run and can be paid for: its
+    /// contract's account holds a contract that can afford the fees of the call.
+    fn can_accept_ecc(
+        &self,
+        shard_layout: &ShardLayout,
+        gas_price: Balance,
+        state_root: StateRoot,
+        ecc: &ValidatedEcc,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.

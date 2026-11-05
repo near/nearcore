@@ -59,10 +59,6 @@ const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// Maximal allowed UTC clock skew between this node and the peer.
 const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
 
-/// Maximum number of transaction messages we will accept between block messages.
-/// The purpose of this constant is to ensure we do not spend too much time deserializing and
-/// dispatching transactions when we should be focusing on consensus-related messages.
-const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
@@ -1039,7 +1035,7 @@ impl PeerActor {
         };
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
-                self.network_state.txns_since_last_block.store(0, Ordering::Release);
+                self.network_state.forwarded_txs.reset();
                 let hash = *block.hash();
                 let height = block.header().height();
                 conn.last_block.rcu(|last_block| {
@@ -1354,18 +1350,19 @@ impl PeerActor {
                 self.routed_message_cache.put(key, now);
 
                 if let TieredMessageBody::T2(t2) = msg.body() {
-                    if let T2MessageBody::ForwardTx(_) = t2.as_ref() {
-                        // Check whenever we exceeded number of transactions we got since last block.
-                        // If so, drop the transaction.
-                        let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                    if let T2MessageBody::ForwardTx(tx) = t2.as_ref() {
+                        // Check whenever we exceeded number of transactions (or of ECCs, which
+                        // have a limit of their own) we got since last block. If so, drop the
+                        // transaction.
                         // TODO(gprusak): this constraint doesn't take into consideration such
                         // parameters as number of nodes or number of shards. Reconsider why do we need
                         // this and whether this is really the right way of handling it.
-                        if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                            metrics::MessageDropped::TransactionsPerBlockExceeded.inc(msg.body());
+                        if let Err(reason) = self.network_state.forwarded_txs.try_count(tx) {
+                            reason.inc(msg.body());
+                            #[cfg(test)]
+                            self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
                             return;
                         }
-                        self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
                     }
                 }
 

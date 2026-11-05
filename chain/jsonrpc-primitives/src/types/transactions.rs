@@ -1,14 +1,57 @@
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
 use near_primitives::types::{AccountId, ShardId};
+use near_primitives::views::TxExecutionStatus;
 use serde_json::Value;
 
+/// On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in `ecc_base64`, so
+/// requests with a signed transaction look as they did before ECCs.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(try_from = "RpcSendTransactionRequestWire", into = "RpcSendTransactionRequestWire")]
 pub struct RpcSendTransactionRequest {
-    #[serde(rename = "signed_tx_base64")]
-    pub signed_transaction: near_primitives::transaction::SignedTransaction,
+    pub transaction: TransactionEnvelope,
+    pub wait_until: TxExecutionStatus,
+}
+
+/// A request carries either a signed transaction or an external contract call (ECC), never both.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct RpcSendTransactionRequestWire {
+    /// A signed transaction. Exactly one of this and `ecc_base64` is expected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signed_tx_base64: Option<SignedTransaction>,
+    /// An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ecc_base64: Option<EccTransaction>,
     #[serde(default)]
-    pub wait_until: near_primitives::views::TxExecutionStatus,
+    wait_until: TxExecutionStatus,
+}
+
+impl TryFrom<RpcSendTransactionRequestWire> for RpcSendTransactionRequest {
+    type Error = &'static str;
+
+    fn try_from(wire: RpcSendTransactionRequestWire) -> Result<Self, Self::Error> {
+        let transaction = match (wire.signed_tx_base64, wire.ecc_base64) {
+            (Some(signed_tx), None) => signed_tx.into(),
+            (None, Some(ecc)) => ecc.into(),
+            (None, None) => return Err("expected one of signed_tx_base64 and ecc_base64"),
+            (Some(_), Some(_)) => {
+                return Err("expected only one of signed_tx_base64 and ecc_base64");
+            }
+        };
+        Ok(Self { transaction, wait_until: wire.wait_until })
+    }
+}
+
+impl From<RpcSendTransactionRequest> for RpcSendTransactionRequestWire {
+    fn from(request: RpcSendTransactionRequest) -> Self {
+        let (signed_tx_base64, ecc_base64) = match request.transaction {
+            TransactionEnvelope::Signed(signed_tx) => (Some(signed_tx), None),
+            TransactionEnvelope::Unsigned(ecc) => (None, Some(ecc)),
+        };
+        Self { signed_tx_base64, ecc_base64, wait_until: request.wait_until }
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

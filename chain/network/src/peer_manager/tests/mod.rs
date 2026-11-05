@@ -1,5 +1,6 @@
 mod accounts_data;
 mod connection_pool;
+mod forwarded_txs;
 mod fuzzers;
 mod nonce;
 mod public_addr;
