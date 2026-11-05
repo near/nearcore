@@ -19,7 +19,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsag
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
+    StorageError, TrieAccess, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -353,6 +353,16 @@ pub fn get_signer_and_authorization(
             }))
         }
     }
+}
+
+/// Whether the account exists and holds a contract, which an ECC to it needs. An ECC to any
+/// other account has nothing to run, so nobody should spend resources on it.
+// TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
+pub fn account_holds_contract(
+    state_update: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<bool, StorageError> {
+    Ok(get_account(state_update, account_id)?.is_some_and(|account| account.contract().is_some()))
 }
 
 /// Whether this transaction is a self-signed state init that may proceed without

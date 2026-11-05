@@ -21,7 +21,7 @@ use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::{PooledGroup, TransactionGroupIterator};
+use near_pool::types::{EccGroup, PooledGroup, TransactionGroupIterator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
@@ -44,7 +44,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolVersion, clamp_to_supported_protocol_version};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
+};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
     QueryResponse, QueryResponseKind, ViewStateResult,
@@ -55,8 +57,8 @@ use near_runtime::config::{ecc_cost, tx_cost};
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_envelope,
-    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, account_holds_contract, get_signer_and_authorization,
+    validate_envelope, verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -64,7 +66,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
+    get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{
@@ -770,11 +773,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
         let account = get_account(&trie, contract_id)?;
         verify_ecc_ephemeral(account.as_ref(), ecc.to_ecc(), &cost)?;
-        // TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
-        match account {
-            Some(account) if account.contract().is_some() => Ok(()),
-            _ => Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() }),
+        if !account_holds_contract(&trie, contract_id)? {
+            return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
         }
+        Ok(())
     }
 
     fn can_verify_and_charge_tx(
@@ -932,8 +934,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut prepared_transactions = PreparedTransactions::new();
-        let mut skipped_transactions = Vec::new();
+        let mut skipped_transactions: Vec<ValidatedTransactionEnvelope> = Vec::new();
         let mut num_checked_transactions = 0;
+
+        // ECCs go into the chunk only up to a limit, and only once there is a feature for them.
+        // TODO(spice): pack ECCs under Spice as well.
+        let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
+            && !ProtocolFeature::Spice.enabled(protocol_version);
+        let mut num_eccs_left =
+            if eccs_allowed { runtime_config.max_eccs_per_chunk(prev_block.gas_limit) } else { 0 };
+        let mut num_eccs_packed = 0;
+        // The contracts that have their ECC in the chunk. The groups come round after round, and
+        // a contract gets one ECC per chunk.
+        let mut contracts_in_chunk: HashSet<AccountId> = HashSet::new();
+        let deadline = time_limit.map(|limit| start_time + limit);
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
         // for metrics only
@@ -942,7 +956,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
-        'add_txs_loop: while let Some(group) = transaction_groups.next() {
+        // Once there is no room for more ECCs, the groups of them are not even visited.
+        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -973,11 +988,38 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // TODO(ecc): include ECCs once the producer packs them. Until then, each group of
-            // ECCs costs a visit here, so once ECCs have a budget in the chunk, the producer
-            // should stop visiting them when the budget is spent. The limits are checked first,
-            // so the visits stay bounded by the time limit and can be cancelled.
-            let PooledGroup::Signed(transaction_group_iter) = group else { continue };
+            let transaction_group_iter = match group {
+                PooledGroup::Signed(group) => group,
+                PooledGroup::Ecc(group) => {
+                    let visit = take_ecc_from_group(
+                        group,
+                        &state_update,
+                        &skip_tx_hashes,
+                        &contracts_in_chunk,
+                        self.epoch_manager.as_ref(),
+                        runtime_config,
+                        &epoch_id,
+                        &prev_block,
+                        size_limit.saturating_sub(total_size),
+                        deadline,
+                    )?;
+                    skipped_transactions.extend(visit.skipped.into_iter().map(Into::into));
+                    rejected_due_to_congestion += visit.num_rejected_due_to_congestion;
+                    rejected_invalid_tx += visit.num_rejected_without_contract;
+                    if let Some(limit) = visit.limited_by {
+                        prepared_transactions.limited_by = limit;
+                        break;
+                    }
+                    if let Some(ecc) = visit.packed {
+                        contracts_in_chunk.insert(ecc.contract_id().clone());
+                        total_size += ecc.get_size();
+                        prepared_transactions.transactions.push(ecc.into());
+                        num_eccs_left -= 1;
+                        num_eccs_packed += 1;
+                    }
+                    continue;
+                }
+            };
 
             // Transactions taken from this group so far this visit.
             let mut examined_from_group = 0usize;
@@ -1034,7 +1076,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 num_checked_transactions += 1;
 
                 if skip_tx_hashes.contains(&validated_tx.get_hash()) {
-                    skipped_transactions.push(validated_tx);
+                    skipped_transactions.push(validated_tx.into());
                     continue;
                 }
 
@@ -1043,7 +1085,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
-                    &validated_tx,
+                    validated_tx.receiver_id(),
                 )? {
                     tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
@@ -1074,7 +1116,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
                     PendingTxCheckResult::Admit(constraints) => constraints,
                     PendingTxCheckResult::Skip => {
-                        skipped_transactions.push(validated_tx);
+                        skipped_transactions.push(validated_tx.into());
                         continue;
                     }
                 };
@@ -1121,7 +1163,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.size_for_limits();
-                        prepared_transactions.transactions.push(validated_tx);
+                        prepared_transactions.transactions.push(validated_tx.into());
                         // Take one transaction from this group, no more.
                         break;
                     }
@@ -1147,7 +1189,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_left, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])
@@ -1751,6 +1793,103 @@ fn chunk_tx_gas_limit(
     congestion_control.process_tx_limit()
 }
 
+/// What visiting a group of ECCs to one contract came to.
+#[derive(Default)]
+struct EccGroupVisit {
+    /// The first ECC of the group that fits into the chunk. A contract gets one ECC per chunk.
+    packed: Option<ValidatedEcc>,
+    /// ECCs to put back into the pool, as they are in `skip_tx_hashes`: they went into the
+    /// previous chunk, which is not in a block yet.
+    skipped: Vec<ValidatedEcc>,
+    /// Set when the packing has to stop altogether, as the time is up.
+    limited_by: Option<PrepareTransactionsLimit>,
+    /// ECCs dropped because the contract's shard is congested.
+    num_rejected_due_to_congestion: usize,
+    /// ECCs dropped because the account has no contract.
+    num_rejected_without_contract: usize,
+}
+
+/// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
+/// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
+/// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
+/// that does not fit in `size_left`. Takes nothing if the contract is in `contracts_in_chunk`.
+fn take_ecc_from_group(
+    group: &mut EccGroup,
+    state_update: &dyn TrieAccess,
+    skip_tx_hashes: &HashSet<CryptoHash>,
+    contracts_in_chunk: &HashSet<AccountId>,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime_config: &RuntimeConfig,
+    epoch_id: &EpochId,
+    prev_block: &PrepareTransactionsBlockContext,
+    size_left: u64,
+    deadline: Option<Instant>,
+) -> Result<EccGroupVisit, Error> {
+    let mut visit = EccGroupVisit::default();
+    // All of the group is for the same contract.
+    let Some(contract_id) = group.peek_next().map(|ecc| ecc.contract_id()) else {
+        return Ok(visit);
+    };
+    if contracts_in_chunk.contains(contract_id) {
+        return Ok(visit);
+    }
+    let contract_id = contract_id.clone();
+
+    // Whether the contract's shard accepts ECCs and whether the account holds a contract. The
+    // same for every ECC of the group, so found out once, and only for an ECC that needs it.
+    let mut checks: Option<(bool, bool)> = None;
+    let mut num_examined = 0;
+    while let Some(ecc) = group.peek_next() {
+        num_examined += 1;
+        if MAX_TXS_PER_GROUP_PER_VISIT < num_examined {
+            break;
+        }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            visit.limited_by = Some(PrepareTransactionsLimit::Time);
+            break;
+        }
+        if skip_tx_hashes.contains(&ecc.get_hash()) {
+            visit.skipped.extend(group.next());
+            continue;
+        }
+        // Only the chunk that has room for it takes it. The others in the group wait behind it.
+        // TODO(ecc): cap the bytes all the ECCs of a chunk may take, to a share like the ones of
+        // the pool and of the gas, once the shares are picked. ECCs cost their sender nothing,
+        // and a few big ones to different contracts can take most of the room signed
+        // transactions share with them.
+        if ecc.get_size() > size_left {
+            break;
+        }
+        // Not between popping the ECC and putting it somewhere: an error must not lose it.
+        let (accepted_by_congestion_control, has_contract) = match checks {
+            Some(checks) => checks,
+            None => {
+                let accepted = congestion_control_accepts_transaction(
+                    epoch_manager,
+                    runtime_config,
+                    epoch_id,
+                    prev_block,
+                    &contract_id,
+                )?;
+                let has_contract = accepted && account_holds_contract(state_update, &contract_id)?;
+                *checks.insert((accepted, has_contract))
+            }
+        };
+        let ecc = group.next().expect("peek_next() returned Some, so next() should return Some");
+        if !accepted_by_congestion_control {
+            tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding ECC due to congestion");
+            visit.num_rejected_due_to_congestion += 1;
+        } else if !has_contract {
+            tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding ECC to an account with no contract");
+            visit.num_rejected_without_contract += 1;
+        } else {
+            visit.packed = Some(ecc);
+            break;
+        }
+    }
+    Ok(visit)
+}
+
 /// Returns true if the transaction passes the congestion control checks. The
 /// transaction will be accepted if the receiving shard is not congested or its
 /// congestion level is below the threshold.
@@ -1759,9 +1898,8 @@ fn congestion_control_accepts_transaction(
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
-    validated_tx: &ValidatedTransaction,
+    receiver_id: &AccountId,
 ) -> Result<bool, Error> {
-    let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {

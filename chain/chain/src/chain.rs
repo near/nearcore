@@ -87,7 +87,6 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{
     ExecutionOutcomeWithIdAndProof, SignedTransaction, TransactionEnvelope,
 };
-#[cfg(feature = "test_features")]
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -3702,6 +3701,7 @@ impl Chain {
                 cached_shard_update_key,
                 chunk_headers,
                 &chunk_transactions,
+                chunk_header.gas_limit(),
             );
 
             let transactions: SignedValidPeriodTransactions =
@@ -3767,6 +3767,7 @@ impl Chain {
         cached_shard_update_key: CachedShardUpdateKey,
         chunk_headers: &Chunks,
         chunk_transactions: &[TransactionEnvelope],
+        chunk_gas_limit: Gas,
     ) -> Option<PostStateReadyCallback> {
         let Some(sender) = &self.on_post_state_ready_sender else {
             return None;
@@ -3825,6 +3826,8 @@ impl Chain {
             height: block.height,
             next_epoch_id: epoch_id,
             congestion_info: block.congestion_info.clone(),
+            // The next chunk of the shard has the gas limit of this one.
+            gas_limit: chunk_gas_limit,
         };
 
         // Transactions included in the current chunk, they aren't removed from the pool yet and
