@@ -43,8 +43,8 @@ use near_primitives::errors::{
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV3, DataReceipt, GlobalContractDistributionReceipt,
+    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -78,6 +78,7 @@ use near_store::{
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::iter::once;
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -9251,5 +9252,220 @@ fn test_re_added_key_rejects_replayed_tx() {
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
             InvalidTxError::InvalidNonce { .. }
         ))
+    );
+}
+
+/// The version that creates the receipts of the `PinReceiptFees` tests.
+const PINNED_CREATION_VERSION: ProtocolVersion = ProtocolFeature::PinReceiptFees.protocol_version();
+/// The version that executes the receipts of the `PinReceiptFees` tests.
+const PINNED_EXECUTION_VERSION: ProtocolVersion = PINNED_CREATION_VERSION + 1;
+
+/// Applies `receipts` and `transactions` at `version`, whose `Transfer` execution fee is
+/// `factor` times the one of all versions before it.
+fn apply_with_transfer_fee_factor(
+    version: ProtocolVersion,
+    factor: u64,
+    receipts: &[Receipt],
+    transactions: impl FnOnce(&[Arc<Signer>]) -> Vec<SignedTransaction>,
+) -> ApplyResult {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let old_config = Arc::clone(&apply_state.config);
+    let mut new_config = old_config.as_ref().clone();
+    let transfer = &mut Arc::make_mut(&mut new_config.fees).action_fees[ActionCosts::transfer];
+    transfer.execution = FeeComponent::Gas(transfer.exec_fee().gas.checked_mul(factor).unwrap());
+    let new_config = Arc::new(new_config);
+    apply_state.config_store = Arc::new(RuntimeConfigStore::new_custom(BTreeMap::from([
+        (0, old_config),
+        (version, Arc::clone(&new_config)),
+    ])));
+    apply_state.config = new_config;
+    apply_state.current_protocol_version = version;
+    let transactions = transactions(&signers);
+    let num_transactions = transactions.len();
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            receipts,
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// A receipt from alice to bob created at `PINNED_CREATION_VERSION`.
+fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: bob_account(),
+        receipt_id: hash(b"pinned"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: alice_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price,
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions,
+        }),
+    })
+}
+
+/// Applies `receipt` after the `Transfer` execution fee changed by `factor` since it was created.
+/// Returns its outcome and the total amount of the refunds it produced.
+fn apply_pinned_receipt(receipt: &Receipt, factor: u64) -> (ExecutionOutcome, Balance) {
+    let apply_result = apply_with_transfer_fee_factor(
+        PINNED_EXECUTION_VERSION,
+        factor,
+        from_ref(receipt),
+        |_| vec![],
+    );
+    let outcome = apply_result
+        .outcomes
+        .into_iter()
+        .find(|outcome| outcome.id == *receipt.receipt_id())
+        .unwrap()
+        .outcome;
+    let refund = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.predecessor_id().is_system())
+        .map(|receipt| match receipt.receipt() {
+            ReceiptEnum::Action(ActionReceipt { actions, .. })
+            | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => match actions.as_slice() {
+                [Action::Transfer(TransferAction { deposit })] => *deposit,
+                actions => panic!("expected a refund, got {actions:?}"),
+            },
+            receipt => panic!("expected a refund, got {receipt:?}"),
+        })
+        .fold(Balance::ZERO, |sum, refund| sum.checked_add(refund).unwrap());
+    (outcome, refund)
+}
+
+fn transfers(n: usize) -> impl Iterator<Item = Action> {
+    (0..n).map(|_| Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }))
+}
+
+/// A receipt that fails before its transfers execute is refunded them at the fee it was funded
+/// with, not at the increased fee.
+#[test]
+fn test_pin_receipt_fees_failed_receipt() {
+    // Alice can't delete a key of bob, so the transfers don't execute.
+    let delete_key = Action::DeleteKey(Box::new(DeleteKeyAction {
+        public_key: PublicKey::empty(KeyType::ED25519),
+    }));
+    let receipt = pinned_receipt(GAS_PRICE, once(delete_key).chain(transfers(10)).collect());
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    assert_matches!(increased.status, ExecutionStatus::Failure(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+}
+
+/// The executed transfers burn the gas of the fee the receipt was funded with, so that only the
+/// purchased gas is refunded the difference between the purchase and the burn price. Their
+/// compute is priced with the current fee.
+#[test]
+fn test_pin_receipt_fees_successful_receipt() {
+    let purchase_price = GAS_PRICE.checked_mul(2).unwrap();
+    let receipt = pinned_receipt(purchase_price, transfers(10).collect());
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+    assert!(increased.compute_usage.unwrap() > unchanged.compute_usage.unwrap());
+}
+
+/// The relayer of a meta transaction prepaid the static fees of the inner actions when its
+/// receipt was created. Its receipt forwards them at the fees of that version, and the receipt of
+/// the inner actions records the same creation version, so that it is priced with them too.
+#[test]
+fn test_pin_receipt_fees_delegate_action() {
+    let signer = InMemorySigner::test_signer(&alice_account());
+    let delegate_action = DelegateAction {
+        sender_id: alice_account(),
+        receiver_id: bob_account(),
+        actions: transfers(10).map(|action| NonDelegateAction::try_from(action).unwrap()).collect(),
+        nonce: 2,
+        max_block_height: 10000,
+        public_key: signer.public_key(),
+    };
+    let signed_delegate_action = Action::Delegate(Box::new(SignedDelegateAction {
+        signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
+        delegate_action,
+    }));
+    let mut receipt = pinned_receipt(GAS_PRICE, vec![signed_delegate_action]);
+    receipt.set_receiver_id(alice_account());
+
+    let apply = |factor| {
+        apply_with_transfer_fee_factor(
+            PINNED_EXECUTION_VERSION,
+            factor,
+            from_ref(&receipt),
+            |_| vec![],
+        )
+    };
+    let unchanged = apply(1);
+    let increased = apply(3);
+    assert_eq!(increased.outgoing_receipts, unchanged.outgoing_receipts);
+    let inner_receipt = increased
+        .outgoing_receipts
+        .iter()
+        .find(|receipt| receipt.receiver_id() == &bob_account())
+        .unwrap();
+    assert_matches!(
+        inner_receipt.receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            ..
+        })
+    );
+    let outcome = |apply_result: &ApplyResult| apply_result.outcomes[0].outcome.clone();
+    assert_matches!(outcome(&increased).status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcome(&increased).gas_burnt, outcome(&unchanged).gas_burnt);
+    assert_eq!(outcome(&increased).tokens_burnt, outcome(&unchanged).tokens_burnt);
+}
+
+/// A transaction is converted to a receipt that records the current version, from
+/// `PinReceiptFees` on.
+#[test]
+fn test_pin_receipt_fees_transaction_records_creation_version() {
+    let converted_receipt = |version| {
+        let apply_result = apply_with_transfer_fee_factor(version, 1, &[], |signers| {
+            vec![SignedTransaction::send_money(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signers[0],
+                Balance::from_yoctonear(1),
+                CryptoHash::default(),
+            )]
+        });
+        let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+            panic!("expected one receipt, got {:?}", apply_result.outgoing_receipts);
+        };
+        receipt.clone()
+    };
+    assert_matches!(
+        converted_receipt(PINNED_CREATION_VERSION - 1).receipt(),
+        ReceiptEnum::Action(_)
+    );
+    assert_matches!(
+        converted_receipt(PINNED_CREATION_VERSION).receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            ..
+        })
     );
 }
