@@ -105,8 +105,8 @@ pub enum ProtocolFeature {
     RaiseInitialAccessKeyNonce,
     /// Track protocol-level contract warmness and cold compilation bytes,
     /// limiting how many cold contract bytes can be compiled per chunk.
-    /// (not fully implemented, yet. only stablize when it is fully implemented,
-    /// including paymentes for new state)
+    /// (not fully implemented, yet. only stabilize when it is fully implemented,
+    /// including payment for new state)
     ContractCompilationStatus,
 }
 
