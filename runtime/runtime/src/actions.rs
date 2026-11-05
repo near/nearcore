@@ -914,6 +914,7 @@ mod tests {
     use crate::universal_account_id::action_universal_state_init;
     use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
+    use near_parameters::RuntimeConfigStore;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
@@ -1285,6 +1286,7 @@ mod tests {
             prev_block: Default::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: None,

@@ -98,7 +98,7 @@ const MAX_TXS_PER_GROUP_PER_VISIT: usize = 256;
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    runtime_config_store: RuntimeConfigStore,
+    runtime_config_store: Arc<RuntimeConfigStore>,
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
@@ -174,7 +174,7 @@ impl NightshadeRuntime {
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
-            runtime_config_store,
+            runtime_config_store: Arc::new(runtime_config_store),
             store,
             tries,
             runtime,
@@ -351,6 +351,7 @@ impl NightshadeRuntime {
             prev_block,
             current_protocol_version,
             config: config.clone(),
+            config_store: Arc::clone(&self.runtime_config_store),
             next_wasm_config,
             vm_generation: self.runtime_config_store.vm_generation(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),

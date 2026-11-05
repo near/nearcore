@@ -38,7 +38,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
@@ -214,6 +214,9 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime configs of all protocol versions. Receipts created at an older protocol version
+    /// pay their static fees with the config of that version, see `ReceiptFees`.
+    pub config_store: Arc<RuntimeConfigStore>,
     /// If `Some`, the next epoch's `wasm_config` differs from the current one
     /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
     /// upgrade is scheduled for the next epoch boundary). Hooks throughout the

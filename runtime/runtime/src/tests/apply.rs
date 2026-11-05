@@ -205,6 +205,7 @@ fn setup_runtime_for_shard(
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        config_store: Arc::new(RuntimeConfigStore::test()),
         next_wasm_config: None,
         vm_generation: Default::default(),
         cache: Some(Box::new(contract_cache)),
@@ -6033,6 +6034,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let shard_ids = shard_layout.shard_ids();
     let shards_congestion_info =
         shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
+    let config_store = RuntimeConfigStore::with_one_config(config.as_ref().clone());
     let mut apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
@@ -6045,6 +6047,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         random_seed: Default::default(),
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
+        config_store: Arc::new(config_store),
         config,
         next_wasm_config: None,
         vm_generation: Default::default(),
@@ -7541,6 +7544,7 @@ mod self_signed_state_init {
             .shard_ids()
             .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
+        let config_store = RuntimeConfigStore::with_one_config(config.clone());
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: CREATION_HEIGHT + 1,
@@ -7553,6 +7557,7 @@ mod self_signed_state_init {
             random_seed: Default::default(),
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config_store: Arc::new(config_store),
             config: Arc::new(config),
             next_wasm_config: None,
             vm_generation: Default::default(),
