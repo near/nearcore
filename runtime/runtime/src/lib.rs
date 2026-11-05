@@ -3058,7 +3058,7 @@ fn process_external_call(
         .as_mut()
         .ok()
         .and_then(Option::as_mut)
-        .expect("verify_ecc checked that the contract exists");
+        .expect("verify_ecc checked that the contract account exists");
     // The contract is both the sender and the receiver of the call, so an account with no
     // contract is refused like a missing account, without loading anything.
     if matches!(account.contract().as_ref(), AccountContract::None) {
