@@ -44,6 +44,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
+use near_primitives::types::BlockHeightDelta;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -300,6 +301,21 @@ fn to_highest_height_peer_info(
     })
 }
 
+/// The median is the lower middle height, so peers that advertise a false height
+/// need a strict majority to raise it.
+fn keep_peers_at_or_above_median_height_minus_horizon(
+    mut infos: Vec<HighestHeightPeerInfo>,
+    horizon: BlockHeightDelta,
+) -> Vec<HighestHeightPeerInfo> {
+    let Some(median_index) = infos.len().checked_sub(1).map(|last_index| last_index / 2) else {
+        return infos;
+    };
+    infos.sort_unstable_by_key(|info| info.highest_block_height);
+    let lowest_height = infos[median_index].highest_block_height.saturating_sub(horizon);
+    infos.retain(|info| info.highest_block_height >= lowest_height);
+    infos
+}
+
 /// Joins `ConnectedPeerState` (business metadata) with per-peer stats
 /// from `transport_info()` (bandwidth, last-seen timestamps) and the
 /// routing graph (edge nonce) into a single `ConnectedPeerInfo` for
@@ -461,7 +477,7 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height.
+    /// Returns peers at or above the median advertised height minus `highest_peer_horizon`.
     fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
         let genesis_id = self.state.genesis_id.clone();
         let infos: Vec<HighestHeightPeerInfo> = self
@@ -471,20 +487,10 @@ impl PeerManagerActor {
             .values()
             .filter_map(|peer_state| to_highest_height_peer_info(peer_state, &genesis_id))
             .collect();
-
-        // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
-            Some(height) => height,
-            None => return vec![],
-        };
-        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
-        infos
-            .into_iter()
-            .filter(|i| {
-                i.highest_block_height.saturating_add(self.state.config.highest_peer_horizon)
-                    >= max_height
-            })
-            .collect()
+        keep_peers_at_or_above_median_height_minus_horizon(
+            infos,
+            self.state.config.highest_peer_horizon,
+        )
     }
 
     // Get peers that are potentially unreliable and we should avoid routing messages through them.

@@ -4,6 +4,7 @@ use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::AnnounceAccountRequest;
 use crate::client::ClientSenderForNetwork;
+use crate::client::SetNetworkInfo;
 use crate::client::StatePartOrHeader;
 use crate::client::StateRequestPart;
 use crate::config;
@@ -26,14 +27,15 @@ use crate::tcp;
 use crate::test_utils;
 use crate::types::StateRequestSenderForNetwork;
 use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
-    ReasonForBan,
+    AccountKeys, ChainInfo, KnownPeerStatus, NetworkInfo, NetworkRequests,
+    PeerManagerMessageRequest, ReasonForBan,
 };
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
     AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::state_sync::ShardStateSyncResponseV2;
@@ -98,6 +100,7 @@ impl Handler<WithStateAndTransport> for PeerManagerActor {
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
+    pub network_info: broadcast::Receiver<NetworkInfo>,
     pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
     pub tcp: Arc<TcpTransport>,
@@ -600,7 +603,11 @@ pub(crate) async fn start(
     let genesis_id = chain.genesis_id.clone();
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
+    let (network_info_send, network_info_recv) = broadcast::unbounded_channel::<NetworkInfo>();
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
+    client_sender.network_info = AsyncSender::from_fn(move |msg: SpanWrapped<SetNetworkInfo>| {
+        network_info_send.send(msg.span_unwrap().0)
+    });
     client_sender.announce_account = AsyncSender::from_fn(move |msg: AnnounceAccountRequest| {
         // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
         // of the test code.
@@ -639,7 +646,14 @@ pub(crate) async fn start(
     )
     .unwrap();
     let actor = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
+    let h = ActorHandler {
+        cfg,
+        actor,
+        events: recv.clone(),
+        network_info: network_info_recv,
+        actor_system,
+        tcp,
+    };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::ServerStarted => Some(()),

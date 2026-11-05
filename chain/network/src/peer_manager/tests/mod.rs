@@ -1,6 +1,7 @@
 mod accounts_data;
 mod connection_pool;
 mod fuzzers;
+mod highest_height_peers;
 mod nonce;
 mod routing;
 mod snapshot_hosts;

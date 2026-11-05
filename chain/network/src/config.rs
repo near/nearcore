@@ -196,9 +196,8 @@ pub struct NetworkConfig {
     pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Height horizon for highest height peers
-    /// For example if one peer is 1 height away from max height peer,
-    /// we still want to use the rest to query for state/headers/blocks.
+    /// Peers advertising at least `median - highest_peer_horizon` are asked for
+    /// state, headers and blocks.
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
