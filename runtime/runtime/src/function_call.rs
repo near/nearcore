@@ -1,5 +1,6 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
+use crate::contract_compilation_status::record_contract_compilation;
 use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
@@ -93,6 +94,23 @@ pub(crate) fn action_function_call(
             let contract =
                 preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
+            if ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+            {
+                if let Some(code_len) = contract_id.resolve_code_len(
+                    runtime_ext.trie_update,
+                    AccessOptions::DEFAULT,
+                    &epoch_info_provider.chain_id(),
+                    apply_state.current_protocol_version,
+                )? {
+                    record_contract_compilation(
+                        runtime_ext.trie_update,
+                        apply_state,
+                        contract_id.hash(),
+                        code_len,
+                    )?;
+                }
+            }
 
             execute_function_call(
                 contract,

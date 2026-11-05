@@ -204,6 +204,7 @@ impl<'c> EstimatorContext<'c> {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
             save_receipt_to_tx: false,

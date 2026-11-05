@@ -222,6 +222,8 @@ pub enum StateChangeCause {
     _UnusedReshardingV2 = 10,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate = 11,
+    /// Persist compilation attempts independently of receipt success or cache eviction.
+    ContractCompilationStatusUpdate = 12,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -432,6 +434,7 @@ impl StateChanges {
                 TrieKey::GlobalContractCode { .. } => {}
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
+                TrieKey::ContractCompilationStatus { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
                 TrieKey::YieldIdToDataId { .. } => {}
                 TrieKey::DataIdToYieldId { .. } => {}
@@ -1496,6 +1499,16 @@ impl SpiceUncertifiedChunkInfo {
     ) -> impl Iterator<Item = &(AccountId, SpiceStoredVerifiedEndorsement)> {
         self.present_endorsements.iter().chain(&self.present_fallback_endorsements)
     }
+}
+
+/// Consensus compilation status for a code hash and VM generation, independent of local caches.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, ProtocolSchema)]
+#[repr(u8)]
+#[borsh(use_discriminant = true)]
+pub enum ContractCompilationStatus {
+    /// The contract has reached deterministic compilation for this VM generation.
+    Cached { vm_generation: VmGeneration } = 0,
+    // TODO(async-compilation): add pending, accepted, and rejected attestation states.
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing

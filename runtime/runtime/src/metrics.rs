@@ -426,6 +426,16 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: LazyLock<HistogramVec> = Laz
     )
     .unwrap()
 });
+pub static CHUNK_COLD_CONTRACT_BYTES: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_cold_contract_bytes",
+        "cold code bytes touched in a chunk",
+        &["shard_id"],
+        Some(buckets_for_chunk_cold_contract_bytes()),
+    )
+    .unwrap()
+});
+
 pub static CHUNK_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size",
@@ -645,6 +655,11 @@ fn buckets_for_recorded_trie_column_size() -> Vec<f64> {
     // Coarse buckets for the larger values
     buckets.extend(linear_buckets(1_000_000., 500_000., 15).unwrap());
     buckets
+}
+
+/// Buckets from 0 to 16 MiB in 1 MiB steps.
+fn buckets_for_chunk_cold_contract_bytes() -> Vec<f64> {
+    linear_buckets(0., 1024. * 1024., 17).unwrap()
 }
 
 /// Buckets from 0 to 15.2MB

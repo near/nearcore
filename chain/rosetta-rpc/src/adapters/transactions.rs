@@ -1,3 +1,4 @@
+use crate::errors::ErrorKind;
 use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_account_id::AccountId;
 use near_async::messaging::CanSendAsync;
@@ -221,6 +222,12 @@ fn convert_cause_to_transaction_id(
         StateChangeCauseView::BandwidthSchedulerStateUpdate => {
             Err(crate::errors::ErrorKind::InternalInvariantError(
                 "State Change 'BandwidthSchedulerStateUpdate' should never be observed".to_string(),
+            ))
+        }
+        StateChangeCauseView::ContractCompilationStatusUpdate => {
+            Err(ErrorKind::InternalInvariantError(
+                "State Change 'ContractCompilationStatusUpdate' should never be observed"
+                    .to_string(),
             ))
         }
     }
