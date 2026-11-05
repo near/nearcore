@@ -43,6 +43,7 @@ pub fn random_config() -> RuntimeConfig {
         // invariant `min_gas_purchase_price * create_account.exec >= account_creation_charge`
         // always holds.
         account_creation_charge: Balance::ZERO,
+        max_cold_contract_bytes_per_chunk: rng.next_u64(),
         ..RuntimeConfig::test()
     }
 }
