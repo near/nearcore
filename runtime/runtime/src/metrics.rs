@@ -700,6 +700,12 @@ pub struct ApplyMetrics {
 }
 
 impl ApplyMetrics {
+    /// The gas and the compute that the chunk's transactions counted toward the chunk's limits.
+    #[cfg(test)]
+    pub(crate) fn tx_gas_and_compute(&self) -> (u64, u64) {
+        (self.tx_gas, self.tx_compute_usage)
+    }
+
     /// Updates the internal accumulated counters and returns the difference to
     /// the old counters.
     fn update_accumulated(&mut self, gas: u64, compute: u64) -> (u64, u64) {

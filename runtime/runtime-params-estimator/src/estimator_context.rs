@@ -193,7 +193,6 @@ impl<'c> EstimatorContext<'c> {
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
-            prev_block_hash: Default::default(),
             shard_id,
             epoch_id: Default::default(),
             epoch_height: 0,
@@ -201,6 +200,7 @@ impl<'c> EstimatorContext<'c> {
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             next_wasm_config: None,

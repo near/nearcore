@@ -1275,7 +1275,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -1283,6 +1282,7 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
+            prev_block: Default::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,

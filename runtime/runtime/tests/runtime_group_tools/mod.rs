@@ -105,7 +105,6 @@ impl StandaloneRuntime {
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
-            prev_block_hash: Default::default(),
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
@@ -113,6 +112,7 @@ impl StandaloneRuntime {
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             next_wasm_config: None,

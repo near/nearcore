@@ -1,4 +1,3 @@
-use crate::ApplyState;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
@@ -6,6 +5,7 @@ use crate::contract_preparation::{
 use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, function_call_context};
 use crate::receipt_manager::ReceiptManager;
+use crate::{ApplyState, PrevBlockContext};
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -451,8 +451,6 @@ impl TrieViewer {
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::ViewTrackedShard,
             block_height: view_state.block_height,
-            // Used for legacy reasons
-            prev_block_hash: view_state.prev_block_hash,
             shard_id: view_state.shard_id,
             epoch_id: view_state.epoch_id,
             epoch_height: view_state.epoch_height,
@@ -460,6 +458,8 @@ impl TrieViewer {
             block_timestamp: view_state.block_timestamp,
             gas_limit: None,
             random_seed: root,
+            // Used for legacy reasons
+            prev_block: PrevBlockContext { hash: view_state.prev_block_hash, ..Default::default() },
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
             next_wasm_config: None,
@@ -495,7 +495,8 @@ impl TrieViewer {
             contract_id,
             &account,
             &state_update,
-            &function_call,
+            &function_call.method_name,
+            function_call.gas,
             &execution_mode,
             AccessOptions::DEFAULT,
             apply_state.current_protocol_version,

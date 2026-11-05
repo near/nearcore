@@ -112,7 +112,7 @@ pub fn run_bandwidth_scheduler(
         &params,
         &apply_state.bandwidth_requests,
         &shards_status,
-        apply_state.prev_block_hash.0,
+        apply_state.prev_block.hash.0,
     );
 
     stats.granted_bandwidth = granted_bandwidth.granted.clone();

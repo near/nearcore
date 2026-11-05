@@ -190,6 +190,8 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_timestamp,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
