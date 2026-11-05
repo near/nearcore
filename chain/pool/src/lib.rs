@@ -1,9 +1,11 @@
 use crate::grouped_pool::{GroupedPool, GroupedPoolIterator, PoolMetrics};
-use crate::types::{PooledGroup, TransactionGroup, TransactionGroupIterator};
+use crate::types::{EccGroup, PooledGroup, TransactionGroup, TransactionGroupIterator};
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{
     TransactionEnvelope, ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
+use std::cmp::{max, min};
 
 mod ecc;
 mod grouped_pool;
@@ -12,10 +14,9 @@ mod metrics;
 mod signed;
 pub mod types;
 
-/// ECCs may fill at most `1 / ECC_SIZE_SHARE_DIVISOR` of the pool size limit. It is a placeholder
-/// until the real share is picked.
-// TODO(ecc): consider making this configurable
-const ECC_SIZE_SHARE_DIVISOR: u64 = 2;
+/// The default share of the pool size limit that ECCs may fill. Kept in sync with
+/// `default_ecc_pool_size_share` in `near-chain-configs`.
+pub const DEFAULT_ECC_SIZE_SHARE: Rational32 = Rational32::new_raw(1, 10);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InsertTransactionResult {
@@ -37,9 +38,16 @@ struct PoolLimits {
 }
 
 impl PoolLimits {
-    fn new(total_transaction_size_limit: Option<u64>) -> Self {
-        let ecc_share_limit =
-            total_transaction_size_limit.map(|limit| limit / ECC_SIZE_SHARE_DIVISOR);
+    /// The ECCs may fill `ecc_size_share` of the total, from nothing to all of it.
+    fn new(total_transaction_size_limit: Option<u64>, ecc_size_share: Rational32) -> Self {
+        let denom = *ecc_size_share.denom();
+        let numer = max(0, min(*ecc_size_share.numer(), denom));
+        let ecc_share_limit = match total_transaction_size_limit {
+            Some(limit) => Some((u128::from(limit) * numer as u128 / denom as u128) as u64),
+            // The size of the pool is not limited, but a share of nothing still keeps ECCs out.
+            None if numer == 0 => Some(0),
+            None => None,
+        };
         Self { total_transaction_size_limit, ecc_share_limit }
     }
 }
@@ -82,8 +90,16 @@ impl TransactionPool {
         Self {
             signed: GroupedPool::new(key_seed, signed_metrics),
             eccs: GroupedPool::new(key_seed, ecc_metrics),
-            limits: PoolLimits::new(total_transaction_size_limit),
+            limits: PoolLimits::new(total_transaction_size_limit, DEFAULT_ECC_SIZE_SHARE),
         }
+    }
+
+    /// Sets the share of the pool size limit that ECCs may fill. It is `DEFAULT_ECC_SIZE_SHARE`
+    /// unless set, and 0 keeps ECCs out of the pool.
+    pub fn with_ecc_size_share(mut self, ecc_size_share: Rational32) -> Self {
+        let total_transaction_size_limit = self.limits.total_transaction_size_limit;
+        self.limits = PoolLimits::new(total_transaction_size_limit, ecc_size_share);
+        self
     }
 
     /// The most the signed transactions may take: what the ECCs leave of the total.
@@ -219,16 +235,11 @@ impl TransactionPool {
 /// It implements `TransactionGroupIterator` trait that iterates over transaction groups one by one.
 /// When the wrapper is dropped the remaining transactions are returned back to the pool.
 ///
-/// Groups of signed transactions and groups of ECCs alternate. If one kind runs out,
-/// the other one goes on. `next_signed` takes the signed ones only.
+/// Groups of signed transactions come first, and groups of ECCs after them. `next_signed` takes
+/// the signed ones only, and `next_ecc` the ECCs only.
 pub struct PoolIteratorWrapper<'a> {
     signed: GroupedPoolIterator<'a, ValidatedTransaction>,
     eccs: GroupedPoolIterator<'a, ValidatedEcc>,
-    /// Whether the next group is taken from the signed transactions first.
-    // TODO(ecc): take the groups of the two kinds in the ratio of the ECCs' share of a chunk's
-    // transaction bytes (`ExternalCallsConfig::chunk_transactions_size_share`). Alternating fits
-    // a share of half, far more than the ECCs get.
-    signed_turn: bool,
 }
 
 impl<'a> PoolIteratorWrapper<'a> {
@@ -236,7 +247,6 @@ impl<'a> PoolIteratorWrapper<'a> {
         Self {
             signed: GroupedPoolIterator::new(&mut pool.signed),
             eccs: GroupedPoolIterator::new(&mut pool.eccs),
-            signed_turn: true,
         }
     }
 
@@ -266,16 +276,13 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
         self.signed.next()
     }
 
+    fn next_ecc(&mut self) -> Option<&mut EccGroup> {
+        self.eccs.next()
+    }
+
     fn next(&mut self) -> Option<PooledGroup<'_>> {
-        let signed_turn = self.signed_turn;
-        self.signed_turn = !signed_turn;
-        if signed_turn {
-            let signed = self.signed.next().map(PooledGroup::Signed);
-            signed.or_else(|| self.eccs.next().map(PooledGroup::Ecc))
-        } else {
-            let ecc = self.eccs.next().map(PooledGroup::Ecc);
-            ecc.or_else(|| self.signed.next().map(PooledGroup::Signed))
-        }
+        let signed = self.signed.next().map(PooledGroup::Signed);
+        signed.or_else(|| self.eccs.next().map(PooledGroup::Ecc))
     }
 }
 
@@ -1126,9 +1133,9 @@ mod tests {
         });
     }
 
-    /// Groups of the two kinds alternate, and when one kind runs out the other one goes on.
+    /// Groups of signed transactions all come before the groups of ECCs.
     #[test]
-    fn test_groups_of_the_two_kinds_alternate() {
+    fn test_signed_groups_come_before_ecc_groups() {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
         for signer_id in ["alice.near", "bob.near"] {
             insert_all(&mut pool, signed_txs(signer_id, 1, 2));
@@ -1140,7 +1147,7 @@ mod tests {
         let groups = drain(&mut pool);
 
         let kinds = groups.iter().map(is_signed).collect::<Vec<_>>();
-        assert_eq!(kinds, vec![true, false, true, false, false, false]);
+        assert_eq!(kinds, vec![true, true, false, false, false, false]);
         assert!(groups.iter().all(|group| match group {
             Drained::Signed(nonces) => *nonces == [1, 2],
             Drained::Eccs(tags) => *tags == [1, 2],
@@ -1184,9 +1191,7 @@ mod tests {
         let size = pool.transaction_size();
 
         let mut iter = pool.pool_iterator();
-        // A signed group first, then an ECC one.
         assert!(matches!(iter.next(), Some(PooledGroup::Signed(_))));
-        assert!(matches!(iter.next(), Some(PooledGroup::Ecc(_))));
         let mut signed_groups = 0;
         while iter.next_signed().is_some() {
             signed_groups += 1;
@@ -1197,6 +1202,31 @@ mod tests {
 
         assert_eq!(pool.len(), 12);
         assert_eq!(pool.transaction_size(), size);
+    }
+
+    /// `next_ecc` hands out only groups of ECCs, in whatever state the signed groups are.
+    #[test]
+    fn test_next_ecc_leaves_signed_transactions_alone() {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for signer_id in ["alice.near", "bob.near"] {
+            insert_all(&mut pool, signed_txs(signer_id, 1, 2));
+        }
+        for contract_id in ["a.near", "b.near", "c.near"] {
+            insert_all(&mut pool, (1..=2).map(|tag| ecc(contract_id, tag, 8)));
+        }
+        let size = pool.transaction_size();
+
+        let mut iter = pool.pool_iterator();
+        let mut ecc_groups = 0;
+        while iter.next_ecc().is_some() {
+            ecc_groups += 1;
+        }
+        assert_eq!(ecc_groups, 3);
+        drop(iter);
+
+        assert_eq!(pool.len(), 10);
+        assert_eq!(pool.transaction_size(), size);
+        assert_eq!(drain(&mut pool).iter().filter(|group| is_signed(group)).count(), 2);
     }
 
     #[test]
@@ -1215,7 +1245,8 @@ mod tests {
     fn test_ecc_size_limit() {
         let ecc_size = ecc("a.near", 0, 1000).get_size();
         // The share of ECCs is half of the limit, so 3 ECCs fit.
-        let mut pool = TransactionPool::new(TEST_SEED, Some(6 * ecc_size), "");
+        let mut pool = TransactionPool::new(TEST_SEED, Some(6 * ecc_size), "")
+            .with_ecc_size_share(Rational32::new(1, 2));
         let eccs = (1..=3).map(|tag| ecc("a.near", tag, 1000)).collect::<Vec<_>>();
         insert_all(&mut pool, eccs.clone());
         let size = pool.transaction_size();
@@ -1233,6 +1264,52 @@ mod tests {
 
         pool.remove_transactions(&[to_envelope(&eccs[0])]);
         assert_eq!(pool.insert_transaction(refused), InsertTransactionResult::Success);
+    }
+
+    /// The share of the pool for ECCs is a tenth unless set.
+    #[test]
+    fn test_default_ecc_share() {
+        let ecc_size = ecc("a.near", 0, 1000).get_size();
+        let mut pool = TransactionPool::new(TEST_SEED, Some(25 * ecc_size), "");
+        let eccs = (1..=3).map(|tag| ecc("a.near", tag, 1000)).collect::<Vec<_>>();
+        insert_all(&mut pool, eccs[..2].to_vec());
+        assert_eq!(pool.insert_transaction(eccs[2].clone()), InsertTransactionResult::NoSpaceLeft);
+        assert_eq!(pool.ecc_size(), 2 * ecc_size);
+    }
+
+    /// With no share, the pool refuses every ECC and takes signed transactions as before, whether
+    /// or not its size is limited.
+    #[test]
+    fn test_zero_ecc_share_refuses_every_ecc() {
+        let cases = [Some(1_000_000), None]
+            .into_iter()
+            .flat_map(|limit| [(limit, Rational32::new(0, 1)), (limit, Rational32::new(-1, 2))]);
+        for (limit, share) in cases {
+            let mut pool = TransactionPool::new(TEST_SEED, limit, "").with_ecc_size_share(share);
+            assert_eq!(
+                pool.insert_transaction(ecc("a.near", 1, 8)),
+                InsertTransactionResult::NoSpaceLeft
+            );
+            assert_eq!(pool.reintroduce_transactions([ecc("a.near", 1, 8)]), 0);
+            insert_all(&mut pool, signed_txs("alice.near", 1, 2));
+            assert_eq!(pool.len(), 2);
+            assert_eq!(pool.ecc_size(), 0);
+        }
+    }
+
+    /// A share of the whole pool, or more, leaves ECCs only the room the signed transactions leave.
+    #[test]
+    fn test_full_ecc_share_is_limited_by_the_pool() {
+        let ecc_size = ecc("a.near", 0, 1000).get_size();
+        for share in [Rational32::new(1, 1), Rational32::new(3, 2)] {
+            let mut pool =
+                TransactionPool::new(TEST_SEED, Some(2 * ecc_size), "").with_ecc_size_share(share);
+            insert_all(&mut pool, [ecc("a.near", 1, 1000), ecc("a.near", 2, 1000)]);
+            assert_eq!(
+                pool.insert_transaction(ecc("a.near", 3, 1000)),
+                InsertTransactionResult::NoSpaceLeft
+            );
+        }
     }
 
     /// The share is a cap, not a reservation: a pool full of signed transactions refuses ECCs
@@ -1273,7 +1350,8 @@ mod tests {
         let transactions = signed_txs("alice.near", 1, 1);
         let first_ecc = ecc("a.near", 1, 8);
         let total_size = transactions[0].wire_size() + first_ecc.get_size();
-        let mut pool = TransactionPool::new(TEST_SEED, Some(total_size), "");
+        let mut pool = TransactionPool::new(TEST_SEED, Some(total_size), "")
+            .with_ecc_size_share(Rational32::new(1, 1));
         insert_all(&mut pool, transactions.clone());
         insert_all(&mut pool, [first_ecc.clone()]);
 
