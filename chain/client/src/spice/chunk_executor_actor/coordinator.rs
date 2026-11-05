@@ -2,7 +2,9 @@
 //! upstream events to the per-shard executors, and runs the disk-driven
 //! execution-head advance / block postprocessing.
 
-use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
+use super::per_shard::{
+    PerShardChunkExecutor, PerShardDeps, is_catching_up, is_descendant_of_final_execution_head,
+};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
@@ -25,6 +27,7 @@ use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
 };
 use near_primitives::block::Block;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::{NumBlocks, ShardId, SpiceChunkId};
@@ -242,9 +245,9 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Route a processed block: reconcile the tracked-shard set, then hand the
-    /// block to every tracked shard's executor (each drains its own receipt
-    /// buffer for the parent block).
+    /// Route a processed block: reconcile the tracked-shard set, hand the block to
+    /// every tracked shard's executor (each drains its own receipt buffer for the
+    /// parent block), and park again the blocks of a shard caught up since.
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         // A block from a pre-spice epoch was already executed synchronously as part
@@ -260,11 +263,101 @@ impl ChunkExecutorActor {
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
+        if let Err(err) = self.replay_caught_up_shards(block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
+        }
         // A node tracking zero shards schedules no applies, so the apply-done
         // postprocess trigger never fires; postprocess the block here instead.
         if self.all_tracked_shards_applied(block_hash)? {
             self.postprocess_block(block_hash)?;
         }
+        Ok(())
+    }
+
+    /// Parks again the canonical blocks after the sync block, up to the final execution head, in
+    /// the executor of each shard this node has caught up for the next epoch.
+    fn replay_caught_up_shards(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let sync_hash = *self.epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+        if sync_hash == CryptoHash::default() {
+            return Ok(());
+        }
+        let sync_header = self.chain_store.get_block_header(&sync_hash)?;
+        self.replay_caught_up_shards_from(&sync_header)?;
+        if sync_header.is_genesis() {
+            return Ok(());
+        }
+        let prev_sync_hash =
+            *self.epoch_manager.get_block_info(sync_header.prev_hash())?.epoch_first_block();
+        if prev_sync_hash == CryptoHash::default() {
+            return Ok(());
+        }
+        let prev_sync_header = self.chain_store.get_block_header(&prev_sync_hash)?;
+        self.replay_caught_up_shards_from(&prev_sync_header)
+    }
+
+    fn replay_caught_up_shards_from(&mut self, sync_header: &BlockHeader) -> Result<(), Error> {
+        let sync_hash = *sync_header.hash();
+        if sync_header.is_genesis() || !sync_header.is_spice() {
+            // No catchup syncs at genesis, and a pre-spice catchup applies the shard in block
+            // processing.
+            return Ok(());
+        }
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        if final_execution_head.height <= sync_header.height() {
+            // Every block after the sync block is after the final execution head too.
+            return Ok(());
+        }
+
+        let chunk_store = self.chain_store.chunk_store();
+        for (shard_uid, executor) in &mut self.per_shard_executors {
+            // Skip a shard already replayed for this sync block, one tracked in the sync block's
+            // epoch, which is applied block by block, and one that has applied the final
+            // execution head already.
+            if executor.replayed_after_sync_block == Some(sync_hash)
+                || self
+                    .shard_tracker
+                    .cares_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
+                || found(
+                    chunk_store.get_chunk_extra(&final_execution_head.last_block_hash, shard_uid),
+                )?
+                .is_some()
+            {
+                continue;
+            }
+
+            // State sync writes the chunk extra at the sync block last, after the shard's state,
+            // flat storage and memtrie, but the shard is only caught up once its catchup is done.
+            if found(chunk_store.get_chunk_extra(&sync_hash, shard_uid))?.is_none()
+                || is_catching_up(
+                    &self.chain_store,
+                    self.epoch_manager.as_ref(),
+                    sync_header,
+                    shard_uid.shard_id(),
+                )?
+            {
+                continue;
+            }
+
+            let mut block_hash = sync_hash;
+            while block_hash != final_execution_head.last_block_hash {
+                let Some(next) = found(self.chain_store.get_next_block_hash(&block_hash))? else {
+                    break;
+                };
+                let Some(header) = found(self.chain_store.get_block_header(&next))? else {
+                    break;
+                };
+                if header.height() > final_execution_head.height {
+                    break;
+                }
+
+                executor.park_block(&header);
+                block_hash = next;
+            }
+
+            executor.replayed_after_sync_block = Some(sync_hash);
+            executor.try_apply_pending();
+        }
+
         Ok(())
     }
 
@@ -304,6 +397,13 @@ impl ChunkExecutorActor {
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
         self.try_progress_receiving_shards(outgoing_proofs);
+        // A shard caught up for the next epoch also applies blocks at or below the final
+        // execution head. Those were postprocessed once this epoch's shards applied them, and
+        // postprocessing one again would move the execution head metric back.
+        let header = self.chain_store.get_block_header(block_hash)?;
+        if !is_descendant_of_final_execution_head(&self.chain_store, &header) {
+            return Ok(());
+        }
         // Each tracked shard's apply-done lands here; postprocess the block once all
         // of them are applied. `postprocess_block` is idempotent, so being driven here
         // repeatedly is harmless.
@@ -368,8 +468,8 @@ impl ChunkExecutorActor {
             &self.chain_store,
             &block,
         )?;
-        // The final execution head may have advanced; drop receipts buffered
-        // against source blocks at or below it — they can never be applied.
+        // The final execution head may have advanced; drop receipts buffered against source
+        // blocks at or below it.
         for executor in self.per_shard_executors.values_mut() {
             executor.prune_unverified_receipts_below_final_head()?;
         }
@@ -513,6 +613,15 @@ impl ChunkExecutorActor {
     }
 
     #[cfg(test)]
+    pub fn parked_blocks(&self, shard_id: ShardId) -> Vec<CryptoHash> {
+        self.per_shard_executors
+            .iter()
+            .filter(|(shard_uid, _)| shard_uid.shard_id() == shard_id)
+            .flat_map(|(_, executor)| executor.parked_block_hashes())
+            .collect()
+    }
+
+    #[cfg(test)]
     pub fn pending_receipts_count(&self) -> usize {
         // Sum across per-shard trackers. Matches the old coordinator-side count
         // under a single-shard regime; may overcount under multi-shard since each
@@ -621,5 +730,15 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
         if let Err(err) = self.coordinator_post_apply(&block_hash, &outgoing_proofs) {
             tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
         }
+    }
+}
+
+/// The value a store read returns, or `None` when it is not stored, so that a caller can tell a
+/// missing value apart from a failed read.
+fn found<T>(result: Result<T, Error>) -> Result<Option<T>, Error> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(Error::DBNotFoundErr(_)) => Ok(None),
+        Err(err) => Err(err),
     }
 }
