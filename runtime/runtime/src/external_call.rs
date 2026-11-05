@@ -228,6 +228,9 @@ fn external_call_context(
         refund_to_account_id: contract_id.clone(),
         input: Rc::from(ecc.payload()),
         promise_results: [].into(),
+        // TODO(spice): double check the context before Spice lands.
+        // Under Spice the producer reads the last certified block's
+        // state while this context is the parent's.
         block_height: apply_state.prev_block.height,
         block_timestamp: apply_state.prev_block.timestamp,
         epoch_height: apply_state.prev_block.epoch_height,
