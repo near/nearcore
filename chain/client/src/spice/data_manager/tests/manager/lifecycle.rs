@@ -532,3 +532,86 @@ fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pullin
     }
     assert!(!manager.is_pullable(&done));
 }
+
+/// A shard tracked only next epoch, and not the epoch before, is caught up by state sync at the
+/// epoch's first block. For every block of that epoch the node fetches the receipt proofs the shard
+/// produces: it never applies the shard in the first block, and its executor applies the later
+/// ones only once the catchup is finished, which can lag behind the head. From the next epoch on
+/// the node tracks the shard and produces them itself.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
+    let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=25 {
+        let block = record_block_at(&mut chain, blocks.last().unwrap(), height);
+        blocks.push(block);
+    }
+    let epoch_starts: Vec<&Arc<Block>> = blocks
+        .iter()
+        .filter(|block| {
+            block.header().height() > 1
+                && chain
+                    .epoch_manager
+                    .is_next_block_epoch_start(block.header().prev_hash())
+                    .unwrap()
+        })
+        .collect();
+    let [sync_block, next_epoch_start, ..] = epoch_starts[..] else {
+        panic!("the chain crosses two epoch boundaries");
+    };
+    let child_of = |parent: &Arc<Block>| {
+        blocks
+            .iter()
+            .find(|block| block.header().prev_hash() == parent.hash())
+            .expect("the chain extends past every epoch start")
+            .clone()
+    };
+    let after_sync = child_of(sync_block);
+    let in_next_epoch = child_of(next_epoch_start);
+    assert_eq!(after_sync.header().epoch_id(), sync_block.header().epoch_id());
+    assert_eq!(in_next_epoch.header().epoch_id(), next_epoch_start.header().epoch_id());
+
+    // Shard 0 in every epoch, shard 1 also in the epoch after the sync block's.
+    let epoch_height =
+        chain.epoch_manager.get_epoch_info(sync_block.header().epoch_id()).unwrap().epoch_height();
+    let mut schedule = vec![vec![ShardId::new(0)]; 3];
+    schedule[((epoch_height + 1) % 3) as usize] = vec![ShardId::new(0), ShardId::new(1)];
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::Schedule(schedule),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+
+    let ids = |block: &Block, pairs: &[(u64, u64)]| -> HashSet<DataId> {
+        pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
+    };
+    let not_applied_here = [(1, 0), (1, 1), (2, 0), (2, 1)];
+    for block in [sync_block, &after_sync] {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            ids(block, &not_applied_here)
+        );
+    }
+    assert_eq!(
+        needed_receipt_ids(&chain, &shard_tracker, &in_next_epoch),
+        ids(&in_next_epoch, &[(2, 0), (2, 1)])
+    );
+}
+
+/// Saves and records a block at `height` on `prev` with the epoch ids the epoch manager expects,
+/// without processing it, so that the chain can cross an epoch boundary.
+fn record_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
+    let epoch_manager = chain.epoch_manager.clone();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let producer = epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
+    let signer = Arc::new(create_test_signer(producer.account_id().as_str()));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev, signer)
+        .height(height)
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
+        .build();
+    save_and_record_block(chain, &block);
+    block
+}
