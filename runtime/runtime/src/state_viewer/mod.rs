@@ -26,7 +26,7 @@ use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
 use near_store::{
-    Trie, TrieAccess as _, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
+    Trie, TrieAccess, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
     get_gas_key_nonce,
 };
 use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
@@ -79,6 +79,24 @@ fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
 /// diverges. Used as the negation of the access-key iterator's prune condition.
 fn nibbles_within_prefix(prefix_nibbles: &[u8], key_nibbles: &[u8]) -> bool {
     prefix_nibbles.starts_with(key_nibbles) || key_nibbles.starts_with(prefix_nibbles)
+}
+
+/// Errors unless `account_id` exists and is initialized.
+fn ensure_initialized(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<(), errors::ViewAccessKeyError> {
+    match get_account(trie, account_id)?.map(|account| account.state()) {
+        None => Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+            requested_account_id: account_id.clone(),
+        }),
+        Some(AccountState::Uninitialized) => {
+            Err(errors::ViewAccessKeyError::UninitializedAccount {
+                requested_account_id: account_id.clone(),
+            })
+        }
+        Some(AccountState::Initialized) => Ok(()),
+    }
 }
 
 pub struct TrieViewer {
@@ -186,21 +204,8 @@ impl TrieViewer {
             return Ok(access_key);
         }
         // Uninitialized accounts hold no keys, so they always miss.
-        match get_account(state_update, account_id)?.map(|account| account.state()) {
-            None => Err(errors::ViewAccessKeyError::AccountDoesNotExist {
-                requested_account_id: account_id.clone(),
-            }),
-            Some(AccountState::Uninitialized) => {
-                Err(errors::ViewAccessKeyError::UninitializedAccount {
-                    requested_account_id: account_id.clone(),
-                })
-            }
-            Some(AccountState::Initialized) => {
-                Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist {
-                    public_key: public_key.clone(),
-                })
-            }
-        }
+        ensure_initialized(state_update, account_id)?;
+        Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() })
     }
 
     /// Lists an account's access keys, optionally paginated.
@@ -295,19 +300,7 @@ impl TrieViewer {
             }
         }
         if keys.is_empty() {
-            match get_account(trie, account_id)?.map(|account| account.state()) {
-                None => {
-                    return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
-                        requested_account_id: account_id.clone(),
-                    });
-                }
-                Some(AccountState::Uninitialized) => {
-                    return Err(errors::ViewAccessKeyError::UninitializedAccount {
-                        requested_account_id: account_id.clone(),
-                    });
-                }
-                Some(AccountState::Initialized) => {}
-            }
+            ensure_initialized(trie, account_id)?;
         }
         Ok((keys, last_key))
     }
