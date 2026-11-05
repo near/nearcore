@@ -1,4 +1,5 @@
 # Dependabot configuration for nearcore.
+# cspell:ignore anthropics
 #
 # Application dependencies receive security updates only. Their entries set
 # `open-pull-requests-limit: 0`, which disables version-update PRs while leaving
