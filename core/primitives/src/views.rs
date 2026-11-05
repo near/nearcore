@@ -2551,9 +2551,11 @@ impl TryFrom<ReceiptView> for Receipt {
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
                     // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there we always create ActionReceiptV2.
-                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views. This will be fixed with #14709.
+                    // created by the runtime - there we always create ActionReceiptV2,
+                    // or ActionReceiptV3 since `PinReceiptFees`. Views don't carry
+                    // `creation_protocol_version`, and ActionReceiptV2 without refund_to
+                    // becomes V1 after a roundtrip through views. This will be fixed with
+                    // #14709.
                     if refund_to.is_some() {
                         let action_receipt = ActionReceiptV2 {
                             signer_id,

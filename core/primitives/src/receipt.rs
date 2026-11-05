@@ -5,6 +5,7 @@ use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ProtocolVersion, ShardId};
+use crate::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
@@ -239,6 +240,7 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
 }
 
 impl Receipt {
+    /// Converts a transaction into a receipt created at `protocol_version`.
     pub fn from_tx(
         receipt_id: CryptoHash,
         tx_signer_id: AccountId,
@@ -246,19 +248,21 @@ impl Receipt {
         signer_public_key: PublicKey,
         gas_price: Balance,
         actions: Vec<Action>,
+        protocol_version: ProtocolVersion,
     ) -> Self {
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            tx_signer_id.clone(),
+            signer_public_key,
+            gas_price,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
-            predecessor_id: tx_signer_id.clone(),
+            predecessor_id: tx_signer_id,
             receiver_id: tx_receiver_id,
             receipt_id,
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx_signer_id,
-                signer_public_key,
-                gas_price,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
+            receipt,
         })
     }
 
@@ -476,6 +480,100 @@ pub enum ReceiptEnum {
     PromiseYieldV2(ActionReceiptV2) = 6,
     ActionV3(ActionReceiptV3) = 7,
     PromiseYieldV3(ActionReceiptV3) = 8,
+}
+
+impl ReceiptEnum {
+    /// Creates the action receipt of a transaction or of the inner actions of a
+    /// meta transaction at `protocol_version`, the current protocol version.
+    ///
+    /// Since `PinReceiptFees` it is an `ActionReceiptV3` that records
+    /// `creation_protocol_version`, before it an `ActionReceipt`.
+    pub fn new_action_receipt(
+        protocol_version: ProtocolVersion,
+        creation_protocol_version: ProtocolVersion,
+        signer_id: AccountId,
+        signer_public_key: PublicKey,
+        gas_price: Balance,
+        actions: Vec<Action>,
+    ) -> Self {
+        if ProtocolFeature::PinReceiptFees.enabled(protocol_version) {
+            let action_receipt = ActionReceiptV3 {
+                signer_id,
+                refund_to: None, // The refunds should go to the predecessor.
+                signer_public_key,
+                gas_price,
+                creation_protocol_version,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            };
+            ReceiptEnum::ActionV3(action_receipt)
+        } else {
+            let action_receipt = ActionReceipt {
+                signer_id,
+                signer_public_key,
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            };
+            ReceiptEnum::Action(action_receipt)
+        }
+    }
+
+    /// Creates the action receipt, or the promise yield receipt if
+    /// `is_promise_yield`, of a promise that a contract created at
+    /// `protocol_version`, the current protocol version.
+    ///
+    /// Since `PinReceiptFees` it is an `ActionReceiptV3` that records
+    /// `protocol_version`, before it an `ActionReceiptV2`. It records the
+    /// current version rather than the version of the transaction that started
+    /// the call chain, because the contract paid the static fees of the receipt
+    /// from attached gas at the current fees.
+    pub fn new_action_receipt_from_promise(
+        protocol_version: ProtocolVersion,
+        signer_id: AccountId,
+        refund_to: Option<AccountId>,
+        signer_public_key: PublicKey,
+        gas_price: Balance,
+        output_data_receivers: Vec<DataReceiver>,
+        input_data_ids: Vec<CryptoHash>,
+        actions: Vec<Action>,
+        is_promise_yield: bool,
+    ) -> Self {
+        if ProtocolFeature::PinReceiptFees.enabled(protocol_version) {
+            let action_receipt = ActionReceiptV3 {
+                signer_id,
+                refund_to,
+                signer_public_key,
+                gas_price,
+                creation_protocol_version: protocol_version,
+                output_data_receivers,
+                input_data_ids,
+                actions,
+            };
+            if is_promise_yield {
+                ReceiptEnum::PromiseYieldV3(action_receipt)
+            } else {
+                ReceiptEnum::ActionV3(action_receipt)
+            }
+        } else {
+            let action_receipt = ActionReceiptV2 {
+                signer_id,
+                refund_to,
+                signer_public_key,
+                gas_price,
+                output_data_receivers,
+                input_data_ids,
+                actions,
+            };
+            if is_promise_yield {
+                ReceiptEnum::PromiseYieldV2(action_receipt)
+            } else {
+                ReceiptEnum::ActionV2(action_receipt)
+            }
+        }
+    }
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
