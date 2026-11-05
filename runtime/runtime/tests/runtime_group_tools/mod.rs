@@ -1,7 +1,7 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
-use near_parameters::ActionCosts;
 use near_parameters::parameter_table::FeeComponent;
+use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::Action;
 use near_primitives::apply::ApplyChunkReason;
@@ -49,12 +49,10 @@ impl StandaloneRuntime {
         self.signer.get_account_id()
     }
 
-    pub fn new(
-        signer: Signer,
-        state_records: &[StateRecord],
-        tries: ShardTries,
-        validators: Vec<AccountInfo>,
-    ) -> Self {
+    /// A random config for a group of runtimes. All runtimes of a group must share
+    /// one config, as all shards of a chain do: a receipt is charged its fees where
+    /// it is created and burns them where it executes.
+    pub fn group_runtime_config() -> RuntimeConfig {
         let mut runtime_config = random_config();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
@@ -66,7 +64,16 @@ impl StandaloneRuntime {
         fees.action_fees[ActionCosts::new_data_receipt_base].execution = FeeComponent::Gas(
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap(),
         );
+        runtime_config
+    }
 
+    pub fn new(
+        signer: Signer,
+        state_records: &[StateRecord],
+        tries: ShardTries,
+        validators: Vec<AccountInfo>,
+        runtime_config: RuntimeConfig,
+    ) -> Self {
         let runtime = Runtime::new();
         let genesis = Genesis::new(
             GenesisConfig {
@@ -306,17 +313,20 @@ impl RuntimeGroup {
                 .push(transaction);
         }
 
+        let runtime_config = StandaloneRuntime::group_runtime_config();
         let mut handles = vec![];
         for signer in &group.signers {
             let signer = signer.clone();
             let state_records = Arc::clone(&group.state_records);
             let validators = group.validators.clone();
+            let runtime_config = runtime_config.clone();
             let runtime_factory = move || {
                 StandaloneRuntime::new(
                     signer,
                     &state_records,
                     TestTriesBuilder::new().build(),
                     validators,
+                    runtime_config,
                 )
             };
             handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
