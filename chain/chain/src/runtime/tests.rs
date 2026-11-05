@@ -1409,7 +1409,8 @@ fn test_delete_account_after_unstake() {
 }
 
 /// An external call in the first chunk of a new epoch sees the chunk's parent block, which is
-/// the last block of the previous epoch: its height and its epoch height.
+/// the last block of the previous epoch: its height, its epoch height, and the validator stakes
+/// of its epoch. The contract's account is a validator whose stake changes at that boundary.
 #[test]
 fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1429,18 +1430,23 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     let mut env = TestEnv::new_with_config(vec![validators.clone()], config);
     let contract_id = validators[0].clone();
     let signer = InMemorySigner::test_signer(&contract_id);
-    // The ECC method returns the block height and the epoch height it sees, in that order.
+    // The ECC method returns the block height, the epoch height and the contract account's
+    // validator stake it sees, in that order.
     let code = near_test_contracts::wat_contract(&format!(
         r#"(module
   (import "env" "block_index" (func $block_index (result i64)))
   (import "env" "epoch_height" (func $epoch_height (result i64)))
+  (import "env" "validator_stake" (func $validator_stake (param i64 i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
   (memory (export "memory") 1)
+  (data (i32.const 100) "{contract_id}")
   (func (export "{ECC_METHOD_NAME}")
     (i64.store (i32.const 0) (call $block_index))
     (i64.store (i32.const 8) (call $epoch_height))
-    (call $value_return (i64.const 16) (i64.const 0)))
-)"#
+    (call $validator_stake (i64.const {account_id_len}) (i64.const 100) (i64.const 16))
+    (call $value_return (i64.const 32) (i64.const 0)))
+)"#,
+        account_id_len = contract_id.len(),
     ));
     let deploy = SignedTransaction::from_actions(
         1,
@@ -1451,7 +1457,10 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
         // runtime does not validate block history
         CryptoHash::default(),
     );
-    env.step_default(vec![deploy]);
+    // A stake proposal takes effect two epochs later, at the boundary the ECC is applied at.
+    let block_producer = create_test_signer(contract_id.as_str());
+    let new_stake = TESTING_INIT_STAKE.checked_mul(2).unwrap().checked_div(3).unwrap();
+    env.step_default(vec![deploy, stake(2, &signer, &block_producer, new_stake)]);
     // The epoch height doesn't change at the first epoch boundary after genesis, so step to the
     // end of the epoch after it.
     for _ in 0..2 {
@@ -1467,6 +1476,13 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
         env.epoch_manager.get_epoch_info(&parent_epoch_id).unwrap().epoch_height();
     let chunk_epoch_height = env.epoch_manager.get_epoch_height_from_prev_block(&parent).unwrap();
     assert_ne!(chunk_epoch_height, parent_epoch_height);
+    let chunk_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&parent).unwrap();
+    let stake_in = |epoch_id| {
+        env.epoch_manager.get_validator_by_account_id(epoch_id, &contract_id).unwrap().stake()
+    };
+    let parent_stake = stake_in(&parent_epoch_id);
+    assert_eq!(parent_stake, TESTING_INIT_STAKE);
+    assert_eq!(stake_in(&chunk_epoch_id), new_stake);
 
     let ecc = EccTransaction::new(contract_id, vec![]);
     let apply_result = env.apply_new_chunk(ShardId::new(0), vec![ecc], &[]);
@@ -1475,6 +1491,7 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     };
     let mut seen = env.head.height.to_le_bytes().to_vec();
     seen.extend(parent_epoch_height.to_le_bytes());
+    seen.extend(parent_stake.as_yoctonear().to_le_bytes());
     assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(seen));
 }
 
