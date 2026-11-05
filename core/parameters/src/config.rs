@@ -101,7 +101,7 @@ impl RuntimeConfig {
     /// `max_gas_burnt_external`, the most a run of it may burn, and all of them together may count
     /// for half of the chunk's gas limit. It is zero before ECCs, when nothing may be burnt.
     pub fn max_eccs_per_chunk(&self, chunk_gas_limit: Gas) -> u64 {
-        // TODO(ecc): replace with the real share once it is picked
+        // TODO(ecc): replace with the shares of #16719
         const ECC_CHUNK_GAS_SHARE_DIVISOR: u64 = 2;
         let ecc_gas = self.wasm_config.limit_config.max_gas_burnt_external.as_gas();
         let ecc_budget = chunk_gas_limit.as_gas() / ECC_CHUNK_GAS_SHARE_DIVISOR;
@@ -333,6 +333,7 @@ mod tests {
     use crate::RuntimeConfigStore;
     use near_primitives_core::version::ProtocolFeature;
 
+    // TODO(ecc): remove with #16719, which replaces this limit with other shares
     #[test]
     fn test_max_eccs_per_chunk() {
         let store = RuntimeConfigStore::new();

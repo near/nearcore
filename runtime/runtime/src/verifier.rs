@@ -357,7 +357,7 @@ pub fn get_signer_and_authorization(
 
 /// Whether the account exists and holds a contract, which an ECC to it needs. An ECC to any
 /// other account has nothing to run, so nobody should spend resources on it.
-// TODO(ecc): also check that the contract exports the reserved method, once there is one
+// TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
 pub fn account_holds_contract(
     state_update: &dyn TrieAccess,
     account_id: &AccountId,

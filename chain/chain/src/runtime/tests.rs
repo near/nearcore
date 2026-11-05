@@ -1832,7 +1832,8 @@ fn prepare_eccs(
 ) -> (PreparedTransactions, SkippedTransactions) {
     let change_context =
         |context: &mut PrepareTransactionsBlockContext| context.gas_limit = gas_limit;
-    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, with_contract, change_context)
+    let change_state = give_contracts(with_contract);
+    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, change_context)
 }
 
 fn prepare_eccs_with_context(
@@ -1840,7 +1841,7 @@ fn prepare_eccs_with_context(
     chain: &Chain,
     pool: &mut TransactionPool,
     skip_tx_hashes: HashSet<CryptoHash>,
-    with_contract: &[&str],
+    change_state: impl FnOnce(&mut TrieUpdate),
     change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
 ) -> (PreparedTransactions, SkippedTransactions) {
     prepare_transactions_extra_in_state(
@@ -1852,20 +1853,32 @@ fn prepare_eccs_with_context(
         &mut PendingTxCheckResult::always_admit(),
         None,
         default_produce_chunk_add_transactions_time_limit(),
-        give_contracts(with_contract),
+        change_state,
         change_context,
     )
     .unwrap()
 }
 
-/// A change of the state that gives the accounts a contract.
+/// A change of the state that gives the accounts a local contract.
 fn give_contracts(account_ids: &[&str]) -> impl FnOnce(&mut TrieUpdate) + use<> {
-    let account_ids = account_ids.iter().map(|id| id.parse::<AccountId>().unwrap()).collect_vec();
+    let code_hash = CryptoHash::hash_bytes(b"code");
+    let contracts =
+        account_ids.iter().map(|id| (*id, AccountContract::Local(code_hash))).collect_vec();
+    give_account_contracts(contracts)
+}
+
+/// A change of the state that gives each account its contract.
+fn give_account_contracts(
+    contracts: Vec<(&str, AccountContract)>,
+) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let contracts = contracts
+        .into_iter()
+        .map(|(account_id, contract)| (account_id.parse::<AccountId>().unwrap(), contract))
+        .collect_vec();
     move |state_update| {
-        for account_id in account_ids {
+        for (account_id, contract) in contracts {
             let mut account = get_account(state_update, &account_id).unwrap().unwrap();
-            let code_hash = CryptoHash::hash_bytes(b"code");
-            account.set_contract(AccountContract::Local(code_hash)).unwrap();
+            account.set_contract(contract).unwrap();
             set_account(state_update, account_id, &account);
         }
     }
@@ -2138,6 +2151,36 @@ fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
     assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 
+/// ECCs to accounts that use a global contract, by hash or by the account that deployed it, are
+/// packed like the ones to accounts with a local contract.
+#[test]
+fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+    let gas_limit = env.runtime.genesis_config.gas_limit;
+    let by_hash = AccountContract::Global(CryptoHash::hash_bytes(b"code"));
+    let by_account = AccountContract::GlobalByAccount("deployer.near".parse().unwrap());
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]),
+        |context| context.gas_limit = gas_limit,
+    );
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![("test1".to_string(), 1), ("test2".to_string(), 1)]
+    );
+    assert!(skipped.0.is_empty());
+}
+
 /// An ECC that went into the previous chunk, which is not in a block yet, is not packed again.
 /// The producer takes the next one, and the pool gets back both in the order they came.
 #[test]
@@ -2163,9 +2206,8 @@ fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 2)]);
     assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![in_previous_chunk]);
     assert_eq!(pool.len(), 1);
-    // Put back the way the producer does: the prepared ones, then the skipped ones.
-    pool.reintroduce_transactions(prepared.transactions);
-    pool.reintroduce_transactions(skipped.0);
+    // Put back the way the producer does.
+    pool.reintroduce_prepared(prepared.transactions, skipped.0);
     assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![1, 2, 3])]);
 }
 
@@ -2209,10 +2251,14 @@ fn test_prepare_transactions_drops_eccs_to_a_congested_shard() {
         [(shard_id, ExtendedCongestionInfo::new(full_congestion, 0))].into(),
     );
 
-    let (prepared, skipped) =
-        prepare_eccs_with_context(&env, &chain, &mut pool, HashSet::new(), &["test1"], |context| {
-            context.congestion_info = congested
-        });
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts(&["test1"]),
+        |context| context.congestion_info = congested,
+    );
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert!(skipped.0.is_empty());

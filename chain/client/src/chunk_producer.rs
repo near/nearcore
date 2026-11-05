@@ -590,16 +590,13 @@ impl ChunkProducer {
                 (PreparedTransactions::new(), Vec::new())
             };
         // Reintroduce valid transactions back to the pool. They will be removed
-        // when the chunk is included into the block.
-        // The skipped transactions go back second, so they end up ahead of the prepared ones.
-        // That keeps the arrival order of ECCs: in a group, the skipped ones were taken before
-        // the prepared one.
-        let reintroduced_count = pool_guard
-            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-        // Reintroduce skipped transactions (from pending transaction queue constraints) back to pool.
-        if !skipped_transactions.is_empty() {
-            pool_guard.reintroduce_transactions(shard_uid, skipped_transactions);
-        }
+        // when the chunk is included into the block. The skipped ones (from pending transaction
+        // queue constraints, or ECCs that came before the packed one) go back as well.
+        let reintroduced_count = pool_guard.reintroduce_prepared(
+            shard_uid,
+            prepared_transactions.transactions.clone(),
+            skipped_transactions,
+        );
 
         if reintroduced_count < prepared_transactions.transactions.len() {
             tracing::debug!(

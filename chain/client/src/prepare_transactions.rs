@@ -159,11 +159,11 @@ impl PrepareTransactionsJob {
                 // Allow `take_result` to proceed before we reintroduce transactions. The
                 // transaction pools are still locked so there is no risk of inconsistent data.
                 drop(state);
-                // The skipped transactions go back second, so they end up ahead of the prepared
-                // ones. That keeps the arrival order of ECCs: in a group, the skipped ones were
-                // taken before the prepared one.
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions);
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+                tx_pool_guard.reintroduce_prepared(
+                    inputs.shard_uid,
+                    prepared.transactions,
+                    skipped.0,
+                );
             }
             Err(e) => {
                 *state = PrepareTransactionsJobState::Finished(Err(e.into()));

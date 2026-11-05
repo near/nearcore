@@ -279,6 +279,7 @@ fn test_ecc_lands_in_a_chunk() {
 
     let included_at = env.rpc_runner().run_until_included(&[ecc_hash]);
     let outcome = env.rpc_runner().run_until_outcome_available(ecc_hash, Duration::seconds(10));
+    // TODO(ecc): expect success, with a contract that exports `ECC_METHOD_NAME`, once ECCs run
     assert_matches!(outcome.outcome_with_id.outcome.status, ExecutionStatus::Failure(_));
 
     // Nothing packs it again once a block has it.

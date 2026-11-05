@@ -605,8 +605,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// * `skip_tx_hashes` - defines which transactions should be skipped. Used to skip transactions
     ///   that were included in previous chunks but weren't removed from the pool yet. These
     ///   transactions will still be taken out of the pool and should be reintroduced together with
-    ///   PreparedTransactions, after them: an ECC that is skipped was in the pool ahead of the one
-    ///   that is prepared for the same contract, and it has to stay ahead of it.
+    ///   PreparedTransactions, with `TransactionPool::reintroduce_prepared`: an ECC that is skipped
+    ///   was in the pool ahead of the one that is prepared for the same contract, and it has to
+    ///   stay ahead of it.
     /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
