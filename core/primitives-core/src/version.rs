@@ -98,6 +98,11 @@ pub enum ProtocolFeature {
     /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
     /// accepts it there and the header is handled like `BlockHeaderV6`.
     RejectBlockHeaderV7BeforeSpice,
+    /// A new access key, gas key nonce, NEAR implicit account key or universal account bootstrap
+    /// nonce starts at `h * 1e6 - 1` instead of `(h - 1) * 1e6`, where `h` is the creation height. A transaction executed at `h` that deletes and re-adds
+    /// its own key can then not run again with the same hash. See `initial_nonce_value` in
+    /// `near-runtime`.
+    RaiseInitialAccessKeyNonce,
 }
 
 impl ProtocolFeature {
@@ -122,6 +127,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
             ProtocolFeature::FixContractLoadingCost => 89,
+            ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
 
             // Nightly features:

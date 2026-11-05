@@ -1955,7 +1955,7 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // Stands in for `initial_nonce_value(creation_height)`. The account is
+    // Stands in for `initial_nonce_value(creation_height, ..)`. The account is
     // written straight into the trie, so only its relation to the transaction
     // nonce matters, and it has to stay under the height-derived upper bound.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
@@ -2052,7 +2052,7 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // As in the test above: stands in for `initial_nonce_value(creation_height)`.
+    // As in the test above: stands in for `initial_nonce_value(creation_height, ..)`.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
 
     let block_hash = env.head.prev_block_hash;

@@ -40,12 +40,11 @@ attached_deposit(balance_ptr: u64)
 
 ```
 
--- writes the value into the `u128` variable pointed by `balance_ptr`.
+-- writes the value into the `u128` variable pointed by `balance_ptr`. Both functions can be called in view functions.
 
 ###### Panics
 
-- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`.
 
 ###### Current bugs
 

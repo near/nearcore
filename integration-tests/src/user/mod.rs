@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
-    ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
+    ExecutionOutcomeView, ExecutionOutcomeWithIdView, FinalExecutionOutcomeView, ViewStateResult,
 };
 use std::sync::Arc;
 
@@ -92,6 +92,11 @@ pub trait User {
     fn get_block_by_height(&self, height: BlockHeight) -> Option<BlockView>;
 
     fn get_block(&self, block_hash: CryptoHash) -> Option<BlockView>;
+
+    /// Height of the block in which `outcome` was executed.
+    fn get_outcome_height(&self, outcome: &ExecutionOutcomeWithIdView) -> Option<BlockHeight> {
+        self.get_block(outcome.block_hash).map(|block| block.header.height)
+    }
 
     fn get_chunk_by_height(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 

@@ -4566,7 +4566,6 @@ dependencies = [
  "near-client-primitives",
  "near-epoch-manager",
  "near-indexer-primitives",
- "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-network",
@@ -4580,14 +4579,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "near-jsonrpc-adversarial-primitives"
-version = "0.0.0"
-dependencies = [
- "near-primitives",
- "serde",
 ]
 
 [[package]]
@@ -4669,9 +4660,7 @@ dependencies = [
 name = "near-mainnet-res"
 version = "0.0.0"
 dependencies = [
- "near-account-id",
  "near-chain-configs",
- "near-primitives",
  "serde_json",
 ]
 
@@ -7724,21 +7713,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "storage-usage-delta-calculator"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "near-chain-configs",
- "near-o11y",
- "near-parameters",
- "near-primitives",
- "near-store",
- "serde_json",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "store-validator"

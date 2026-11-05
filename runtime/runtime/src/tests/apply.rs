@@ -291,7 +291,7 @@ fn test_apply_validator_update_uninitialized_account() {
     set_account(
         &mut state,
         uninitialized.clone(),
-        &Account::new_uninitialized(balance, 100, initial_nonce_value(1)),
+        &Account::new_uninitialized(balance, 100, initial_nonce_value(1, PROTOCOL_VERSION)),
     );
     state.commit(StateChangeCause::InitialState);
     let trie_changes = state.finalize().unwrap().trie_changes;
@@ -5251,6 +5251,8 @@ fn setup_gas_key_test(
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
+    // Apply transactions after the key creation height, as on a chain.
+    apply_state.block_height = GAS_KEY_BLOCK_HEIGHT + 1;
 
     GasKeyTestSetup {
         runtime,
@@ -5285,7 +5287,8 @@ fn test_apply_gas_key_transaction() {
         gas_key_balance,
     );
 
-    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let initial_nonce =
+        initial_nonce_value(GAS_KEY_BLOCK_HEIGHT, apply_state.current_protocol_version);
     let nonce_index = 1;
 
     // Create a gas key transaction
@@ -5470,7 +5473,8 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         gas_key_balance,
     );
 
-    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let initial_nonce =
+        initial_nonce_value(GAS_KEY_BLOCK_HEIGHT, apply_state.current_protocol_version);
     let nonce_index: NonceIndex = 0;
 
     // Transfer more than account can cover
@@ -6393,7 +6397,7 @@ mod self_signed_state_init {
             &Account::new_uninitialized(
                 balance,
                 config.fees.storage_usage_config.num_bytes_account,
-                initial_nonce_value(CREATION_HEIGHT),
+                initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION),
             ),
         );
         initial_state.commit(StateChangeCause::InitialState);
@@ -6433,7 +6437,7 @@ mod self_signed_state_init {
 
     /// The only nonce a bootstrap may carry, since the check is forced Strict.
     fn expected_nonce() -> Nonce {
-        initial_nonce_value(CREATION_HEIGHT) + 1
+        initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION) + 1
     }
 
     fn bootstrap_tx(
@@ -6658,7 +6662,10 @@ mod self_signed_state_init {
         let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let account = get_account(&state, &account_id).unwrap().unwrap();
         assert!(!account.is_initialized(), "a rejected bootstrap must not install state");
-        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+        assert_eq!(
+            account.bootstrap_nonce(),
+            Some(initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION))
+        );
     }
 
     /// A state init whose storage the account cannot stake for. The action fails
@@ -6741,7 +6748,7 @@ mod self_signed_state_init {
         account.initialize().unwrap();
         set_account(&mut state, account_id.clone(), &account);
         let mut access_key = AccessKey::full_access();
-        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION);
         set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
         state.commit(StateChangeCause::InitialState);
         let trie_changes = state.finalize().unwrap().trie_changes;
@@ -6787,7 +6794,7 @@ mod self_signed_state_init {
         account.set_amount(stake.checked_add(deposit).unwrap().checked_add(slack).unwrap());
         set_account(&mut state, account_id.clone(), &account);
         let mut access_key = AccessKey::full_access();
-        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION);
         set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
         state.commit(StateChangeCause::InitialState);
         let trie_changes = state.finalize().unwrap().trie_changes;
@@ -6911,7 +6918,7 @@ mod self_signed_state_init {
         for height in [5, 10] {
             assert_eq!(
                 seeded_at(height),
-                initial_nonce_value(height),
+                initial_nonce_value(height, PROTOCOL_VERSION),
                 "the nonce must come from the height the funding receipt ran at"
             );
         }
@@ -6952,7 +6959,7 @@ mod self_signed_state_init {
             &Account::new_uninitialized(
                 Balance::from_near(10),
                 apply_state.config.fees.storage_usage_config.num_bytes_account,
-                initial_nonce_value(recreated_at),
+                initial_nonce_value(recreated_at, PROTOCOL_VERSION),
             ),
         );
         state.commit(StateChangeCause::InitialState);
@@ -7222,7 +7229,10 @@ mod self_signed_state_init {
         let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let account = get_account(&state, &victim_id).unwrap().unwrap();
         assert_eq!(account.amount(), balance, "the victim must not be charged");
-        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+        assert_eq!(
+            account.bootstrap_nonce(),
+            Some(initial_nonce_value(CREATION_HEIGHT, PROTOCOL_VERSION))
+        );
     }
 
     /// Two self-signed state inits for one account, signed by two different keys
@@ -7937,5 +7947,162 @@ fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() 
         congestion_gas.as_gas() * 5 < cap.as_gas(),
         "one state-init receipt reserves {congestion_gas}, over a fifth of the whole-shard \
          outgoing cap of {cap}"
+    );
+}
+
+#[test]
+fn test_re_added_key_replays_tx_before_raise_initial_access_key_nonce() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::RaiseInitialAccessKeyNonce.protocol_version() - 1;
+    let shard_uid = ShardUId::single_shard();
+    let signer = &signers[0];
+
+    // Setup: a tx whose nonce is in the top nonce band of height 10, which deletes
+    // and re-adds its own signing key.
+    let height = 10;
+    let tx = SignedTransaction::from_actions(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        alice_account(),
+        alice_account(),
+        signer.as_ref(),
+        vec![
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    // Apply: the tx and its local receipt both run at height 10.
+    apply_state.block_height = height;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    // Check: the re-added key starts at `(height - 1) * 1e6`, below the tx nonce.
+    let key = get_access_key(
+        &tries.new_trie_update(shard_uid, root),
+        &alice_account(),
+        &signer.public_key(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(key.nonce, (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER);
+
+    // Check: the same signed tx is accepted again at height 11, so two
+    // executed transactions share one hash.
+    apply_state.block_height = height + 1;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_re_added_key_rejects_replayed_tx() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+    let signer = &signers[0];
+
+    // Setup: a tx whose nonce is in the top nonce band of height 10, which deletes
+    // and re-adds its own signing key.
+    let height = 10;
+    let tx = SignedTransaction::from_actions(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        alice_account(),
+        alice_account(),
+        signer.as_ref(),
+        vec![
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    // Apply: the tx and its local receipt both run at height 10.
+    apply_state.block_height = height;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    // Check: the re-added key starts at `height * 1e6 - 1`, above every nonce
+    // a tx executed at or before height 10 can have.
+    let key = get_access_key(
+        &tries.new_trie_update(shard_uid, root),
+        &alice_account(),
+        &signer.public_key(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(key.nonce, height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER - 1);
+
+    // Check: the same signed tx is rejected at height 11.
+    apply_state.block_height = height + 1;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.outcomes[0].id, tx.get_hash());
+    assert_matches!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
     );
 }

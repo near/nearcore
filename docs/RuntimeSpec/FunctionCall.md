@@ -112,6 +112,16 @@ error.
 
   error will be returned
 
+- From protocol version 87 (nearcore 2.14.0), if the method name of a new transaction or a newly
+  created receipt is empty, a
+
+  ```rust
+  /// The method name in a FunctionCall action must not be empty.
+  FunctionCallEmptyMethodName,
+  ```
+
+  error is returned.
+
 - If the length of the method name to be called exceeds `max_length_method_name`, a genesis
   parameter whose current value is `256`, a
 
@@ -138,28 +148,64 @@ There are three types of errors which may occur when applying a function call ac
 `FunctionCallError`, `ExternalError`, and `StorageError`.
 
 - `FunctionCallError` includes everything from around the execution of the wasm binary,
-from compiling wasm to native to traps occurred while executing the compiled native binary. More specifically,
-it includes the following errors:
+from compiling wasm to native to traps occurred while executing the compiled native binary.
+
+  Execution outcomes report a `FunctionCallError` in one of three forms:
+
+  - `CompilationError`, a structured error, when the contract cannot be compiled.
+  - `MethodResolveError`, a structured error, when the method is not found, its signature is not
+    valid, or its name is empty (`MethodEmptyName`). From protocol version 87, validation rejects
+    new transactions and receipts with an empty method name. So only a receipt created before that
+    version can still fail with `MethodEmptyName`.
+  - `ExecutionError` with a message string, for all other errors: wasm traps, host errors, link
+    errors and errors when loading the compiled contract.
+
+  For example, a function call whose contract panics with the message `oops` fails with this
+  status in the RPC response:
+
+  ```json
+  {
+    "Failure": {
+      "ActionError": {
+        "index": 0,
+        "kind": {
+          "FunctionCallError": {
+            "ExecutionError": "Smart contract panicked: oops"
+          }
+        }
+      }
+    }
+  }
+  ```
+
+  The enum also has variants that only old data uses:
 
   ```rust
   pub enum FunctionCallError {
       /// Wasm compilation error
       CompilationError(CompilationError),
-      /// Wasm binary env link error
+      /// Wasm binary env link error. Only in old data.
       LinkError {
           msg: String,
       },
       /// Import/export resolve error
       MethodResolveError(MethodResolveError),
-      /// A trap happened during execution of a binary
+      /// A trap happened during execution of a binary. Only in old data.
       WasmTrap(WasmTrap),
+      /// Only in old data.
       WasmUnknownError,
+      /// Only in old data.
       HostError(HostError),
+      ExecutionError(String),
   }
   ```
 
+  The `WasmTrap` and `HostError` enums below are the errors that the contract runtime returns. The
+  `ExecutionError` message is the text of one of these errors.
+
 - `CompilationError` includes errors that can occur during the compilation of wasm binary.
-- `LinkError` is returned when wasmer runtime is unable to link the wasm module with provided imports.
+- `LinkError` happens when the runtime cannot link the wasm module with the provided imports. It is
+  reported as `ExecutionError` with a message that starts with `Link Error:`.
 - `MethodResolveError` occurs when the method in the action cannot be found in the contract code.
 - `WasmTrap` error happens when a trap occurs during the execution of the binary. Traps here include
 
@@ -177,8 +223,8 @@ it includes the following errors:
       IllegalArithmetic,
       /// Misaligned atomic access trap.
       MisalignedAtomicAccess,
-      /// Breakpoint trap.
-      BreakpointTrap,
+      /// Indirect call to null.
+      IndirectCallToNull,
       /// Stack overflow.
       StackOverflow,
       /// Generic trap.
@@ -186,7 +232,7 @@ it includes the following errors:
   }
   ```
 
-- `WasmUnknownError` occurs when something inside wasmer goes wrong
+- `WasmUnknownError` is kept only to read old data. New outcomes do not use it.
 - `HostError` includes errors that might be returned during the execution of a host function. Those errors are
 
   ```rust
@@ -213,18 +259,21 @@ it includes the following errors:
       CannotAppendActionToJointPromise,
       /// Returning joint promise is currently prohibited
       CannotReturnJointPromise,
+      /// Setting `refund_to` on a joint promise is prohibited
+      CannotSetRefundToOnJointPromise,
       /// Accessed invalid promise result index
       InvalidPromiseResultIndex { result_idx: u64 },
       /// Accessed invalid register id
       InvalidRegisterId { register_id: u64 },
-      /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
-      IteratorWasInvalidated { iterator_index: u64 },
       /// Accessed memory outside the bounds
       MemoryAccessViolation,
       /// VM Logic returned an invalid receipt index
       InvalidReceiptIndex { receipt_index: u64 },
       /// Iterator index `iterator_index` does not exist
       InvalidIteratorIndex { iterator_index: u64 },
+      /// Action index does not exist within the given receipt or does not hold
+      /// the expected type of action.
+      InvalidActionIndex { receipt_index: u64, action_index: u64 },
       /// VM Logic returned an invalid account id
       InvalidAccountId,
       /// VM Logic returned an invalid method name
@@ -251,6 +300,38 @@ it includes the following errors:
       ContractSizeExceeded { size: u64, limit: u64 },
       /// The host function was deprecated.
       Deprecated { method_name: String },
+      /// General errors for ECDSA recover.
+      ECRecoverError { msg: String },
+      /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
+      /// on the curve).
+      AltBn128InvalidInput { msg: String },
+      /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+      /// derived from bytes).
+      Ed25519VerifyInvalidInput { msg: String },
+      /// Input length mismatch for p256 signature verification (signature is not 64
+      /// bytes or public key is not 33 bytes). Parse failures of otherwise
+      /// well-sized inputs return 0 from the host function instead of aborting.
+      P256VerifyInvalidInput { msg: String },
+      /// Input length mismatch for ML-DSA-65 signature verification (signature is
+      /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+      /// otherwise well-sized inputs return 0 from the host function instead of
+      /// aborting.
+      MlDsaVerifyInvalidInput { msg: String },
+      // Invalid input to bls12381 family of functions
+      BLS12381InvalidInput { msg: String },
+      /// Yield payload length exceeds the maximum permitted.
+      YieldPayloadLength { length: u64, limit: u64 },
+      /// Yield resumption data id is malformed.
+      DataIdMalformed,
+      /// User-provided yield id (for `promise_yield_create_with_id` /
+      /// `promise_yield_resume_with_yield_id`) is malformed.
+      YieldIdMalformed,
+      /// Size of the recorded trie storage proof has exceeded the allowed limit.
+      RecordedStorageExceeded { limit: ByteSize },
+      /// Contract code hash is malformed.
+      ContractCodeHashMalformed,
+      /// Data entry within DeterministicStateInit already exists.
+      DataEntryAlreadyExists,
   }
   ```
 
