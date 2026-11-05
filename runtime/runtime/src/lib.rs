@@ -2983,9 +2983,10 @@ impl ApplyState {
 
 /// Finds the transactions that apply skips, with no outcome. Outcomes are committed keyed by
 /// their id, which is derived from the hash: a signed transaction's id is its hash, and an ECC's
-/// is its hash with the chunk's height. So processing the same hash twice in a chunk would commit
-/// two conflicting outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the limit of the
-/// chunk, if there is one. Each ECC counts toward it, whether it is valid or not.
+/// is its hash with the height of the block the chunk is included in. So processing the same
+/// hash twice in a chunk would commit two conflicting outcomes under one id. So a repeat of a
+/// hash is skipped. So is an ECC past the limit of the chunk, if there is one. Each ECC counts
+/// toward it, whether it is valid or not.
 fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     let mut num_eccs = 0;
