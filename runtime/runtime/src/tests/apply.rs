@@ -1332,39 +1332,35 @@ fn test_apply_ecc_refused_lack_balance_for_storage() {
     );
 }
 
-/// Applies a chunk with `ecc`, followed by an incoming receipt that transfers to alice, to a
-/// contract with `code`. The chunk's gas limit is `gas_limit`, so the receipt runs only if the
-/// ECC used less compute than that. Returns the receipt and the result.
-fn apply_ecc_before_receipt(
-    code: Vec<u8>,
-    ecc: EccTransaction,
-    gas_limit: Gas,
-) -> (Receipt, ApplyResult) {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+/// Applies a chunk with only `ecc`, to a contract with `code`. Returns the ECC's outcome and the
+/// gas and the compute that the chunk's transactions counted toward the chunk's limits.
+///
+/// The limit of ECCs in a chunk lets them take at most half of the chunk's gas limit, so ECCs
+/// alone can't fill a chunk. Tests of what an ECC counts toward the limits check these totals,
+/// which the limits are checked against, instead of a receipt that the chunk delays.
+fn apply_ecc_alone(code: Vec<u8>, ecc: EccTransaction) -> (ExecutionOutcome, u64, u64) {
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
-    apply_state.gas_limit = Some(gas_limit);
-    let receipt = create_receipt_with_actions(
-        alice_account(),
-        signers[0].clone(),
-        vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
-    );
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
-            from_ref(&receipt),
+            &[],
             SignedValidPeriodTransactions::new(vec![TransactionEnvelope::from(ecc)], vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
         .unwrap();
-    (receipt, apply_result)
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected only the ECC's outcome, got {:?}", apply_result.outcomes);
+    };
+    let (gas, compute) = apply_result.metrics.unwrap().tx_gas_and_compute();
+    (outcome.outcome.clone(), gas, compute)
 }
 
-/// A refused ECC's run counts toward the chunk's compute limit: the limit is one more than the
-/// compute of the fees, so only the run can fill it, and the receipt after it is delayed. Its
-/// outcome reports the compute of the fees and the run, but no gas and no tokens burnt.
+/// A refused ECC's run counts toward the chunk's compute, but not its gas. Its outcome reports
+/// the compute of the fees and the run, but no gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1372,28 +1368,21 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
     }
     let ecc = ecc_to_bob();
     let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
-    let gas_limit = Gas::from_gas(fee.compute_burnt + 1);
     let code = ecc_contract("(call $write_payload) unreachable");
-    let (receipt, apply_result) = apply_ecc_before_receipt(code, ecc, gas_limit);
+    let (outcome, gas, compute) = apply_ecc_alone(code, ecc);
 
-    let [outcome] = apply_result.outcomes.as_slice() else {
-        panic!("expected only the ECC's outcome, got {:?}", apply_result.outcomes);
-    };
-    assert_matches!(
-        &outcome.outcome.status,
-        ExecutionStatus::Failure(TxExecutionError::ActionError(_))
-    );
-    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
-    assert!(outcome.outcome.compute_usage.unwrap() > fee.compute_burnt);
-    assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
-    assert_eq!(apply_result.delayed_receipts_count, 1);
-    assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
+    assert_matches!(&outcome.status, ExecutionStatus::Failure(TxExecutionError::ActionError(_)));
+    assert_eq!(outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(outcome.tokens_burnt, Balance::ZERO);
+    let outcome_compute = outcome.compute_usage.unwrap();
+    assert!(outcome_compute > fee.compute_burnt);
+    assert_eq!(compute, outcome_compute);
+    assert_eq!(gas, 0);
 }
 
 /// An ECC refused before its method runs, here for a missing contract, still counts the compute
-/// of its fees toward the chunk's compute limit: the limit is the compute of the fees, so the
-/// fees alone fill it, and the receipt after the ECC is delayed. Its outcome reports that
-/// compute, but no gas and no tokens burnt.
+/// of its fees toward the chunk's compute, but no gas. Its outcome reports that compute, but no
+/// gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1402,32 +1391,25 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     let missing: AccountId = "missing.near".parse().unwrap();
     let ecc = EccTransaction::new(missing, ECC_PAYLOAD.to_vec());
     let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
-    let gas_limit = Gas::from_gas(fee.compute_burnt);
-    let (receipt, apply_result) =
-        apply_ecc_before_receipt(ecc_accepting_contract(), ecc, gas_limit);
+    let (outcome, gas, compute) = apply_ecc_alone(ecc_accepting_contract(), ecc);
 
-    let [outcome] = apply_result.outcomes.as_slice() else {
-        panic!("expected only the ECC's outcome, got {:?}", apply_result.outcomes);
-    };
     assert_matches!(
-        &outcome.outcome.status,
+        &outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
             InvalidTxError::SignerDoesNotExist { .. }
         ))
     );
-    assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
-    assert_eq!(outcome.outcome.compute_usage, Some(fee.compute_burnt));
-    assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
-    assert_eq!(apply_result.delayed_receipts_count, 1);
-    assert!(apply_result.outcomes.iter().all(|outcome| &outcome.id != receipt.receipt_id()));
+    assert_eq!(outcome.gas_burnt, Gas::ZERO);
+    assert_eq!(outcome.tokens_burnt, Balance::ZERO);
+    assert_eq!(outcome.compute_usage, Some(fee.compute_burnt));
+    assert_eq!(compute, fee.compute_burnt);
+    assert_eq!(gas, 0);
 }
 
 /// A chunk with ECCs, applied again from its storage proof alone as a chunk validator does,
 /// gives the same outcomes and state root. The chunk has an accepted ECC, ECCs refused for a
 /// panic, for running out of gas, for a short balance and for a missing contract, and a signed
 /// transaction.
-///
-/// TODO(ecc): add an end-to-end test-loop test once a chunk producer packs external calls.
 #[test]
 fn test_apply_eccs_from_storage_proof() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -2099,6 +2081,11 @@ fn test_eccs(tags: &[u8]) -> Vec<EccTransaction> {
     tags.iter().map(|tag| EccTransaction::new(bob_account(), vec![*tag])).collect()
 }
 
+/// The outcome ids that apply gives `eccs` in a chunk applied with `apply_state`.
+fn ecc_outcome_ids(apply_state: &ApplyState, eccs: &[EccTransaction]) -> Vec<CryptoHash> {
+    eccs.iter().map(|ecc| create_ecc_outcome_id(ecc.hash(), apply_state.block_height)).collect()
+}
+
 fn failed_with(status: &ExecutionStatus, error: InvalidTxError) -> bool {
     *status == ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error))
 }
@@ -2110,7 +2097,7 @@ fn failed_with(status: &ExecutionStatus, error: InvalidTxError) -> bool {
 fn test_apply_skips_eccs_past_the_limit() {
     let apply_state = apply_state_with_room_for_eccs(2);
     let eccs = test_eccs(&[1, 2, 3, 4]);
-    let hashes = eccs.iter().map(|ecc| ecc.get_hash()).collect_vec();
+    let hashes = ecc_outcome_ids(&apply_state, &eccs);
 
     // The transfer goes first, in the middle, and last.
     for transfer_at in [0, 2, 4] {
@@ -2170,7 +2157,7 @@ fn test_apply_does_not_limit_eccs_without_gas_limit() {
 fn test_apply_does_not_count_repeated_eccs() {
     let apply_state = apply_state_with_room_for_eccs(2);
     let eccs = test_eccs(&[1, 1, 2, 3]);
-    let hashes = eccs.iter().map(|ecc| ecc.get_hash()).collect_vec();
+    let hashes = ecc_outcome_ids(&apply_state, &eccs);
 
     let applied = apply_chunk_of_eccs(&apply_state, eccs, 4);
 
@@ -2183,7 +2170,7 @@ fn test_apply_counts_invalid_eccs() {
     let apply_state = apply_state_with_room_for_eccs(1);
     let max_size = apply_state.config.wasm_config.limit_config.max_transaction_size;
     let oversized = EccTransaction::new(bob_account(), vec![0; max_size as usize + 1]);
-    let oversized_hash = oversized.get_hash();
+    let oversized_hash = create_ecc_outcome_id(oversized.hash(), apply_state.block_height);
     let oversized_size = oversized.get_size();
     let mut eccs = vec![oversized];
     eccs.extend(test_eccs(&[2]));

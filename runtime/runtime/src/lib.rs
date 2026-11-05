@@ -2981,10 +2981,10 @@ impl ApplyState {
     }
 }
 
-/// Finds the transactions that apply skips, with no outcome. A signed transaction's hash is its
-/// outcome id, and an ECC is planned to get one from its hash and height. Outcomes are committed
-/// keyed by that id, so processing the same hash twice in a chunk would commit two conflicting
-/// outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the limit of the
+/// Finds the transactions that apply skips, with no outcome. Outcomes are committed keyed by
+/// their id, which is derived from the hash: a signed transaction's id is its hash, and an ECC's
+/// is its hash with the chunk's height. So processing the same hash twice in a chunk would commit
+/// two conflicting outcomes under one id. So a repeat of a hash is skipped. So is an ECC past the limit of the
 /// chunk, if there is one. Each ECC counts toward it, whether it is valid or not.
 fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
@@ -3043,9 +3043,10 @@ fn process_external_call(
         }
         Err(err) => return Err(err),
     }
-    // TODO(ecc): enforce the per-chunk limits on external calls: refuse a call, without running
-    // it, once the chunk's calls exceed the allowed count, the state they read together exceeds
-    // its budget, or the compute they use together exceeds their share of the chunk's compute.
+    // TODO(ecc): enforce the rest of the per-chunk limits on external calls (the count is kept by
+    // `find_skipped_transactions`): refuse a call, without running it, once the state the chunk's
+    // calls read together exceeds its budget, or the compute they use together exceeds their
+    // share of the chunk's compute.
 
     // Read and update the contract's account through the chunk's working copy, which signed
     // transactions later in the chunk start from. Otherwise a later transaction from the

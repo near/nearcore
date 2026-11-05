@@ -17,8 +17,9 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::{EccTransaction, ExecutionStatus};
+use near_primitives::transaction::{ECC_METHOD_NAME, EccTransaction, ExecutionStatus};
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::TxExecutionStatus;
 use std::cell::RefCell;
@@ -259,8 +260,38 @@ fn chunks_with_ecc(
         .collect()
 }
 
+/// The id of the outcome of the ECC with the given hash, in the first chunk from `from_height` on
+/// that holds it. Apply derives it from the hash and the height of that chunk.
+fn ecc_outcome_id(node: &TestLoopNode, ecc_hash: CryptoHash, from_height: u64) -> CryptoHash {
+    let chain = &node.client().chain;
+    let height = (from_height..=node.head().height)
+        .filter_map(|height| chain.get_block_by_height(height).ok())
+        .flat_map(|block| node.block_chunks(&block))
+        .find(|chunk| chunk.to_transactions().iter().any(|tx| tx.get_hash() == ecc_hash))
+        .expect("the ECC should be in a chunk")
+        .height_included();
+    create_ecc_outcome_id(&ecc_hash, height)
+}
+
+/// A contract whose ECC method accepts every call and returns the call's payload.
+fn ecc_echo_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "input" (func $input (param i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (func (export "{ECC_METHOD_NAME}")
+    (call $input (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (call $value_return (call $register_len (i64.const 0)) (i64.const 0)))
+)"#
+    ))
+}
+
 /// An ECC sent to an RPC node that produces no chunks lands in a chunk of its contract's shard,
-/// once, and apply records a failed outcome for it.
+/// once, and runs there: the contract accepts it, and the outcome holds what its method returned.
 #[test]
 fn test_ecc_lands_in_a_chunk() {
     init_test_logger();
@@ -273,15 +304,19 @@ fn test_ecc_lands_in_a_chunk() {
     }
     let contract_id = create_account_id("contract");
     let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+    let deploy_tx = env.rpc_node().tx_deploy_contract(&contract_id, ecc_echo_contract());
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
 
-    let ecc = EccTransaction::new(contract_id, vec![1, 2, 3]);
+    let payload = vec![1, 2, 3];
+    let ecc = EccTransaction::new(contract_id, payload.clone());
     let ecc_hash = ecc.get_hash();
     assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
 
     let included_at = env.rpc_runner().run_until_included(&[ecc_hash]);
-    let outcome = env.rpc_runner().run_until_outcome_available(ecc_hash, Duration::seconds(10));
-    // TODO(ecc): expect success, with a contract that exports `ECC_METHOD_NAME`, once ECCs run
-    assert_matches!(outcome.outcome_with_id.outcome.status, ExecutionStatus::Failure(_));
+    let outcome_id = create_ecc_outcome_id(&ecc_hash, included_at);
+    let outcome = env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
+    let outcome = outcome.outcome_with_id.outcome;
+    assert_eq!(outcome.status, ExecutionStatus::SuccessValue(payload));
 
     // Nothing packs it again once a block has it.
     env.rpc_runner().run_for_number_of_blocks(5);
@@ -356,7 +391,8 @@ fn test_chunks_hold_as_many_eccs_as_apply_takes() {
         Duration::seconds(30),
     );
     for hash in hashes {
-        env.rpc_runner().run_until_outcome_available(hash, Duration::seconds(10));
+        let outcome_id = ecc_outcome_id(&env.rpc_node(), hash, first_height);
+        env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
     }
 
     let node = env.rpc_node();

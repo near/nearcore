@@ -1417,7 +1417,16 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     }
     init_test_logger();
     let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
-    let mut env = TestEnv::new(vec![validators.clone()], 4, false);
+    // A free config leaves no room for ECCs in a chunk, so this one charges fees.
+    let config = TestEnvConfig {
+        epoch_length: 4,
+        has_reward: false,
+        minimum_stake_divisor: None,
+        zero_fees: false,
+        create_flat_storage: true,
+        runtime_config_store: None,
+    };
+    let mut env = TestEnv::new_with_config(vec![validators.clone()], config);
     let contract_id = validators[0].clone();
     let signer = InMemorySigner::test_signer(&contract_id);
     // The ECC method returns the block height and the epoch height it sees, in that order.
