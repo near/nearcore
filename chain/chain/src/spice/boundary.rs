@@ -34,49 +34,43 @@ pub fn is_last_pre_spice_block(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
-/// Whether this node applies `shard_id`'s chunk of `block` itself, so that it holds
-/// the chunk's execution result and outgoing receipts without fetching anything.
+/// Whether this node can count on its own apply for `shard_id`'s chunk of `block`, holding the
+/// chunk's execution result and outgoing receipts without fetching anything.
+///
+/// `block` is a spice or last pre-spice block.
+///
+/// A catch-up shard never counts. Under spice the node gets its state at the epoch's first block
+/// from state sync and applies the later blocks only once the catchup is finished and its chunk
+/// executor has caught up, which can lag behind the head. So for the whole epoch it fetches what
+/// the shard produces and validates its witnesses like a node that does not track it, and takes
+/// what its executor produces as well as a repeat. A last pre-spice block applied the shard only
+/// if the node was caught up, which is not known here: a caught-up node then makes a wasted fetch
+/// rather than waiting on artifacts it may never have produced.
 pub fn applies_chunk_itself(
     shard_tracker: &ShardTracker,
-    epoch_manager: &dyn EpochManagerAdapter,
     block: &BlockHeader,
     shard_id: ShardId,
-) -> Result<bool, Error> {
-    let mode = own_apply_mode(epoch_manager, block)?;
-    Ok(shard_tracker.should_apply_chunk(mode, block.prev_hash(), shard_id))
+) -> bool {
+    shard_tracker.should_apply_chunk(
+        ApplyChunksMode::ExcludeCatchupShards,
+        block.prev_hash(),
+        shard_id,
+    )
 }
 
-/// The shards of `block`'s layout for which [`applies_chunk_itself`] holds, deciding
-/// the apply mode once for the whole block.
+/// The shards of `block`'s layout for which [`applies_chunk_itself`] holds.
+///
+/// `block` is a spice or last pre-spice block.
 pub fn shards_applied_itself(
     shard_tracker: &ShardTracker,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &BlockHeader,
 ) -> Result<HashSet<ShardId>, Error> {
-    let mode = own_apply_mode(epoch_manager, block)?;
     let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
     Ok(shard_layout
         .shard_ids()
-        .filter(|shard_id| shard_tracker.should_apply_chunk(mode, block.prev_hash(), *shard_id))
+        .filter(|shard_id| applies_chunk_itself(shard_tracker, block, *shard_id))
         .collect())
-}
-
-// A last pre-spice block was applied pre-spice, where a shard the node only tracks
-// next epoch is applied with the block only once caught up. Whether it was is not
-// known here, so this answers with the lower bound, `ExcludeCatchupShards`: a
-// caught-up node then fetches what it actually holds, a wasted fetch, rather than
-// waiting on artifacts it may never have produced. Every other block is answered
-// with `IncludeCatchupShards`. The two differ only for a node that starts tracking a
-// shard in the first spice epoch.
-fn own_apply_mode(
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &BlockHeader,
-) -> Result<ApplyChunksMode, Error> {
-    Ok(if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        ApplyChunksMode::ExcludeCatchupShards
-    } else {
-        ApplyChunksMode::IncludeCatchupShards
-    })
 }
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block

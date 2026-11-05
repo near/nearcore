@@ -553,7 +553,7 @@ pub fn check_pre_spice_execution_result(
     if header.is_spice() {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
-    if !applies_chunk_itself(shard_tracker, epoch_manager, &header, chunk_id.shard_id)? {
+    if !applies_chunk_itself(shard_tracker, &header, chunk_id.shard_id) {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
     // A block this node never processed, e.g. one in the gap state sync leaves, can be
