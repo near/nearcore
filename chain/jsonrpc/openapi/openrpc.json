@@ -8216,6 +8216,17 @@
                     },
                     "type": "array"
                   },
+                  "prepaid_fees": {
+                    "description": "Gas prepaid for the fees of the receipt. Absent for receipts created\nbefore `ReceiptPrepaidFees`.",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/NearGas"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "refund_to": {
                     "oneOf": [
                       {

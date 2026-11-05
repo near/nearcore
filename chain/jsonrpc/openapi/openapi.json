@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.38"
+    "version": "1.3.39"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -13204,6 +13204,20 @@
                       "$ref": "#/components/schemas/DataReceiverView"
                     },
                     "type": "array"
+                  },
+                  "prepaid_fees": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/NearGas"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Gas prepaid for the fees of the receipt. Absent for receipts created\nbefore `ReceiptPrepaidFees`."
                   },
                   "refund_to": {
                     "anyOf": [
