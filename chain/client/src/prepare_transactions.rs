@@ -43,6 +43,7 @@ impl PrepareTransactionsJobInputs {
             height: 0,
             next_epoch_id: Default::default(),
             congestion_info: Default::default(),
+            gas_limit: Default::default(),
         };
 
         Self {
@@ -158,11 +159,11 @@ impl PrepareTransactionsJob {
                 // Allow `take_result` to proceed before we reintroduce transactions. The
                 // transaction pools are still locked so there is no risk of inconsistent data.
                 drop(state);
-                // TODO(ecc): once ECCs are packed, reintroduce the prepared and the skipped
-                // transactions in one batch in the order they were taken. Two batches put the
-                // second one ahead of the first, which breaks the arrival order of ECCs.
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions);
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+                tx_pool_guard.reintroduce_prepared(
+                    inputs.shard_uid,
+                    prepared.transactions,
+                    skipped.0,
+                );
             }
             Err(e) => {
                 *state = PrepareTransactionsJobState::Finished(Err(e.into()));
@@ -398,6 +399,7 @@ mod tests {
             height,
             next_epoch_id: Default::default(),
             congestion_info: Default::default(),
+            gas_limit: Default::default(),
         };
         PrepareTransactionsJobKey {
             shard_uid,

@@ -567,7 +567,7 @@ pub const ECC_METHOD_NAME: &str = "__nightly_external_call";
 
 /// An external contract call (ECC): a call that carries no signer, public key, nonce or
 /// signature. A clean return from the target's standardized method serves as authorization.
-#[derive(Eq, Debug, Clone, ProtocolSchema)]
+#[derive(Eq, Clone, ProtocolSchema)]
 pub struct EccTransaction {
     /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
     /// also the receiver.
@@ -633,6 +633,17 @@ impl EccTransaction {
     }
 }
 
+impl fmt::Debug for EccTransaction {
+    /// Abbreviates the payload, which is arbitrary bytes of up to the transaction size limit.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EccTransaction")
+            .field("contract_id", &self.contract_id)
+            .field("payload", &format_args!("{}", AbbrBytes(&self.payload)))
+            .field("hash", &self.hash)
+            .finish()
+    }
+}
+
 impl PartialEq for EccTransaction {
     fn eq(&self, other: &Self) -> bool {
         self.hash == other.hash
@@ -667,6 +678,47 @@ impl BorshDeserialize for EccTransaction {
         let contract_id = AccountId::deserialize_reader(reader)?;
         let payload = Vec::<u8>::deserialize_reader(reader)?;
         Ok(Self::new(contract_id, payload))
+    }
+}
+
+impl serde::Serialize for EccTransaction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let borsh = borsh::to_vec(self).map_err(|err| {
+            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
+        })?;
+        serializer.serialize_str(&to_base64(&borsh))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EccTransaction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let borsh = from_base64(&base64).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
+        })?;
+        borsh::from_slice::<Self>(&borsh).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
+        })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for EccTransaction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "EccTransaction".to_string().into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "type": "string",
+            "format": "byte"
+        })
     }
 }
 
@@ -728,6 +780,23 @@ impl TransactionEnvelope {
     /// resubmitting it could refresh any such field, and expiry is up to the contract.
     pub fn block_hash(&self) -> Option<&CryptoHash> {
         self.as_signed().map(|tx| tx.transaction.block_hash())
+    }
+
+    /// The account that decides which shard the transaction goes to: the signer, or the
+    /// contract for an ECC.
+    pub fn routing_account_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.signer_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+
+    /// The account the transaction is addressed to. An ECC is self-addressed.
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.receiver_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
     }
 
     pub fn as_signed(&self) -> Option<&SignedTransaction> {
@@ -808,47 +877,6 @@ impl BorshDeserialize for TransactionEnvelope {
             return Ok(Self::Unsigned(EccTransaction::deserialize_reader(&mut reader)?));
         }
         Ok(Self::Signed(SignedTransaction::deserialize_reader(&mut reader)?))
-    }
-}
-
-impl serde::Serialize for TransactionEnvelope {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let borsh = borsh::to_vec(self).map_err(|err| {
-            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
-        })?;
-        serializer.serialize_str(&to_base64(&borsh))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TransactionEnvelope {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let borsh = from_base64(&base64).map_err(|err| {
-            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
-        })?;
-        borsh::from_slice::<Self>(&borsh).map_err(|err| {
-            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
-        })
-    }
-}
-
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for TransactionEnvelope {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "TransactionEnvelope".to_string().into()
-    }
-
-    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        json_schema!({
-            "type": "string",
-            "format": "byte"
-        })
     }
 }
 
@@ -941,6 +969,24 @@ impl ValidatedTransactionEnvelope {
         match self {
             Self::Signed(tx) => tx.signer_id(),
             Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+
+    pub fn into_envelope(self) -> TransactionEnvelope {
+        match self {
+            Self::Signed(tx) => tx.into_signed_tx().into(),
+            Self::Unsigned(tx) => tx.into_ecc().into(),
+        }
+    }
+}
+
+/// Serializes as the [`TransactionEnvelope`] it validated, so that the root of a chunk's
+/// transactions can be computed without copying them.
+impl BorshSerialize for ValidatedTransactionEnvelope {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::Signed(tx) => tx.to_signed_tx().serialize(writer),
+            Self::Unsigned(tx) => tx.to_ecc().serialize(writer),
         }
     }
 }
@@ -1145,15 +1191,25 @@ impl ExecutionOutcomeWithId {
         Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
     }
 
-    /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
-    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+    /// The outcome of a refused ECC. Its contract stands in for the signer as the executor.
+    /// Unlike a transaction's, an ECC's outcome id is not its hash: see `create_ecc_outcome_id`.
+    ///
+    /// Nobody pays for a refused call, so it burns no gas and no tokens, and doesn't move the next
+    /// gas price. The work validators did on it is reported as compute, which counts toward the
+    /// chunk's compute limit.
+    pub fn refused_ecc(
+        id: CryptoHash,
+        transaction: &EccTransaction,
+        error: TxExecutionError,
+        compute_usage: Compute,
+    ) -> Self {
         Self {
-            id: transaction.get_hash(),
+            id,
             outcome: ExecutionOutcome {
                 executor_id: transaction.contract_id().clone(),
-                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                status: ExecutionStatus::Failure(error),
                 gas_burnt: Gas::ZERO,
-                compute_usage: Some(0),
+                compute_usage: Some(compute_usage),
                 tokens_burnt: Balance::ZERO,
                 ..Default::default()
             },
@@ -1224,6 +1280,7 @@ pub struct ExecutionOutcomeWithProof {
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+    use crate::merkle::merklize;
     use crate::universal_state_init::UniversalStateInitV1;
     use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
@@ -1489,13 +1546,10 @@ mod tests {
     }
 
     #[test]
-    fn test_envelope_json_roundtrip() {
-        let mut envelopes = vec![TransactionEnvelope::from(test_ecc())];
-        envelopes.extend(test_signed_txs().into_iter().map(TransactionEnvelope::from));
-        for envelope in envelopes {
-            let json = serde_json::to_string(&envelope).unwrap();
-            assert_eq!(serde_json::from_str::<TransactionEnvelope>(&json).unwrap(), envelope);
-        }
+    fn test_ecc_json_roundtrip() {
+        let ecc = test_ecc();
+        let json = serde_json::to_string(&ecc).unwrap();
+        assert_eq!(serde_json::from_str::<EccTransaction>(&json).unwrap(), ecc);
     }
 
     #[test]
@@ -1551,6 +1605,34 @@ mod tests {
             };
             assert_eq!(validated_tx.into_signed_tx(), signed_tx);
         }
+    }
+
+    /// The root of a chunk's transactions is computed over the validated ones, and has to be the
+    /// root over the envelopes that go into the chunk.
+    #[test]
+    fn test_validated_envelope_serializes_as_the_envelope() {
+        let config = RuntimeConfig::test();
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let envelopes = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain([TransactionEnvelope::from(test_ecc())])
+            .collect::<Vec<_>>();
+
+        let validated = envelopes
+            .iter()
+            .map(|envelope| {
+                ValidatedTransactionEnvelope::new(&config, envelope.clone(), feature_version)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        for (envelope, validated) in envelopes.iter().zip(&validated) {
+            assert_eq!(borsh::to_vec(validated).unwrap(), borsh::to_vec(envelope).unwrap());
+        }
+        assert_eq!(merklize(&validated), merklize(&envelopes));
+        let back = validated.into_iter().map(ValidatedTransactionEnvelope::into_envelope);
+        assert_eq!(back.collect::<Vec<_>>(), envelopes);
     }
 
     #[test]

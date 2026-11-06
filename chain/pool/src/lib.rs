@@ -1,5 +1,5 @@
 use crate::grouped_pool::{GroupedPool, GroupedPoolIterator, PoolMetrics};
-use crate::types::{PooledGroup, TransactionGroupIterator};
+use crate::types::{PooledGroup, TransactionGroup, TransactionGroupIterator};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::transaction::{
     TransactionEnvelope, ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
@@ -151,6 +151,21 @@ impl TransactionPool {
         reintroduced_signed_txs + reintroduced_eccs
     }
 
+    /// Puts back what the preparation of a chunk took out of the pool: the transactions it
+    /// prepared, then the ones it skipped. The skipped ones go second, so they end up ahead of
+    /// the prepared ones. That keeps the arrival order of ECCs: in a group, the skipped ones were
+    /// taken before the prepared one. Returns the number of prepared transactions that were added
+    /// or are already present in the pool.
+    pub fn reintroduce_prepared(
+        &mut self,
+        prepared: impl IntoIterator<Item = impl Into<ValidatedTransactionEnvelope>>,
+        skipped: impl IntoIterator<Item = impl Into<ValidatedTransactionEnvelope>>,
+    ) -> usize {
+        let reintroduced = self.reintroduce_transactions(prepared);
+        self.reintroduce_transactions(skipped);
+        reintroduced
+    }
+
     /// Returns a pool iterator wrapper that implements an iterator-like trait to iterate over
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
@@ -205,7 +220,7 @@ impl TransactionPool {
 /// When the wrapper is dropped the remaining transactions are returned back to the pool.
 ///
 /// Groups of signed transactions and groups of ECCs alternate. If one kind runs out,
-/// the other one goes on.
+/// the other one goes on. `next_signed` takes the signed ones only.
 pub struct PoolIteratorWrapper<'a> {
     signed: GroupedPoolIterator<'a, ValidatedTransaction>,
     eccs: GroupedPoolIterator<'a, ValidatedEcc>,
@@ -246,6 +261,10 @@ impl<'a> PoolIteratorWrapper<'a> {
 }
 
 impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
+    fn next_signed(&mut self) -> Option<&mut TransactionGroup> {
+        self.signed.next()
+    }
+
     fn next(&mut self) -> Option<PooledGroup<'_>> {
         let signed_turn = self.signed_turn;
         self.signed_turn = !signed_turn;
@@ -278,8 +297,9 @@ mod tests {
         signed_txs.iter().cloned().map(TransactionEnvelope::from).collect()
     }
 
-    /// The next group of the pool iterator, in a pool that has no ECCs.
-    fn next_signed<'a>(iter: &'a mut PoolIteratorWrapper<'_>) -> Option<&'a mut TransactionGroup> {
+    /// The next group of the pool iterator, in a pool that has no ECCs. Unlike `next_signed`, it
+    /// panics on a group of ECCs.
+    fn next_group<'a>(iter: &'a mut PoolIteratorWrapper<'_>) -> Option<&'a mut TransactionGroup> {
         iter.next().map(|group| {
             let PooledGroup::Signed(group) = group else { panic!("there are no ECCs in the pool") };
             group
@@ -372,7 +392,7 @@ mod tests {
         let mut res = vec![];
         let mut pool_iter = pool.pool_iterator();
         while res.len() < max_number_of_transactions as usize {
-            if let Some(iter) = next_signed(&mut pool_iter) {
+            if let Some(iter) = next_group(&mut pool_iter) {
                 if let Some(tx) = iter.next() {
                     res.push(tx.into_signed_tx());
                 }
@@ -494,7 +514,7 @@ mod tests {
         assert!(nonces.is_empty());
         let mut res = vec![];
         let mut pool_iter = pool.pool_iterator();
-        while let Some(iter) = next_signed(&mut pool_iter) {
+        while let Some(iter) = next_group(&mut pool_iter) {
             while let Some(tx) = iter.next() {
                 if tx.nonce().nonce() & 1 == 1 {
                     res.push(tx);
@@ -628,7 +648,7 @@ mod tests {
         // we should get transactions interleaved from each group.
         let mut nonces_by_index: HashMap<NonceIndex, Vec<u64>> = HashMap::new();
         let mut pool_iter = pool.pool_iterator();
-        while let Some(group) = next_signed(&mut pool_iter) {
+        while let Some(group) = next_group(&mut pool_iter) {
             while let Some(tx) = group.next() {
                 let nonce_index = tx.nonce().nonce_index().unwrap();
                 let nonce = tx.nonce().nonce();
@@ -682,7 +702,7 @@ mod tests {
         // Verify remaining transactions can be retrieved and match expected.
         let mut remaining_txs = vec![];
         let mut pool_iter = pool.pool_iterator();
-        while let Some(group) = next_signed(&mut pool_iter) {
+        while let Some(group) = next_group(&mut pool_iter) {
             while let Some(tx) = group.next() {
                 remaining_txs.push(tx.clone());
             }
@@ -725,7 +745,7 @@ mod tests {
         let stalled_id: AccountId = "stalled.near".parse().unwrap();
         let mut consumed = vec![];
         let mut iter = pool.pool_iterator();
-        while let Some(group) = next_signed(&mut iter) {
+        while let Some(group) = next_group(&mut iter) {
             let Some(peek) = group.peek_next() else { continue };
             if *peek.signer_id() == stalled_id {
                 // Simulate stall: don't pop any transaction.
@@ -788,7 +808,7 @@ mod tests {
         // Take one transaction and return the rest.
         let first = {
             let mut iter = pool.pool_iterator();
-            next_signed(&mut iter).unwrap().next().unwrap()
+            next_group(&mut iter).unwrap().next().unwrap()
         };
         assert_eq!(first.get_hash(), b.get_hash());
         for tx in [c.clone(), d.clone()] {
@@ -839,7 +859,7 @@ mod tests {
         // Take one transaction out for good, the rest returns to the pool.
         {
             let mut iter = pool.pool_iterator();
-            next_signed(&mut iter).unwrap().next().unwrap();
+            next_group(&mut iter).unwrap().next().unwrap();
         }
         assert_eq!((count.get(), size.get()), (3, 3 * tx_size));
         assert_eq!((ecc_count.get(), ecc_size.get()), (3, 3 * ecc_wire_size));
@@ -898,7 +918,7 @@ mod tests {
 
         let mut groups = 0;
         let mut iter = pool.pool_iterator();
-        while let Some(group) = next_signed(&mut iter) {
+        while let Some(group) = next_group(&mut iter) {
             groups += 1;
             assert_eq!(group.peek_next().unwrap().signer_id().as_str(), "bob.near");
             while group.next().is_some() {}
@@ -917,7 +937,7 @@ mod tests {
 
         let taken = {
             let mut iter = pool.pool_iterator();
-            next_signed(&mut iter).unwrap().next().unwrap()
+            next_group(&mut iter).unwrap().next().unwrap()
         };
 
         assert_eq!(taken.get_hash(), txs[0].get_hash());
@@ -941,7 +961,7 @@ mod tests {
         assert_eq!((count.get(), size.get()), (2, 2 * txs[0].wire_size() as i64));
 
         let mut iter = pool.pool_iterator();
-        let group = next_signed(&mut iter).unwrap();
+        let group = next_group(&mut iter).unwrap();
         while group.next().is_some() {}
         // The pool has no more groups, so this takes the emptied group out of the queue.
         assert!(iter.next().is_none());
@@ -964,7 +984,7 @@ mod tests {
         let visit_all = |pool: &mut TransactionPool| {
             let mut order = vec![];
             let mut iter = pool.pool_iterator();
-            while let Some(group) = next_signed(&mut iter) {
+            while let Some(group) = next_group(&mut iter) {
                 order.push(group.peek_next().unwrap().get_hash());
             }
             order
@@ -1031,7 +1051,7 @@ mod tests {
             }
             let mut order = vec![];
             let mut iter = pool.pool_iterator();
-            while let Some(group) = next_signed(&mut iter) {
+            while let Some(group) = next_group(&mut iter) {
                 order.push(group.peek_next().unwrap().signer_id().clone());
                 while group.next().is_some() {}
             }
@@ -1147,6 +1167,35 @@ mod tests {
         assert_eq!(drained, expected);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    /// `next_signed` hands out only groups of signed transactions, and never pulls a group of ECCs,
+    /// so they all are still in the pool, together with the signed transactions that were not taken.
+    #[test]
+    fn test_next_signed_leaves_eccs_alone() {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for signer_id in ["alice.near", "bob.near", "carol.near"] {
+            insert_all(&mut pool, signed_txs(signer_id, 1, 2));
+        }
+        for contract_id in ["a.near", "b.near", "c.near"] {
+            insert_all(&mut pool, (1..=2).map(|tag| ecc(contract_id, tag, 8)));
+        }
+        let size = pool.transaction_size();
+
+        let mut iter = pool.pool_iterator();
+        // A signed group first, then an ECC one.
+        assert!(matches!(iter.next(), Some(PooledGroup::Signed(_))));
+        assert!(matches!(iter.next(), Some(PooledGroup::Ecc(_))));
+        let mut signed_groups = 0;
+        while iter.next_signed().is_some() {
+            signed_groups += 1;
+        }
+        // The two that were not taken at the start.
+        assert_eq!(signed_groups, 2);
+        drop(iter);
+
+        assert_eq!(pool.len(), 12);
+        assert_eq!(pool.transaction_size(), size);
     }
 
     #[test]

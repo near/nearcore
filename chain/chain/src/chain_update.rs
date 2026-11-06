@@ -530,6 +530,11 @@ impl<'a> ChainUpdate<'a> {
         } else {
             block_header.next_gas_price()
         };
+        // Genesis has no previous block; its chunks carry no external calls.
+        let (prev_block_height, prev_block_timestamp) = prev_block_header
+            .as_ref()
+            .map(|header| (header.height(), header.raw_timestamp()))
+            .unwrap_or_default();
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
@@ -564,6 +569,8 @@ impl<'a> ChainUpdate<'a> {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
+                prev_block_height,
+                prev_block_timestamp,
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
                 random_seed: *block_header.random_value(),
@@ -654,6 +661,7 @@ impl<'a> ChainUpdate<'a> {
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,
+                &prev_block_header,
                 prev_block_header.next_gas_price(),
                 block.block_congestion_info(),
                 block.block_bandwidth_requests(),

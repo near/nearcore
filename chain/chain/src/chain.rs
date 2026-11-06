@@ -87,7 +87,6 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{
     ExecutionOutcomeWithIdAndProof, SignedTransaction, TransactionEnvelope,
 };
-#[cfg(feature = "test_features")]
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -1404,6 +1403,8 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_block.header().raw_timestamp(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),
@@ -3085,6 +3086,7 @@ impl Chain {
 
         ApplyChunkBlockContext::from_header(
             block_header,
+            prev_block_header,
             gas_price,
             congestion_info,
             bandwidth_requests,
@@ -3702,6 +3704,7 @@ impl Chain {
                 cached_shard_update_key,
                 chunk_headers,
                 &chunk_transactions,
+                chunk_header.gas_limit(),
             );
 
             let transactions: SignedValidPeriodTransactions =
@@ -3767,6 +3770,7 @@ impl Chain {
         cached_shard_update_key: CachedShardUpdateKey,
         chunk_headers: &Chunks,
         chunk_transactions: &[TransactionEnvelope],
+        chunk_gas_limit: Gas,
     ) -> Option<PostStateReadyCallback> {
         let Some(sender) = &self.on_post_state_ready_sender else {
             return None;
@@ -3825,6 +3829,8 @@ impl Chain {
             height: block.height,
             next_epoch_id: epoch_id,
             congestion_info: block.congestion_info.clone(),
+            // The next chunk of the shard has the gas limit of this one.
+            gas_limit: chunk_gas_limit,
         };
 
         // Transactions included in the current chunk, they aren't removed from the pool yet and
@@ -4331,11 +4337,12 @@ impl Chain {
 fn signed_transaction_view(
     transaction: Arc<TransactionEnvelope>,
 ) -> Result<SignedTransactionView, Error> {
-    // TODO(ecc): show ECCs in tx status once they have execution outcomes
+    // TODO(ecc): show ECCs in tx status. The view has no form for them, and their outcome id is
+    // not their hash (see `create_ecc_outcome_id`).
     let transaction_hash = transaction.get_hash();
     let signed_tx = Arc::unwrap_or_clone(transaction).into_signed().ok_or_else(|| {
         Error::Other(format!(
-            "transaction {transaction_hash} is an external contract call, which has no execution result yet"
+            "transaction {transaction_hash} is an external contract call, which tx status does not support yet"
         ))
     })?;
     Ok(signed_tx.into())

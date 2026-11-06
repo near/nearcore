@@ -15,7 +15,7 @@ If contract execution fails `prepaid_gas - used_gas` is refunded back to `signer
 is refunded back to `predecessor_account_id`.
 
 An external call (see [Context API](ContextAPI.md)) has no prepaid gas. Instead, the contract pays for all the gas
-the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
+the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
 calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
 gas burnt is limited by `max_gas_burnt_external`, and the gas burnt plus the gas attached to promises is limited by
 `max_total_prepaid_gas`. The contract is charged after the call, and the call is rejected if the balance can't pay.
@@ -40,12 +40,11 @@ attached_deposit(balance_ptr: u64)
 
 ```
 
--- writes the value into the `u128` variable pointed by `balance_ptr`.
+-- writes the value into the `u128` variable pointed by `balance_ptr`. Both functions can be called in view functions.
 
 ###### Panics
 
-- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`.
 
 ###### Current bugs
 

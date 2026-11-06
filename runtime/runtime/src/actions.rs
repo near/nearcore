@@ -233,7 +233,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     match get_account_type(account_id, apply_state.config.as_ref()) {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
-            access_key.nonce = initial_nonce_value(block_height);
+            access_key.nonce = initial_nonce_value(block_height, protocol_version);
 
             // unwrap: the arm we are in means `account_id` is 64 hex characters.
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
@@ -277,7 +277,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             *account = Some(Account::new_uninitialized(
                 deposit,
                 fee_config.storage_usage_config.num_bytes_account,
-                initial_nonce_value(block_height),
+                initial_nonce_value(block_height, protocol_version),
             ));
         }
         // Unreachable: this is an implicit account creation transfer, so
@@ -1275,7 +1275,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -1283,9 +1282,11 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
+            prev_block: Default::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

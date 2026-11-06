@@ -150,8 +150,11 @@ pub(crate) fn execute_money_transfers_with_delay(
                     amount,
                     anchor_hash,
                 );
-                let process_tx_request =
-                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+                let process_tx_request = ProcessTxRequest {
+                    transaction: tx.into(),
+                    is_forwarded: false,
+                    check_only: false,
+                };
                 node_data[i % num_clients].rpc_handler_sender.send(process_tx_request);
             },
         );
@@ -343,7 +346,7 @@ impl TransactionRunner {
         future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {
-            transaction: self.transaction.clone(),
+            transaction: self.transaction.clone().into(),
             is_forwarded: false,
             check_only: false,
         };

@@ -963,7 +963,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let tx_hash = tx.get_hash();
             let response = target_client
                 .send_async(ProcessTxRequest {
-                    transaction: tx,
+                    transaction: tx.into(),
                     is_forwarded: false,
                     check_only: false,
                 })
@@ -1002,7 +1002,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 TargetChainTx::Ready(tx) => {
                     match target_client
                         .send_async(ProcessTxRequest {
-                            transaction: tx.target_tx.clone(),
+                            transaction: tx.target_tx.clone().into(),
                             is_forwarded: false,
                             check_only: false,
                         })

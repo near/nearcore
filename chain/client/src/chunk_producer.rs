@@ -4,7 +4,6 @@ use crate::pending_transaction_queue::{PendingTxSession, ShardedPendingTransacti
 use crate::prepare_transactions::{
     PrepareTransactionsJobInputs, PrepareTransactionsJobKey, PrepareTransactionsManager,
 };
-use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::spice::chunk_application::spice_block_congestion_info;
@@ -20,7 +19,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_pool::types::{PooledGroup, TransactionGroupIterator};
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -29,7 +28,6 @@ use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKey
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::transaction::SignedTransaction;
-#[cfg(feature = "test_features")]
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -219,7 +217,7 @@ impl ChunkProducer {
             );
             let validated_tx =
                 near_primitives::transaction::ValidatedTransaction::new_for_test(signed_tx);
-            txs.transactions.push(validated_tx);
+            txs.transactions.push(validated_tx.into());
         }
         txs
     }
@@ -301,7 +299,8 @@ impl ChunkProducer {
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };
 
-        let cached_transactions = self.get_cached_prepared_transactions(prev_block, shard_uid)?;
+        let cached_transactions =
+            self.get_cached_prepared_transactions(prev_block, shard_uid, chunk_extra.gas_limit())?;
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
@@ -339,9 +338,7 @@ impl ChunkProducer {
             self.adversarial.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
-        let (tx_root, _) = merklize(
-            &prepared_transactions.transactions.iter().map(|vt| vt.to_signed_tx()).collect_vec(),
-        );
+        let (tx_root, _) = merklize(&prepared_transactions.transactions);
         #[cfg(feature = "test_features")]
         let tx_root = if matches!(
             self.adversarial.produce_mode,
@@ -496,10 +493,9 @@ impl ChunkProducer {
 
                 if skip_verification {
                     let mut res = vec![];
-                    while let Some(group) = iter.next() {
-                        // TODO(ecc): include ECCs once the producer packs them
-                        let PooledGroup::Signed(group) = group else { continue };
-                        res.push(group.next().unwrap());
+                    // This mode is for signed transactions only.
+                    while let Some(group) = iter.next_signed() {
+                        res.push(group.next().unwrap().into());
                     }
                     (
                         PreparedTransactions {
@@ -539,6 +535,9 @@ impl ChunkProducer {
                         prev_block,
                         &*self.epoch_manager,
                         congestion_info,
+                        // TODO(spice): this is a placeholder under Spice, with no gas limit, so
+                        // there is no room for ECCs. Get the real one once they are packed.
+                        chunk_extra.gas_limit(),
                     )?;
                     let mut session = self.new_pending_tx_session(shard_uid);
                     let ptq_enabled = self.spice_pending_transaction_queue_enabled;
@@ -572,6 +571,7 @@ impl ChunkProducer {
                         prev_block,
                         &*self.epoch_manager,
                         prev_block.block_congestion_info(),
+                        chunk_extra.gas_limit(),
                     )?;
                     (
                         self.runtime_adapter.prepare_transactions(
@@ -590,16 +590,13 @@ impl ChunkProducer {
                 (PreparedTransactions::new(), Vec::new())
             };
         // Reintroduce valid transactions back to the pool. They will be removed
-        // when the chunk is included into the block.
-        // TODO(ecc): once ECCs are packed, reintroduce the prepared and the skipped transactions
-        // in one batch in the order they were taken. Two batches put the second one ahead of
-        // the first, which breaks the arrival order of ECCs.
-        let reintroduced_count = pool_guard
-            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-        // Reintroduce skipped transactions (from pending transaction queue constraints) back to pool.
-        if !skipped_transactions.is_empty() {
-            pool_guard.reintroduce_transactions(shard_uid, skipped_transactions);
-        }
+        // when the chunk is included into the block. The skipped ones (from pending transaction
+        // queue constraints, or ECCs that came before the packed one) go back as well.
+        let reintroduced_count = pool_guard.reintroduce_prepared(
+            shard_uid,
+            prepared_transactions.transactions.clone(),
+            skipped_transactions,
+        );
 
         if reintroduced_count < prepared_transactions.transactions.len() {
             tracing::debug!(
@@ -777,6 +774,7 @@ impl ChunkProducer {
         &mut self,
         prev_block: &Block,
         shard_uid: ShardUId,
+        gas_limit: Gas,
     ) -> Result<Option<PreparedTransactions>, Error> {
         let chunks = prev_block.chunks();
         let prev_block_context = OptimisticBlockKeySource {
@@ -796,6 +794,7 @@ impl ChunkProducer {
                 prev_block,
                 &*self.epoch_manager,
                 prev_block.block_congestion_info(),
+                gas_limit,
             )?,
         };
 

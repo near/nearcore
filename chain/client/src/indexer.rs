@@ -25,6 +25,7 @@ use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
+use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
@@ -139,11 +140,12 @@ pub async fn build_streamer_message(
                 let transaction = match transaction {
                     TransactionEnvelopeView::Signed(transaction) => transaction,
                     TransactionEnvelopeView::Unsigned(ecc) => {
-                        // TODO(ecc): index ECCs once they have outcomes. Until then
-                        // `EXPERIMENTAL_indexer_block` rejects blocks with an ECC, because it
+                        // TODO(ecc): index ECCs. The indexer has no view of an external call:
+                        // `IndexerTransactionWithOutcome` holds a `SignedTransactionView`. Until
+                        // then `EXPERIMENTAL_indexer_block` rejects blocks with an ECC, because it
                         // validates that the message has all the transactions of the chunk.
                         // Drop the outcome too, so it is not mistaken for a receipt outcome.
-                        outcomes.remove(&ecc.hash);
+                        outcomes.remove(&create_ecc_outcome_id(&ecc.hash, block.header.height));
                         return None;
                     }
                 };

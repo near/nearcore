@@ -49,6 +49,7 @@ use crate::types::{
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use forwarded_txs::ForwardedTxCounters;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{new_owned_future_spawner, time};
@@ -63,9 +64,9 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
 use tokio::sync::Semaphore;
 
+mod forwarded_txs;
 mod routing;
 mod tier1;
 
@@ -177,9 +178,9 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
+    /// Shared counters across all PeerActors, which count the `RoutedMessageBody::ForwardTx`
     /// messages since last block.
-    pub txns_since_last_block: AtomicUsize,
+    pub(crate) forwarded_txs: ForwardedTxCounters,
 
     /// Peers from which we expect an inbound Tier3 connection, because we sent them a state
     /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
@@ -348,7 +349,7 @@ impl NetworkState {
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
-            txns_since_last_block: AtomicUsize::new(0),
+            forwarded_txs: ForwardedTxCounters::default(),
             pending_tier3_requests: DashMap::new(),
             queued_tier3_requests: Mutex::new(HashMap::new()),
             outgoing_queue_limiter: OutgoingQueueLimiter::new(
@@ -1259,7 +1260,7 @@ impl NetworkState {
             PeerMessage::Transaction(transaction) => {
                 self.client
                     .send_async(ProcessTxRequest {
-                        transaction,
+                        transaction: transaction.into(),
                         is_forwarded: false,
                         check_only: false,
                     })

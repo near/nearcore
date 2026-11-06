@@ -27,8 +27,10 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, SignedTransaction, TransactionEnvelope, ValidatedEcc,
+    ValidatedTransaction, ValidatedTransactionEnvelope,
+};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -366,6 +368,8 @@ pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
     pub prev_block_hash: CryptoHash,
+    pub prev_block_height: BlockHeight,
+    pub prev_block_timestamp: u64,
     pub block_timestamp: u64,
     pub gas_price: Balance,
     pub random_seed: CryptoHash,
@@ -376,6 +380,7 @@ pub struct ApplyChunkBlockContext {
 impl ApplyChunkBlockContext {
     pub fn from_header(
         header: &BlockHeader,
+        prev_header: &BlockHeader,
         gas_price: Balance,
         congestion_info: BlockCongestionInfo,
         bandwidth_requests: BlockBandwidthRequests,
@@ -384,6 +389,8 @@ impl ApplyChunkBlockContext {
             block_type: BlockType::Normal,
             height: header.height(),
             prev_block_hash: *header.prev_hash(),
+            prev_block_height: prev_header.height(),
+            prev_block_timestamp: prev_header.raw_timestamp(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
             random_seed: *header.random_value(),
@@ -423,8 +430,8 @@ pub struct ApplyChunkShardContext<'a> {
 /// and prepared for adding them to a new chunk that is being produced.
 #[derive(Debug, Clone)]
 pub struct PreparedTransactions {
-    /// Prepared transactions
-    pub transactions: Vec<ValidatedTransaction>,
+    /// Prepared transactions, signed and ECCs, in the order they were taken from the pool
+    pub transactions: Vec<ValidatedTransactionEnvelope>,
     /// Describes what limited the number of prepared transactions.
     pub limited_by: PrepareTransactionsLimit,
 }
@@ -441,7 +448,7 @@ impl PreparedTransactions {
 /// Transactions that were taken out of the pool in prepare_transactions,
 /// but should be skipped because they were in skip_tx_hashes.
 #[derive(Debug, Clone)]
-pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+pub struct SkippedTransactions(pub Vec<ValidatedTransactionEnvelope>);
 
 /// Result of checking pending transaction queue admission for a transaction.
 #[derive(Debug, PartialEq, Eq)]
@@ -491,6 +498,8 @@ pub struct PrepareTransactionsBlockContext {
     pub next_epoch_id: EpochId,
     /// Congestion info from the previous block
     pub congestion_info: BlockCongestionInfo,
+    /// Gas limit of the chunk the transactions are prepared for
+    pub gas_limit: Gas,
 }
 
 impl PrepareTransactionsBlockContext {
@@ -498,6 +507,7 @@ impl PrepareTransactionsBlockContext {
         prev_block: &Block,
         epoch_manager: &dyn EpochManagerAdapter,
         congestion_info: BlockCongestionInfo,
+        gas_limit: Gas,
     ) -> Result<Self, Error> {
         let header = prev_block.header();
         Ok(Self {
@@ -505,6 +515,7 @@ impl PrepareTransactionsBlockContext {
             height: header.height(),
             next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
             congestion_info,
+            gas_limit,
         })
     }
 }
@@ -549,10 +560,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        signed_tx: SignedTransaction,
+        tx: TransactionEnvelope,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)>;
+    ) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)>;
 
     fn can_verify_and_charge_tx(
         &self,
@@ -562,6 +573,17 @@ pub trait RuntimeAdapter: Send + Sync {
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
         pending_constraints: &PendingConstraints,
+    ) -> Result<(), InvalidTxError>;
+
+    /// Checks against the state that an ECC has something to run and can be paid for: its
+    /// contract's account holds a contract that can afford the fees of the call.
+    fn can_accept_ecc(
+        &self,
+        shard_layout: &ShardLayout,
+        gas_price: Balance,
+        state_root: StateRoot,
+        ecc: &ValidatedEcc,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -588,7 +610,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// * `skip_tx_hashes` - defines which transactions should be skipped. Used to skip transactions
     ///   that were included in previous chunks but weren't removed from the pool yet. These
     ///   transactions will still be taken out of the pool and should be reintroduced together with
-    ///   PreparedTransactions.
+    ///   PreparedTransactions, with `TransactionPool::reintroduce_prepared`: an ECC that is skipped
+    ///   was in the pool ahead of the one that is prepared for the same contract, and it has to
+    ///   stay ahead of it.
     /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
@@ -721,7 +745,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_async::time::{Clock, Utc};
+    use crate::Chain;
+    use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
@@ -762,6 +787,49 @@ mod tests {
             .approvals(approvals)
             .build();
         b2.header().verify_block_producer(&signer.public_key());
+    }
+
+    /// `ApplyChunkBlockContext` has the hash, height and timestamp of the previous block
+    /// (used in external calls).
+    #[test]
+    fn test_apply_chunk_block_context_prev_block() {
+        let shard_ids = vec![ShardId::new(0)];
+        let genesis_chunks = genesis_chunks(
+            vec![Trie::EMPTY_ROOT],
+            vec![Default::default()],
+            &shard_ids,
+            Gas::from_gas(1_000_000),
+            0,
+            PROTOCOL_VERSION,
+        );
+        let genesis = genesis_block(
+            PROTOCOL_VERSION,
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
+            Utc::now_utc(),
+            0,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
+            &vec![],
+        );
+        let clock = FakeClock::default();
+        let signer = Arc::new(create_test_signer("other"));
+        let prev_block =
+            TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
+        clock.advance(Duration::seconds(1));
+        // The height after the parent's is skipped, so the parent's height isn't one less than
+        // the block's.
+        let height = prev_block.header().height() + 2;
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev_block, signer)
+            .height(height)
+            .build();
+        assert_ne!(block.header().raw_timestamp(), prev_block.header().raw_timestamp());
+
+        let context = Chain::get_apply_chunk_block_context(&block, prev_block.header(), true);
+        assert_eq!(context.height, height);
+        assert_eq!(context.block_timestamp, block.header().raw_timestamp());
+        assert_eq!(context.prev_block_hash, *prev_block.hash());
+        assert_eq!(context.prev_block_height, prev_block.header().height());
+        assert_eq!(context.prev_block_timestamp, prev_block.header().raw_timestamp());
     }
 
     #[test]

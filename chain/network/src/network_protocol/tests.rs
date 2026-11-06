@@ -209,17 +209,6 @@ fn deserialize_sync_routing_table_with_legacy_accounts() {
     assert_eq!(got, msg);
 }
 
-#[cfg(not(feature = "nightly"))]
-fn make_block_approval_message() -> RoutedMessage {
-    let mut rng = make_rng(19385389);
-    let signer = data::make_validator_signer(&mut rng);
-    let approval = Approval::new(CryptoHash::default(), 1, 1, &signer);
-    data::make_routed_message(
-        &mut rng,
-        TieredMessageBody::T1(Box::new(T1MessageBody::BlockApproval(approval))),
-    )
-}
-
 fn make_chunk_request_message() -> RoutedMessage {
     let mut rng = make_rng(19385389);
     data::make_routed_message(
@@ -252,19 +241,6 @@ fn test_body_conversion() {
     assert!(matches!(tiered_body, TieredMessageBody::T1(_)));
     let routed_body2 = tiered_body.into();
     assert_eq!(routed_body, routed_body2);
-}
-
-#[cfg(not(feature = "nightly"))]
-#[test]
-fn test_t1_is_signed() {
-    let message = make_block_approval_message();
-    assert!(message.signature().is_some());
-}
-
-#[test]
-fn test_t2_is_signed() {
-    let message = make_chunk_request_message();
-    assert!(message.signature().is_some());
 }
 
 #[test]

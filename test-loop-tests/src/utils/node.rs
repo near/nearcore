@@ -11,7 +11,9 @@ use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_client::{
+    Client, ProcessTxRequest, ProcessTxResponse, Query, QueryError, ViewClientActor,
+};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -24,7 +26,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction, TransactionEnvelope,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality, Nonce, ProtocolVersion,
@@ -292,13 +294,26 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    /// Submit a signed transaction to this node's RPC handler. Returns the transaction hash.
-    pub fn submit_tx(&self, tx: SignedTransaction) -> CryptoHash {
+    /// Submit a signed transaction or an ECC to this node's RPC handler. Returns the transaction
+    /// hash.
+    pub fn submit_tx(&self, tx: impl Into<TransactionEnvelope>) -> CryptoHash {
+        let tx = tx.into();
         let tx_hash = tx.get_hash();
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
         tx_hash
+    }
+
+    /// Hand a signed transaction or an ECC to this node's RPC handler and return its response
+    /// right away, without running the loop.
+    pub fn process_tx(
+        &self,
+        tx: impl Into<TransactionEnvelope>,
+        is_forwarded: bool,
+    ) -> ProcessTxResponse {
+        let handle = self.node_data.rpc_handler_sender.actor_handle();
+        self.data.get(&handle).process_tx(tx, is_forwarded, false)
     }
 
     /// Build a signed transaction from raw actions, auto-determining nonce,

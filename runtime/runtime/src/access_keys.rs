@@ -7,7 +7,10 @@ use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::trie_key::gas_key_nonce_key_len;
-use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StorageUsage};
+use near_primitives::types::{
+    AccountId, BlockHeight, Nonce, NonceIndex, ProtocolVersion, StorageUsage,
+};
+use near_primitives::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, remove_access_key, remove_gas_key_nonce,
     set_access_key, set_gas_key_nonce,
@@ -43,10 +46,19 @@ fn gas_key_storage_cost(
         + access_key_storage_usage(fee_config, public_key, access_key)
 }
 
-pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
-    // Set default nonce for newly created access key to avoid transaction hash collision.
-    // See <https://github.com/near/nearcore/issues/3779>.
-    (block_height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
+/// Nonce of an access key created at `block_height`.
+///
+/// A transaction executed at height `h` must have a nonce below `h * 1e6` (see `verify_nonce`).
+/// With `RaiseInitialAccessKeyNonce`, a key created at `h` starts at `h * 1e6 - 1`, so no
+/// transaction executed at or before `h` is valid for it. Before the feature it starts at
+/// `(h - 1) * 1e6`, so a transaction executed at `h` that deletes and re-adds its own key can
+/// run again with the same hash. See <https://github.com/near/nearcore/issues/3779>.
+pub fn initial_nonce_value(block_height: BlockHeight, protocol_version: ProtocolVersion) -> Nonce {
+    if ProtocolFeature::RaiseInitialAccessKeyNonce.enabled(protocol_version) {
+        block_height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER - 1
+    } else {
+        (block_height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
+    }
 }
 
 pub(crate) fn action_delete_key(
@@ -164,6 +176,8 @@ pub(crate) fn action_add_key(
     }
 
     let fee_config = &apply_state.config.fees;
+    let initial_nonce =
+        initial_nonce_value(apply_state.block_height, apply_state.current_protocol_version);
 
     if let Some(gas_key_info) = add_key.access_key.gas_key_info() {
         add_gas_key(
@@ -174,7 +188,7 @@ pub(crate) fn action_add_key(
             &add_key.public_key,
             &add_key.access_key,
             gas_key_info,
-            apply_state.block_height,
+            initial_nonce,
         )?;
     } else {
         add_regular_key(
@@ -184,7 +198,7 @@ pub(crate) fn action_add_key(
             account_id,
             &add_key.public_key,
             &add_key.access_key,
-            apply_state.block_height,
+            initial_nonce,
         )?;
     }
 
@@ -199,7 +213,7 @@ fn add_gas_key(
     public_key: &PublicKey,
     access_key: &AccessKey,
     gas_key_info: &GasKeyInfo,
-    block_height: BlockHeight,
+    initial_nonce: Nonce,
 ) -> Result<(), StorageError> {
     // For gas keys, nonce stored on access key is not used and should always be zero
     let mut access_key = access_key.clone();
@@ -208,9 +222,8 @@ fn add_gas_key(
 
     // Set up nonces for gas key
     let num_nonces = gas_key_info.num_nonces;
-    let nonce = initial_nonce_value(block_height);
     for i in 0..num_nonces {
-        set_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i, nonce);
+        set_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i, initial_nonce);
     }
 
     account.set_storage_usage(
@@ -234,10 +247,10 @@ fn add_regular_key(
     account_id: &AccountId,
     public_key: &PublicKey,
     access_key: &AccessKey,
-    block_height: BlockHeight,
+    initial_nonce: Nonce,
 ) -> Result<(), StorageError> {
     let mut access_key = access_key.clone();
-    access_key.nonce = initial_nonce_value(block_height);
+    access_key.nonce = initial_nonce;
     set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
 
     account.set_storage_usage(
@@ -358,6 +371,7 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::{
         ShardTries, ShardUId, Trie, TrieUpdate, get_access_key, get_account, get_gas_key_nonce,
         set_access_key, set_account,
@@ -388,7 +402,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -396,9 +409,11 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
-            current_protocol_version: 1,
+            prev_block: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -473,8 +488,7 @@ mod tests {
         );
 
         // Check gas key nonces were initialized
-        let expected_nonce = (TEST_GAS_KEY_BLOCK_HEIGHT - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT, PROTOCOL_VERSION);
         for i in 0..gas_key_info.num_nonces {
             let gas_key_nonce =
                 get_gas_key_nonce(&state_update, &account_id, &gas_key_public_key, i)
@@ -772,7 +786,7 @@ mod tests {
         let expected = GasKeyInfo { num_nonces: TEST_NUM_NONCES, balance: Balance::ZERO };
         assert_eq!(gas_key_info, &expected);
 
-        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT, PROTOCOL_VERSION);
         let view_nonces = viewer
             .view_gas_key_nonces(&state_update, &account_id, &gas_key_public_key)
             .expect("expected to find gas key nonces");

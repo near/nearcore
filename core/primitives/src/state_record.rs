@@ -140,6 +140,7 @@ impl StateRecord {
                 let data_id = parse_data_id_from_received_data_key(key, &account_id)?;
                 Some(StateRecord::ReceivedData { account_id, data_id, data })
             }
+            col::CONTRACT_COMPILATION_STATUS => None,
             col::POSTPONED_RECEIPT_ID => None,
             col::PENDING_DATA_COUNT => None,
             col::POSTPONED_RECEIPT => {
