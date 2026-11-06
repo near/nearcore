@@ -8,7 +8,8 @@ Due to Wasm restrictions the methods operate only with primitive types, like `u6
 Also for all functions in the bindings specification the following is true:
 
 - Method execution could result in `MemoryAccessViolation` error if the method causes host to read a piece of memory
-  from the guest but it points outside the guest's memory;
+  from the guest but it points outside the guest's memory. The host charges gas for the requested length before it
+  checks bounds, so a large out-of-bounds read can fail with a gas error instead;
 - Method execution could result in `InvalidRegisterId` error if the guest causes host to read from a register that is
   not set.
 

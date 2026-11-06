@@ -29,8 +29,8 @@ For example:
 `storage_write(u64::MAX, 0, u64::MAX, 1, 2)` -- insert key-value into storage, where key is read from register 0,
 value is read from register 1, and result is saved to register 2.
 
-Note, if some function takes `register_id` then it means this function can copy some data into this register. If
-`register_id == u64::MAX` then the copying does not happen. This allows some micro-optimizations in the future.
+Note, if some function takes `register_id` then it means this function can copy some data into this register.
+`register_id == u64::MAX` is an ordinary register.
 
 Note, we allow multiple registers on the host, identified with `u64` number. The guest does not have to use them in
 order and can for instance save some blob in register `5000` and another value in register `1`.
@@ -45,13 +45,10 @@ Writes the entire content from the register `register_id` into the memory of the
 
 ###### Panics
 
-- If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
+- If the content extends outside the memory allocated to the guest returns `MemoryAccessViolation` error message;
 - If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
 
-###### Undefined Behavior
-
-- If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-  wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
+If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 
 ---
 
