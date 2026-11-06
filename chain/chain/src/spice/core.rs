@@ -1211,7 +1211,7 @@ fn compute_uncertified_chunks_from_bodies(
     } else if !prev_to_window.is_spice() {
         boundary_uncertified_chunks(epoch_manager, &prev_to_window)?
     } else {
-        certified_chunks_outside_window(chain_store, epoch_manager, &uncertified_blocks_window)?
+        uncertified_chunks_before_window(chain_store, epoch_manager, &uncertified_blocks_window)?
     };
 
     for block in &uncertified_blocks_window {
@@ -1222,9 +1222,10 @@ fn compute_uncertified_chunks_from_bodies(
     Ok(uncertified_chunks)
 }
 
-/// An entry with no endorsements credited for each chunk the bodies of `window` certify that
-/// belongs to a block before it, in the order the bodies certify them.
-fn certified_chunks_outside_window(
+/// The chunks still uncertified as of the block before `window`: the ones the window's bodies
+/// certify that belong to older blocks, with no endorsements credited. A stand-in for that block's
+/// row, so that replaying the window sets `certifiable_since_height` right.
+fn uncertified_chunks_before_window(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     window: &[Arc<Block>],
