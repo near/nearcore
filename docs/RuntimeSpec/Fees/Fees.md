@@ -183,8 +183,9 @@ Then each `ActionReceipt` is passed to `Runtime::apply_action_receipt` where gas
 - all actions inside `ActionReceipt` are passed to `Runtime::apply_action`;
 - `ActionResult` with charged base execution fees is created there;
 - if action execution creates new `ActionReceipt`s, their fees are added to the `ActionResult`. For example, when a function call creates a promise, it pays:
-  - `gas_burnt`: the **send** fees for the new `ActionReceipt` and its actions, plus the **send** and **exec** fees
-    of one `DataReceipt` for each promise that the new `ActionReceipt` waits on
+  - `gas_burnt`: the **send** fees for the new `ActionReceipt` and its actions, plus the base **send** and **exec**
+    fees of one `DataReceipt` for each promise that the new `ActionReceipt` waits on. The per-byte `DataReceipt`
+    fees are burnt later, by the `value_return` call of the function that produces the data
   - `gas_used`: `gas_burnt` + the **exec** fees for the new `ActionReceipt` and its actions + the gas attached to the function calls in the new `ActionReceipt`
 - all computed `ActionResult`s are merged into one, where all gas values are summed up;
 - unused gas is refunded in `refund_unspent_gas_and_deposits`, after subtracting the gas refund fee, see [Refunds](../Refunds.md).

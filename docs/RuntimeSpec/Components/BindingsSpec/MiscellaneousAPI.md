@@ -9,7 +9,7 @@ Sets the blob of data as the return value of the contract.
 ###### Panics
 
 - If `value_len + value_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
-- If `value_ptr` points to an unused register it panics with `InvalidRegisterId`;
+- If `value_len == u64::MAX` and `value_ptr` points to an unused register it panics with `InvalidRegisterId`;
 - If the value is longer than `max_length_returned_data` (4 MiB) it panics with `ReturnedValueLengthExceeded`.
 
 If `value_return` or `promise_return` is called more than once, the last call sets the return value.
@@ -83,9 +83,9 @@ If `len == u64::MAX` then treats the string as null-terminated with two-byte seq
 ###### Panics
 
 - If string extends outside the memory of the guest with `MemoryAccessViolation`;
-- If `len` is odd or the string is not UTF-16 returns `BadUTF16`;
-- If the string length plus the bytes already logged in this function call is larger than `max_total_log_length`
-  (16,384 bytes), returns `TotalLogLengthExceeded`;
+- If `len` is odd and not `u64::MAX`, or the string is not UTF-16, returns `BadUTF16`;
+- If the UTF-16 length of the string, or the UTF-8 length of the decoded string, plus the bytes already logged in
+  this function call is larger than `max_total_log_length` (16,384 bytes), returns `TotalLogLengthExceeded`;
 - If this function call already has `max_number_logs` (100) logs, returns `NumberOfLogsExceeded`.
 
 ---
