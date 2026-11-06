@@ -159,8 +159,9 @@ fn test_producer_with_expired_transactions() {
 /// The gate's broader purpose is to defend against a malicious producer
 /// smuggling a transaction whose wire format isn't enabled at the active
 /// protocol version yet (e.g. an `EccTransaction` before
-/// `ExternalContractCalls`). Pre-upgrade validators would fail to
-/// deserialize the chunk body and stall. We also shrink
+/// `ExternalContractCalls`). Without the gate, validators would endorse
+/// such a chunk and the runtime at the active protocol version would
+/// then be unable to apply the transaction. We also shrink
 /// `max_transaction_size` so the "oversized" tx stays small and the test
 /// stays fast.
 #[test]

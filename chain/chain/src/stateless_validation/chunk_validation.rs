@@ -320,11 +320,12 @@ pub fn pre_validate_chunk_state_witness(
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
     state_witness.chunk_header().validate_version(protocol_version)?;
 
-    // Reject chunks whose newly proposed transactions cannot exist at the
+    // Reject chunks whose newly proposed transactions are not valid for the
     // active protocol version (e.g. an `EccTransaction` before
-    // `ExternalContractCalls` is enabled). Without this gate, pre-upgrade
-    // nodes would still endorse a chunk containing such a transaction but
-    // be unable to deserialize the chunk body, causing them to stall.
+    // `ExternalContractCalls` is enabled). Without this gate, validators
+    // would endorse such a chunk even though the runtime at the active
+    // protocol version cannot apply the transaction — committing a chunk
+    // that nodes then fail to process.
     //
     // Signature verification is intentionally skipped here — it is performed
     // later when the transaction is applied; we only need a cheap, signature-
