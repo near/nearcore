@@ -22,7 +22,8 @@ use crate::signature_verification::{
 };
 use crate::spice::boundary::write_boundary_uncertified_chunks;
 use crate::spice::core::{
-    SpiceCoreReader, record_uncertified_chunks_by_advancing, record_uncertified_chunks_from_bodies,
+    SpiceCoreReader, record_uncertified_chunks_by_advancing,
+    record_uncertified_chunks_by_replaying_certification_window,
 };
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
@@ -1661,7 +1662,7 @@ impl Chain {
         if header.is_spice() {
             let chain_store = self.chain_store.store().chain_store();
             if prev_block.header().is_spice() {
-                record_uncertified_chunks_from_bodies(
+                record_uncertified_chunks_by_replaying_certification_window(
                     &chain_store,
                     self.epoch_manager.as_ref(),
                     prev_block.header().prev_hash(),
