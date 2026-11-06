@@ -1232,8 +1232,11 @@ If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 96 + bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p1_sum,
     97,
@@ -1278,8 +1281,11 @@ If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 192 + bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p2_sum,
     193,
@@ -1323,8 +1329,11 @@ If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 96 + bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_g1_multiexp,
     128,
@@ -1369,8 +1378,11 @@ If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 192 + bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_g2_multiexp,
     224,
@@ -1407,8 +1419,11 @@ If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 96 * num_elements + bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_map_fp_to_g1,
     48,
@@ -1445,8 +1460,11 @@ use more memory than the limit the function returns `MemoryAccessViolation`.
 If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 192 * num_elements + bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_map_fp2_to_g2,
     96,
@@ -1485,14 +1503,16 @@ bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
 ///
 /// # Errors
 ///
-/// If `value_len + value_ptr` points outside the memory or the registers
-/// use more memory than the limit the function returns `MemoryAccessViolation`.
+/// If `value_len + value_ptr` points outside the memory the function returns
+/// `MemoryAccessViolation`.
 ///
 /// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
 ///
 /// # Cost
-/// `base + write_register_base + write_register_byte * num_bytes +
+/// `read_memory_base + read_memory_byte * value_len +
 ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn bls12381_pairing_check(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1554,8 +1574,11 @@ use more memory than the limit the function returns `MemoryAccessViolation`.
 If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 96 * num_elements + bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p1_decompress,
     48,
@@ -1602,8 +1625,11 @@ If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+`read_memory_base + read_memory_byte * value_len + write_register_base +
+write_register_byte * 192 * num_elements + bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
         ",
     bls12381_p2_decompress,
     96,
