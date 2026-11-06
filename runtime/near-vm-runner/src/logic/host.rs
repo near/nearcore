@@ -689,7 +689,8 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 /// All contract calls are a result of some transaction that was signed by some account using
 /// some access key and submitted into a memory pool (either through the wallet using RPC or by
 /// a node itself). This function returns the id of that account. Saves the bytes of the signer
-/// account id into the register.
+/// account id into the register. For a receipt created from a delegate action (meta transaction),
+/// this is the relayer that signed the outer transaction.
 ///
 /// An external contract call has no signer, so in that case the current
 /// account id is saved instead: the contract signs for the call itself.
@@ -726,6 +727,8 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 /// Saves the public key fo the access key that was used by the signer into the register. In
 /// rare situations smart contract might want to know the exact access key that was used to send
 /// the original transaction, e.g. to increase the allowance or manipulate with the public key.
+/// The key is borsh-encoded: one key type byte (0 ed25519, 1 secp256k1, 2 ML-DSA-65), then the
+/// key bytes. For a receipt created from a delegate action, this is the relayer's key.
 ///
 /// # Errors
 ///
@@ -843,7 +846,7 @@ pub fn refund_to_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: 
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes`
+/// `base + write_register_base`
 pub fn input(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
@@ -893,7 +896,8 @@ pub fn epoch_height(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<EpochHeight
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base + utf8_decoding_byte * account_id_len + validator_stake_base`.
+/// `base + input_cost(account_id_len) + utf8_decoding_base + utf8_decoding_byte * account_id_len +
+/// validator_stake_base + write_memory_base + write_memory_byte * 16`
 pub fn validator_stake(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -920,7 +924,7 @@ pub fn validator_stake(
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
+/// `base + validator_total_stake_base + write_memory_base + write_memory_byte * 16`
 pub fn validator_total_stake(ctx: &mut HostCtx, memory: &mut [u8], stake_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(validator_total_stake_base)?;
@@ -952,7 +956,7 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     let balance = ctx.result_state.current_account_balance;
@@ -963,7 +967,7 @@ pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn account_locked_balance(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -983,7 +987,7 @@ pub fn account_locked_balance(
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn attached_deposit(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     set_u128(
@@ -1018,7 +1022,8 @@ pub fn prepaid_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
     }
 }
 
-/// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+/// The gas that was already burnt during the contract execution plus the gas attached to promises
+/// (cannot exceed `prepaid_gas`)
 ///
 /// # Errors
 ///
@@ -4793,8 +4798,8 @@ pub fn promise_return(ctx: &mut HostCtx, _memory: &mut [u8], promise_idx: u64) -
 ///
 /// # Errors
 ///
-/// * If `value_len + value_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`.
+/// * If `value_len + value_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+/// * If `value_ptr` points to an unused register it returns `InvalidRegisterId`.
 /// * if the length of the returned data exceeds `max_length_returned_data` returns
 ///   `ReturnedValueLengthExceeded`.
 ///
@@ -4870,7 +4875,8 @@ pub fn panic(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<()> {
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
 /// * If string is not UTF-8 returns `BadUtf8`.
-/// * If string is longer than `max_log_len` returns `TotalLogLengthExceeded`.
+/// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+///   `TotalLogLengthExceeded`.
 ///
 /// # Cost
 /// `base + cost of reading and decoding a utf8 string`
@@ -4896,7 +4902,7 @@ pub fn panic_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> R
 ///
 /// # Cost
 ///
-/// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
+/// `base + log_base + log_byte * num_bytes + utf8 decoding cost`
 pub fn log_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.check_can_add_a_log_message()?;
@@ -4937,7 +4943,7 @@ pub fn log_utf16(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> Re
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If `msg_ptr` or `filename_ptr` is below 4, or a string is not UTF-16, returns `BadUTF16`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 /// * If the total number of logs will exceed the `max_number_logs` returns
