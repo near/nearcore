@@ -468,10 +468,10 @@ impl ChunkExecutorActor {
             &self.chain_store,
             &block,
         )?;
-        // The final execution head may have advanced; drop receipts buffered against source
-        // blocks at or below it.
+        // The final execution head may have advanced; drop the receipts buffered against source
+        // blocks at or below it that the receiving shard can no longer apply.
         for executor in self.per_shard_executors.values_mut() {
-            executor.prune_unverified_receipts_below_final_head()?;
+            executor.prune_unverified_receipts(&self.shard_tracker)?;
         }
 
         if let Err(err) = self.advertise_snapshot_if_certified() {

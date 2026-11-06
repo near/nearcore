@@ -26,9 +26,11 @@ use near_chain::{
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::PeerManagerAdapter;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -217,9 +219,25 @@ impl PerShardChunkExecutor {
         Ok(())
     }
 
-    /// Drop receipts buffered against source blocks at or below the final execution head.
-    pub(crate) fn prune_unverified_receipts_below_final_head(&mut self) -> Result<(), Error> {
-        self.unverified_receipts.prune_below_final_head(&self.chain_store)
+    /// Drops the receipts buffered against source blocks whose receipts this shard can no longer
+    /// apply, see [`may_still_apply_receipts`].
+    pub(crate) fn prune_unverified_receipts(
+        &mut self,
+        shard_tracker: &ShardTracker,
+    ) -> Result<(), Error> {
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        let epoch_manager = self.epoch_manager.as_ref();
+        let shard_id = self.shard_uid.shard_id();
+        self.unverified_receipts.prune(&self.chain_store, |source| {
+            may_still_apply_receipts(
+                epoch_manager,
+                shard_tracker,
+                &final_execution_head,
+                source.hash(),
+                source.height(),
+                shard_id,
+            )
+        })
     }
 
     /// Hashes of the parked blocks (test accessor).
@@ -869,4 +887,33 @@ pub(crate) fn is_catching_up(
     let state_sync_info: Option<StateSyncInfo> =
         chain_store.store().get_ser(DBCol::StateDlInfos, epoch_first_block.as_ref());
     Ok(state_sync_info.is_some_and(|info| info.shards().contains(&shard_id)))
+}
+
+/// Whether this node can still apply, in `to_shard`, the receipts that the block `source_hash` at
+/// `source_height` sends it, given the final execution head.
+///
+/// Above the head it can. At or below it, the head means that the block applying the receipts was
+/// applied for every shard this node tracks in that block's epoch. A shard the node applies there
+/// without tracking it, to have it next epoch, is not waited on by the head: one being caught up,
+/// or one kept from the epoch before. Its receipts stay needed until the head leaves that epoch.
+pub(crate) fn may_still_apply_receipts(
+    epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
+    final_execution_head: &Tip,
+    source_hash: &CryptoHash,
+    source_height: BlockHeight,
+    to_shard: ShardId,
+) -> bool {
+    if source_height > final_execution_head.height {
+        return true;
+    }
+    if shard_tracker.cares_about_shard(source_hash, to_shard) {
+        return false;
+    }
+    // Below the head, the block applying the receipts is at or below it as well, so an epoch other
+    // than the head's is an earlier one. At the head, that block can be the next epoch's first.
+    source_height == final_execution_head.height
+        || epoch_manager
+            .get_epoch_id_from_prev_block(source_hash)
+            .is_ok_and(|epoch_id| epoch_id == final_execution_head.epoch_id)
 }

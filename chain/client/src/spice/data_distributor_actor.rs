@@ -1718,7 +1718,67 @@ impl SpiceDataDistributorActor {
 
     fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
         let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        self.start_waiting_on_data_up_to(&final_execution_head);
         self.start_waiting_on_data_for_descendants(&final_execution_head)
+    }
+
+    /// Hands the data manager again the blocks at or below the final execution head whose receipt
+    /// proofs this node can still apply, see
+    /// [`may_still_apply_receipts`](crate::spice::chunk_executor_actor::may_still_apply_receipts).
+    /// The manager tracks items only in memory, and startup otherwise hands it only the blocks
+    /// after that head.
+    fn start_waiting_on_data_up_to(&mut self, final_execution_head: &Tip) {
+        let block_hashes = match self.blocks_with_receipts_still_applied(final_execution_head) {
+            Ok(block_hashes) => block_hashes,
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to find the blocks at or below the final execution head whose receipts are still applied");
+                return;
+            }
+        };
+        for block_hash in block_hashes.into_iter().rev() {
+            // A block before this node's sync point has a header only.
+            if !self.chain_store.block_exists(&block_hash) {
+                continue;
+            }
+            match is_spice_or_last_pre_spice_block(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                &block_hash,
+            ) {
+                Ok(true) => self.process_block_in_data_manager(&block_hash),
+                Ok(false) => {}
+                Err(err) => {
+                    tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to check whether a block is a spice block during startup recovery; skipping");
+                }
+            }
+        }
+    }
+
+    /// The blocks at or below the final execution head whose receipts this node may still apply,
+    /// highest first: the head itself and, while the node applies a shard in the head's epoch only
+    /// to track it next epoch, which the head does not wait on, the rest of that epoch and the
+    /// block before it. The genesis block is left out: it is never processed.
+    fn blocks_with_receipts_still_applied(
+        &self,
+        final_execution_head: &Tip,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        let parent = &final_execution_head.prev_block_hash;
+        let shard_layout = self.epoch_manager.get_shard_layout(&final_execution_head.epoch_id)?;
+        let applies_untracked_shard = shard_layout.shard_ids().any(|shard_id| {
+            !self.shard_tracker.cares_about_shard(parent, shard_id)
+                && self.shard_tracker.will_care_about_shard(parent, shard_id)
+        });
+        let mut header =
+            self.chain_store.get_block_header(&final_execution_head.last_block_hash)?;
+        let mut block_hashes = Vec::new();
+        while !header.is_genesis() {
+            block_hashes.push(*header.hash());
+            if !applies_untracked_shard || header.epoch_id() != &final_execution_head.epoch_id {
+                break;
+            }
+            header = self.chain_store.get_block_header(header.prev_hash())?;
+        }
+        Ok(block_hashes)
     }
 
     /// Starts waiting on the data of every processed spice or last pre-spice block descending

@@ -114,6 +114,14 @@ impl TestManager {
     }
 
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
+        Self::with_shard_tracker(chain, applying_shard_tracker(chain, shard), pull_config)
+    }
+
+    fn with_shard_tracker(
+        chain: &Chain,
+        shard_tracker: ShardTracker,
+        pull_config: PullConfig,
+    ) -> Self {
         let store = chain.chain_store.store();
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         Self {
@@ -121,7 +129,7 @@ impl TestManager {
                 pull_config,
                 store.chain_store(),
                 chain.epoch_manager.clone(),
-                applying_shard_tracker(chain, shard),
+                shard_tracker,
             ),
             clock: FakeClock::default(),
             store,
