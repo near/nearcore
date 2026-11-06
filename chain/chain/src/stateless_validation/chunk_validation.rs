@@ -32,6 +32,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
+use near_primitives::transaction::check_external_calls_in_chunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -347,6 +348,17 @@ pub fn pre_validate_chunk_state_witness(
                 err
             )));
         }
+    }
+    // TODO(spice): check the same rules on a chunk's external calls under Spice, in
+    // `validate_chunk_proofs` and `verify_proof_of_invalid_chunk`.
+    if let Err(err) =
+        check_external_calls_in_chunk(runtime_config, state_witness.new_transactions())
+    {
+        tracing::debug!(target: "chain", protocol_version, ?err, "new external calls are invalid");
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "new external calls are invalid for protocol version {}: {}",
+            protocol_version, err
+        )));
     }
 
     // First, go back through the blockchain history to locate the last new chunk
@@ -937,6 +949,8 @@ mod tests {
     use crate::test_utils::get_chain_with_genesis;
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+    use near_parameters::RuntimeConfig;
+    use near_parameters::config::ExternalCallsConfig;
     use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
     use near_primitives::types::EpochId;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
@@ -980,7 +994,36 @@ mod tests {
     }
 
     fn test_ecc() -> TransactionEnvelope {
-        EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]).into()
+        ecc_to("contract.near", 3)
+    }
+
+    fn ecc_to(contract_id: &str, payload_len: usize) -> TransactionEnvelope {
+        EccTransaction::new(contract_id.parse().unwrap(), vec![1; payload_len]).into()
+    }
+
+    /// Whether this build has external calls. If not, logs that the test is skipped.
+    fn eccs_enabled() -> bool {
+        let enabled = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION);
+        if !enabled {
+            tracing::info!("skipping: external contract calls are not enabled in this build");
+        }
+        enabled
+    }
+
+    /// Pre-validates a witness at the latest protocol version with `new_transactions`, and
+    /// asserts that it is rejected.
+    fn assert_pre_validation_rejects(new_transactions: Vec<TransactionEnvelope>) {
+        let result = pre_validate_witness(PROTOCOL_VERSION, new_transactions);
+        assert!(
+            matches!(result, Err(Error::InvalidChunkStateWitness(_))),
+            "unexpected result: {:?}",
+            result.err()
+        );
+    }
+
+    /// The external calls config the witness is checked against.
+    fn external_calls_config() -> ExternalCallsConfig {
+        RuntimeConfig::test_protocol_version(PROTOCOL_VERSION).external_calls_config
     }
 
     #[test]
@@ -1004,11 +1047,44 @@ mod tests {
 
     #[test]
     fn test_pre_validation_accepts_ecc_at_feature() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            tracing::info!("skipping: external contract calls are not enabled in this build");
+        if !eccs_enabled() {
             return;
         }
         let result = pre_validate_witness(PROTOCOL_VERSION, vec![test_ecc()]);
         assert!(result.is_ok(), "unexpected error: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_pre_validation_rejects_oversized_ecc() {
+        if !eccs_enabled() {
+            return;
+        }
+        let max_call_size = usize::try_from(external_calls_config().max_call_size).unwrap();
+        // The payload alone is past the limit.
+        assert_pre_validation_rejects(vec![ecc_to("contract.near", max_call_size)]);
+    }
+
+    #[test]
+    fn test_pre_validation_rejects_eccs_past_size_share() {
+        if !eccs_enabled() {
+            return;
+        }
+        let config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
+        let share = config.external_calls_config.transactions_size_share(&config.witness_config);
+        let max_call_size = config.external_calls_config.max_call_size;
+        // Calls of half the per-call limit, each valid alone, to as many contracts as it takes
+        // to pass the share.
+        let payload_len = usize::try_from(max_call_size / 2).unwrap();
+        let num_calls = share / (max_call_size / 2) + 1;
+        let eccs = (0..num_calls).map(|i| ecc_to(&format!("contract{i}.near"), payload_len));
+        assert_pre_validation_rejects(eccs.collect());
+    }
+
+    #[test]
+    fn test_pre_validation_rejects_two_eccs_to_one_contract() {
+        if !eccs_enabled() {
+            return;
+        }
+        assert_pre_validation_rejects(vec![ecc_to("contract.near", 1), ecc_to("contract.near", 2)]);
     }
 }

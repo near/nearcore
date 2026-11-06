@@ -130,11 +130,23 @@ fn test_rpc_refuses_oversized_ecc() {
     let contract_id = create_account_id("contract");
     let env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
 
-    let oversized = EccTransaction::new(contract_id, vec![0; 2 * 1024 * 1024]);
+    let oversized = EccTransaction::new(contract_id.clone(), vec![0; 2 * 1024 * 1024]);
     let response = env.rpc_node().process_tx(oversized, false);
     assert_matches!(
         response,
         ProcessTxResponse::InvalidTx(InvalidTxError::TransactionSizeExceeded { .. })
+    );
+
+    // Past the limit of an ECC, though far below the limit of any transaction.
+    let config = env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+    let limit = config.external_calls_config.max_call_size;
+    let payload_len = usize::try_from(limit).unwrap();
+    let oversized = EccTransaction::new(contract_id, vec![0; payload_len]);
+    let response = env.rpc_node().process_tx(oversized, false);
+    assert_matches!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::TransactionSizeExceeded { limit: l, .. })
+            if l == limit
     );
 }
 

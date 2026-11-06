@@ -24,6 +24,7 @@ use schemars::json_schema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
@@ -629,8 +630,47 @@ impl EccTransaction {
         if size > max_tx_size {
             return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
         }
+        let max_ecc_size = config.external_calls_config.max_call_size;
+        if size > max_ecc_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_ecc_size });
+        }
         Ok(())
     }
+}
+
+/// Why the external calls of a chunk, taken together, make the chunk invalid.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum InvalidExternalCalls {
+    #[error("the chunk has more than one external call to {contract_id}")]
+    ContractCalledTwice { contract_id: AccountId },
+    #[error("external calls take {size} bytes, past their share of {limit} bytes")]
+    SizeShareExceeded { size: u64, limit: u64 },
+}
+
+/// Checks the rules on a chunk's external calls taken together: at most one call per contract,
+/// and no more than their share of the chunk's transaction bytes. A chunk that fails this is
+/// invalid.
+///
+/// Before external calls a chunk holds none, as each fails its own validity check, so both rules
+/// pass without looking at the protocol version.
+pub fn check_external_calls_in_chunk<'a>(
+    config: &RuntimeConfig,
+    transactions: impl IntoIterator<Item = &'a TransactionEnvelope>,
+) -> Result<(), InvalidExternalCalls> {
+    let mut contracts = HashSet::new();
+    let mut size: u64 = 0;
+    for ecc in transactions.into_iter().filter_map(TransactionEnvelope::as_unsigned) {
+        if !contracts.insert(ecc.contract_id()) {
+            let contract_id = ecc.contract_id().clone();
+            return Err(InvalidExternalCalls::ContractCalledTwice { contract_id });
+        }
+        size = size.saturating_add(ecc.get_size());
+    }
+    let limit = config.external_calls_config.transactions_size_share(&config.witness_config);
+    if size > limit {
+        return Err(InvalidExternalCalls::SizeShareExceeded { size, limit });
+    }
+    Ok(())
 }
 
 impl fmt::Debug for EccTransaction {
@@ -1554,9 +1594,9 @@ mod tests {
 
     #[test]
     fn test_ecc_check_valid_for_config() {
-        let config = RuntimeConfig::test();
-        let envelope = TransactionEnvelope::from(test_ecc());
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let envelope = TransactionEnvelope::from(test_ecc());
 
         assert_eq!(
             envelope.check_valid_for_config(&config, feature_version - 1),
@@ -1575,10 +1615,109 @@ mod tests {
         );
     }
 
+    /// An external call may take up to `max_call_size` bytes, far less than any transaction may.
+    #[test]
+    fn test_ecc_check_valid_for_config_max_call_size() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let limit = config.external_calls_config.max_call_size;
+        assert!(limit < config.wasm_config.limit_config.max_transaction_size);
+
+        let at_limit = ecc_of_size("wallet.near", limit);
+        assert_eq!(at_limit.get_size(), limit);
+        assert_eq!(at_limit.check_valid_for_config(&config, feature_version), Ok(()));
+
+        let over_limit = ecc_of_size("wallet.near", limit + 1);
+        assert_eq!(
+            over_limit.check_valid_for_config(&config, feature_version),
+            Err(InvalidTxError::TransactionSizeExceeded { size: limit + 1, limit })
+        );
+    }
+
+    /// An external call to `contract_id` of exactly `size` bytes.
+    fn ecc_of_size(contract_id: &str, size: u64) -> EccTransaction {
+        let contract_id: AccountId = contract_id.parse().unwrap();
+        let overhead = EccTransaction::new(contract_id.clone(), vec![]).get_size();
+        let payload_len = usize::try_from(size - overhead).unwrap();
+        EccTransaction::new(contract_id, vec![0; payload_len])
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_size_share() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let share = config.external_calls_config.transactions_size_share(&config.witness_config);
+        let max_call_size = config.external_calls_config.max_call_size;
+        let contract_ids = ["a.near", "b.near", "c.near", "d.near", "e.near", "f.near"];
+
+        // Full-size calls up to the share, and a last one that takes what is left.
+        let mut size_left = share;
+        let mut at_share = vec![];
+        for contract_id in contract_ids {
+            let size = size_left.min(max_call_size);
+            at_share.push(TransactionEnvelope::from(ecc_of_size(contract_id, size)));
+            size_left -= size;
+            if size_left == 0 {
+                break;
+            }
+        }
+        assert_eq!(size_left, 0, "the calls don't reach the share of {share} bytes");
+        // Signed transactions don't count toward the share.
+        let with_signed: Vec<TransactionEnvelope> = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain(at_share.iter().cloned())
+            .collect();
+        assert_eq!(check_external_calls_in_chunk(&config, &with_signed), Ok(()));
+
+        // One byte more than the share.
+        let mut past_share = at_share;
+        let last = past_share.pop().unwrap().as_unsigned().unwrap().clone();
+        let bigger = ecc_of_size(last.contract_id().as_str(), last.get_size() + 1);
+        past_share.push(bigger.into());
+        assert_eq!(
+            check_external_calls_in_chunk(&config, &past_share),
+            Err(InvalidExternalCalls::SizeShareExceeded { size: share + 1, limit: share })
+        );
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_one_call_per_contract() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let contract_id: AccountId = "wallet.near".parse().unwrap();
+        let first = EccTransaction::new(contract_id.clone(), vec![1]);
+        let other = EccTransaction::new("other.near".parse().unwrap(), vec![1]);
+        let called_twice =
+            Err(InvalidExternalCalls::ContractCalledTwice { contract_id: contract_id.clone() });
+
+        // Different payloads.
+        let second = EccTransaction::new(contract_id.clone(), vec![2]);
+        let txs = [&first, &other, &second].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+
+        // The same call twice.
+        let txs = [&first, &first].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+
+        // A signed transaction from the contract's account isn't an external call to it.
+        let signer = InMemorySigner::test_signer(&contract_id);
+        let transfer = SignedTransaction::send_money(
+            1,
+            contract_id,
+            "bob.near".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let txs = [TransactionEnvelope::from(transfer), first.into(), other.into()];
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
+    }
+
     #[test]
     fn test_validated_envelope() {
-        let config = RuntimeConfig::test();
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
 
         let ecc = TransactionEnvelope::from(test_ecc());
         let validated =
@@ -1611,8 +1750,8 @@ mod tests {
     /// root over the envelopes that go into the chunk.
     #[test]
     fn test_validated_envelope_serializes_as_the_envelope() {
-        let config = RuntimeConfig::test();
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
         let envelopes = test_signed_txs()
             .into_iter()
             .map(TransactionEnvelope::from)
