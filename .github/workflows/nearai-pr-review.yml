@@ -133,9 +133,11 @@ jobs:
         run: |
           # -delete turns off -prune in GNU find, so .git is skipped with ! -path.
           find pr -type l ! -path 'pr/.git/*' -delete
-          # -prune keeps find out of folders it is about to delete.
-          find pr -path pr/.git -prune -o \( -name .opencode -o -name 'opencode.json*' -o -name AGENTS.md \) \
-            -prune -exec rm -rf {} +
+          # -prune keeps find out of folders it is about to delete. OpenCode 2.2.5
+          # reads only AGENTS.md as instructions; CLAUDE.md and CONTEXT.md go too,
+          # in case a later version reads them.
+          find pr -path pr/.git -prune -o \( -name .opencode -o -name 'opencode.json*' -o -name AGENTS.md \
+            -o -name CLAUDE.md -o -name CONTEXT.md \) -prune -exec rm -rf {} +
           # OpenCode adds a nested AGENTS.md to the model's instructions when the
           # model reads a file in that folder, so only the default branch's
           # copies are kept. The root copy goes into the prompt instead. A copy
@@ -240,7 +242,7 @@ jobs:
           # Do not load config, skills or instructions from the PR checkout, and
           # do not download OpenCode's model catalog.
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
-          OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "true"
+          OPENCODE_DISABLE_CLAUDE_CODE: "true"
           OPENCODE_DISABLE_MODELS_FETCH: "true"
         run: |
           {
@@ -362,10 +364,17 @@ jobs:
           text = re.sub(r"github(?=\.com/[^/\s]+/[^/\s]+/(?:issues|pull|discussions)/[0-9])", "github" + zero_width, text,
                         flags=re.IGNORECASE)
 
-          # GitHub rejects comments longer than 65536 characters.
+          # GitHub rejects comments longer than 65536 characters. A code block left
+          # open by the cut is closed, so the note does not render as code.
           limit = 60000
           if len(text) > limit:
-              text = text[:text.rfind("\n", 0, limit) + 1] + "\n_The review was cut to fit the comment size limit._\n"
+              text = text[:text.rfind("\n", 0, limit) + 1]
+              fence = None
+              for line in text.splitlines():
+                  marker = re.match(r" {0,3}(`{3,}|~{3,})", line)
+                  if marker and (fence is None or marker.group(1)[0] == fence[0]):
+                      fence = None if fence else marker.group(1)
+              text += (fence + "\n" if fence else "") + "\n_The review was cut to fit the comment size limit._\n"
           with open(sys.argv[2], "w", encoding="utf-8") as f:
               f.write(text)
           EOF
