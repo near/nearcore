@@ -286,7 +286,7 @@ fn test_state_sync_simple_five_node() {
 
 #[test]
 #[should_panic(expected = "Invalid Gas Used")]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: the synced chunk extra comes from the certified execution result.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_chunk_extra_divergence_stops_the_node() {
     init_test_logger();
@@ -330,7 +330,7 @@ fn test_state_sync_empty_shard() {
 // all shards to have included >=2 new chunks, so missing shard 0's first chunk shifts the
 // sync hash later by one block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_first_block() {
     init_test_logger();
@@ -362,7 +362,7 @@ fn test_state_sync_miss_chunks_first_block() {
 // Drop shards 0 and 1 chunks at offset 1 (second block of each epoch). Similar to
 // first_block but the miss is one block later.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_second_block() {
     init_test_logger();
@@ -392,7 +392,7 @@ fn test_state_sync_miss_chunks_second_block() {
 // Drop shards 0 and 2 chunks at offset 2 (third block of each epoch). The sync hash is
 // shifted one block later than usual.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_third_block() {
     init_test_logger();
@@ -422,7 +422,7 @@ fn test_state_sync_miss_chunks_third_block() {
 // Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
 // has missing chunks, testing that state sync handles this edge case correctly.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_block() {
     init_test_logger();
@@ -453,7 +453,7 @@ fn test_state_sync_miss_chunks_sync_block() {
 // Miss shard 1 at offset 3 (sync hash block) and shard 3 at offset 1. Combines an early
 // miss with a miss at the sync hash — a composite of the first_block and sync_block patterns.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_prev_block() {
     init_test_logger();
@@ -484,7 +484,7 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
 // up to the sync hash. Each shard reaches its "2 new chunks" threshold at a different block,
 // significantly delaying the sync hash relative to epoch start.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_before_last_chunk_included() {
     init_test_logger();
@@ -517,7 +517,7 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
 // shard 0: miss near sync hash    shard 1: miss at AND past sync hash
 // shard 2: interleaved early      shard 3: miss only at sync hash block
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Not applicable to spice: its sync block is the epoch's first block, whatever chunks are missing.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_multiple() {
     init_test_logger();
