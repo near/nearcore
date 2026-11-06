@@ -532,7 +532,10 @@ mod tests {
         assert!(budget.try_submit(third, 4), "exactly filled 10/10 budget must be admitted");
         assert_eq!(budget.submitted_bytes, 10);
         assert!(budget.try_submit(first, 6), "duplicate admission should not be rejected");
-        assert!(!budget.try_submit(second, 5), "previously rejected contract must still be rejected");
+        assert!(
+            !budget.try_submit(second, 5),
+            "previously rejected contract must still be rejected"
+        );
     }
 
     #[test]

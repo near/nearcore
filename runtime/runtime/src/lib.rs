@@ -632,11 +632,17 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
-        result.gas_used = exec_fees.gas;
-        result.gas_burnt = exec_fees.gas;
-        result.compute_usage = exec_fees.compute;
+        // Deployment execution fees are charged during receipt preflight because
+        // compilation happens there even when an earlier action later fails.
+        if !ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version)
+            || !matches!(action, Action::DeployContract(_))
+        {
+            let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+            result.gas_used = exec_fees.gas;
+            result.gas_burnt = exec_fees.gas;
+            result.compute_usage = exec_fees.compute;
+        }
         result.current_contract =
             account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
         let account_id = receipt.receiver_id();
@@ -1005,6 +1011,24 @@ impl Runtime {
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
+
+        if !input_size_exceeded
+            && ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+        {
+            // Preflight has admitted every deployment in the receipt and may
+            // already have compiled its code. Charge that work even if an
+            // earlier action fails and the deployment itself is never executed.
+            for action in action_receipt.actions() {
+                if matches!(action, Action::DeployContract(_)) {
+                    let deploy_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+                    result.gas_used = result.gas_used.checked_add_result(deploy_fees.gas)?;
+                    result.gas_burnt = result.gas_burnt.checked_add_result(deploy_fees.gas)?;
+                    result.compute_usage =
+                        safe_add_compute(result.compute_usage, deploy_fees.compute)?;
+                }
+            }
+        }
 
         if input_size_exceeded {
             result.set_error(

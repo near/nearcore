@@ -1,5 +1,6 @@
 use super::*;
 use crate::bandwidth_scheduler::run_bandwidth_scheduler;
+use crate::config::exec_fee;
 use crate::congestion_control::{DelayedReceiptQueueWrapper, ReceiptSink};
 use crate::contract_compilation_status::{
     try_admit_contract_compilation, update_contract_compilation_status,
@@ -678,6 +679,39 @@ fn preflight_admits_calls_and_deploys_even_after_a_loading_abort() {
     assert_eq!(result.cold_contract_bytes, first.len().checked_add(second.len()).unwrap() as u64);
     f.assert_cached(first);
     f.assert_cached(second);
+}
+
+#[test]
+fn admitted_deployment_is_charged_when_an_earlier_action_fails() {
+    let current = near_test_contracts::trivial_contract();
+    let later = near_test_contracts::rs_contract();
+
+    let mut baseline = setup();
+    baseline.install_cold(&[baseline.receipt(0, vec![deploy(current)])]);
+    let result = baseline.apply(&[baseline.receipt(0, vec![call("missing_method")])]);
+    assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
+    let baseline_gas = result.outcomes[0].outcome.gas_burnt;
+
+    for warm in [false, true] {
+        let mut with_deployment = setup();
+        with_deployment.install_cold(&[with_deployment.receipt(0, vec![deploy(current)])]);
+        if warm {
+            let result = with_deployment.apply(&[with_deployment.receipt(1, vec![deploy(later)])]);
+            assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+            with_deployment.assert_cached(later);
+        }
+
+        let deployment = deploy(later);
+        let deployment_gas =
+            exec_fee(&with_deployment.state.config, &deployment, &alice_account()).unwrap().gas;
+        let receipt = with_deployment.receipt(0, vec![call("missing_method"), deployment]);
+        let result = with_deployment.apply(&[receipt]);
+        assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
+        assert_eq!(
+            result.outcomes[0].outcome.gas_burnt,
+            baseline_gas.checked_add(deployment_gas).unwrap()
+        );
+    }
 }
 
 #[test]
