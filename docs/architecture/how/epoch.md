@@ -40,7 +40,8 @@ Epoch length is set in the genesis config. Currently in mainnet it is set to 432
 
 See [the mainnet genesis](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/genesis.json) for more details.
 
-This means that each epoch lasts around 15 hours.
+Mainnet and testnet produce a block about every 0.6 seconds, so each epoch lasts
+around 7 hours.
 
 **Important:** sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
@@ -67,8 +68,10 @@ Sharding changes happen only on epoch boundary - that’s why many of the reques
 (like which shard does my account belong to), require also an `epoch_id` as a
 parameter.
 
-As of April 2022 we don’t have dynamic sharding yet, so the whole chain is
-simply using 4 shards.
+Mainnet and testnet have 10 shards. From protocol version 85 (nearcore 2.13.0),
+dynamic resharding can split a shard at an epoch boundary. Both networks allow
+at most 10 shards, so no further split happens until a later protocol version
+raises that limit. See [Dynamic Resharding](https://github.com/near/nearcore/blob/master/docs/architecture/how/dynamic_resharding.md) for details.
 
 ### How can I get more information about current/previous epochs?
 
