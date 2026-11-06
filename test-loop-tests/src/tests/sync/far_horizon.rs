@@ -20,6 +20,7 @@ use super::util::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -79,6 +80,7 @@ fn test_far_horizon_full_pipeline() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -150,6 +152,7 @@ fn test_far_horizon_chained_epoch_sync() {
 
     env.node_runner(new_node1_idx).run_for_number_of_blocks(3 * epoch_length as usize);
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node1_idx, &accounts);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -198,6 +201,7 @@ fn test_far_horizon_stale_node_shutdown() {
         env.test_loop.is_denylisted(&restart_id),
         "stale node should have been denylisted via EpochSyncDataReset shutdown signal"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -232,6 +236,7 @@ fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
         env.test_loop.is_denylisted(&restart_id),
         "a node one epoch past the horizon should still reset its store"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -309,6 +314,7 @@ fn test_far_horizon_archival_skips_epoch_sync() {
         result.is_ok(),
         "archival node should have block at height {early_height} via split store"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -379,6 +385,7 @@ fn test_far_horizon_restart_during_header_sync() {
     let expected =
         vec!["AwaitingPeers", "NoSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -442,6 +449,7 @@ fn test_far_horizon_restart_during_state_sync() {
     // With ContinuousEpochSync the node catches up fully and reaches NoSync.
     let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -500,6 +508,7 @@ fn test_far_horizon_restart_during_block_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -578,6 +587,7 @@ fn test_far_horizon_restart_after_long_downtime() {
         env.test_loop.is_denylisted(restart_id),
         "node should have been denylisted via EpochSyncDataReset after long downtime"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -660,6 +670,8 @@ fn test_far_horizon_staking_state() {
     // accounts don't meet the validator seat price and their locked balance
     // returns to 0 at the epoch boundary.
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    // TODO(spice-test): the test network delivers spice data over direct links only, so with a
+    // single peer this node misses the other producers' receipt proofs and stops executing.
     assert_certification_kept_up(&env);
 }
 
@@ -752,6 +764,7 @@ fn test_far_horizon_tx_during_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     assert!(tx_counter > 0, "expected at least some txs to be injected during sync");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -855,6 +868,7 @@ fn test_far_horizon_stale_sync_hash_detection() {
         validator_height > expected_threshold,
         "validator height {validator_height} should exceed threshold {expected_threshold}",
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -911,5 +925,6 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
     let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
     assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }

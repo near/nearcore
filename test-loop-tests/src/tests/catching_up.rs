@@ -1,7 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::certification::assert_certification_kept_up;
-use crate::utils::execution::assert_execution_kept_up;
+use crate::utils::execution::{assert_caught_up_shards_applied, assert_execution_kept_up};
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
@@ -259,6 +259,7 @@ fn test_catchup_random_single_part_sync_common(
         }
     }
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -353,6 +354,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
         Duration::seconds(120),
     );
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -440,5 +442,6 @@ fn slow_test_all_chunks_accepted() {
         Duration::seconds(last_height as i64),
     );
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }

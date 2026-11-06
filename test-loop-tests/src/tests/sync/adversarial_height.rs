@@ -14,6 +14,7 @@ use crate::setup::state::NodeExecutionData;
 use crate::tests::sync::util::far_horizon_height;
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::Duration;
@@ -89,6 +90,7 @@ fn test_synced_node_ignores_unverified_far_ahead_height() {
         sync_history.borrow(),
     );
     assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -128,6 +130,7 @@ fn test_genesis_node_bootstraps() {
         ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
             .map(String::from);
     assert_eq!(sync_history.borrow().as_slice(), expected.as_slice());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -181,6 +184,7 @@ fn test_stale_node_syncs() {
         env.test_loop.is_denylisted(restart_id),
         "stale node should reach epoch sync and trigger the data reset"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -239,6 +243,7 @@ fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
         restarted_head > head_before,
         "node should follow the chain, head stuck at {head_before}"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -286,6 +291,7 @@ fn test_max_prev_height_does_not_abort_node() {
         "victim must not enter any sync phase after the max prev_height claim, saw {:?}",
         sync_history.borrow(),
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -408,6 +414,7 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
     };
     assert_eq!(state_sync_status.sync_hash, victim_sync_hash);
     assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -463,5 +470,6 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
 
     run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
     assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
