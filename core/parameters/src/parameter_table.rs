@@ -485,6 +485,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
             },
             min_gas_purchase_price: params.get(Parameter::MinGasPurchasePrice)?,
             account_creation_charge: params.get(Parameter::AccountCreationCharge)?,
+            max_cold_contract_bytes_per_chunk: params
+                .get(Parameter::MaxColdContractBytesPerChunk)?,
         })
     }
 }

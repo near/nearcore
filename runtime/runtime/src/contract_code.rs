@@ -93,9 +93,10 @@ impl RuntimeContractIdentifier {
 
     /// Resolve exact source size without retrieving the source bytes.
     ///
-    /// Called only after the FixContractLoadingCost loading base has been paid,
-    /// with the caller's witness policy. Missing code is legitimate only for this
-    /// chain's current global wallet contract hash: that wallet's code may never
+    /// Used by receipt preflight and speculative preparation before execution,
+    /// and by demand preparation after paying the FixContractLoadingCost loading
+    /// base. Uses the caller's witness policy. Missing code is legitimate only
+    /// for this chain's current global wallet contract hash: that wallet's code may never
     /// have been deployed on this chain. This also applies to named accounts,
     /// since `resolve` remaps old global wallet hashes regardless of account type.
     pub(crate) fn resolve_code_len(

@@ -36,6 +36,10 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// way.
     map: BTreeMap<PrepareTaskKey, Arc<PrepareTask>>,
 
+    /// Best-effort cap on unique code bytes submitted to the pipeline during this chunk.
+    /// This is local scheduling policy, not consensus admission.
+    pipeline_submission_budget: PipelineSubmissionBudget,
+
     /// List of Receipt receiver IDs that must not be prepared for this chunk.
     ///
     /// This solves an issue wherein the pipelining implementation only has access to the committed
@@ -89,6 +93,27 @@ pub(crate) struct ReceiptPreparationPipeline {
     current_protocol_version: ProtocolVersion,
 }
 
+#[derive(Default)]
+struct PipelineSubmissionBudget {
+    submitted_hashes: HashSet<CryptoHash>,
+    submitted_bytes: u64,
+    submission_limit: u64,
+}
+
+impl PipelineSubmissionBudget {
+    fn try_submit(&mut self, hash: CryptoHash, code_len: u64) -> bool {
+        if self.submitted_hashes.contains(&hash) {
+            return true;
+        }
+        if code_len > self.submission_limit.saturating_sub(self.submitted_bytes) {
+            return false;
+        }
+        self.submitted_hashes.insert(hash);
+        self.submitted_bytes = self.submitted_bytes.saturating_add(code_len);
+        true
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct PrepareTaskKey {
     receipt_id: CryptoHash,
@@ -138,6 +163,15 @@ impl ReceiptPreparationPipeline {
             map: Default::default(),
             block_accounts: Default::default(),
             block_global_contracts: Default::default(),
+            pipeline_submission_budget: PipelineSubmissionBudget {
+                // This local submission cap is separate from consensus
+                // admission and we could choose a completely different number
+                // here. But we use the same value as
+                // `max_cold_contract_bytes_per_chunk` here, aiming for a
+                // worst-case 1:2 ratio for used:unused pipeline work.
+                submission_limit: config.max_cold_contract_bytes_per_chunk,
+                ..Default::default()
+            },
             config,
             next_wasm_config,
             contract_cache,
@@ -251,6 +285,23 @@ impl ReceiptPreparationPipeline {
                         // Storage failures and early aborts are handled by demand preparation.
                         continue;
                     };
+                    let Ok(code_len) = code_ext.identifier.resolve_code_len(
+                        state_update,
+                        AccessOptions::NO_SIDE_EFFECTS,
+                        &self.chain_id,
+                        self.current_protocol_version,
+                    ) else {
+                        // Demand preparation handles storage failures.
+                        continue;
+                    };
+                    // Count all submitted code conservatively, even local cache hits. Never
+                    // refund completed work or mutate consensus admission during lookahead.
+                    if !self
+                        .pipeline_submission_budget
+                        .try_submit(code_ext.identifier.hash(), code_len.unwrap_or(0))
+                    {
+                        continue;
+                    }
                     // Reuse successfully prepared metadata for optional next-epoch warming.
                     // Loading-gas affordability filters scheduling, warming itself is not
                     // charged to the receipt and does not affect its execution outcome.
@@ -459,5 +510,46 @@ impl ReceiptPreparationPipeline {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PipelineSubmissionBudget;
+    use near_primitives::hash::CryptoHash;
+
+    #[test]
+    fn pipeline_submission_budget_counts_unique_code_and_rejects_without_reserving() {
+        let mut budget = PipelineSubmissionBudget { submission_limit: 10, ..Default::default() };
+        let first = CryptoHash([1; 32]);
+        let second = CryptoHash([2; 32]);
+        let third = CryptoHash([3; 32]);
+        assert!(budget.try_submit(first, 6), "first receipt must be admitted");
+        assert!(budget.try_submit(first, 6), "duplicate admission should not be rejected");
+        assert!(!budget.try_submit(second, 5), "breached budget must be rejected");
+        assert_eq!(budget.submitted_bytes, 6);
+        assert!(!budget.submitted_hashes.contains(&second));
+        assert!(budget.try_submit(third, 4), "exactly filled 10/10 budget must be admitted");
+        assert_eq!(budget.submitted_bytes, 10);
+        assert!(budget.try_submit(first, 6), "duplicate admission should not be rejected");
+        assert!(
+            !budget.try_submit(second, 5),
+            "previously rejected contract must still be rejected"
+        );
+    }
+
+    #[test]
+    fn pipeline_submission_budget_handles_zero_and_max_limits() {
+        let first = CryptoHash([1; 32]);
+        let second = CryptoHash([2; 32]);
+        let mut budget = PipelineSubmissionBudget::default();
+        assert!(!budget.try_submit(first, 1));
+        assert!(budget.try_submit(second, 0));
+
+        let mut budget =
+            PipelineSubmissionBudget { submission_limit: u64::MAX, ..Default::default() };
+        assert!(budget.try_submit(first, u64::MAX));
+        assert!(!budget.try_submit(second, 1));
+        assert_eq!(budget.submitted_bytes, u64::MAX);
     }
 }
