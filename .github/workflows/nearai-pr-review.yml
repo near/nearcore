@@ -168,9 +168,11 @@ jobs:
             exit 1
           fi
 
-      # Install scripts run only after `npm audit signatures` has checked the
-      # packages. OpenCode downloads ripgrep without a checksum when none is on
-      # PATH, so a pinned and checked copy is put there first.
+      # No install script runs. The job uses the platform binary that npm
+      # installed and `npm audit signatures` checked; the package's own install
+      # script could download another copy that the check never saw. OpenCode
+      # downloads ripgrep without a checksum when none is on PATH, so a pinned
+      # and checked copy is put there first.
       - name: Install OpenCode
         if: ${{ steps.key-check.outputs.present == 'true' }}
         env:
@@ -181,9 +183,11 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/opencode" --no-fund --no-audit --ignore-scripts \
             "@opencode/cli@$OPENCODE_VERSION"
           (cd "$RUNNER_TEMP/opencode" && npm audit signatures)
-          # The package's install script copies the binary for this platform into place.
-          node "$RUNNER_TEMP/opencode/node_modules/@opencode/cli/postinstall.mjs"
-          echo "$RUNNER_TEMP/opencode/node_modules/.bin" >> "$GITHUB_PATH"
+          # The baseline build runs on any x64 CPU, with or without AVX2.
+          pkg=$RUNNER_TEMP/opencode/node_modules/@opencode/cli-linux-x64-baseline
+          jq -e --arg v "$OPENCODE_VERSION" '.version == $v' "$pkg/package.json" > /dev/null
+          test -x "$pkg/bin/opencode"
+          echo "$pkg/bin" >> "$GITHUB_PATH"
           rg=ripgrep-$RIPGREP_VERSION-x86_64-unknown-linux-musl
           curl -fsSL -o "$RUNNER_TEMP/$rg.tar.gz" \
             "https://github.com/BurntSushi/ripgrep/releases/download/$RIPGREP_VERSION/$rg.tar.gz"
