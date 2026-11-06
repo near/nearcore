@@ -1,6 +1,5 @@
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
@@ -25,28 +24,24 @@ impl SpiceChainReader {
         Self { chain_store, epoch_manager, shard_tracker }
     }
 
-    /// Checks if a block has been executed by looking for chunk_extra on any
-    /// tracked shard. Non-spice blocks are always considered executed since
+    /// Checks if a block has been executed by looking for chunk_extra on every
+    /// shard tracked this epoch, so a node tracking no shards treats every block
+    /// as executed. Non-spice blocks are always considered executed since
     /// execution is synchronous with block processing.
-    pub fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let epoch_id = header.epoch_id();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        if !ProtocolFeature::Spice.enabled(protocol_version) {
+    fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        if !ProtocolFeature::Spice.enabled(protocol_version) || header.is_genesis() {
             return Ok(true);
         }
-        let shard_ids = self.epoch_manager.shard_ids(epoch_id)?;
-        for shard_id in shard_ids {
-            if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
-                continue;
-            }
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-            match self.chain_store.chunk_store().get_chunk_extra(header.hash(), &shard_uid) {
-                Ok(_) => return Ok(true),
+        let chunk_store = self.chain_store.chunk_store();
+        for shard_uid in self.shard_tracker.tracked_shard_uids(header.prev_hash())? {
+            match chunk_store.get_chunk_extra(header.hash(), &shard_uid) {
+                Ok(_) => {}
                 Err(Error::DBNotFoundErr(_)) => return Ok(false),
                 Err(err) => return Err(err),
             }
         }
-        Ok(false)
+        Ok(true)
     }
 
     /// For spice, returns an error if the block has not been executed yet.
