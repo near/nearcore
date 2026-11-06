@@ -1,1 +1,26 @@
 max_gas_burnt_external: { old: 0, new: 20_000_000_000_000 }
+
+# Limits on external contract calls, which nobody pays for when the contract refuses them.
+# Per call: the size of the call and the storage proof its run records, 20 KiB each.
+max_external_call_size: { old: 0, new: 20_480 }
+max_external_call_recorded_size: { old: 0, new: 20_480 }
+# Per chunk, for all external calls together: shares of the chunk's limits, each of which fits
+# five calls at the per-call limits (see `test_external_calls_shares_fit_five_worst_case_calls`).
+# 40% of the chunk's compute limit.
+external_calls_chunk_compute_share:
+  {
+    old: { numerator: 0, denominator: 1 },
+    new: { numerator: 2, denominator: 5 },
+  }
+# 5% of `main_storage_proof_size_soft_limit`.
+external_calls_chunk_storage_proof_share:
+  {
+    old: { numerator: 0, denominator: 1 },
+    new: { numerator: 1, denominator: 20 },
+  }
+# 2.5% of `combined_transactions_size_limit`.
+external_calls_chunk_transactions_size_share:
+  {
+    old: { numerator: 0, denominator: 1 },
+    new: { numerator: 1, denominator: 40 },
+  }

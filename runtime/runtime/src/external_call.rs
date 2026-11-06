@@ -21,7 +21,8 @@ use crate::verifier::{StorageStakingError, check_storage_stake};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, InvalidTxError, RuntimeError, StorageError, TxExecutionError,
+    ActionError, ActionErrorKind, ExternalCallChunkLimit, InvalidTxError, RuntimeError,
+    StorageError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile_data_v3::ProfileDataV3;
@@ -36,6 +37,61 @@ use near_vm_runner::CompilePriority;
 use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// What the external calls of a chunk used so far, against their shares of the chunk's compute
+/// and storage proof, which apply checks before each call. Apply uses it, and the chunk producer
+/// will too, so both admit the same calls.
+///
+/// The other rules on a chunk's external calls, one call per contract and a share of the chunk's
+/// transaction bytes, make a chunk invalid, and are checked before apply.
+#[derive(Debug)]
+pub struct ExternalCallsInChunk {
+    compute: Compute,
+    recorded_size: u64,
+    /// The share of the chunk's compute limit. `Compute::MAX` when the chunk has no gas limit,
+    /// as apply's own compute limit is then.
+    compute_share: Compute,
+    /// The share of `main_storage_proof_size_soft_limit`.
+    recorded_size_share: u64,
+}
+
+impl ExternalCallsInChunk {
+    /// Nothing used yet, in a chunk with `chunk_gas_limit`, which is its compute limit.
+    pub fn new(config: &RuntimeConfig, chunk_gas_limit: Option<Gas>) -> Self {
+        let calls_config = &config.external_calls_config;
+        let compute_share =
+            chunk_gas_limit.map_or(Compute::MAX, |gas_limit| calls_config.compute_share(gas_limit));
+        Self {
+            compute: 0,
+            recorded_size: 0,
+            compute_share,
+            recorded_size_share: calls_config.storage_proof_share(&config.witness_config),
+        }
+    }
+
+    /// Whether the chunk has room left in every share. What a call uses is known only once it
+    /// ran, so a chunk can pass each share by at most one call.
+    pub fn fits(&self) -> Result<(), InvalidTxError> {
+        let (used, limit) = (self.compute, self.compute_share);
+        if used >= limit {
+            let limit = ExternalCallChunkLimit::Compute { used, limit };
+            return Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit });
+        }
+        let (used, limit) = (self.recorded_size, self.recorded_size_share);
+        if used >= limit {
+            let limit = ExternalCallChunkLimit::StorageProof { used, limit };
+            return Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit });
+        }
+        Ok(())
+    }
+
+    /// Counts a call that passed `fits`, whatever came of it: the compute it used and the
+    /// storage proof it recorded, the read of its contract account included.
+    pub fn add(&mut self, compute: Compute, recorded_size: u64) {
+        self.compute = self.compute.saturating_add(compute);
+        self.recorded_size = self.recorded_size.saturating_add(recorded_size);
+    }
+}
 
 /// What an external call did, and whether the contract accepts and pays for it.
 pub(crate) struct ExternalCallRun {
@@ -150,9 +206,8 @@ pub(crate) fn run_external_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
         Arc::clone(&apply_state.trie_access_tracker_state),
-        // TODO(ecc): bound the state a single external call reads, as the per-receipt storage
-        // proof limit does for receipts, and count it toward the chunk's budget for external
-        // calls.
+        // The per-receipt storage proof limit counts from the start of the run. The recording
+        // budget set around the run caps it far lower.
         None,
     );
     let outcome = match preparation {
@@ -173,14 +228,21 @@ pub(crate) fn run_external_call(
                 ECC_METHOD_NAME,
                 CompilePriority::Critical,
             );
-            execute_function_call(
+            // A run may record only so much of the trie in the storage proof. A read past the cap
+            // fails the run, at the same trie node in the chunk producer's run and in a replay
+            // from the proof, and a value past it is never fetched.
+            let trie = runtime_ext.trie_update.trie();
+            trie.set_recording_budget(config.external_calls_config.max_call_recorded_size);
+            let outcome = execute_function_call(
                 contract,
                 &contract_identifier,
                 apply_state,
                 &mut runtime_ext,
                 &context,
                 config,
-            )?
+            );
+            runtime_ext.trie_update.trie().clear_recording_budget();
+            outcome?
         }
         ContractPreparation::Aborted(abort) => {
             abort.into_outcome(&context, Arc::clone(&config.wasm_config))
@@ -310,4 +372,70 @@ fn verdict(
     }
     *account = charged;
     Ok(Ok(charge))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_primitives::num_rational::Rational32;
+
+    /// A config whose shares for ECCs are 2/5 of the chunk's compute and 1/20 of its storage
+    /// proof, with a storage proof limit of 4 MB.
+    fn config() -> RuntimeConfig {
+        let mut config = RuntimeConfig::test();
+        config.witness_config.main_storage_proof_size_soft_limit = 4_000_000;
+        config.external_calls_config.chunk_compute_share = Rational32::new(2, 5);
+        config.external_calls_config.chunk_storage_proof_share = Rational32::new(1, 20);
+        config
+    }
+
+    fn compute_exceeded(used: Compute, limit: Compute) -> Result<(), InvalidTxError> {
+        let limit = ExternalCallChunkLimit::Compute { used, limit };
+        Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit })
+    }
+
+    fn storage_proof_exceeded(used: u64, limit: u64) -> Result<(), InvalidTxError> {
+        let limit = ExternalCallChunkLimit::StorageProof { used, limit };
+        Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit })
+    }
+
+    #[test]
+    fn test_external_calls_in_chunk_shares() {
+        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        assert_eq!(calls.compute_share, 400);
+        assert_eq!(calls.recorded_size_share, 200_000);
+        assert_eq!(calls.fits(), Ok(()));
+
+        // Room is left until a share is reached, so the call that reaches it is admitted.
+        calls.add(399, 199_999);
+        assert_eq!(calls.fits(), Ok(()));
+        calls.add(1, 0);
+        assert_eq!(calls.fits(), compute_exceeded(400, 400));
+    }
+
+    #[test]
+    fn test_external_calls_in_chunk_storage_proof_share() {
+        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        calls.add(0, 250_000);
+        assert_eq!(calls.fits(), storage_proof_exceeded(250_000, 200_000));
+    }
+
+    /// The compute share is checked first.
+    #[test]
+    fn test_external_calls_in_chunk_order_of_checks() {
+        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        calls.add(500, 300_000);
+        assert_eq!(calls.fits(), compute_exceeded(500, 400));
+    }
+
+    /// Without a gas limit of the chunk there is no compute share, but the storage proof share
+    /// still applies.
+    #[test]
+    fn test_external_calls_in_chunk_without_gas_limit() {
+        let mut calls = ExternalCallsInChunk::new(&config(), None);
+        calls.add(u64::MAX / 2, 0);
+        assert_eq!(calls.fits(), Ok(()));
+        calls.add(0, 200_000);
+        assert_eq!(calls.fits(), storage_proof_exceeded(200_000, 200_000));
+    }
 }

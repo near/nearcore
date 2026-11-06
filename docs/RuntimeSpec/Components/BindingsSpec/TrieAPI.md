@@ -3,6 +3,14 @@
 Here we provide a specification of trie API. After this NEP is merged, the cases where our current implementation does
 not follow the specification are considered to be bugs that need to be fixed.
 
+In an external call (see [Context API](ContextAPI.md)), the storage functions below can also panic with
+`RecordedStorageExceeded`: the trie nodes and values the call reads go into the chunk's storage proof, and an external
+call may add at most `max_external_call_recorded_size` (20 KiB) to it. A read that would record a value past the limit
+fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
+a `storage_remove` that crosses it, as each removal counts toward the limit with a fixed estimate. The call is then
+rejected, and nobody pays for it (see
+[Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)).
+
 ---
 
 #### storage_write

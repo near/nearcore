@@ -948,15 +948,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut skipped_transactions: Vec<ValidatedTransactionEnvelope> = Vec::new();
         let mut num_checked_transactions = 0;
 
-        // ECCs go into the chunk only up to a limit, and only once there is a feature for them.
+        // ECCs go into the chunk only once there is a feature for them.
         // TODO(spice): pack ECCs under Spice as well.
         let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
             && !ProtocolFeature::Spice.enabled(protocol_version);
-        let mut num_eccs_left =
-            if eccs_allowed { runtime_config.max_eccs_per_chunk(prev_block.gas_limit) } else { 0 };
         let mut num_eccs_packed = 0;
+        // ECCs may take only their share of the chunk's transaction bytes. A chunk whose ECCs
+        // take more is invalid.
+        let mut ecc_size_left = if eccs_allowed {
+            let ecc_config = &runtime_config.external_calls_config;
+            ecc_config.transactions_size_share(&runtime_config.witness_config)
+        } else {
+            0
+        };
         // The contracts that have their ECC in the chunk. The groups come round after round, and
-        // a contract gets one ECC per chunk.
+        // a contract gets one ECC per chunk: a chunk with two ECCs to one contract is invalid.
         let mut contracts_in_chunk: HashSet<AccountId> = HashSet::new();
         let deadline = time_limit.map(|limit| start_time + limit);
 
@@ -968,7 +974,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
+        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(ecc_size_left > 0) {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -1011,7 +1017,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         runtime_config,
                         &epoch_id,
                         &prev_block,
-                        size_limit.saturating_sub(total_size),
+                        size_limit.saturating_sub(total_size).min(ecc_size_left),
                         deadline,
                     )?;
                     skipped_transactions.extend(visit.skipped.into_iter().map(Into::into));
@@ -1024,8 +1030,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if let Some(ecc) = visit.packed {
                         contracts_in_chunk.insert(ecc.contract_id().clone());
                         total_size += ecc.get_size();
+                        ecc_size_left = ecc_size_left.saturating_sub(ecc.get_size());
                         prepared_transactions.transactions.push(ecc.into());
-                        num_eccs_left -= 1;
                         num_eccs_packed += 1;
                     }
                     continue;
@@ -1200,7 +1206,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_left, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, ecc_size_left, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])
@@ -1823,7 +1829,8 @@ struct EccGroupVisit {
 /// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
 /// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
 /// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
-/// that does not fit in `size_left`. Takes nothing if the contract is in `contracts_in_chunk`.
+/// that does not fit in `size_left`, the room left both in the chunk and in the ECCs' share of
+/// its bytes. Takes nothing if the contract is in `contracts_in_chunk`.
 fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
@@ -1864,10 +1871,6 @@ fn take_ecc_from_group(
             continue;
         }
         // Only the chunk that has room for it takes it. The others in the group wait behind it.
-        // TODO(ecc): cap the bytes all the ECCs of a chunk may take, to a share like the ones of
-        // the pool and of the gas, once the shares are picked. ECCs cost their sender nothing,
-        // and a few big ones to different contracts can take most of the room signed
-        // transactions share with them.
         if ecc.get_size() > size_left {
             break;
         }

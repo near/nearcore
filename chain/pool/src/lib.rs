@@ -225,8 +225,9 @@ pub struct PoolIteratorWrapper<'a> {
     signed: GroupedPoolIterator<'a, ValidatedTransaction>,
     eccs: GroupedPoolIterator<'a, ValidatedEcc>,
     /// Whether the next group is taken from the signed transactions first.
-    // TODO(ecc): take the groups of the two kinds in the ratio of the ECCs' share of a chunk, once
-    // the producer packs ECCs. Alternating is right for the placeholder share of half.
+    // TODO(ecc): take the groups of the two kinds in the ratio of the ECCs' share of a chunk's
+    // transaction bytes (`ExternalCallsConfig::chunk_transactions_size_share`). Alternating fits
+    // a share of half, far more than the ECCs get.
     signed_turn: bool,
 }
 
