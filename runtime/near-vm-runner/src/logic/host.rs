@@ -1901,7 +1901,8 @@ pub fn ripemd160(
     )
 }
 
-/// Recovers an ECDSA signer address and returns it into `register_id`.
+/// Recovers the ECDSA signer's public key and returns it into `register_id`
+/// as 64 bytes, `x || y`.
 ///
 /// Takes in an additional flag to check for malleability of the signature
 /// which is generally only ideal for transactions.
@@ -1915,12 +1916,15 @@ pub fn ripemd160(
 ///
 /// # Errors
 ///
-/// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
+/// * If `hash_ptr` or `sig_ptr` point outside the memory or the registers use more
 ///   memory than the limit, then returns `MemoryAccessViolation`.
+/// * If the signature is not 64 bytes, the hash is not 32 bytes, `v` is above 3 or
+///   `malleability_flag` is not 0 or 1, returns `ECRecoverError`.
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
+/// `read_memory_base * 2 + read_memory_byte * 96 + write_register_base + write_register_byte * 64 +
+/// ecrecover_base`, with the register write charged only on success.
 pub fn ecrecover(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -2014,7 +2018,9 @@ pub fn ecrecover(
 
 /// Verify an ED25519 signature given a message and a public key.
 ///
-/// Returns a bool indicating success (1) or failure (0) as a `u64`.
+/// Returns a bool indicating success (1) or failure (0) as a `u64`. Small-order public keys are
+/// accepted. If the top 3 bits of the last signature byte are not zero, returns 0 without reading
+/// the message and public key.
 ///
 /// # Errors
 ///
@@ -2114,6 +2120,9 @@ pub fn ed25519_verify(
 /// appropriate protocol (for example SHA-256 for WebAuthn) before calling.
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// Only the first 32 bytes of a longer message are used, but every byte is charged.
+/// If `r` or `s` is out of range, returns 0 without reading the message and public key.
 ///
 /// A message shorter than 16 bytes always returns 0, pinned by
 /// `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`;
