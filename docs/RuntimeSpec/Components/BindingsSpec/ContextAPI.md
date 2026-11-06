@@ -26,7 +26,8 @@ Some of the functions below behave differently depending on how the contract exe
   An external call runs the contract method with the reserved name `__nightly_external_call` (the name will change
   when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
   action to it fails with `ReservedMethodName`. For now, an external call that creates a promise or resumes a
-  yielded one is rejected. This limitation will be lifted in future work on this feature.
+  yielded one is rejected. This limitation will be lifted in future work on this feature. An external call's
+  storage reads are limited too (see [Trie API](TrieAPI.md)).
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
   doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
