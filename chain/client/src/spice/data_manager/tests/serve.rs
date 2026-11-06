@@ -326,16 +326,16 @@ fn wants(count: u64, ordinals: &[u64]) -> BTreeMap<SpiceDataIdentifier, BTreeSet
 
 #[test]
 fn a_request_at_the_limits_is_accepted_with_every_item() {
-    assert_eq!(MAX_REQUESTED_PARTS % MAX_REQUESTED_DATA_IDS, 0);
-    let per_item = (MAX_REQUESTED_PARTS / MAX_REQUESTED_DATA_IDS) as u64;
-    let item_ordinals: Vec<u64> = (0..per_item).collect();
+    // One ordinal per item, and the rest of the parts limit on the first item.
+    let mut wants = wants(MAX_REQUESTED_DATA_IDS as u64, &[0]);
+    let first_item_parts = (MAX_REQUESTED_PARTS - (MAX_REQUESTED_DATA_IDS - 1)) as u64;
+    *wants.values_mut().next().unwrap() = (0..first_item_parts).collect();
 
-    let request =
-        CheckedDataRequest::new(wants(MAX_REQUESTED_DATA_IDS as u64, &item_ordinals)).unwrap();
+    let request = CheckedDataRequest::new(wants).unwrap();
 
     let items = request.into_items();
     assert_eq!(items.len(), MAX_REQUESTED_DATA_IDS);
-    assert!(items.iter().all(|item| item.ordinals() == &ordinals(&item_ordinals)));
+    assert_eq!(items.iter().map(|item| item.ordinals().len()).sum::<usize>(), MAX_REQUESTED_PARTS);
 }
 
 #[test]

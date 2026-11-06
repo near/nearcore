@@ -443,9 +443,8 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
-        let pull_config = PullConfig::default();
         let data_manager = SpiceDataManager::new(
-            pull_config,
+            PullConfig::default(),
             chain_store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -1382,6 +1381,9 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that requester is one of the recipients and implement a
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
         // data they require.
+        // TODO(spice-data-distribution): sign requests, or answer unsigned ones by route-back
+        // only; the requester is unauthenticated, so a peer can make this node send parts to any
+        // account.
         debug_assert_eq!(parts.len(), item.ordinals().len());
         if let DataId::Witness(chunk_id) = id {
             // The requester then asks this node for missing contract code rather than the shard's
@@ -1394,7 +1396,8 @@ impl SpiceDataDistributorActor {
                 chunk_id.shard_id,
             )
             .expect("contract accesses should have been written atomically with witness");
-            let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, &signer);
+            let accesses_msg =
+                SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, signer.as_ref());
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceChunkContractAccesses(vec![requester.clone()], accesses_msg),
             ));
@@ -1405,7 +1408,7 @@ impl SpiceDataDistributorActor {
                     SpiceDataIdentifier::from(id),
                     commitment,
                     parts,
-                    &signer,
+                    signer.as_ref(),
                 ),
                 recipients: HashSet::from([requester.clone()]),
             },

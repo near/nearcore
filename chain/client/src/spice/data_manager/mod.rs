@@ -36,8 +36,6 @@ use orphans::ParkedParts;
 pub(crate) use policy::ServePolicies;
 use policy::receipt_proof;
 use pull::Pulls;
-#[cfg(test)]
-pub(crate) use pull::RequestLimits;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 use sender::AuthenticatedSender;
 pub use serve::MalformedDataRequest;
