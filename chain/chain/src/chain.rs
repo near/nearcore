@@ -20,7 +20,11 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::boundary::write_boundary_uncertified_chunks;
+use crate::spice::core::{
+    SpiceCoreReader, record_uncertified_chunks_by_advancing,
+    record_uncertified_chunks_by_replaying_certification_window,
+};
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1651,6 +1655,36 @@ impl Chain {
         let new_tail = tail_block.header().height();
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
+
+        // The sync block is processed next. It starts from its parent's uncertified chunks and
+        // credits its parent's endorsements against its grandparent's, and this node processed
+        // neither block. The rows are written before the heads move: after a crash in between, the
+        // next state sync writes them again, skipping the ones already there.
+        if header.is_spice() {
+            let chain_store = self.chain_store.store().chain_store();
+            if prev_block.header().is_spice() {
+                record_uncertified_chunks_by_replaying_certification_window(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header().prev_hash(),
+                )?;
+                record_uncertified_chunks_by_advancing(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    &prev_block,
+                )?;
+            } else {
+                // The sync block is the first spice block, so its parent is the last pre-spice
+                // block, whose row block processing would have seeded.
+                let mut store_update = chain_store.store().store_update();
+                write_boundary_uncertified_chunks(
+                    &mut store_update,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header(),
+                )?;
+                store_update.commit();
+            }
+        }
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
