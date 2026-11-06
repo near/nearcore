@@ -801,6 +801,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
+    /// Write the `DBCol::AggregatedEpochStats` row of a block stored without
+    /// `record_block_info`, as the cloud archival readers store blocks. The block's and its
+    /// parent's `BlockInfo` must be committed, and the parent's row too unless the block
+    /// starts an epoch.
+    fn set_aggregated_epoch_stats_for_stored_block(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hash: &CryptoHash,
+    ) -> Result<(), EpochError>;
+
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
@@ -1329,6 +1339,20 @@ impl EpochManagerAdapter for EpochManagerHandle {
             prev_block_info,
             epoch_info,
         )
+    }
+
+    fn set_aggregated_epoch_stats_for_stored_block(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hash: &CryptoHash,
+    ) -> Result<(), EpochError> {
+        let epoch_manager = self.read();
+        let block_info = epoch_manager.get_block_info(block_hash)?;
+        let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
+        let aggregator =
+            epoch_manager.compute_aggregated_epoch_stats(&block_info, &prev_block_info)?;
+        store_update.set_aggregated_epoch_stats(block_hash, &aggregator);
+        Ok(())
     }
 
     fn get_shard_layout_history(
