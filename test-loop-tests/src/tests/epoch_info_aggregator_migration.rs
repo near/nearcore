@@ -395,7 +395,7 @@ fn test_migration_53_to_54_with_final_head_in_previous_epoch_after_epoch_sync() 
     );
 
     let node_state = env.kill_node("new_node");
-    let store = node_state.storage.hot_store.clone();
+    let store = node_state.storage.hot_store;
     let chain_store = store.chain_store();
     let proof = store.epoch_store().get_epoch_sync_proof().unwrap().unwrap();
     let first_block_hash = *proof.current_epoch.first_block_header_in_epoch.hash();
