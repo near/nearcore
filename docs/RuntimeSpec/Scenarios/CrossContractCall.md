@@ -27,7 +27,7 @@ Transaction {
             method_name: "reserve_trip",
             args: "{\"city\": \"Venice\", \"date\": 20191201}",
             gas: 1000000,
-            tokens: 100,
+            deposit: 100,
         })
     ],
 }
@@ -40,8 +40,8 @@ the contract should be called. The `receiver_id` field in `Transaction` already 
 it is up to the contract developer what serialization format they choose for their arguments. In this example, the contract
 developer has chosen to use JSON and so the tool that Alice uses to compose this transaction is expected to use JSON too
 to pass the arguments. `gas` declares how much gas `alice_near` has prepaid for dynamically calculated fees of the smart
-contract executions and other actions that this transaction may spawn. The `tokens` is the amount of `alice_near` attaches
-to be deposited to whatever smart contract that it is calling to. Notice, `gas` and `tokens` are in different units of
+contract executions and other actions that this transaction may spawn. The `deposit` is the amount that `alice_near` attaches
+to be deposited to whatever smart contract that it is calling to. Notice, `gas` and `deposit` are in different units of
 measurement.
 
 Now, consider a slightly more complex scenario. In this scenario Alice uses a restricted access key to call the function.
@@ -61,7 +61,7 @@ creating an access key that can be used strictly for trip management.
 This access key allows up to 0.25 NEAR (`250000000000000000000000` yoctoNEAR) to be spent on gas. It cannot be used to
 transfer tokens or to attach a deposit. It can be only used to call `travel_agency` and it can be only used with the
 `reserve_trip` and `cancel_trip` methods. A transaction signed with this key must have exactly one `FunctionCall` action
-with zero deposit. The transaction above attaches 100 yoctoNEAR (`tokens: 100`), so with this key it would be rejected
+with zero deposit. The transaction above attaches 100 yoctoNEAR (`deposit: 100`), so with this key it would be rejected
 with `DepositWithFunctionCall`.
 The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
 that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
@@ -100,14 +100,13 @@ section, with one difference that we will also call `action_function_call` which
   call the storage API. Specifically `"{\"city\": \"Venice\", \"date\": 20191201}"` arguments will be set in `VMContext`.
 - Calls `near_vm_runner::run` which does the following:
   - Inject gas, stack, and other kinds of metering;
-  - Verify that Wasm code does not use floats;
-  - Checks that bindings API functions that the smart contract is trying to call are actually those provided by `near_vm_logic`;
+  - Checks that bindings API functions that the smart contract is trying to call are actually those provided by the `logic` module of `near-vm-runner`;
   - Compiles Wasm code into the native binary;
   - Calls `reserve_trip` on the smart contract.
     - During the execution of the smart contract it will at some point call `promise_create` and `promise_then`, which will
       call method on `RuntimeExt` that will record that two promises were created and that the second one should
-      wait on the first one. Specifically, `promise_create` will call `RuntimeExt::create_receipt(vec![], "hotel_near")`
-      returning `0` and then `RuntimeExt::create_receipt(vec![0], "travel_agency")`;
+      wait on the first one. Specifically, `promise_create` will call `RuntimeExt::create_action_receipt(vec![], "hotel_near")`
+      returning `0` and then `RuntimeExt::create_action_receipt(vec![0], "travel_agency")`;
 - `action_function_call` then collects receipts from `VMContext` along with the execution result, logs, and information
   about used gas;
 - `apply_action_receipt` then goes over the collected receipts from each action and returns them at the end of `Runtime::apply` together with

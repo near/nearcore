@@ -79,16 +79,17 @@ and `broadcast_tx_commit` still work. `broadcast_tx_async` returns the transacti
 We skip the details on how the transaction arrives to be processed by the runtime, since it is a part of the blockchain layer
 discussion.
 We consider the moment where `SignedTransaction` is getting passed to `Runtime::apply` of the
-`runtime` crate.
-`Runtime::apply` immediately passes transaction to `Runtime::process_transaction`
-which in turn does the following:
+`near-runtime` crate.
+`Runtime::apply` passes the transactions to `Runtime::process_transactions`,
+which for each transaction does the following:
 
 - Verifies that transaction is valid;
 - Applies initial reversible and irreversible charges to `alice_near` account;
 - Creates a receipt with the same set of actions directed towards `bob_near`.
 
-The first two items are performed inside `Runtime::verify_and_charge_transaction` method.
-Specifically it does the following checks:
+The first two items are performed by `validate_transaction_envelope`, which verifies the signature, and by
+`verify_and_charge_tx_ephemeral`, which does the other checks.
+Together they do the following checks:
 
 - Verifies that the signature of the transaction is correct based on the transaction hash and the attached public key;
 - Retrieves the latest state of the `alice_near` account, and simultaneously checks that it exists;
@@ -111,7 +112,5 @@ It will check that this receipt does not have data dependencies (which is only t
 
 - Retrieves the state of `bob_near` account, if it still exists (it is possible that Bob has deleted his account concurrently with the transfer transaction);
 - Computes the cost of processing a receipt and a transfer action;
-- Computes how much reward should be burnt;
 - Checks if `bob_near` still exists and if it does, deposits the transferred tokens to `bob_near`;
-- Checks if `bob_near` still exists and if so, deposits the gas reward to the `bob_near` account;
 - Checks if `bob_near` has enough balance for the storage deposit, the transaction's temporary state is dropped/rolled back if there is not enough balance;
