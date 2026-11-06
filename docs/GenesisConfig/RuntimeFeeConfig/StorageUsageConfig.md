@@ -15,4 +15,4 @@ Number of bytes counted for each key/value record, such as a contract data entry
 The value is 40.
 
 The balance that an account must hold for each byte of storage is `storage_amount_per_byte` in [RuntimeConfig](../RuntimeConfig.md).
-It is not part of this struct.
+It is not part of this config in the RPC view.

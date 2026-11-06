@@ -14,7 +14,7 @@ Costs for runtime externals
 
 `type: u32
 
-Gas cost of a growing memory by single page.
+Not charged. `memory.grow` is charged with `linear_op_base_cost` and `linear_op_unit_cost`.
 
 ## regular_op_cost
 
@@ -26,13 +26,13 @@ Gas cost of a regular operation.
 
 `type: u64
 
-Base gas cost of a bulk memory/table operation.
+Base gas cost of a bulk memory/table operation, `memory.grow` or `table.grow`.
 
 ## linear_op_unit_cost
 
 `type: u64
 
-Gas cost per unit of a bulk memory/table operation.
+Gas cost per unit of a bulk memory/table operation, `memory.grow` or `table.grow`.
 
 ## max_gas_burnt
 
@@ -50,11 +50,12 @@ How tall the stack is allowed to grow?
 
 `type: u32
 
+The initial number of memory pages.
+
 ## max_memory_pages
 
 `type: u32
 
-The initial number of memory pages.
 What is the maximal memory pages amount is allowed to have for
 a contract.
 
