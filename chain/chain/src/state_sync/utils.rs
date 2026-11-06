@@ -1,4 +1,4 @@
-use crate::spice::core::certification_window;
+use crate::spice::core::{CertificationWindow, certification_window};
 use crate::types::BlockHeader;
 use crate::{Chain, ChainStoreAccess};
 use borsh::BorshDeserialize;
@@ -494,14 +494,22 @@ impl Chain {
     }
 
     fn get_spice_certification_window_hashes(&self, sync_prev_block: &Block) -> Vec<CryptoHash> {
-        certification_window(
+        let window = certification_window(
             &self.chain_store.store().chain_store(),
             self.epoch_manager.as_ref(),
             sync_prev_block.header().prev_hash(),
-        )
-        .unwrap_or_else(|err| {
-            tracing::warn!(target: "sync", ?err, "cannot walk the spice certification window");
-            vec![]
-        })
+        );
+        match window {
+            Ok(CertificationWindow::Complete(window)) => window,
+            // The missing body is downloaded next, and the next walk goes on past it.
+            Ok(CertificationWindow::MissingBody { mut known, missing }) => {
+                known.push(missing);
+                known
+            }
+            Err(err) => {
+                tracing::warn!(target: "sync", ?err, "cannot walk the spice certification window");
+                vec![]
+            }
+        }
     }
 }
