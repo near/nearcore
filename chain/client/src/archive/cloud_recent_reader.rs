@@ -12,7 +12,7 @@ use near_primitives::types::BlockHeight;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::{ShardTries, ShardUId, Store};
+use near_store::{DBCol, ShardTries, ShardUId, Store};
 use std::mem;
 use std::sync::Arc;
 
@@ -238,6 +238,36 @@ impl CloudArchivalRecentReader {
             reader_head.height + 1,
         )
         .await?;
+        // The cloud data carries no epoch info aggregator, so write each block's row from its
+        // parent's, as `record_block_info` does. Each row is committed before the next block
+        // reads it. The handed-over store holds the row of the reader's first head.
+        // A row that cannot be written fails only the `validators` endpoint, so the reader
+        // logs it and keeps pulling. Rows start again at the next epoch start, which reads
+        // no parent row. The gap is logged at its first block only.
+        let mut aggregator_row_missing = self
+            .store
+            .get(DBCol::EpochInfoAggregators, reader_head.last_present_block_hash.as_ref())
+            .is_none();
+        for block_hash in &batch_pull.block_hashes {
+            let mut update = self.store.store_update();
+            if let Err(error) = self.epoch_manager.set_epoch_info_aggregator_for_stored_block(
+                &mut update.epoch_store_update(),
+                block_hash,
+            ) {
+                if !aggregator_row_missing {
+                    tracing::warn!(
+                        target: "cloud_archival",
+                        %block_hash,
+                        ?error,
+                        "validators endpoint data not available until the next epoch start"
+                    );
+                }
+                aggregator_row_missing = true;
+                continue;
+            }
+            aggregator_row_missing = false;
+            update.commit();
+        }
         let window_tracked_shards = shards_tracked_in_batch(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
@@ -245,7 +275,7 @@ impl CloudArchivalRecentReader {
             batch_pull.opening_epoch_id,
         )?;
         let last_present_block_hash =
-            batch_pull.last_present_block_hash.unwrap_or(reader_head.last_present_block_hash);
+            batch_pull.block_hashes.last().copied().unwrap_or(reader_head.last_present_block_hash);
         let window = PendingWindow {
             end_height: batch_pull.end_height,
             last_present_block_hash,

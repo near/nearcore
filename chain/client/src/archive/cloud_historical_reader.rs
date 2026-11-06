@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{CloudRetrievalError, CloudStorage};
-use near_store::{ShardTries, ShardUId, Store};
+use near_store::{DBCol, ShardTries, ShardUId, Store};
 
 /// Downloads block, epoch, and per-shard chunk data covering `[start_height,
 /// end_height]` from cloud storage and writes it into the local store. Each shard's state
@@ -22,6 +22,10 @@ use near_store::{ShardTries, ShardUId, Store};
 ///
 /// `start_height` must be above the first archived block, since the walk is anchored on
 /// the block below it.
+///
+/// Operators who need the current-epoch `validators` endpoint are expected to start the
+/// range at or below the first block of the epoch the range ends in, or to extend a range
+/// that does.
 pub async fn bootstrap_range(
     store: &Store,
     cloud_storage: &CloudStorage,
@@ -64,8 +68,28 @@ pub async fn bootstrap_range(
     // Fetch one batch per iteration and consume all its heights, so each
     // batch blob is downloaded and decompressed once rather than per height.
     let mut height = start_height;
+    // A range that extends an earlier one finds the row of the block below it.
+    let mut aggregator_rows_started =
+        store.get(DBCol::EpochInfoAggregators, prev_block_hash.as_ref()).is_some();
     while height <= end_height {
         let batch_pull = pull_block_batch(store, cloud_storage, epoch_manager, height).await?;
+        // The cloud data carries no epoch info aggregator, so write each block's row from its
+        // parent's, as `record_block_info` does. Each row is committed before the next block
+        // reads it. Rows start at the first block whose parent has a row, or else at the
+        // first epoch start in the range.
+        for block_hash in &batch_pull.block_hashes {
+            aggregator_rows_started |=
+                epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash;
+            if !aggregator_rows_started {
+                continue;
+            }
+            let mut update = store.store_update();
+            epoch_manager.set_epoch_info_aggregator_for_stored_block(
+                &mut update.epoch_store_update(),
+                block_hash,
+            )?;
+            update.commit();
+        }
         let shard_uids = shards_tracked_in_batch(
             epoch_manager,
             shard_tracker,
@@ -82,7 +106,7 @@ pub async fn bootstrap_range(
             let state_root = shard_state_anchor(&tries, &prev_block_hash, shard_uid)?;
             apply_batch_state_changes(&tries, shard_uid, &shard_batch, height, state_root)?;
         }
-        if let Some(block_hash) = batch_pull.last_present_block_hash {
+        if let Some(block_hash) = batch_pull.block_hashes.last().copied() {
             prev_block_hash = block_hash;
         }
         height = batch_pull.end_height + 1;
