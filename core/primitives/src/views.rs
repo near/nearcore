@@ -2934,6 +2934,7 @@ pub enum StateChangeCauseView {
     ValidatorAccountsUpdate,
     Migration,
     BandwidthSchedulerStateUpdate,
+    ContractCompilationStatusUpdate,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -2967,6 +2968,9 @@ impl From<StateChangeCause> for StateChangeCauseView {
             // changed to => unreachable!()
             StateChangeCause::_UnusedReshardingV2 => Self::BandwidthSchedulerStateUpdate,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
+            StateChangeCause::ContractCompilationStatusUpdate => {
+                Self::ContractCompilationStatusUpdate
+            }
         }
     }
 }

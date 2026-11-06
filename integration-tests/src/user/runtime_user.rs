@@ -14,7 +14,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId, VmGeneration,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -209,17 +209,18 @@ impl RuntimeUser {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: self.client.read().block_height + 1,
-            prev_block_hash: Default::default(),
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
             gas_price: self.gas_price,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             next_wasm_config: None,
+            vm_generation: VmGeneration(0),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -352,7 +353,7 @@ impl User for RuntimeUser {
         let view_state = ViewApplyState {
             // The view reads the state of the last applied chunk.
             block_height: client.block_height,
-            prev_block_hash: apply_state.prev_block_hash,
+            prev_block_hash: apply_state.prev_block.hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,

@@ -368,6 +368,8 @@ pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
     pub prev_block_hash: CryptoHash,
+    pub prev_block_height: BlockHeight,
+    pub prev_block_timestamp: u64,
     pub block_timestamp: u64,
     pub gas_price: Balance,
     pub random_seed: CryptoHash,
@@ -378,6 +380,7 @@ pub struct ApplyChunkBlockContext {
 impl ApplyChunkBlockContext {
     pub fn from_header(
         header: &BlockHeader,
+        prev_header: &BlockHeader,
         gas_price: Balance,
         congestion_info: BlockCongestionInfo,
         bandwidth_requests: BlockBandwidthRequests,
@@ -386,6 +389,8 @@ impl ApplyChunkBlockContext {
             block_type: BlockType::Normal,
             height: header.height(),
             prev_block_hash: *header.prev_hash(),
+            prev_block_height: prev_header.height(),
+            prev_block_timestamp: prev_header.raw_timestamp(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
             random_seed: *header.random_value(),
@@ -740,7 +745,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_async::time::{Clock, Utc};
+    use crate::Chain;
+    use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
@@ -781,6 +787,49 @@ mod tests {
             .approvals(approvals)
             .build();
         b2.header().verify_block_producer(&signer.public_key());
+    }
+
+    /// `ApplyChunkBlockContext` has the hash, height and timestamp of the previous block
+    /// (used in external calls).
+    #[test]
+    fn test_apply_chunk_block_context_prev_block() {
+        let shard_ids = vec![ShardId::new(0)];
+        let genesis_chunks = genesis_chunks(
+            vec![Trie::EMPTY_ROOT],
+            vec![Default::default()],
+            &shard_ids,
+            Gas::from_gas(1_000_000),
+            0,
+            PROTOCOL_VERSION,
+        );
+        let genesis = genesis_block(
+            PROTOCOL_VERSION,
+            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
+            Utc::now_utc(),
+            0,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
+            &vec![],
+        );
+        let clock = FakeClock::default();
+        let signer = Arc::new(create_test_signer("other"));
+        let prev_block =
+            TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
+        clock.advance(Duration::seconds(1));
+        // The height after the parent's is skipped, so the parent's height isn't one less than
+        // the block's.
+        let height = prev_block.header().height() + 2;
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev_block, signer)
+            .height(height)
+            .build();
+        assert_ne!(block.header().raw_timestamp(), prev_block.header().raw_timestamp());
+
+        let context = Chain::get_apply_chunk_block_context(&block, prev_block.header(), true);
+        assert_eq!(context.height, height);
+        assert_eq!(context.block_timestamp, block.header().raw_timestamp());
+        assert_eq!(context.prev_block_hash, *prev_block.hash());
+        assert_eq!(context.prev_block_height, prev_block.header().height());
+        assert_eq!(context.prev_block_timestamp, prev_block.header().raw_timestamp());
     }
 
     #[test]

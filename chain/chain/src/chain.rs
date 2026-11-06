@@ -1403,6 +1403,8 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_block.header().raw_timestamp(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),
@@ -3084,6 +3086,7 @@ impl Chain {
 
         ApplyChunkBlockContext::from_header(
             block_header,
+            prev_block_header,
             gas_price,
             congestion_info,
             bandwidth_requests,
@@ -4334,11 +4337,12 @@ impl Chain {
 fn signed_transaction_view(
     transaction: Arc<TransactionEnvelope>,
 ) -> Result<SignedTransactionView, Error> {
-    // TODO(ecc): show ECCs in tx status once they have execution outcomes
+    // TODO(ecc): show ECCs in tx status. The view has no form for them, and their outcome id is
+    // not their hash (see `create_ecc_outcome_id`).
     let transaction_hash = transaction.get_hash();
     let signed_tx = Arc::unwrap_or_clone(transaction).into_signed().ok_or_else(|| {
         Error::Other(format!(
-            "transaction {transaction_hash} is an external contract call, which has no execution result yet"
+            "transaction {transaction_hash} is an external contract call, which tx status does not support yet"
         ))
     })?;
     Ok(signed_tx.into())

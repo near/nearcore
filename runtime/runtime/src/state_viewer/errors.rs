@@ -1,3 +1,5 @@
+use near_primitives::types::AccountId;
+
 #[derive(thiserror::Error, Debug)]
 pub enum ViewAccountError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
@@ -14,6 +16,8 @@ pub enum ViewContractCodeError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount { requested_account_id: AccountId },
     #[error("Contract code for contract ID #{contract_account_id} does not exist")]
     NoContractCode { contract_account_id: near_primitives::types::AccountId },
     #[error("Internal error: #{error_message}")]
@@ -28,6 +32,8 @@ pub enum ViewAccessKeyError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount { requested_account_id: AccountId },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error(
@@ -44,6 +50,8 @@ pub enum ViewGasKeyNoncesError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount { requested_account_id: AccountId },
     #[error("Gas key for public key #{public_key} does not exist")]
     GasKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error("Internal error: #{error_message}")]
@@ -56,6 +64,8 @@ pub enum ViewStateError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account {requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount { requested_account_id: AccountId },
     #[error("The state of {requested_account_id} is too large")]
     AccountStateTooLarge { requested_account_id: near_primitives::types::AccountId },
     #[error("include_proof is not supported with paginated view_state")]
@@ -72,6 +82,8 @@ pub enum CallFunctionError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Account ID #{requested_account_id} does not exist")]
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount { requested_account_id: AccountId },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
     #[error("VM error occurred: #{error_message}")]

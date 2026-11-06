@@ -399,6 +399,14 @@ pub enum QueryError {
         block_hash: near_primitives::hash::CryptoHash,
     },
     #[error(
+        "account {requested_account_id} exists but is not initialized at block #{block_height}"
+    )]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error(
         "Contract code for contract ID {contract_account_id} has never been observed on the node at block #{block_height}"
     )]
     NoContractCode {
