@@ -26,7 +26,8 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'))
 
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The wait step, setup, the review run and posting fit in about 60 minutes.
+    timeout-minutes: 75
     permissions:
       checks: read
       contents: read
@@ -41,6 +42,7 @@ jobs:
       MODEL_ID: deepseek-ai/DeepSeek-V4.1-Flash-1017
       # NEAR AI accepts low, high, xhigh and max for this model.
       REASONING_EFFORT: xhigh
+      REVIEW_TIMEOUT_MINUTES: 40
       # @opencode/cli is published with npm provenance from anomalyco/opencode's
       # release workflow, which `npm audit signatures` verifies below.
       OPENCODE_VERSION: 2.2.5
@@ -214,21 +216,33 @@ jobs:
           } > "$RUNNER_TEMP/prompt.md"
           # OpenCode can exit non-zero after a denied tool call even when it
           # wrote a full review, so the next step decides based on the output.
-          timeout 40m opencode run --standalone --model "nearai/$MODEL_ID" \
-            "$(cat "$RUNNER_TEMP/prompt.md")" < /dev/null > "$RUNNER_TEMP/review.md" ||
-            echo "::warning::opencode exited with code $?"
+          code=0
+          timeout -k 1m "${REVIEW_TIMEOUT_MINUTES}m" opencode run --standalone --model "nearai/$MODEL_ID" \
+            "$(cat "$RUNNER_TEMP/prompt.md")" < /dev/null > "$RUNNER_TEMP/review.md" || code=$?
+          echo "$code" > "$RUNNER_TEMP/opencode-exit"
+          if [ "$code" != 0 ]; then echo "::warning::opencode exited with code $code"; fi
 
       - name: Post review
         if: ${{ steps.key-check.outputs.present == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           NEARAI_API_KEY: ${{ secrets.NEARAI_API_KEY }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # The output also has what the model wrote between tool calls, and a
-          # run stopped by the timeout has no review at all.
+          # run stopped by the timeout has no review at all. The review is
+          # advisory, so an unfinished one leaves a note and the job succeeds.
           if ! grep -q '^## Pull request overview' "$RUNNER_TEMP/review.md"; then
-            echo "::error::the model did not finish the review"
-            exit 1
+            code=$(cat "$RUNNER_TEMP/opencode-exit")
+            case "$code" in
+              124 | 137) reason="did not finish within $REVIEW_TIMEOUT_MINUTES minutes" ;;
+              0) reason="ended without writing a review" ;;
+              *) reason="could not complete (OpenCode exited with code $code)" ;;
+            esac
+            echo "::warning::the NEAR AI review $reason"
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+              "The NEAR AI review $reason. See the [run]($RUN_URL). A repository member can comment \`/nearai-review\` to try again."
+            exit 0
           fi
           if grep -qF -- "$NEARAI_API_KEY" "$RUNNER_TEMP/review.md"; then
             echo "::error::the review contains the API key; not posting it"
@@ -252,4 +266,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "The NEAR AI review could not complete. See the [run]($RUN_URL). Comment \`/nearai-review\` to try again."
+            "The NEAR AI review could not complete. See the [run]($RUN_URL). A repository member can comment \`/nearai-review\` to try again."
