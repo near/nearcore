@@ -464,12 +464,27 @@ example types that appear in `Handler<...>` implementations or multi-sender defi
 
 ## 10.2 Messages sent through TCP
 
-Nodes exchange messages as protobuf `PeerMessage` messages, defined in
-`chain/network/src/network_protocol/network.proto`. Some fields of these
-messages hold `borsh`-encoded bytes (see [borsh.io](https://borsh.io/)), for
-example signatures, edges, blocks, transactions and routed messages. We should
-be careful when making changes to them. We have to maintain backward
-compatibility. We also use `borsh` for database storage.
+Messages between nodes use `borsh` serialization (see
+[borsh.io](https://borsh.io/)), but older releases use `protobuf`. We have to
+maintain backward compatibility while the network transitions from protobuf to
+borsh; see `NetworkTransitionConfig` for the encodings accepted and sent by a
+release.
+
+Every frame is a length (`u32`, little endian) followed by that many bytes. A
+protobuf-encoded message is a single frame. A borsh-encoded message is sent as
+two frames: the `PeerMessageHeader` (which identifies the type of the message)
+followed by the `PeerMessage` itself.
+
+A node which supports both encodings sends its first handshake in both: first in
+borsh, then in protobuf. A node which supports only protobuf ignores the borsh
+frames and responds in protobuf. A node which supports borsh responds in borsh
+and ignores the protobuf copy of the handshake. Both sides use the encoding of
+the handshake for the rest of the connection. The first frame of a connection
+is treated as borsh if it parses as a borsh header, and as a protobuf message
+otherwise; a node which accepts only borsh closes the connection in the latter
+case. We should be careful when making changes to messages. Only messages
+implementing `BorshSerialize`, `BorshDeserialize` can be sent. We also use
+`borsh` for database storage.
 
 ## 10.3 Messages sent/received through `chain/jsonrpc`
 
