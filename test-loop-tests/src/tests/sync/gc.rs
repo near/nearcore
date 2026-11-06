@@ -27,6 +27,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_chain_configs::TrackedShardsConfig;
 use near_o11y::testonly::init_test_logger;
@@ -127,6 +128,7 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * EPOCH_LENGTH as usize);
 
     assert_gc_boundaries(&env, new_node_idx);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 

@@ -20,6 +20,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
@@ -132,6 +133,7 @@ fn test_validator_kickout_after_restart() {
     assert!(blocks_produced_in_epoch(&env, &epoch_e, &account_id) > 0);
     assert!(blocks_produced_in_epoch(&env, &epoch_e1, &account_id) > 0);
     assert_eq!(blocks_produced_in_epoch(&env, &epoch_e2, &account_id), 0);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -225,5 +227,6 @@ fn test_validator_no_kickout_after_quick_restart() {
     let restarted = env.node(restarted_idx).head().height;
     let reference = env.node(1).head().height;
     assert!(restarted >= reference - 1, "restarted node fell behind: {restarted} vs {reference}");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
