@@ -2,6 +2,7 @@ use super::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::create_account_id;
+use crate::utils::certification::assert_certification_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::CanSendAsync;
@@ -29,10 +30,12 @@ fn forge_block_body(block: &Block) -> Arc<Block> {
     };
     let height = v4.header.height();
     let prev_hash = *v4.header.prev_hash();
-    let BlockBody::V2(body) = &mut v4.body else {
-        panic!("expected BlockBodyV2");
+    let chunks = match &mut v4.body {
+        BlockBody::V2(body) => &mut body.chunks,
+        BlockBody::V3(body) => &mut body.chunks,
+        BlockBody::V1(_) => panic!("expected BlockBodyV2 or BlockBodyV3"),
     };
-    for chunk_header in &mut body.chunks {
+    for chunk_header in chunks {
         let mut forged = ShardChunkHeader::new_dummy(
             chunk_header.height_created(),
             chunk_header.shard_id(),
@@ -48,8 +51,6 @@ fn forge_block_body(block: &Block) -> Arc<Block> {
 // While a node is in StateSync it asks a peer for the sync-hash block,
 // and that peer answers with the honest header and a forged body.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_forged_sync_block_body_is_rejected() {
     init_test_logger();
 
@@ -182,4 +183,5 @@ fn test_forged_sync_block_body_is_rejected() {
         !forgery_stored.load(Ordering::SeqCst),
         "forged sync block was stored in the orphan pool under the honest hash {sync_hash}"
     );
+    assert_certification_kept_up(&env);
 }
