@@ -1,6 +1,6 @@
 use super::item::{CodedTracker, CommitmentState, FetchItem, PartInsertResult};
 use super::*;
-use crate::spice::chunk_executor_actor::save_receipt_proof;
+use crate::spice::chunk_executor_actor::{save_receipt_proof, save_witness_and_contract_accesses};
 use assert_matches::assert_matches;
 use near_async::time::Clock;
 use near_chain::test_utils::{get_chain_with_genesis, process_block_sync};
@@ -18,13 +18,16 @@ use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpicePartialData,
 };
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
+use near_primitives::state::PartialState;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::EpochId;
+use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{ShardUId, Store};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
@@ -312,6 +315,36 @@ fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
     store_update.commit();
 }
 
+/// A witness for `shard` of `block` with no contents.
+fn witness_data(block: &Block, shard: u64) -> SpiceData {
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) };
+    SpiceData::StateWitness(Box::new(SpiceChunkStateWitness::new(
+        chunk_id,
+        PartialState::TrieValues(Vec::new()),
+        HashMap::new(),
+        CryptoHash::default(),
+        Vec::new(),
+        BTreeSet::new(),
+        None,
+    )))
+}
+
+fn save_witness(chain: &Chain, block: &Block, data: &SpiceData) {
+    let SpiceData::StateWitness(witness) = data else { panic!("not a witness") };
+    let shard_id = witness.chunk_id().shard_id;
+    save_witness_and_contract_accesses(
+        &chain.chain_store.store().chain_store(),
+        block.hash(),
+        shard_id,
+        witness,
+        &HashSet::new(),
+    );
+}
+
+fn witness_id(block: &Block, shard: u64) -> DataId {
+    DataId::Witness(SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) })
+}
+
 /// Writes `block` to the store as the final execution head.
 fn set_final_execution_head(store: &Store, block: &Block) {
     let mut store_update = store.store_update();
@@ -328,6 +361,12 @@ fn test_server(chain: &Chain) -> SpiceDataServer {
         chain.epoch_manager.clone(),
         ServePolicies::new(chain.chain_store.store().chain_store(), chain.epoch_manager.clone()),
     )
+}
+
+/// The item of a request for `ordinals` of `id`.
+fn requested_item(id: &DataId, ordinals: BTreeSet<u64>) -> RequestedItem {
+    let wants = [(SpiceDataIdentifier::from(id), ordinals)].into();
+    CheckedDataRequest::new(wants).expect("the request is within the limits").into_items().remove(0)
 }
 
 /// A shard tracker for a node that applies `shard`.

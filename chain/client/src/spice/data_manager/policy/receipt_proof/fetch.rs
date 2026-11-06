@@ -1,5 +1,5 @@
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
-use crate::spice::data_manager::DataId;
+use crate::spice::data_manager::{DataId, ReceiptProofId};
 use near_chain::spice::boundary::shards_applied_itself;
 use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
@@ -95,7 +95,10 @@ pub(crate) fn made_pullable_by(
             continue;
         }
         for to_shard in &needed.destinations {
-            ids.push(DataId::ReceiptProof { source: source.clone(), to_shard: *to_shard });
+            ids.push(DataId::ReceiptProof(ReceiptProofId {
+                source: source.clone(),
+                to_shard: *to_shard,
+            }));
         }
     }
     Ok(ids)

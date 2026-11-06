@@ -4,7 +4,7 @@
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice::data_manager::DataId;
+use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::IntoSender as _;
 use near_async::messaging::{Handler, Sender};
@@ -71,7 +71,7 @@ pub struct ChunkExecutorActor {
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     /// Id the proof was delivered under.
-    pub data_id: DataId,
+    pub id: ReceiptProofId,
     pub receipt_proof: ReceiptProof,
 }
 
@@ -565,8 +565,10 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
-        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let ExecutorIncomingUnverifiedReceipts {
+            id: ReceiptProofId { source, to_shard: to_shard_id },
+            receipt_proof,
+        } = receipts;
         let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
@@ -576,7 +578,6 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = *to_shard;
         if let Err(err) = self.create_executor_if_shard_tracked(to_shard_id, &block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, ?to_shard_id, "failed to look up tracking for an incoming receipt");
         }
