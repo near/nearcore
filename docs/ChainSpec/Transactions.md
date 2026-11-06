@@ -11,11 +11,12 @@ Before producing a chunk, transactions are ordered and validated again. This is 
 
 ## Transaction ordering
 
-The transaction pool groups transactions by a pair of `(signer_id, signer_public_key)`.
+The transaction pool groups transactions by `(signer_id, signer_public_key)`.
 The `signer_id` is the account ID of the user who signed the transaction, the `signer_public_key` is the public key of the account's access key that was used to sign the transactions.
+A transaction signed with a gas key is grouped by `(signer_id, signer_public_key, nonce_index)` instead.
 Transactions within a group are not ordered.
 
-The valid order of the transactions in a chunk is the following:
+Validators do not check the order of transactions in a chunk. Chunk producers order them as follows:
 
 - transactions are ordered in batches.
 - within a batch all transactions keys should be different.
@@ -30,7 +31,9 @@ Transaction pool provides a draining structure that allows it to pull transactio
 
 ## Transaction validation
 
-The transaction validation happens twice, once before adding it to the transaction pool, then before adding it to a chunk.
+A node validates a transaction before adding it to the transaction pool.
+A chunk producer validates it again before adding it to a chunk.
+The runtime checks each transaction a final time when it applies the chunk, as described in [Validation of chunk transactions](#validation-of-chunk-transactions).
 
 ### Before adding to a transaction pool
 
@@ -38,7 +41,7 @@ This is done to quickly filter out transactions that have an invalid signature o
 
 ### Before adding to a chunk
 
-A chunk producer has to create a chunk with valid and ordered transactions limited by two criteria:
+A chunk producer selects the transactions for a chunk. The selection is limited by two criteria:
 
 - the maximum number of transactions for a chunk. 
 - the total gas burnt for transactions within a chunk.
@@ -274,57 +277,20 @@ The valid transactions are:
 
 In total there were only 3 valid transactions that resulted in one batch.
 
-### Order validation
+<a name="order-validation"></a>
 
-Other validators need to check the order of transactions in the produced chunk.
-It can be done in linear time using a greedy algorithm.
+### Validation of chunk transactions
 
-To select a first batch we need to iterate over transactions one by one until we see a transaction
-with the key that we've already included in the first batch.
-This transaction belongs to the next batch.
+Validators do not check the order of transactions in a chunk.
 
-Now all transactions in the N+1 batch should have a corresponding transaction with the same key in the N batch.
-If there are no transaction with the same key in the N batch, then the order is invalid.
+Chunk validators check each transaction of a new chunk against the runtime config of the current protocol version.
+A chunk is invalid if one of its transactions is larger than `max_transaction_size`, or uses a feature that the current protocol version does not enable.
 
-We also enforce the order of the sequence of transactions for the same key, the nonces of them should be in strictly increasing order.
+The runtime does all other checks when it applies the chunk.
+For example, it checks that the transaction has not expired, and that its nonce is greater than the current nonce of its key.
+From protocol version 74 (nearcore 2.5.0), a transaction that fails a check at apply time does not make the chunk invalid.
+From protocol version 74 to 82, the runtime skipped such a transaction, and it got no execution outcome.
+From protocol version 83 (nearcore 2.11.0), such a transaction gets a failed execution outcome.
 
-Here is the algorithm that validates the order:
-
-```rust
-fn validate_order(txs: &Vec<Transaction>) -> bool {
-    let mut nonces: HashMap<Key, Nonce> = HashMap::new();
-    let mut batches: HashMap<Key, usize> = HashMap::new();
-    let mut current_batch = 1;
-
-    for tx in txs {
-        let key = tx.key();
-
-        // Verifying nonce
-        let nonce = tx.nonce();
-        if let Some(last_nonce) = nonces.get(key) {
-            if nonce <= last_nonce {
-                // Nonces should increase.
-                return false;
-            }
-        }
-        nonces.insert(key, nonce);
-
-        // Verifying batch
-        if let Some(last_batch) = batches.get(key) {
-            if last_batch == current_batch {
-                current_batch += 1;
-            } else if last_batch < current_batch - 1 {
-                // Was skipped this key in the previous batch
-                return false;
-            }
-        } else {
-            if current_batch > 1 {
-                // Not in first batch
-                return false;
-            }
-        }
-        batches.insert(key, batch);
-    }
-    true
-}
-```
+From protocol version 85 (nearcore 2.13.0), the runtime skips a transaction if its hash already appeared earlier in the same chunk.
+The skipped transaction gets no execution outcome.
