@@ -30,6 +30,7 @@ use crate::tests::early_kickout_probe::{
 };
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use borsh::BorshDeserialize;
 use near_chain_configs::TrackedShardsConfig;
@@ -180,6 +181,8 @@ fn slow_test_early_kickout_far_horizon_observer() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    // TODO(spice-test): the test network delivers spice data over direct links only, so with a
+    // single peer this node misses the other producers' receipt proofs and stops executing.
     assert_certification_kept_up(&env);
 }
 
@@ -223,6 +226,7 @@ fn slow_test_early_kickout_state_sync_shuffling() {
         assert_inside_grace_window(&walk, &label);
         assert_blacklist_read_everywhere(&walk, &label);
     }
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -318,5 +322,6 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
 
     assert_shard_shuffling_happened(&env, &clients);
     tracing::info!(target: "test", activation_height, ?walk, "activation edge probe complete");
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
