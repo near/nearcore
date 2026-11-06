@@ -1,3 +1,8 @@
+//! Host function cost formulas write `input_cost(input_len)` for reading an input of
+//! `input_len` bytes: `read_memory_base + read_memory_byte * input_len` from guest memory, or
+//! `read_register_base + read_register_byte * input_len` from a register (`*_len == u64::MAX`).
+//! For a register input, `input_len` is the register length, not `u64::MAX`.
+
 // cspell:words wycheproof
 // Many host functions take `memory: &mut [u8]` for a uniform signature even
 // when they don't write to memory.
@@ -393,6 +398,7 @@ pub fn finite_wasm_stack_exhausted(_ctx: &mut HostCtx, _memory: &mut [u8]) -> Re
 // #################
 
 /// Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
+/// If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 ///
 /// # Arguments
 ///
@@ -401,13 +407,8 @@ pub fn finite_wasm_stack_exhausted(_ctx: &mut HostCtx, _memory: &mut [u8]) -> Re
 ///
 /// # Errors
 ///
-/// * If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
+/// * If the content extends outside the memory allocated to the guest, returns `MemoryAccessViolation` error message;
 /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
-///
-/// # Undefined Behavior
-///
-/// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-/// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
 ///
 /// # Cost
 ///
@@ -441,8 +442,7 @@ pub fn register_len(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> 
 }
 
 /// Copies `data` from the guest memory into the register. If register is unused will initialize
-/// it. If register has larger capacity than needed for `data` will not re-allocate it. The
-/// register will lose the pre-existing data if any.
+/// it. The register will lose the pre-existing data if any.
 ///
 /// # Arguments
 ///
@@ -452,7 +452,7 @@ pub fn register_len(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> 
 ///
 /// # Cost
 ///
-/// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
+/// `base + read_memory_base + read_memory_byte * num_bytes + write_register_base + write_register_byte * num_bytes`
 pub fn write_register(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -480,7 +480,7 @@ pub fn write_register(
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If string is not UTF-8 returns `BadUTF8`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 ///
@@ -689,7 +689,8 @@ pub fn chain_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Resu
 /// All contract calls are a result of some transaction that was signed by some account using
 /// some access key and submitted into a memory pool (either through the wallet using RPC or by
 /// a node itself). This function returns the id of that account. Saves the bytes of the signer
-/// account id into the register.
+/// account id into the register. For a receipt created from a delegate action (meta transaction),
+/// this is the relayer that signed the outer transaction.
 ///
 /// An external contract call has no signer, so in that case the current
 /// account id is saved instead: the contract signs for the call itself.
@@ -726,6 +727,8 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 /// Saves the public key fo the access key that was used by the signer into the register. In
 /// rare situations smart contract might want to know the exact access key that was used to send
 /// the original transaction, e.g. to increase the allowance or manipulate with the public key.
+/// The key is borsh-encoded: one key type byte (0 ed25519, 1 secp256k1, 2 ML-DSA-65), then the
+/// key bytes. For a receipt created from a delegate action, this is the relayer's key.
 ///
 /// # Errors
 ///
@@ -843,7 +846,7 @@ pub fn refund_to_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: 
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes`
+/// `base + write_register_base`
 pub fn input(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
@@ -893,7 +896,8 @@ pub fn epoch_height(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<EpochHeight
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base + utf8_decoding_byte * account_id_len + validator_stake_base`.
+/// `base + input_cost(account_id_len) + utf8_decoding_base + utf8_decoding_byte * account_id_len +
+/// validator_stake_base + write_memory_base + write_memory_byte * 16`
 pub fn validator_stake(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -920,7 +924,7 @@ pub fn validator_stake(
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
+/// `base + validator_total_stake_base + write_memory_base + write_memory_byte * 16`
 pub fn validator_total_stake(ctx: &mut HostCtx, memory: &mut [u8], stake_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(validator_total_stake_base)?;
@@ -952,7 +956,7 @@ pub fn storage_usage(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<StorageUsa
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     let balance = ctx.result_state.current_account_balance;
@@ -963,7 +967,7 @@ pub fn account_balance(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn account_locked_balance(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -983,7 +987,7 @@ pub fn account_locked_balance(
 ///
 /// # Cost
 ///
-/// `base + memory_write_base + memory_write_size * 16`
+/// `base + write_memory_base + write_memory_byte * 16`
 pub fn attached_deposit(ctx: &mut HostCtx, memory: &mut [u8], balance_ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     set_u128(
@@ -1018,7 +1022,8 @@ pub fn prepaid_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
     }
 }
 
-/// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+/// The gas that was already burnt during the contract execution plus the gas attached to promises
+/// (cannot exceed `prepaid_gas`)
 ///
 /// # Errors
 ///
@@ -1063,9 +1068,10 @@ pub fn used_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes +
-///  alt_bn128_g1_multiexp_base +
-///  alt_bn128_g1_multiexp_element * num_elements`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 +
+/// alt_bn128_g1_multiexp_base + alt_bn128_g1_multiexp_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 ///
 /// cspell:words Pippenger
 pub fn alt_bn128_g1_multiexp(
@@ -1116,8 +1122,10 @@ pub fn alt_bn128_g1_multiexp(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes +
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 +
 /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn alt_bn128_g1_sum(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1159,8 +1167,8 @@ pub fn alt_bn128_g1_sum(
 ///
 /// # Errors
 ///
-/// If `value_len + value_ptr` points outside the memory or the registers
-/// use more memory than the limit the function returns `MemoryAccessViolation`.
+/// If `value_len + value_ptr` points outside the memory the function returns
+/// `MemoryAccessViolation`.
 ///
 /// If point coordinates are not on curve, point is not in the subgroup, scalar
 /// is not in the field or data are wrong serialized, for example,
@@ -1168,7 +1176,10 @@ pub fn alt_bn128_g1_sum(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
+/// `input_cost(input_len) + alt_bn128_pairing_check_base +
+/// alt_bn128_pairing_check_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn alt_bn128_pairing_check(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1223,12 +1234,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 96 + bls12381_p1_sum_base +
+bls12381_p1_sum_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p1_sum,
     97,
@@ -1269,12 +1283,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
-bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 192 + bls12381_p2_sum_base +
+bls12381_p2_sum_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p2_sum,
     193,
@@ -1314,12 +1331,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 96 +
 bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_g1_multiexp,
     128,
@@ -1360,12 +1380,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 192 +
 bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_g2_multiexp,
     224,
@@ -1398,12 +1421,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 96 * num_elements +
 bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_map_fp_to_g1,
     48,
@@ -1437,11 +1463,14 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 192 * num_elements +
 bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_map_fp2_to_g2,
     96,
@@ -1480,14 +1509,15 @@ bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
 ///
 /// # Errors
 ///
-/// If `value_len + value_ptr` points outside the memory or the registers
-/// use more memory than the limit the function returns `MemoryAccessViolation`.
+/// If `value_len + value_ptr` points outside the memory the function returns
+/// `MemoryAccessViolation`.
 ///
-/// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
+/// If `input_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
 ///
 /// # Cost
-/// `base + write_register_base + write_register_byte * num_bytes +
-///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
+/// `input_cost(input_len) + bls12381_pairing_base + bls12381_pairing_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn bls12381_pairing_check(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1545,11 +1575,14 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 96 * num_elements +
 bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
 ",
     bls12381_p1_decompress,
     48,
@@ -1592,12 +1625,15 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`base + write_register_base + write_register_byte * num_bytes +
+`input_cost(input_len) + write_register_base + write_register_byte * 192 * num_elements +
 bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+
+The element cost is charged before the elements are checked. The register write is charged
+only when the function returns 0.
         ",
     bls12381_p2_decompress,
     96,
@@ -1640,7 +1676,8 @@ pub fn random_seed(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> R
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + sha256_base +
+/// sha256_byte * input_len`
 pub fn sha256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1678,7 +1715,8 @@ pub fn sha256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + keccak256_base +
+/// keccak256_byte * input_len`
 pub fn keccak256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1716,7 +1754,8 @@ pub fn keccak256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 + keccak512_base +
+/// keccak512_byte * input_len`
 pub fn keccak512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1784,7 +1823,8 @@ fn sha3_generic<D: sha3::Digest>(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + sha3_256_base +
+/// sha3_256_byte * input_len`
 pub fn sha3_256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1812,7 +1852,8 @@ pub fn sha3_256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 48 + sha3_384_base +
+/// sha3_384_byte * input_len`
 pub fn sha3_384(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1840,7 +1881,8 @@ pub fn sha3_384(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 + sha3_512_base +
+/// sha3_512_byte * input_len`
 pub fn sha3_512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1868,9 +1910,10 @@ pub fn sha3_512(
 ///
 /// # Cost
 ///
-///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
+///  Where `message_blocks` is `(input_len + 9).div_ceil(64)`.
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 20 + ripemd160_base +
+/// ripemd160_block * message_blocks`
 pub fn ripemd160(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1918,12 +1961,14 @@ pub fn ripemd160(
 ///
 /// # Errors
 ///
-/// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
+/// * If `hash_ptr` or `sig_ptr` point outside the memory or the registers use more
 ///   memory than the limit, then returns `MemoryAccessViolation`.
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
+/// `input_cost(num_bytes_signature) + input_cost(num_bytes_hash) + ecrecover_base +
+/// write_register_base + write_register_byte * 64`, with the register write charged only on
+/// success.
 pub fn ecrecover(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -2391,8 +2436,9 @@ pub fn sleep_nanos(_ctx: &mut HostCtx, _memory: &mut [u8], nanos: u64) -> Result
 /// # Cost
 ///
 /// This is a convenience function that encapsulates several costs:
-/// `burnt_gas := dispatch cost of the receipt + base dispatch cost of the data receipt`
-/// `used_gas := burnt_gas + exec cost of the receipt + base exec cost of the data receipt`
+/// `burnt_gas := dispatch cost of the receipt + (base dispatch cost + base exec cost of the data
+/// receipt) * num data dependencies`
+/// `used_gas := burnt_gas + exec cost of the receipt`
 /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
 /// pay for the content transmitted through the dependency upon the actual creation of the
 /// DataReceipt.
@@ -2525,9 +2571,9 @@ pub fn promise_then(
 ///   `InvalidPromiseIndex`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of receipt dependencies exceeds `max_number_input_data_dependencies`
-///   limit returns `NumInputDataDependenciesExceeded`.
+///   limit returns `NumberInputDataDependenciesExceeded`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2536,7 +2582,7 @@ pub fn promise_then(
 ///
 /// # Cost
 ///
-/// `base + promise_and_base + promise_and_per_promise * num_promises + cost of reading promise ids from memory`.
+/// `base + promise_and_base + promise_and_per_promise * 8 * num_promises + cost of reading promise ids from memory`.
 pub fn promise_and(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -2596,7 +2642,7 @@ pub fn promise_and(
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2644,7 +2690,7 @@ pub fn promise_batch_create(
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2705,6 +2751,10 @@ pub fn promise_batch_then(
 /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns `CannotSetRefundToOnJointPromise`.
+/// * If the account id is not UTF-8 returns `BadUTF8`, or if it is not a valid account id
+///   returns `InvalidAccountId`.
 ///
 /// # Cost
 ///
@@ -2904,8 +2954,8 @@ pub fn promise_batch_action_deploy_global_contract(
     )
 }
 
-/// Appends `DeployGlobalContractByAccountId` action to the batch of actions for the given
-/// promise pointed by `promise_idx`.
+/// Appends a `DeployGlobalContract` action that identifies the code by the receiver account id
+/// to the batch of actions for the given promise pointed by `promise_idx`.
 ///
 /// # Errors
 ///
@@ -3030,7 +3080,7 @@ pub fn promise_batch_action_use_global_contract(
 /// * If called as view function returns `ProhibitedInView`.
 /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host returns
 /// `MemoryAccessViolation`.
-/// * If account_id string is not UTF-8 returns `BadUtf8`.
+/// * If account_id string is not UTF-8 returns `BadUTF8`.
 ///
 /// # Cost
 ///
@@ -3119,7 +3169,8 @@ fn read_contract_id(
 }
 
 /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
-/// pointed by `promise_idx`.
+/// pointed by `promise_idx`. Returns the index of the new action, which
+/// [`set_state_init_data_entry`] takes.
 ///
 /// # Errors
 ///
@@ -3157,7 +3208,8 @@ pub fn promise_batch_action_state_init(
 }
 
 /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
-/// pointed by `promise_idx`.
+/// pointed by `promise_idx`. Returns the index of the new action, which
+/// [`set_state_init_data_entry`] takes.
 ///
 /// # Errors
 ///
@@ -3168,7 +3220,7 @@ pub fn promise_batch_action_state_init(
 /// * If called as view function returns [`HostError::ProhibitedInView`].
 /// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
 /// guest or host returns [`HostError::MemoryAccessViolation`].
-/// * If account_id string is not UTF-8 returns `BadUtf8`.
+/// * If account_id string is not UTF-8 returns `BadUTF8`.
 ///
 /// # Cost
 ///
@@ -3241,9 +3293,7 @@ fn promise_batch_action_state_init_impl(
 /// `burnt_gas` := base +
 ///             + deterministic_state_init_entry send fee
 ///             + deterministic_state_init_byte send fee * (key_len + value_len)
-///             + cost of reading account id from memory
-///             + cost of decoding account_id as UTF-8
-///             + cost of reading amount from memory
+///             + cost of reading key and value from memory
 ///
 /// `used_gas`  := burnt_gas +
 ///             + deterministic_state_init_entry exec fee
@@ -3395,9 +3445,9 @@ pub fn universal_state_init_to_account_id(
 ///
 /// Deliberately does not check that the promise's receiver is the account the
 /// state init derives to. That check belongs to the receipt this creates, and
-/// runs when that receipt is validated, so bytes that are not a state init at all
-/// (or, from `CanonicalUniversalStateInit` on, not a canonical one) are rejected
-/// there rather than here. [`universal_state_init_to_account_id`] tells a
+/// runs when that receipt is validated at the end of the current function call, so bytes
+/// that are not a state init at all (or, from `CanonicalUniversalStateInit` on, not a
+/// canonical one) fail the current function call then rather than here. [`universal_state_init_to_account_id`] tells a
 /// contract up front.
 ///
 /// # Errors
@@ -3502,7 +3552,7 @@ fn pay_universal_state_init_terms(
 ///
 /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
 ///  + cost of reading u128, method_name and arguments from the memory`
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas`
 pub fn promise_batch_action_function_call(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3548,9 +3598,8 @@ pub fn promise_batch_action_function_call(
 /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
 /// using up all remaining available gas.
 ///
-/// If the `gas_weight` parameter is set as a large value, the amount of distributed gas
-/// to each action can be 0 or a very low value because the amount of gas per weight is
-/// based on the floor division of the amount of gas by the sum of weights.
+/// Each function call gets `floor(unused_gas * gas_weight / sum_of_weights)`, so a function call
+/// with a small weight relative to the sum can get 0 or very little gas.
 ///
 /// Any remaining gas will be distributed to the last scheduled function call with a weight
 /// specified.
@@ -3665,8 +3714,11 @@ pub fn promise_batch_action_function_call_weight(
 ///
 /// # Cost
 ///
-/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading u128 from memory `
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+/// `burnt_gas := base + dispatch action base fee + cost of reading u128 from memory `
+/// `used_gas := burnt_gas + exec action base fee`
+///
+/// If the receiver is an implicit, deterministic or universal account, the fees also include
+/// `create_account`, and for a NEAR-implicit account `add_full_access_key`.
 pub fn promise_batch_action_transfer(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3844,7 +3896,8 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
 /// `promise_idx`. The access key will have `GasKeyFunctionCall` permission.
 ///
 /// The `method_names` parameter is a comma-separated list of method names that the gas key
-/// is allowed to call.
+/// is allowed to call. The allowance must be `0` (unlimited); any other value fails the
+/// current function call after it returns with `GasKeyFunctionCallAllowanceNotAllowed`.
 ///
 /// # Errors
 ///
@@ -3999,7 +4052,8 @@ pub fn promise_batch_action_stake(
 }
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-/// `promise_idx`. The access key will have `FullAccess` permission.
+/// `promise_idx`. The access key will have `FullAccess` permission. The `nonce` argument is
+/// ignored: the runtime sets the initial nonce of the key.
 ///
 /// # Errors
 ///
@@ -4050,7 +4104,8 @@ pub fn promise_batch_action_add_key_with_full_access(
 }
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-/// `promise_idx`. The access key will have `FunctionCall` permission.
+/// `promise_idx`. The access key will have `FunctionCall` permission. The `nonce` argument is
+/// ignored: the runtime sets the initial nonce of the key.
 ///
 /// # Errors
 ///
@@ -4211,7 +4266,7 @@ pub fn promise_batch_action_delete_key(
 /// # Cost
 ///
 /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading and parsing account id from memory `
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + fees for transferring funds to the beneficiary`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
 pub fn promise_batch_action_delete_account(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -4371,6 +4426,9 @@ pub fn promise_yield_create(
 }
 
 /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
+///
+/// The yield ID must be 32 bytes, otherwise returns `YieldIdMalformed`. If a yield with the same
+/// ID is already pending for this account, returns `u64::MAX` and creates no promise.
 pub fn promise_yield_create_with_id(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -4498,7 +4556,7 @@ pub fn promise_yield_create_with_id(
 ///
 /// # Errors
 ///
-/// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
+/// * If `data_id_len + data_id_ptr` points outside the memory of the guest or host
 /// returns `MemoryAccessViolation`;
 /// * If a malformed data id is passed, returns `DataIdMalformed`;
 /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`;
@@ -4653,7 +4711,7 @@ pub fn promise_results_count(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u6
 /// places it into the register.
 ///
 /// * If promise result is complete and successful copies its blob into the register;
-/// * If promise result is complete and failed or incomplete keeps register unused;
+/// * If promise result is complete and failed or incomplete does not modify the register;
 ///
 /// # Returns
 ///
@@ -4669,7 +4727,8 @@ pub fn promise_results_count(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u6
 ///
 /// # Cost
 ///
-/// `base + cost of writing data into a register`
+/// `base + write_register_base`, with the register write charged only when the result is
+/// successful.
 pub fn promise_result(
     ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -4708,6 +4767,8 @@ pub fn promise_result(
 /// # Errors
 ///
 /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns `CannotReturnJointPromise`.
 /// * If called as view function returns `ProhibitedInView`.
 ///
 /// # Cost
@@ -4742,8 +4803,8 @@ pub fn promise_return(ctx: &mut HostCtx, _memory: &mut [u8], promise_idx: u64) -
 ///
 /// # Errors
 ///
-/// * If `value_len + value_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`.
+/// * If `value_len + value_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+/// * If `value_ptr` points to an unused register it returns `InvalidRegisterId`.
 /// * if the length of the returned data exceeds `max_length_returned_data` returns
 ///   `ReturnedValueLengthExceeded`.
 ///
@@ -4818,8 +4879,9 @@ pub fn panic(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<()> {
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
-/// * If string is longer than `max_log_len` returns `TotalLogLengthExceeded`.
+/// * If string is not UTF-8 returns `BadUTF8`.
+/// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+///   `TotalLogLengthExceeded`.
 ///
 /// # Cost
 /// `base + cost of reading and decoding a utf8 string`
@@ -4837,7 +4899,7 @@ pub fn panic_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> R
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If string is not UTF-8 returns `BadUTF8`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 /// * If the total number of logs will exceed the `max_number_logs` returns
@@ -4845,7 +4907,7 @@ pub fn panic_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> R
 ///
 /// # Cost
 ///
-/// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
+/// `base + log_base + log_byte * num_bytes + utf8 decoding cost`
 pub fn log_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.check_can_add_a_log_message()?;
@@ -4886,7 +4948,7 @@ pub fn log_utf16(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> Re
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If `msg_ptr` or `filename_ptr` is below 4, or a string is not UTF-16, returns `BadUTF16`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 /// * If the total number of logs will exceed the `max_number_logs` returns
@@ -4928,8 +4990,8 @@ pub fn abort(
 
 /// Writes the code deployed on current contract being executed to the register.
 ///
-/// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
-/// depending on the return value.
+/// The register gets a `CryptoHash` or an `AccountId`, depending on the return value. For `0`
+/// the register is not modified.
 ///
 /// # Returns
 ///
@@ -4943,8 +5005,8 @@ pub fn abort(
 ///
 /// # Cost
 ///
-/// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
-/// `write_memory_byte` - the cost of writing the data to the register
+/// `base + write_register_base + write_register_byte * num_bytes`, where `num_bytes` is 32 for a
+/// hash or the length of the account id. For `0` only `base` is charged.
 pub fn current_contract_code(
     ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -4991,7 +5053,7 @@ pub fn current_contract_code(
 ///
 /// # Errors
 ///
-/// * If account is not UTF-8 encoded then returns `BadUtf8`;
+/// * If account is not UTF-8 encoded then returns `BadUTF8`;
 /// * If account is not valid then returns `InvalidAccountId`.
 ///
 /// # Cost
@@ -5021,21 +5083,28 @@ fn read_and_parse_account_id(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container or points
-///   to an unused register it returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container it returns
+///   `MemoryAccessViolation`;
+/// * If `key_len` or `value_len` is `u64::MAX` and the pointer is an unused register it returns
+///   `InvalidRegisterId`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
 /// * If the length of the value exceeds `max_length_storage_value` returns
 ///   `ValueLengthExceeded`.
-/// * If called as view function returns `ProhibitedInView``.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
 /// `base + storage_write_base + storage_write_key_byte * num_key_bytes + storage_write_value_byte * num_value_bytes
 /// + get_vec_from_memory_or_register_cost x 2`.
 ///
-/// If a value was evicted it costs additional `storage_write_value_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
+/// If a value was evicted it costs additional `storage_write_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
+///
+/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// key's path.
 pub fn storage_write(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -5126,15 +5195,17 @@ pub fn storage_write(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`;
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
-/// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte + num_value_bytes
+/// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte * num_value_bytes
 ///  cost to read key from register + cost to write value into register`.
 pub fn storage_read(
     ctx: &mut HostCtx,
@@ -5199,18 +5270,23 @@ pub fn storage_read(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`;
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-/// * If called as view function returns `ProhibitedInView``.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
 /// `base + storage_remove_base + storage_remove_key_byte * num_key_bytes + storage_remove_ret_value_byte * num_value_bytes
 /// + cost to read the key + cost to write the value`.
+///
+/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// key's path, also when the key is not present.
 pub fn storage_remove(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -5272,7 +5348,10 @@ pub fn storage_remove(
 /// # Errors
 ///
 /// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
@@ -5310,7 +5389,7 @@ pub fn storage_has_key(
 ///
 /// # Errors
 ///
-/// * If string is not UTF-8 returns `BadUtf8`
+/// * If string is not UTF-8 returns `BadUTF8`
 /// * If the log is over available memory in wasm runner, returns `MemoryAccessViolation`
 ///
 /// # Cost
@@ -5323,23 +5402,7 @@ pub fn sandbox_debug_log(_ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u
     Ok(())
 }
 
-/// DEPRECATED
-/// Creates an iterator object inside the host. Returns the identifier that uniquely
-/// differentiates the given iterator from other iterators that can be simultaneously created.
-/// * It iterates over the keys that have the provided prefix. The order of iteration is defined
-///   by the lexicographic order of the bytes in the keys;
-/// * If there are no keys, it creates an empty iterator, see below on empty iterators.
-///
-/// # Errors
-///
-/// * If `prefix_len + prefix_ptr` exceeds the memory container it returns
-///   `MemoryAccessViolation`.
-/// * If the length of the prefix exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-///
-/// # Cost
-///
-/// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte * num_prefix_bytes
-///  cost of reading the prefix`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_prefix(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -5351,23 +5414,7 @@ pub fn storage_iter_prefix(
     }))
 }
 
-/// DEPRECATED
-/// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
-/// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
-/// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
-/// on the given trie.
-///
-/// # Errors
-///
-/// * If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
-///   an unused register it returns `MemoryAccessViolation`.
-/// * If the length of the `start` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-/// * If the length of the `end` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-///
-/// # Cost
-///
-/// `base + storage_iter_create_range_base + storage_iter_create_from_byte * num_from_bytes
-///  + storage_iter_create_to_byte * num_to_bytes + reading from prefix + reading to prefix`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_range(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -5381,34 +5428,7 @@ pub fn storage_iter_range(
     }))
 }
 
-/// DEPRECATED
-/// Advances iterator and saves the next key and value in the register.
-/// * If iterator is not empty (after calling next it points to a key-value), copies the key
-///   into `key_register_id` and value into `value_register_id` and returns `1`;
-/// * If iterator is empty returns `0`;
-/// This allows us to iterate over the keys that have zero bytes stored in values.
-///
-/// # Errors
-///
-/// * If `key_register_id == value_register_id` returns `MemoryAccessViolation`;
-/// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
-/// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
-/// * If between the creation of the iterator and calling `storage_iter_next` the range over
-///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
-///   `storage_write` or `storage_remove` was invoked on the key such that:
-///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
-///     * Iterator was not called next yet.
-///     * `next` was already called on the iterator and it is currently pointing at the `key`
-///       `curr` such that `curr <= key`.
-///   * in case of `storage_iter_range`. `start<=key<end` and:
-///     * Iterator was not called `next` yet.
-///     * `next` was already called on the iterator and it is currently pointing at the key
-///       `curr` such that `curr<=key<end`.
-///
-/// # Cost
-///
-/// `base + storage_iter_next_base + storage_iter_next_key_byte * num_key_bytes + storage_iter_next_value_byte * num_value_bytes
-///  + writing key to register + writing value to register`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_next(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
