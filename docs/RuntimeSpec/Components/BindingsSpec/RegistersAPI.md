@@ -27,7 +27,7 @@ the host:
 
 For example:
 `storage_write(u64::MAX, 0, u64::MAX, 1, 2)` -- insert key-value into storage, where key is read from register 0,
-value is read from register 1, and result is saved to register 2.
+value is read from register 1, and the old value, if the key existed, is saved to register 2.
 
 Note, if some function takes `register_id` then it means this function can copy some data into this register.
 `register_id == u64::MAX` is an ordinary register.

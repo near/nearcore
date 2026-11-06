@@ -5072,21 +5072,28 @@ fn read_and_parse_account_id(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container or points
-///   to an unused register it returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container it returns
+///   `MemoryAccessViolation`;
+/// * If `key_len` or `value_len` is `u64::MAX` and the pointer is an unused register it returns
+///   `InvalidRegisterId`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
 /// * If the length of the value exceeds `max_length_storage_value` returns
 ///   `ValueLengthExceeded`.
-/// * If called as view function returns `ProhibitedInView``.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
 /// `base + storage_write_base + storage_write_key_byte * num_key_bytes + storage_write_value_byte * num_value_bytes
 /// + get_vec_from_memory_or_register_cost x 2`.
 ///
-/// If a value was evicted it costs additional `storage_write_value_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
+/// If a value was evicted it costs additional `storage_write_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
+///
+/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// key's path.
 pub fn storage_write(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -5177,15 +5184,17 @@ pub fn storage_write(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`;
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
-/// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte + num_value_bytes
+/// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte * num_value_bytes
 ///  cost to read key from register + cost to write value into register`.
 pub fn storage_read(
     ctx: &mut HostCtx,
@@ -5250,18 +5259,23 @@ pub fn storage_read(
 ///
 /// # Errors
 ///
-/// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-///   returns `MemoryAccessViolation`;
+/// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`;
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
 /// * If returning the preempted value into the registers exceed the memory container it returns
 ///   `MemoryAccessViolation`.
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-/// * If called as view function returns `ProhibitedInView``.
+/// * If called as view function returns `ProhibitedInView`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
 /// `base + storage_remove_base + storage_remove_key_byte * num_key_bytes + storage_remove_ret_value_byte * num_value_bytes
 /// + cost to read the key + cost to write the value`.
+///
+/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// key's path, also when the key is not present.
 pub fn storage_remove(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -5323,7 +5337,10 @@ pub fn storage_remove(
 /// # Errors
 ///
 /// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+/// * If `key_len` is `u64::MAX` and `key_ptr` is an unused register it returns `InvalidRegisterId`;
 /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+/// * If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit`
+///   returns `RecordedStorageExceeded`.
 ///
 /// # Cost
 ///
@@ -5374,23 +5391,7 @@ pub fn sandbox_debug_log(_ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u
     Ok(())
 }
 
-/// DEPRECATED
-/// Creates an iterator object inside the host. Returns the identifier that uniquely
-/// differentiates the given iterator from other iterators that can be simultaneously created.
-/// * It iterates over the keys that have the provided prefix. The order of iteration is defined
-///   by the lexicographic order of the bytes in the keys;
-/// * If there are no keys, it creates an empty iterator, see below on empty iterators.
-///
-/// # Errors
-///
-/// * If `prefix_len + prefix_ptr` exceeds the memory container it returns
-///   `MemoryAccessViolation`.
-/// * If the length of the prefix exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-///
-/// # Cost
-///
-/// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte * num_prefix_bytes
-///  cost of reading the prefix`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_prefix(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -5402,23 +5403,7 @@ pub fn storage_iter_prefix(
     }))
 }
 
-/// DEPRECATED
-/// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
-/// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
-/// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
-/// on the given trie.
-///
-/// # Errors
-///
-/// * If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
-///   an unused register it returns `MemoryAccessViolation`.
-/// * If the length of the `start` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-/// * If the length of the `end` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-///
-/// # Cost
-///
-/// `base + storage_iter_create_range_base + storage_iter_create_from_byte * num_from_bytes
-///  + storage_iter_create_to_byte * num_to_bytes + reading from prefix + reading to prefix`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_range(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -5432,34 +5417,7 @@ pub fn storage_iter_range(
     }))
 }
 
-/// DEPRECATED
-/// Advances iterator and saves the next key and value in the register.
-/// * If iterator is not empty (after calling next it points to a key-value), copies the key
-///   into `key_register_id` and value into `value_register_id` and returns `1`;
-/// * If iterator is empty returns `0`;
-/// This allows us to iterate over the keys that have zero bytes stored in values.
-///
-/// # Errors
-///
-/// * If `key_register_id == value_register_id` returns `MemoryAccessViolation`;
-/// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
-/// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
-/// * If between the creation of the iterator and calling `storage_iter_next` the range over
-///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
-///   `storage_write` or `storage_remove` was invoked on the key such that:
-///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
-///     * Iterator was not called next yet.
-///     * `next` was already called on the iterator and it is currently pointing at the `key`
-///       `curr` such that `curr <= key`.
-///   * in case of `storage_iter_range`. `start<=key<end` and:
-///     * Iterator was not called `next` yet.
-///     * `next` was already called on the iterator and it is currently pointing at the key
-///       `curr` such that `curr<=key<end`.
-///
-/// # Cost
-///
-/// `base + storage_iter_next_base + storage_iter_next_key_byte * num_key_bytes + storage_iter_next_value_byte * num_value_bytes
-///  + writing key to register + writing value to register`.
+/// DEPRECATED: always returns `Deprecated` and charges no gas.
 pub fn storage_iter_next(
     _ctx: &mut HostCtx,
     _memory: &mut [u8],
