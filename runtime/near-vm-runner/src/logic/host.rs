@@ -1630,7 +1630,8 @@ pub fn random_seed(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> R
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
+/// sha256_base + sha256_byte * value_len`
 pub fn sha256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1668,7 +1669,8 @@ pub fn sha256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
+/// keccak256_base + keccak256_byte * value_len`
 pub fn keccak256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1706,7 +1708,8 @@ pub fn keccak256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 64 +
+/// keccak512_base + keccak512_byte * value_len`
 pub fn keccak512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1774,7 +1777,8 @@ fn sha3_generic<D: sha3::Digest>(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
+/// sha3_256_base + sha3_256_byte * value_len`
 pub fn sha3_256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1802,7 +1806,8 @@ pub fn sha3_256(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 48 +
+/// sha3_384_base + sha3_384_byte * value_len`
 pub fn sha3_384(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1830,7 +1835,8 @@ pub fn sha3_384(
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 64 +
+/// sha3_512_base + sha3_512_byte * value_len`
 pub fn sha3_512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1860,7 +1866,8 @@ pub fn sha3_512(
 ///
 ///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 20 +
+/// ripemd160_base + ripemd160_block * message_blocks`
 pub fn ripemd160(
     ctx: &mut HostCtx,
     memory: &mut [u8],
