@@ -4,8 +4,7 @@
 
 `type: Gas`
 
-Base cost for calling a host function. Not all host functions charge it; for example, the hash and signature
-verification functions charge only their own base costs.
+Base cost for calling a host function.
 
 ## read_memory_base
 
@@ -205,49 +204,49 @@ Storage trie check for key existence per key byte
 
 `type: Gas`
 
-Create trie prefix iterator cost base. Not charged: the storage iterator host functions are deprecated.
+Create trie prefix iterator cost base
 
 ### storage_iter_create_prefix_byte
 
 `type: Gas`
 
-Create trie prefix iterator cost per byte. Not charged: the storage iterator host functions are deprecated.
+Create trie prefix iterator cost per byte.
 
 ### storage_iter_create_range_base
 
 `type: Gas`
 
-Create trie range iterator cost base. Not charged: the storage iterator host functions are deprecated.
+Create trie range iterator cost base
 
 ### storage_iter_create_from_byte
 
 `type: Gas`
 
-Create trie range iterator cost per byte of from key. Not charged: the storage iterator host functions are deprecated.
+Create trie range iterator cost per byte of from key.
 
 ### storage_iter_create_to_byte
 
 `type: Gas`
 
-Create trie range iterator cost per byte of to key. Not charged: the storage iterator host functions are deprecated.
+Create trie range iterator cost per byte of to key.
 
 ### storage_iter_next_base
 
 `type: Gas`
 
-Trie iterator per key base cost. Not charged: the storage iterator host functions are deprecated.
+Trie iterator per key base cost
 
 ### storage_iter_next_key_byte
 
 `type: Gas`
 
-Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.
+Trie iterator next key byte cost
 
 ### storage_iter_next_value_byte
 
 `type: Gas`
 
-Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.
+Trie iterator next key byte cost
 
 ### touching_trie_node
 
@@ -267,7 +266,7 @@ Cost for calling promise_and
 
 `type: Gas`
 
-Cost for calling promise_and for each byte of the promise index array (8 bytes per promise)
+Cost for calling promise_and for each promise
 
 ### promise_return
 

@@ -64,9 +64,3 @@ Base cost of deleting a key.
 `type: Fee`
 
 Base cost of deleting an account.
-
-## delegate_cost
-
-`type: Fee`
-
-Base cost of processing a delegate action. It is charged on top of the costs of the actions inside the delegate action.

@@ -78,10 +78,11 @@ the module, not on the order of this list. These limits are checked while parsin
   * `1_024` types (signatures), set by the `max_types_per_contract` runtime parameter from protocol
     version 84;
   * `1_000_000` function imports and local function definitions;
-  * `1_000_000` imports;
-  * `1_000_000` exports;
+  * `100_000` imports;
+  * `100_000` exports;
   * `1_000_000` global imports and module-local global definitions;
   * `100_000` data segments;
+  * `1` table;
   * `1` memory;
 * UTF-8 strings comprising the wasm module definition (e.g. export name) may not exceed `100_000`
   bytes each;
@@ -91,7 +92,6 @@ the module, not on the order of this list. These limits are checked while parsin
 * All imports must be function imports from the `env` module. A module that imports a table, a
   global or a memory is rejected. The runtime provides the contract memory itself, as described in
   [Memory normalization](#memory-normalization);
-* The wasm module may contain no more than `max_tables_per_contract` (`1`) tables;
 * Tables may not specify an initial size of more than `10_000` entries (the
   `max_elements_per_contract_table` runtime parameter, from protocol version 82);
 * The wasm module may contain no more function imports and local function definitions than the
@@ -168,12 +168,8 @@ also means that calling the `used_gas` host function at different points of the 
 would return the same value if the `base` cost was `0`.
 
 All the instructions covered by a metered block are assigned a fee based on the `regular_op_cost`
-runtime parameter. The `block`, `else` and `end` instructions do not cause any fee to be charged. A
-sum of these fees is then charged by instrumentation inserted at the beginning of each metered block.
-
-The `memory.grow`, `memory.init`, `memory.copy`, `memory.fill`, `table.grow`, `table.init`,
-`table.copy` and `table.fill` instructions are not part of this sum. Each of them is charged just
-before it runs: `linear_op_base_cost` plus `linear_op_unit_cost` for each unit of its count operand.
+runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
+then charged by instrumentation inserted at the beginning of each metered block.
 
 ### Examples
 
@@ -188,7 +184,7 @@ to produce meaningful behavior.
 
 ```wat
 (func
-  (; charge_gas(5 regular_op_cost) ;)
+  (; charge_gas(6 regular_op_cost) ;)
   nop
   block
     nop
@@ -199,8 +195,8 @@ to produce meaningful behavior.
 ```
 
 This function has just 1 metered block, covering both the `block..end` block as well as the 2 `nop`
-instructions outside of it. As a result the gas fee for all 6 instructions (5 `regular_op_cost`, as `block` is free) will
-be charged at the beginning of the function (even if we can see `unreachable` would be executed after 4 instructions,
+instructions outside of it. As a result the gas fee for all 6 instructions will be charged at the
+beginning of the function (even if we can see `unreachable` would be executed after 4 instructions,
 terminating the execution).
 
 #### Branching instructions pop a metered block

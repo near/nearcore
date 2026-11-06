@@ -300,12 +300,13 @@ from compiling wasm to native to traps occurred while executing the compiled nat
       ContractSizeExceeded { size: u64, limit: u64 },
       /// The host function was deprecated.
       Deprecated { method_name: String },
-      /// Invalid input to `ecrecover`. See `ecrecover` for the cases.
+      /// General errors for ECDSA recover.
       ECRecoverError { msg: String },
       /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
       /// on the curve).
       AltBn128InvalidInput { msg: String },
-      /// Invalid input to `ed25519_verify`. See `ed25519_verify` for the cases.
+      /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+      /// derived from bytes).
       Ed25519VerifyInvalidInput { msg: String },
       /// Input length mismatch for p256 signature verification (signature is not 64
       /// bytes or public key is not 33 bytes). Parse failures of otherwise

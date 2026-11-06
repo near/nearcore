@@ -355,7 +355,7 @@ pub enum HostError {
     Deprecated {
         method_name: String,
     },
-    /// Invalid input to `ecrecover`. See `ecrecover` for the cases.
+    /// General errors for ECDSA recover.
     ECRecoverError {
         msg: String,
     },
@@ -364,7 +364,8 @@ pub enum HostError {
     AltBn128InvalidInput {
         msg: String,
     },
-    /// Invalid input to `ed25519_verify`. See `ed25519_verify` for the cases.
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
     Ed25519VerifyInvalidInput {
         msg: String,
     },
