@@ -150,9 +150,8 @@ pub(crate) fn run_external_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
         Arc::clone(&apply_state.trie_access_tracker_state),
-        // TODO(ecc): bound the state a single external call reads, as the per-receipt storage
-        // proof limit does for receipts, and count it toward the chunk's budget for external
-        // calls.
+        // The per-receipt storage proof limit counts from the start of the run. The recording
+        // budget set around the run caps it far lower.
         None,
     );
     let outcome = match preparation {
@@ -173,14 +172,21 @@ pub(crate) fn run_external_call(
                 ECC_METHOD_NAME,
                 CompilePriority::Critical,
             );
-            execute_function_call(
+            // A run may record only so much of the trie in the storage proof. A read past the cap
+            // fails the run, at the same trie node in the chunk producer's run and in a replay
+            // from the proof, and a value past it is never fetched.
+            let trie = runtime_ext.trie_update.trie();
+            trie.set_recording_budget(config.external_calls_config.max_call_recorded_size);
+            let outcome = execute_function_call(
                 contract,
                 &contract_identifier,
                 apply_state,
                 &mut runtime_ext,
                 &context,
                 config,
-            )?
+            );
+            runtime_ext.trie_update.trie().clear_recording_budget();
+            outcome?
         }
         ContractPreparation::Aborted(abort) => {
             abort.into_outcome(&context, Arc::clone(&config.wasm_config))
