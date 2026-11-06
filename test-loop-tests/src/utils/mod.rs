@@ -6,8 +6,10 @@ use near_primitives::types::{AccountId, EpochId};
 use near_store::adapter::StoreAdapter;
 
 pub(crate) mod account;
+pub(crate) mod certification;
 pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
+pub(crate) mod execution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
 pub(crate) mod node;

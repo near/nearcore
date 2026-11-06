@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
+use crate::utils::certification::assert_certification_kept_up;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use borsh::BorshDeserialize;
@@ -147,44 +148,40 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
 // up to date.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
-    bootstrap_node_via_epoch_sync(env, 0);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    assert_certification_kept_up(&env);
 }
 
 // Tests that after epoch syncing, we can use the new node to bootstrap another
 // node via epoch sync.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    bootstrap_node_via_epoch_sync(env, 4);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    bootstrap_node_via_epoch_sync(env, 4);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_with_expired_transactions() {
     init_test_logger();
     let env = setup_initial_blockchain(1);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    bootstrap_node_via_epoch_sync(env, 4);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    assert_certification_kept_up(&env);
 }
 
 impl TestLoopEnv {
@@ -254,8 +251,6 @@ fn sanity_check_epoch_sync_proof(
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_initial_epoch_sync_proof_sanity() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -263,11 +258,10 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
     env.assert_epoch_sync_proof_existence_on_disk(0, true);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -294,22 +288,20 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     // On the new node we should have a proof but missing headers for the old epochs.
     env.assert_epoch_sync_proof_existence_on_disk(4, true);
     env.assert_header_existence(4, env.shared_state.genesis.config.genesis_height + 1, false);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(0);
@@ -317,11 +309,10 @@ fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     let final_head_height = env.chain_final_head_height(0);
     // The proof should still be for the previous epoch, for state sync purposes.
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -346,11 +337,10 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id() {
         }
         _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
     }
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -375,11 +365,10 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
         }
         _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
     }
+    assert_certification_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -411,4 +400,5 @@ fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
         }
         _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
     }
+    assert_certification_kept_up(&env);
 }
