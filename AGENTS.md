@@ -19,7 +19,7 @@ formatting preferences before creating PRs.
 
 ## Testing
 
-- To run specific tests, use `cargo test --package {package} --features test_features -- {path::to::test} --exact --show-output`. Add `--features test_features` if the package defines it. Use `--features nightly` if needed.
+- To run specific tests, use `cargo test --package {package} --features test_features -- {path::to::test} --exact --show-output`. Include `--features test_features` only if the package defines it. Use `--features nightly` if needed.
 - For SPICE tests use `--features protocol_feature_spice,nightly,test_features`. Without it, they are skipped as ignored.
 
 ## Formatting
