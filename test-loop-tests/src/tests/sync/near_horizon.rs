@@ -13,6 +13,7 @@ use super::util::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -60,6 +61,7 @@ fn test_near_horizon_block_sync() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -101,6 +103,7 @@ fn test_near_horizon_epoch_sync_boundary() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -145,6 +148,7 @@ fn test_near_horizon_restart_during_block_sync() {
     let restarted_idx = env.restart_node("restart_block_sync", killed_state);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -168,8 +172,6 @@ fn test_near_horizon_restart_during_block_sync() {
 //   - Node survives 2 more epoch boundaries (schedule rotates to [1, 2, 3])
 //   - No IncorrectStateRoot or FlatStorage panics
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_change_tracked_shards_on_restart() {
     init_test_logger();
     let epoch_length = 10;
@@ -221,6 +223,8 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
         restarted_height >= reference_height,
         "restarted node fell behind: {restarted_height} < {reference_height}"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
@@ -267,5 +271,6 @@ fn test_near_horizon_sync_beyond_gc_window() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }

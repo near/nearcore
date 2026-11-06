@@ -15,6 +15,7 @@ use super::util::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_chain_configs::TrackedShardsConfig;
 use near_o11y::testonly::init_test_logger;
@@ -94,6 +95,7 @@ fn test_sync_then_shard_catchup() {
     // Every completed catchup must drop its CatchupState; otherwise the map retains
     // one entry per completed catchup for the life of the process.
     assert!(env.node(new_node_idx).client().catchup_state_syncs.is_empty());
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -165,5 +167,6 @@ fn test_near_horizon_sync_then_shard_catchup() {
         "node should have advanced 3+ epochs after sync for shard rotation, \
          but only went from {height_after_sync} to {height_after_catchup}"
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }

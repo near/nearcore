@@ -29,7 +29,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::certification::assert_certification_kept_up;
 use crate::utils::epoch_ids_since_genesis;
-use crate::utils::execution::assert_execution_kept_up;
+use crate::utils::execution::{assert_caught_up_shards_applied, assert_execution_kept_up};
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -40,7 +40,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 
 const EPOCH_LENGTH: BlockHeightDelta = 10;
@@ -62,6 +62,13 @@ pub(crate) fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
         boundary_accounts.push(boundary_account.parse().unwrap());
     }
     boundary_accounts
+}
+
+/// The height of the sync block of the epoch that starts at `genesis_height + EPOCH_LENGTH + 1`:
+/// that first block under spice, the block after two new chunks in every shard otherwise.
+fn sync_block_height(genesis_height: BlockHeight) -> BlockHeight {
+    let epoch_start = genesis_height + EPOCH_LENGTH + 1;
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) { epoch_start } else { epoch_start + 3 }
 }
 
 /// Check that no block with height `skip_block_height` made it on the canonical chain,
@@ -256,6 +263,7 @@ fn test_state_sync_simple_two_node() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -283,6 +291,7 @@ fn test_state_sync_simple_five_node() {
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -325,6 +334,7 @@ fn test_state_sync_empty_shard() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -589,6 +599,7 @@ fn test_state_sync_untrack_then_track() {
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &validators);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -599,7 +610,7 @@ fn test_state_sync_untrack_then_track() {
 fn test_state_sync_from_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
-    let skip_block_height = genesis_height + EPOCH_LENGTH + 4; // sync hash height, delta=0
+    let skip_block_height = sync_block_height(genesis_height); // delta=0
 
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -617,6 +628,7 @@ fn test_state_sync_from_fork() {
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -627,7 +639,7 @@ fn test_state_sync_from_fork() {
 fn test_state_sync_to_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
-    let skip_block_height = genesis_height + EPOCH_LENGTH + 4; // delta=0
+    let skip_block_height = sync_block_height(genesis_height); // delta=0
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -645,6 +657,7 @@ fn test_state_sync_to_fork() {
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -655,7 +668,7 @@ fn test_state_sync_to_fork() {
 fn test_state_sync_fork_after_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
-    let skip_block_height = genesis_height + EPOCH_LENGTH + 4 + 1;
+    let skip_block_height = sync_block_height(genesis_height) + 1;
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -673,6 +686,7 @@ fn test_state_sync_fork_after_sync() {
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -682,7 +696,7 @@ fn test_state_sync_fork_after_sync() {
 fn test_state_sync_fork_before_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
-    let skip_block_height = genesis_height + EPOCH_LENGTH + 4 - 1;
+    let skip_block_height = sync_block_height(genesis_height) - 1;
 
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -700,6 +714,7 @@ fn test_state_sync_fork_before_sync() {
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -761,6 +776,7 @@ fn test_state_request() {
         .build();
     spam_state_sync_header_reqs(&mut env);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -786,5 +802,6 @@ fn test_state_sync_protocol_upgrade() {
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
     assert_execution_kept_up(&env);
+    assert_caught_up_shards_applied(&env);
     assert_certification_kept_up(&env);
 }
