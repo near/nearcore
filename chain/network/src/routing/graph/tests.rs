@@ -8,6 +8,7 @@ use crate::network_protocol::testonly as data;
 use crate::peer_manager::network_state::EdgesWithSource;
 use crate::testonly::make_rng;
 use near_async::time;
+use near_async::time::{Duration, FakeClock};
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
@@ -174,6 +175,60 @@ async fn expired_edges() {
     clock.advance(100 * SEC);
     g.simple_update(vec![]);
     g.check(&[]);
+}
+
+#[tokio::test]
+async fn expired_edges_eventually_forget_unreachable_peers() {
+    init_test_logger();
+    let clock = FakeClock::default();
+    let mut rng = make_rng(87927345);
+    let node_key = data::make_secret_key(&mut rng);
+    let peer_key = data::make_secret_key(&mut rng);
+    let node = peer_id(&node_key);
+    let peer = peer_id(&peer_key);
+    let cfg = GraphConfig {
+        prune_unreachable_peers_after: Duration::hours(1),
+        prune_edges_after: Some(Duration::minutes(30)),
+        ..test_graph_config(node.clone())
+    };
+    let g = Graph::new(clock.clock(), cfg);
+
+    let edge = data::make_edge(&node_key, &peer_key, to_active_nonce(clock.now_utc()));
+    let removed = edge.remove_edge(peer.clone(), &peer_key);
+    g.simple_update(vec![edge]);
+    assert_eq!(g.load().next_hops.get(&peer), Some(&vec![peer.clone()]));
+    let last_reachable = clock.now();
+    assert_eq!(g.inner.lock().peer_reachable_at.get(&peer), Some(&last_reachable));
+
+    g.simple_update(vec![removed.clone()]);
+    g.check(&[removed]);
+    assert!(!g.load().next_hops.contains_key(&peer));
+
+    // The last edge expires before the peer's reachability record does.
+    clock.advance(Duration::minutes(31));
+    g.simple_update(vec![]);
+    g.check(&[]);
+    assert_eq!(g.inner.lock().peer_reachable_at.get(&peer), Some(&last_reachable));
+
+    // A peer last seen exactly one retention window ago is still retained.
+    clock.advance(Duration::minutes(29));
+    g.simple_update(vec![]);
+    assert_eq!(g.inner.lock().peer_reachable_at.get(&peer), Some(&last_reachable));
+
+    // Cleanup must also forget peers that no longer have any edges to enumerate.
+    clock.advance(SEC);
+    g.simple_update(vec![]);
+    assert!(!g.inner.lock().peer_reachable_at.contains_key(&peer));
+    assert_eq!(g.inner.lock().peer_reachable_at.get(&node), Some(&clock.now()));
+    g.simple_update(vec![]);
+    assert!(!g.inner.lock().peer_reachable_at.contains_key(&peer));
+
+    // Forgetting a peer must not prevent learning a fresh connection to it.
+    let fresh = data::make_edge(&node_key, &peer_key, to_active_nonce(clock.now_utc()));
+    g.simple_update(vec![fresh.clone()]);
+    g.check(&[fresh]);
+    assert_eq!(g.load().next_hops.get(&peer), Some(&vec![peer.clone()]));
+    assert_eq!(g.inner.lock().peer_reachable_at.get(&peer), Some(&clock.now()));
 }
 
 #[tokio::test]
