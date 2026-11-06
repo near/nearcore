@@ -183,5 +183,7 @@ fn test_forged_sync_block_body_is_rejected() {
         !forgery_stored.load(Ordering::SeqCst),
         "forged sync block was stored in the orphan pool under the honest hash {sync_hash}"
     );
+    // TODO(spice-test): the test network delivers spice data over direct links only, so once the
+    // victim bans the forging peer it misses that producer's receipt proofs and stops executing.
     assert_certification_kept_up(&env);
 }

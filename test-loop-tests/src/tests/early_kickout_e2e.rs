@@ -51,6 +51,7 @@ use crate::utils::account::{
     create_account_id, create_validator_id, create_validators_spec, validators_spec_clients,
 };
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::node::{NodeRunner, TestLoopNode};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
@@ -868,6 +869,7 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
           blacklisting_anchors={blacklisting_anchors})",
         synced_head.height
     );
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 
@@ -985,6 +987,7 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
              reassignment from a blanket deviation ({walk:?})"
         );
     }
+    assert_execution_kept_up(&env);
     assert_certification_kept_up(&env);
 }
 

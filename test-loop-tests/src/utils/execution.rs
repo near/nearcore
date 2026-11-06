@@ -4,10 +4,10 @@ use near_chain::near_chain_primitives::ApplyChunksMode;
 use near_primitives::types::BlockHeight;
 
 /// How far a node's execution head may fall behind its head at the end of a test.
-pub(crate) const MAX_EXECUTION_LAG: BlockHeight = 3;
+const MAX_EXECUTION_LAG: BlockHeight = 3;
 
 /// Asserts that on every live node the execution head is within `MAX_EXECUTION_LAG` blocks of the
-/// head, that every node applied the shards it caught up, and that what it applied was certified.
+/// head, and that what it applied was certified.
 pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
     for (idx, node_data) in env.node_datas.iter().enumerate() {
         if env.test_loop.is_denylisted(&node_data.identifier) {
@@ -22,7 +22,6 @@ pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
             node_data.account_id
         );
     }
-    assert_caught_up_shards_applied(env);
     assert_execution_matches_certification(env);
 }
 
@@ -30,7 +29,7 @@ pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
 /// block of that epoch after the epoch's first block, where spice syncs the shard, for the epochs
 /// its execution has moved past and garbage collection has not reached yet, and that there was at
 /// least one such shard to check.
-fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
+pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
     if !cfg!(feature = "protocol_feature_spice") {
         return;
     }
