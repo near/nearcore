@@ -777,7 +777,7 @@ impl SpiceDataDistributorActor {
                     self.witness_validator_sender.send(
                         SpiceChunkStateWitnessMessage {
                             witness: *witness,
-                            raw_witness_size: encoded_length as usize,
+                            witness_hash: data_hash,
                         }
                         .span_wrap(),
                     );
