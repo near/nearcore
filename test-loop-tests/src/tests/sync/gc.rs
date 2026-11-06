@@ -150,7 +150,6 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
 // Covers the regression from #2980 where state sync cleared block infos needed for
 // `gc_stop_height` computation.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_sync() {
     run_gc_after_far_horizon_sync(None);
 }
