@@ -986,12 +986,14 @@ pub fn record_uncertified_chunks_for_block(
 ) -> Result<BlockHeight, Error> {
     let prev_uncertified_chunks =
         get_uncertified_chunks(chain_store_update.chain_store(), block.header().prev_hash())?;
-    let (uncertified_chunks, certification_lag) = advance_uncertified_chunks(
+    let uncertified_chunks = advance_uncertified_chunks(
         chain_store_update.chain_store(),
         epoch_manager,
         block,
         prev_uncertified_chunks,
     )?;
+    let certification_lag =
+        certification_lag(chain_store_update.chain_store(), block.header(), &uncertified_chunks)?;
 
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
@@ -1006,7 +1008,7 @@ pub fn record_uncertified_chunks_for_block(
     Ok(certification_lag)
 }
 
-/// The uncertified chunks `block` leaves behind, given its parent's, and the certification lag.
+/// Returns the uncertified chunks `block` leaves behind given its parent's.
 ///
 /// Drops the chunks `block` certifies, credits the endorsements it carries against the rest,
 /// then appends its own chunks, one per shard, awaiting that shard's validator assignment.
@@ -1015,7 +1017,7 @@ fn advance_uncertified_chunks(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
     prev_uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
-) -> Result<(Vec<SpiceUncertifiedChunkInfo>, BlockHeight), Error> {
+) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
     let mut block_endorsements: HashMap<
@@ -1098,9 +1100,6 @@ fn advance_uncertified_chunks(
     // header is not in the store yet.
     let oldest_uncertified_header =
         find_oldest_uncertified_block_header(chain_store, &uncertified_chunks)?;
-    let certification_lag = oldest_uncertified_header
-        .as_ref()
-        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
     let oldest_uncertified_block_hash =
         oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
 
@@ -1123,7 +1122,22 @@ fn advance_uncertified_chunks(
         }
     }
 
-    Ok((uncertified_chunks, certification_lag))
+    Ok(uncertified_chunks)
+}
+
+/// The number of blocks certification is behind consensus at `block`, not counting `block`'s own
+/// chunks: 0 when none of the `uncertified_chunks` it leaves behind belongs to an older block.
+fn certification_lag(
+    chain_store: &ChainStoreAdapter,
+    block: &BlockHeader,
+    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+) -> Result<BlockHeight, Error> {
+    // `block`'s own header is not in the store yet while it is being recorded.
+    let older_chunks = uncertified_chunks
+        .iter()
+        .filter(|chunk_info| &chunk_info.chunk_id.block_hash != block.hash());
+    Ok(find_oldest_uncertified_block_header(chain_store, older_chunks)?
+        .map_or(0, |oldest| block.height().saturating_sub(oldest.height())))
 }
 
 /// Computes the uncertified chunks of `block_hash` from the block bodies since the last block
@@ -1140,7 +1154,7 @@ pub(crate) fn record_uncertified_chunks_by_advancing(
         return Ok(());
     }
     let prev_uncertified_chunks = get_uncertified_chunks(chain_store, block.header().prev_hash())?;
-    let (uncertified_chunks, _) =
+    let uncertified_chunks =
         advance_uncertified_chunks(chain_store, epoch_manager, block, prev_uncertified_chunks)?;
     let mut store_update = chain_store.store().store_update();
     store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
@@ -1193,7 +1207,7 @@ fn compute_uncertified_chunks_from_bodies(
     };
 
     for block in &uncertified_blocks_window {
-        (uncertified_chunks, _) =
+        uncertified_chunks =
             advance_uncertified_chunks(chain_store, epoch_manager, block, uncertified_chunks)?;
     }
 
@@ -1416,12 +1430,12 @@ pub fn record_spice_endorsement_stats_for_block(
     Ok(())
 }
 
-fn find_oldest_uncertified_block_header(
+fn find_oldest_uncertified_block_header<'a>(
     chain_store: &ChainStoreAdapter,
-    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+    uncertified_chunks: impl IntoIterator<Item = &'a SpiceUncertifiedChunkInfo>,
 ) -> Result<Option<Arc<BlockHeader>>, Error> {
     let uncertified_block_hashes: HashSet<_> =
-        uncertified_chunks.iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
+        uncertified_chunks.into_iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
     let uncertified_block_headers: Vec<_> = uncertified_block_hashes
         .iter()
         // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
