@@ -184,7 +184,12 @@ impl SpiceDataManager {
     // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
     // witnesses move onto the engine (#16275).
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        receipt_proof::needed_items(self.epoch_manager.as_ref(), &self.shard_tracker, block)
+        receipt_proof::needed_items(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block,
+        )
     }
 
     /// Whether the item is completed as far as data distribution is concerned.
