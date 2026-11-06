@@ -7,7 +7,7 @@ use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
-use crate::{BlockProcessingArtifact, Chain, Provenance};
+use crate::{BlockProcessingArtifact, Chain, Error, Provenance};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::{Handler as _, IntoSender as _, noop};
@@ -18,14 +18,14 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Approval, Block};
 use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -1592,6 +1592,47 @@ fn test_process_block_with_designated_endorsements_split_between_results() {
     let block_uncertified_chunks =
         uncertified_chunks.iter().filter(|info| info.chunk_id.block_hash == *block.hash());
     assert_eq!(block_uncertified_chunks.count(), block.chunks().len());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_process_block_with_execution_result_for_nonexistent_shard() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let mut core_statements = block_certification_core_statements(&block);
+    core_statements.push(execution_result_core_statement(*block.hash(), ShardId::new(999)));
+    // Approvals and block merkle root let the block pass header validation as a block received
+    // from the network.
+    let next_height = block.header().height() + 1;
+    let approvals = chain
+        .epoch_manager
+        .get_epoch_block_approvers_ordered(block.hash())
+        .unwrap()
+        .iter()
+        .map(|approver| {
+            let signer = create_test_signer(approver.account_id.as_str());
+            let approval =
+                Approval::new(*block.hash(), block.header().height(), next_height, &signer);
+            Some(Box::new(approval.signature))
+        })
+        .collect();
+    let mut block_merkle_tree =
+        PartialMerkleTree::clone(&chain.chain_store().get_block_merkle_tree(block.hash()).unwrap());
+    let next_block = block_builder(&chain, &block)
+        .spice_core_statements(core_statements)
+        .approvals(approvals)
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
+    let result = process_block_sync(
+        &mut chain,
+        next_block.into(),
+        Provenance::NONE,
+        &mut BlockProcessingArtifact::default(),
+    );
+    assert_matches!(result, Err(Error::InvalidSpiceCoreStatements(_)));
 }
 
 #[test]
