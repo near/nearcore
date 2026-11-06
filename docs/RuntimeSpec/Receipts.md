@@ -124,7 +124,7 @@ If smart contract finishes its execution with some value (not Promise), runtime 
 
 #### actions
 
-- **`type`**: [`FunctionCall`](Actions.md#functioncallaction) | [`TransferAction`](Actions.md#transferaction) | [`StakeAction`](Actions.md#stakeaction) | [`AddKeyAction`](Actions.md#addkeyaction) | [`DeleteKeyAction`](Actions.md#deletekeyaction) | [`CreateAccountAction`](Actions.md#createaccountaction) | [`DeleteAccountAction`](Actions.md#deleteaccountaction)
+- **`type`**: `Vec<Action>`. See [Actions](Actions.md) for the action kinds.
 
 ## DataReceipt
 
@@ -260,13 +260,9 @@ Receipt {
 ```
 
 ```python
-data_receipts["alice,e5fa44"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "e5fa44",
-        data: "some data for alice",
-    }
-};
+data_receipts["alice,e5fa44"] = borsh_serialize(ReceivedData{
+    data: "some data for alice",
+});
 pending_data_receipt_count["alice,5e73d4"] = 1`
 del pending_data_receipt_store["alice,e5fa44"]
 ```
@@ -285,14 +281,10 @@ Receipt{
 ```
 
 ```python
-data_receipts["alice,7448d8"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "7448d8",
-        data: "some more data for alice",
-    }
-};
-postponed_receipt_id = pending_data_receipt_store["alice,5e73d4"]
+data_receipts["alice,7448d8"] = borsh_serialize(ReceivedData{
+    data: "some more data for alice",
+});
+postponed_receipt_id = pending_data_receipt_store["alice,7448d8"]
 postponed_receipt = postponed_receipts[postponed_receipt_id]
 del postponed_receipts[postponed_receipt_id]
 del pending_data_receipt_count["alice,5e73d4"]
@@ -312,7 +304,7 @@ mainly two types of errors:
 
 ```rust
 /// The `receiver_id` of a Receipt is not valid.
-InvalidReceiverId { account_id: AccountId },
+InvalidReceiverId { account_id: String },
 ``` 
 
 error is returned.

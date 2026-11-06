@@ -64,7 +64,7 @@ from protocol version 88 (nearcore 2.14.0), `0u` universal IDs. These accounts a
 **Outcome**:
 
 - creates an account with `id` = `receiver_id`
-- sets Account `storage_usage` to `account_cost` (genesis config)
+- sets Account `storage_usage` to `num_bytes_account` (runtime config)
 
 ### Errors
 
@@ -114,7 +114,7 @@ pub struct DeployContractAction {
 
 **Validation Error**:
 
-- if the length of `code` exceeds `max_contract_size`, which is a genesis parameter, the following error will be returned:
+- if the length of `code` exceeds `max_contract_size`, which is a runtime config parameter, the following error will be returned:
 
 ```rust
 /// The size of the contract code exceeded the limit in a DeployContract action.
@@ -236,6 +236,8 @@ pub struct AddKeyAction {
 **Outcome**:
 
 - Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
+- For a regular key, the `nonce` field of the provided `AccessKey` is ignored. The nonce is set to `block_height * 1_000_000 - 1`
+  (`(block_height - 1) * 1_000_000` before protocol version 89).
 - If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](/DataStructures/AccessKey.md#gas-keys) with a balance of 0.
   The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `block_height * 1_000_000 - 1` (`(block_height - 1) * 1_000_000` before protocol version 89).
   These records add to the storage usage of the account, see [Gas Key Nonces](/DataStructures/AccessKey.md#gas-key-nonces).
@@ -253,7 +255,7 @@ If the access key permission is `FunctionCall` or `GasKeyFunctionCall`, the foll
 InvalidAccountId { account_id: AccountId },
 ```
 
-- If the length of some method name exceed `max_length_method_name`, which is a genesis parameter (current value is 256),
+- If the length of some method name exceed `max_length_method_name`, which is a runtime config parameter (current value is 256),
 the following error will be returned 
 
 ```rust
@@ -261,7 +263,7 @@ the following error will be returned
 AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
 ```
 
-- If the sum of length of method names (with 1 extra character for every method name) exceeds `max_number_bytes_method_names`, which is a genesis parameter (current value is 2000),
+- If the sum of length of method names (with 1 extra character for every method name) exceeds `max_number_bytes_method_names`, which is a runtime config parameter (current value is 2000),
 the following error will be returned
 
 ```rust
@@ -373,14 +375,14 @@ InvalidAccountId { account_id: AccountId },
 DeleteActionMustBeFinal
 ```
 
+**Execution Error**:
+
 - If the account still has locked balance due to staking, the following error will be returned
 
 ```rust
 /// Account is staking and can not be deleted
 DeleteAccountStaking { account_id: AccountId }
 ```
-
-**Execution Error**:
 
 - If the storage usage of the account is more than 10,000 bytes, the following error is returned and nothing is deleted.
   The storage of the contract code or of the global contract reference does not count.
@@ -620,7 +622,7 @@ DelegateActionInvalidSignature
 DelegateActionSenderDoesNotMatchTxReceiver
 ```
 
-- If the current block is equal or greater than `max_block_height`
+- If the current block is greater than `max_block_height`
 
 ```rust
 /// Delegate action has expired
@@ -730,12 +732,11 @@ pub struct DeterministicStateInitAction {
 
 **Outcome**:
 
-- if the account was already created before:
-    - do nothing
-- if the account was not created before:
-    - creates an account with deterministic account id
+- if the account does not exist, creates an account with deterministic account id
+- if the account has no contract (it does not exist, or it was created by a transfer):
     - sets the contract code to the specified global contract
     - stores the initial data into the contract storage
+- uses as much of `deposit` as the account needs for storage staking, and refunds the rest
 
 ### Errors
 
@@ -752,3 +753,4 @@ pub struct DeterministicStateInitAction {
 
 - `GlobalContractDoesNotExist` if the referenced global contract does not exist on the shard of the receiver. (It may
   take a while for it to propagate to all shards.)
+- `LackBalanceForState` if `deposit` does not cover the balance that the account lacks for storage staking
