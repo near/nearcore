@@ -1,6 +1,7 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
+use crate::conversions::Convert;
 use crate::find_skipped_transactions;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -15,6 +16,7 @@ use crate::{
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
+use bytesize::ByteSize;
 use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -76,6 +78,8 @@ use near_store::{
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
     get_received_data, has_promise_yield_receipt, remove_account, set_access_key, set_account,
 };
+use near_vm_runner::logic::HostError;
+use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
@@ -847,6 +851,7 @@ fn ecc_contract(ecc_body: &str) -> Vec<u8> {
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "storage_write" (func $storage_write (param i64 i64 i64 i64 i64) (result i64)))
   (import "env" "storage_read" (func $storage_read (param i64 i64 i64) (result i64)))
+  (import "env" "storage_remove" (func $storage_remove (param i64 i64 i64) (result i64)))
   (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (import "env" "block_index" (func $block_index (result i64)))
   (import "env" "block_timestamp" (func $block_timestamp (result i64)))
@@ -983,6 +988,8 @@ fn setup_ecc_contract(
 }
 
 /// Applies a chunk with `transactions`, which may include ECCs, on top of `root` and commits it.
+/// The trie records its reads, as it does in production, so the storage proof is in the result
+/// and the recording budget of an ECC applies.
 fn apply_envelopes_and_commit(
     runtime: &Runtime,
     tries: &ShardTries,
@@ -994,7 +1001,7 @@ fn apply_envelopes_and_commit(
     let num_transactions = transactions.len();
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             apply_state,
             &[],
@@ -1558,6 +1565,334 @@ fn test_apply_eccs_from_storage_proof() {
     apply_state.trie_access_tracker_state = Default::default();
     let proof = apply_result.proof.clone().unwrap();
     let replay_result = apply(Trie::from_recorded_storage(proof, root, false), &apply_state);
+    assert_eq!(replay_result.outcomes, apply_result.outcomes);
+    assert_eq!(replay_result.state_root, apply_result.state_root);
+}
+
+/// The key of entry `index` of the contract data in the recording budget tests: `index` as 8
+/// little-endian bytes, as the ECC methods of `ecc_body_on_keys` build it.
+fn data_key(index: u64) -> Vec<u8> {
+    index.to_le_bytes().to_vec()
+}
+
+/// The key of the large value in the recording budget tests.
+const LARGE_VALUE_INDEX: u64 = 1_000_000;
+
+/// An ECC method that writes the payload, then calls `host_function` (`storage_read` or
+/// `storage_remove`) on the keys `data_key(first)` to `data_key(first + count - 1)`.
+fn ecc_body_on_keys(host_function: &str, first: u64, count: u64) -> String {
+    let end = first + count;
+    format!(
+        r#"(local $i i64)
+    (call $write_payload)
+    (local.set $i (i64.const {first}))
+    (block $done (loop $next
+      (br_if $done (i64.ge_u (local.get $i) (i64.const {end})))
+      (i64.store (i32.const 200) (local.get $i))
+      (drop (call ${host_function} (i64.const 8) (i64.const 200) (i64.const 3)))
+      (local.set $i (i64.add (local.get $i) (i64.const 1)))
+      (br $next)))"#
+    )
+}
+
+/// Stores `data` as the contract data of `account_id`, on top of `root`. The account's storage
+/// usage is left as it is.
+fn set_contract_data(
+    tries: &ShardTries,
+    root: CryptoHash,
+    account_id: &AccountId,
+    data: impl IntoIterator<Item = (Vec<u8>, Vec<u8>)>,
+) -> CryptoHash {
+    let shard_uid = ShardUId::single_shard();
+    let mut state = tries.new_trie_update(shard_uid, root);
+    for (key, value) in data {
+        state.set(TrieKey::ContractData { account_id: account_id.clone(), key }, value);
+    }
+    state.commit(StateChangeCause::InitialState);
+    let trie_changes = state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+    root
+}
+
+/// The error of an ECC whose run records more of the trie than its recording budget allows.
+fn recorded_storage_exceeded(config: &RuntimeConfig) -> TxExecutionError {
+    let limit = config.external_calls_config.max_call_recorded_size;
+    let limit = ByteSize::b(u64::try_from(limit).unwrap());
+    let error = VMFunctionCallError::HostError(HostError::RecordedStorageExceeded { limit });
+    ActionError {
+        index: Some(0),
+        kind: ActionErrorKind::FunctionCallError(Convert::convert(error)),
+    }
+    .into()
+}
+
+/// Many small values, which together take more of the storage proof than an ECC's run may
+/// record. Each is different, since the proof holds a value only once.
+fn many_values(config: &RuntimeConfig) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let num_values = 2 * config.external_calls_config.max_call_recorded_size / 200;
+    (0..num_values as u64)
+        .map(|index| {
+            let mut value = vec![1; 200];
+            value[..8].copy_from_slice(&data_key(index));
+            (data_key(index), value)
+        })
+        .collect()
+}
+
+/// A single value larger than an ECC's run may record.
+fn large_value(config: &RuntimeConfig) -> (Vec<u8>, Vec<u8>) {
+    let size = config.external_calls_config.max_call_recorded_size * 3 / 2;
+    (data_key(LARGE_VALUE_INDEX), vec![2; size])
+}
+
+/// A single value somewhat smaller than an ECC's run may record, which leaves room for the
+/// path to it and the run's other reads.
+fn value_under_the_cap(config: &RuntimeConfig) -> (Vec<u8>, Vec<u8>) {
+    let size = config.external_calls_config.max_call_recorded_size - 4000;
+    (data_key(LARGE_VALUE_INDEX), vec![3; size])
+}
+
+/// Sets up bob with a contract whose ECC method runs `ecc_body` on contract data `data`, and
+/// applies `ecc_to_bob` on a trie that records its reads. Returns the setup's apply state and
+/// what `apply_refused_ecc` returns.
+fn apply_refused_ecc_on_data(
+    ecc_body: &str,
+    data: impl FnOnce(&RuntimeConfig) -> Vec<(Vec<u8>, Vec<u8>)>,
+) -> (ApplyState, RefusedEcc) {
+    let code = ecc_contract(ecc_body);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let root = set_contract_data(&tries, root, &bob_account(), data(&apply_state.config));
+    let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
+    (apply_state, refused)
+}
+
+/// An ECC whose run reads more of the trie than its recording budget allows is refused, like a
+/// receipt past the per-receipt storage proof limit: its writes roll back and nobody pays.
+#[test]
+fn test_apply_ecc_refused_reads_past_recording_budget() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let num_values = many_values(&RuntimeConfig::test()).len() as u64;
+    let body = ecc_body_on_keys("storage_read", 0, num_values);
+    let (apply_state, refused) = apply_refused_ecc_on_data(&body, many_values);
+    assert_eq!(refused.error, recorded_storage_exceeded(&apply_state.config));
+}
+
+/// An ECC whose run reads a value larger than its recording budget is refused before the value
+/// is fetched, so the value stays out of the storage proof.
+#[test]
+fn test_apply_ecc_refused_value_past_recording_budget() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let code = ecc_contract(&ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let (key, value) = large_value(&apply_state.config);
+    let root = set_contract_data(&tries, root, &bob_account(), [(key, value.clone())]);
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+
+    let status = &apply_result.outcomes[0].outcome.status;
+    let expected = recorded_storage_exceeded(&apply_state.config);
+    assert_eq!(status, &ExecutionStatus::Failure(expected));
+    let PartialState::TrieValues(nodes) = apply_result.proof.unwrap().nodes;
+    assert!(nodes.iter().all(|node| hash(node) != hash(&value)), "the value is in the proof");
+}
+
+/// An ECC whose run removes keys is refused once the removals pass its recording budget: each one
+/// counts toward the storage proof for the trie nodes it changes when the chunk is finalized.
+/// Reading the same keys stays under the budget.
+#[test]
+fn test_apply_ecc_refused_removals_past_recording_budget() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    const NUM_KEYS: u64 = 20;
+    let small_values = |_: &RuntimeConfig| (0..NUM_KEYS).map(|i| (data_key(i), vec![1])).collect();
+
+    let (apply_state, refused) =
+        apply_refused_ecc_on_data(&ecc_body_on_keys("storage_remove", 0, NUM_KEYS), small_values);
+    assert_eq!(refused.error, recorded_storage_exceeded(&apply_state.config));
+
+    let code = ecc_contract(&ecc_body_on_keys("storage_read", 0, NUM_KEYS));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let root = set_contract_data(&tries, root, &bob_account(), small_values(&apply_state.config));
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// A removal that passes the recording budget refuses the call even as the run's last storage
+/// operation, with no read after it to find that the budget is passed. The same run without the
+/// removal is accepted.
+#[test]
+fn test_apply_ecc_refused_last_removal_past_recording_budget() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let read_large = format!(
+        r#"(call $write_payload)
+    (i64.store (i32.const 200) (i64.const {LARGE_VALUE_INDEX}))
+    (drop (call $storage_read (i64.const 8) (i64.const 200) (i64.const 3)))"#
+    );
+    let read_large_then_remove = format!(
+        r#"{read_large}
+    (i64.store (i32.const 200) (i64.const 0))
+    (drop (call $storage_remove (i64.const 8) (i64.const 200) (i64.const 3)))"#
+    );
+    // A value that leaves less room in the budget than a removal counts for.
+    let data = |config: &RuntimeConfig| {
+        let size = config.external_calls_config.max_call_recorded_size - 1800;
+        vec![(data_key(LARGE_VALUE_INDEX), vec![3; size]), (data_key(0), vec![1])]
+    };
+
+    let code = ecc_contract(&read_large);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let root = set_contract_data(&tries, root, &bob_account(), data(&apply_state.config));
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    let (apply_state, refused) = apply_refused_ecc_on_data(&read_large_then_remove, data);
+    assert_eq!(refused.error, recorded_storage_exceeded(&apply_state.config));
+}
+
+/// An ECC whose run reads a value just under its recording budget is accepted.
+#[test]
+fn test_apply_ecc_reading_under_recording_budget_accepted() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let code = ecc_contract(&ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let (key, value) = value_under_the_cap(&apply_state.config);
+    let root = set_contract_data(&tries, root, &bob_account(), [(key, value.clone())]);
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let (_, written) = bob_ecc_state(&tries, root);
+    assert_eq!(written.as_deref(), Some(ECC_PAYLOAD));
+    let PartialState::TrieValues(nodes) = apply_result.proof.unwrap().nodes;
+    assert!(nodes.iter().any(|node| hash(node) == hash(&value)), "the value isn't in the proof");
+}
+
+/// A chunk validator applies a chunk with ECCs stopped by their recording budget from the
+/// chunk's storage proof alone. Each run stops where the chunk producer's did, so the outcomes
+/// and the state root are the same.
+#[test]
+fn test_apply_eccs_past_recording_budget_from_storage_proof() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let config = RuntimeConfig::test();
+    let reader: AccountId = "reader.near".parse().unwrap();
+    let large_reader: AccountId = "large-reader.near".parse().unwrap();
+    let remover: AccountId = "remover.near".parse().unwrap();
+    let num_values = many_values(&config).len() as u64;
+    let contract = |account_id: &AccountId, ecc_body: String| EccContractSetup {
+        account_id: account_id.clone(),
+        code: ecc_contract(&ecc_body),
+        amount: Balance::from_near(1_000),
+        locked: Balance::ZERO,
+    };
+    let contracts = vec![
+        contract(&bob_account(), ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1)),
+        contract(&reader, ecc_body_on_keys("storage_read", 0, num_values)),
+        contract(&large_reader, ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1)),
+        contract(&remover, ecc_body_on_keys("storage_remove", 0, 20)),
+    ];
+    let code_hashes = contracts
+        .iter()
+        .map(|contract| CodeHash(*ContractCode::new(contract.code.clone(), None).hash()))
+        .collect::<HashSet<_>>();
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contracts(contracts);
+    let root = set_contract_data(&tries, root, &bob_account(), [value_under_the_cap(&config)]);
+    let root = set_contract_data(&tries, root, &reader, many_values(&config));
+    let (large_key, large) = large_value(&config);
+    let root = set_contract_data(&tries, root, &large_reader, [(large_key, large.clone())]);
+    let small_values = (0..20).map(|i| (data_key(i), vec![1]));
+    let root = set_contract_data(&tries, root, &remover, small_values);
+    let transactions: Vec<TransactionEnvelope> = [bob_account(), reader, large_reader, remover]
+        .into_iter()
+        .map(|account_id| EccTransaction::new(account_id, ECC_PAYLOAD.to_vec()).into())
+        .collect();
+    let apply = |trie: Trie, apply_state: &ApplyState| {
+        let num_transactions = transactions.len();
+        runtime
+            .apply(
+                trie,
+                &None,
+                apply_state,
+                &[],
+                SignedValidPeriodTransactions::new(
+                    transactions.clone(),
+                    vec![true; num_transactions],
+                ),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+
+    // Fresh trie access accounting, as every apply has: the setup's would count some of the
+    // chunk's trie reads as cached.
+    apply_state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
+    apply_state.trie_access_tracker_state = Default::default();
+    let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    let apply_result = apply(trie.recording_reads_new_recorder(), &apply_state);
+
+    let statuses = apply_result.outcomes.iter().map(|outcome| &outcome.outcome.status);
+    let statuses = statuses.collect_vec();
+    assert_matches!(statuses[0], ExecutionStatus::SuccessValue(_));
+    let refused = ExecutionStatus::Failure(recorded_storage_exceeded(&apply_state.config));
+    assert_eq!(statuses[1..], [&refused, &refused, &refused]);
+    assert_eq!(apply_result.contract_updates.contract_accesses, code_hashes);
+    let proof = apply_result.proof.clone().unwrap();
+    let PartialState::TrieValues(nodes) = &proof.nodes;
+    assert!(nodes.iter().all(|node| hash(node) != hash(&large)), "the large value is in the proof");
+
+    // A validator replays the chunk from the proof, recording its reads as every apply does,
+    // with fresh trie access accounting. The contract code isn't in the proof: the replay finds
+    // it in the compiled-contract cache of `apply_state`, standing in for contract distribution.
+    // The first apply charged storage reads as with flat storage, so the replay does too.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    apply_state.trie_access_tracker_state = Default::default();
+    let trie = Trie::from_recorded_storage(proof, root, true).recording_reads_new_recorder();
+    let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
 }
