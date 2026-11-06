@@ -10,12 +10,12 @@ Also for all functions in the bindings specification the following is true:
 - Method execution could result in `MemoryAccessViolation` error if the method causes host to read a piece of memory
   from the guest but it points outside the guest's memory. The host charges gas for the requested length before it
   checks bounds, so a large out-of-bounds read can fail with `GasExceeded`, `GasLimitExceeded` or `IntegerOverflow`
-  instead. Logging functions check the log length limit first and fail with `TotalLogLengthExceeded`;
+  instead. `log_utf8` and `panic_utf8` check the log length limit first and fail with `TotalLogLengthExceeded`;
 - Method execution could result in `InvalidRegisterId` error if the guest causes host to read from a register that is
   not set.
 
 Execution of a bindings function call result in an error being generated. This error causes execution of the smart contract
-to be terminated and the error message written into the logs of the transaction that caused the execution. Many bindings
+to be terminated, and the error becomes the execution result of the receipt. Many bindings
 functions can throw specialized error messages, but there is also a list of error messages that can be thrown by almost
 any function:
 
