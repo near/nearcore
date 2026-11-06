@@ -401,13 +401,10 @@ pub fn finite_wasm_stack_exhausted(_ctx: &mut HostCtx, _memory: &mut [u8]) -> Re
 ///
 /// # Errors
 ///
-/// * If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
+/// * If the content extends outside the memory allocated to the guest returns `MemoryAccessViolation` error message;
 /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
 ///
-/// # Undefined Behavior
-///
-/// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-/// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
+/// If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 ///
 /// # Cost
 ///
@@ -441,8 +438,7 @@ pub fn register_len(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> 
 }
 
 /// Copies `data` from the guest memory into the register. If register is unused will initialize
-/// it. If register has larger capacity than needed for `data` will not re-allocate it. The
-/// register will lose the pre-existing data if any.
+/// it. The register will lose the pre-existing data if any.
 ///
 /// # Arguments
 ///
@@ -452,7 +448,7 @@ pub fn register_len(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> 
 ///
 /// # Cost
 ///
-/// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
+/// `base + read_memory_base + read_memory_byte * num_bytes + write_register_base + write_register_byte * num_bytes`
 pub fn write_register(
     ctx: &mut HostCtx,
     memory: &mut [u8],
