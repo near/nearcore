@@ -214,16 +214,25 @@ ShardChunkHeaderV3 {
 So the `outcome_root` is `2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB` - let’s
 verify it then.
 
-Our first step is to compute the hash of the receipt, which is equal to
-`hash([receipt_id, hash(borsh(receipt_payload)])`
+Our first step is to compute the leaf hash of the receipt outcome, which is equal to
+`hash(borsh([receipt_id, hash(borsh(partial_outcome)), hash(log_1), ..., hash(log_n)]))`.
+There is one `hash(log)` entry for each log line, in order. `partial_outcome` is a
+`PartialExecutionOutcome`. It holds the `receipt_ids`, `gas_burnt`, `tokens_burnt`, `executor_id`
+and `status` of the outcome, without logs or metadata. If the outcome failed, the status is only
+`Failure`, without the error details. The
+[light client spec](../../ChainSpec/LightClient.md#execution-outcome-root-verification) gives the
+exact encoding.
 
 ```python
-# this is a borsh serialized ExecutionOutcome struct.
+# this is the hash of the borsh serialized PartialExecutionOutcome struct.
 # computing this, we leave as an exercise for the reader :-)
 receipt_payload_hash = "7PeGiDjssz65GMCS2tYPHUm6jYDeBCzpuPRZPmLNKSy7"
 
 receipt_hash = base58.b58encode(hashlib.sha256(struct.pack("<I", 2) + base58.b58decode("6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im") + base58.b58decode(receipt_payload_hash)).digest())
 ```
+
+The `2` in `struct.pack("<I", 2)` is the length of the list. It is 2 here because this outcome has
+no logs. For an outcome with logs it is `2 + len(logs)`. The log hashes follow the payload hash.
 
 And then we can start reconstructing the tree:
 
