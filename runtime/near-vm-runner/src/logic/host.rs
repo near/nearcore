@@ -4738,7 +4738,8 @@ pub fn promise_results_count(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u6
 ///
 /// # Cost
 ///
-/// `base + write_register_base`
+/// `base + write_register_base`, with the register write charged only when the result is
+/// successful.
 pub fn promise_result(
     ctx: &mut HostCtx,
     _memory: &mut [u8],
