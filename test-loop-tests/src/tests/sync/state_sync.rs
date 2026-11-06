@@ -27,7 +27,9 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::certification::assert_certification_kept_up;
 use crate::utils::epoch_ids_since_genesis;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -238,8 +240,6 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -255,14 +255,14 @@ fn test_state_sync_simple_two_node() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // 5 validators, 4 shards, no chunk drops. More validators than shards means some shards
 // have 2 chunk producers. A single node failing to state sync won't stall the chain (the
 // other producer covers), so we explicitly verify all nodes advanced.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_five_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -282,6 +282,8 @@ fn test_state_sync_simple_five_node() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 #[test]
@@ -308,8 +310,6 @@ fn test_state_sync_chunk_extra_divergence_stops_the_node() {
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
 // at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_empty_shard() {
     init_test_logger();
     // 2 validators with 4 shards: each validator tracks 2 shards, but some shards
@@ -324,6 +324,8 @@ fn test_state_sync_empty_shard() {
         .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Drop shard 0's chunk at offset 0 (first block of each epoch). The sync hash requires
@@ -551,8 +553,6 @@ fn test_state_sync_miss_chunks_multiple() {
 // while picking up shards 2 and 3 at different epochs. We verify the extra node's head
 // advances, since chain progression alone wouldn't catch a silent state sync failure on it.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_untrack_then_track() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -588,14 +588,14 @@ fn test_state_sync_untrack_then_track() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &validators);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Drop the block at the sync hash height, creating a fork. The block producer for this
 // height creates the block but it gets skipped on the canonical chain. This variant tests
 // that the fork-producing node can still provide valid state to others.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_from_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -616,14 +616,14 @@ fn test_state_sync_from_fork() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Same fork scenario with 6 validators (vs 5 in from_fork) so a different node produces
 // the skipped block. That node must sync FROM the majority that have a different finalized
 // sync hash — the reverse direction of from_fork.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_to_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -644,14 +644,14 @@ fn test_state_sync_to_fork() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Skip a block ONE AFTER the sync hash (delta=+1). The sync hash block is finalized
 // normally, but the next block is missing — finality jumps over it. Tests that sync hash
 // detection doesn't rely on seeing the sync hash as a final block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_after_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -672,13 +672,13 @@ fn test_state_sync_fork_after_sync() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Skip a block ONE BEFORE the sync hash (delta=-1). The fork is right before the state
 // snapshot point, testing that sync hash selection handles a gap in its predecessor.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_before_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -699,6 +699,8 @@ fn test_state_sync_fork_before_sync() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
@@ -749,8 +751,6 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 // throttled), then one more (should be throttled), waits for the rate limit to reset, then
 // sends one more (shouldn't be throttled).
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_request() {
     init_test_logger();
     let mut env = TestLoopBuilder::new()
@@ -760,13 +760,13 @@ fn test_state_request() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
     spam_state_sync_header_reqs(&mut env);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
 // upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_protocol_upgrade() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -785,4 +785,6 @@ fn test_state_sync_protocol_upgrade() {
     let version = env.node(0).protocol_version_at_head();
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
