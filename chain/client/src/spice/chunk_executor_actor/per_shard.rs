@@ -982,10 +982,11 @@ pub(crate) fn is_catching_up(
 /// Whether this node can still apply, in `to_shard`, the receipts that the block `source_hash` at
 /// `source_height` sends it, given the final execution head.
 ///
-/// Above the head it can. At or below it, the head means that the block applying the receipts was
-/// applied for every shard this node tracks in that block's epoch. A shard the node applies there
-/// without tracking it, to have it next epoch, is not waited on by the head: one being caught up,
-/// or one kept from the epoch before. Its receipts stay needed until the head leaves that epoch.
+/// Above the head it can, and from the head's own block too: the block applying them is above the
+/// head. Below it, the head means that block was applied for every shard this node tracks in that
+/// block's epoch. A shard the node applies there without tracking it, to have it next epoch, is
+/// not waited on by the head: one being caught up, or one kept from the epoch before. Its receipts
+/// stay needed until the head leaves that epoch.
 pub(crate) fn may_still_apply_receipts(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
@@ -994,18 +995,19 @@ pub(crate) fn may_still_apply_receipts(
     source_height: BlockHeight,
     to_shard: ShardId,
 ) -> bool {
-    if source_height > final_execution_head.height {
+    if source_height > final_execution_head.height
+        || source_hash == &final_execution_head.last_block_hash
+    {
         return true;
     }
     if shard_tracker.cares_about_shard(source_hash, to_shard) {
         return false;
     }
     // Below the head, the block applying the receipts is at or below it as well, so an epoch other
-    // than the head's is an earlier one. At the head, that block can be the next epoch's first.
-    source_height == final_execution_head.height
-        || epoch_manager
-            .get_epoch_id_from_prev_block(source_hash)
-            .is_ok_and(|epoch_id| epoch_id == final_execution_head.epoch_id)
+    // than the head's is an earlier one.
+    epoch_manager
+        .get_epoch_id_from_prev_block(source_hash)
+        .is_ok_and(|epoch_id| epoch_id == final_execution_head.epoch_id)
 }
 
 #[cfg(test)]
