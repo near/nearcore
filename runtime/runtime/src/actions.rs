@@ -919,6 +919,7 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use crate::tests::set_config;
     use crate::universal_account_id::action_universal_state_init;
     use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
@@ -1389,7 +1390,7 @@ mod tests {
             Arc::make_mut(&mut cfg.fees).signature_verification_costs[SignatureKind::Ed25519] =
                 ParameterCost::new(Gas::from_gas(0), verify_compute);
             Arc::make_mut(&mut cfg.wasm_config).fix_ml_dsa_cost_charging = fix_enabled;
-            apply_state.config = Arc::new(cfg);
+            set_config(&mut apply_state, Arc::new(cfg));
             let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
             let mut result = ActionResult::default();
             apply_delegate_action(
