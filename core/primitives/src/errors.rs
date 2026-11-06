@@ -172,6 +172,12 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String) = 4,
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String) = 5,
+    /// A read would record more of the trie than the recording budget set on it allows.
+    /// See `Trie::set_recording_budget`.
+    RecordingBudgetExceeded {
+        /// The budget, in bytes of recorded storage proof.
+        limit: u64,
+    } = 6,
 }
 
 impl std::fmt::Display for StorageError {

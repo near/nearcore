@@ -1,7 +1,7 @@
 use super::mem::ArenaMemory;
 use super::mem::node::MemTrieNodeView;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
-use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
+use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize, StorageError};
 use ahash::RandomState as AHashRandomState;
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
@@ -30,6 +30,12 @@ pub struct TrieRecorder {
     ///
     /// This may get set to u64::MAX to effectively impose no useful limit.
     proof_size_limit: u64,
+    /// While a recording budget is set, the `upper_bound_size` past which recording fails;
+    /// `usize::MAX` otherwise.
+    budget_end: AtomicUsize,
+    /// The recording budget that is set, in bytes; zero if there is none. Only reported in the
+    /// error.
+    budget_limit: AtomicUsize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: dashmap::DashSet<AccountId, AHashRandomState>,
 }
@@ -83,6 +89,8 @@ impl TrieRecorder {
                 256,
             ),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
+            budget_end: AtomicUsize::new(usize::MAX),
+            budget_limit: AtomicUsize::new(0),
             size: Default::default(),
             upper_bound_size: Default::default(),
             removal_counter: Default::default(),
@@ -138,6 +146,49 @@ impl TrieRecorder {
         // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
         // this if there was an overflow.
         self.removal_counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Caps what may be recorded from now on at `limit` more bytes, counted as the recorded upper
+    /// bound. See `Trie::set_recording_budget`.
+    pub fn set_budget(&self, limit: usize) {
+        let end = self.upper_bound_size.load(Ordering::Acquire).saturating_add(limit);
+        self.budget_limit.store(limit, Ordering::Release);
+        self.budget_end.store(end, Ordering::Release);
+    }
+
+    pub fn clear_budget(&self) {
+        self.budget_end.store(usize::MAX, Ordering::Release);
+        self.budget_limit.store(0, Ordering::Release);
+    }
+
+    /// Fails if what was recorded since the budget was set is past it.
+    pub fn check_budget(&self) -> Result<(), StorageError> {
+        self.check_budget_with(0)
+    }
+
+    /// Fails if recording the value with `hash`, of `len` bytes, would pass the budget. Checked
+    /// before the value is fetched, so that a value past the budget never enters the proof. A
+    /// value that is already recorded adds nothing, so it always fits.
+    pub fn check_value_fits(&self, hash: &CryptoHash, len: usize) -> Result<(), StorageError> {
+        if self.budget_end.load(Ordering::Acquire) == usize::MAX || self.recorded.contains_key(hash)
+        {
+            return Ok(());
+        }
+        self.check_budget_with(len)
+    }
+
+    fn check_budget_with(&self, len: usize) -> Result<(), StorageError> {
+        let budget_end = self.budget_end.load(Ordering::Acquire);
+        if budget_end == usize::MAX {
+            return Ok(());
+        }
+        let size = self.upper_bound_size.load(Ordering::Acquire).saturating_add(len);
+        if size > budget_end {
+            let limit = self.budget_limit.load(Ordering::Acquire);
+            let limit = u64::try_from(limit).unwrap_or(u64::MAX);
+            return Err(StorageError::RecordingBudgetExceeded { limit });
+        }
+        Ok(())
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
@@ -372,8 +423,9 @@ mod trie_recording_tests {
     };
     use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::trie::{AccessOptions, AccessTracker, TrieNodesCount};
-    use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
+    use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, StorageError, Store, Trie};
     use borsh::BorshDeserialize;
+    use itertools::Itertools;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
@@ -754,6 +806,327 @@ mod trie_recording_tests {
                 assert!(MEMTRIE_NUM_LOOKUPS.get() > memtrie_lookup_counts_before);
             }
         }
+    }
+
+    /// The storage a trie reads from, while recording.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Storage {
+        Disk,
+        FlatStorage,
+        Memtrie,
+    }
+
+    const ALL_STORAGES: [Storage; 3] = [Storage::Disk, Storage::FlatStorage, Storage::Memtrie];
+
+    /// A trie with many keys of small values, which memtrie and flat storage inline, and two
+    /// keys of large values: `INLINED_KEY` is still inlined, `LARGE_KEY` is not.
+    struct BudgetTrie {
+        store: Store,
+        state_root: StateRoot,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+    }
+
+    const INLINED_KEY: &[u8] = b"inlined";
+    const LARGE_KEY: &[u8] = b"large";
+
+    impl BudgetTrie {
+        fn new() -> Self {
+            let shard_uid = ShardUId::single_shard();
+            let tries = TestTriesBuilder::new().with_flat_storage(true).build();
+            let mut data: BTreeMap<Vec<u8>, Vec<u8>> =
+                (0..200u8).map(|i| (format!("key{i:03}").into_bytes(), vec![i; 100])).collect();
+            data.insert(INLINED_KEY.to_vec(), vec![1; 3000]);
+            data.insert(LARGE_KEY.to_vec(), vec![2; 5000]);
+            let changes =
+                data.iter().map(|(key, value)| (key.clone(), Some(value.clone()))).collect_vec();
+            let state_root =
+                test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
+            test_populate_flat_storage(
+                &tries,
+                shard_uid,
+                &CryptoHash::default(),
+                &CryptoHash::default(),
+                &changes,
+            );
+            // ChunkExtra is needed for in-memory trie loading code to query state roots.
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
+            let mut update = tries.store_update();
+            update.store_update().set_ser(
+                DBCol::ChunkExtra,
+                &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
+                &chunk_extra,
+            );
+            update.commit();
+            Self { store: tries.store().store(), state_root, data }
+        }
+
+        /// A trie that records its reads, from `storage`.
+        fn recording_trie(&self, storage: Storage) -> Trie {
+            let shard_uid = ShardUId::single_shard();
+            let use_flat_storage = storage == Storage::FlatStorage;
+            let tries = TestTriesBuilder::new()
+                .with_store(self.store.clone())
+                .with_flat_storage(use_flat_storage)
+                .build();
+            if storage == Storage::Memtrie {
+                tries.load_memtrie(&shard_uid, None, false).unwrap();
+            }
+            let trie = get_trie_for_shard(&tries, shard_uid, self.state_root, use_flat_storage)
+                .recording_reads_new_recorder();
+            assert_eq!(trie.has_memtries(), storage == Storage::Memtrie);
+            assert_eq!(trie.has_flat_storage_chunk_view(), use_flat_storage);
+            trie
+        }
+
+        /// The keys of the small values, in order.
+        fn small_keys(&self) -> Vec<Vec<u8>> {
+            self.data.keys().filter(|key| key.starts_with(b"key")).cloned().collect()
+        }
+    }
+
+    /// What reading keys under a recording budget came to.
+    #[derive(Debug, PartialEq)]
+    struct BudgetedReads {
+        /// The index of the read that failed, and its error.
+        failure: Option<(usize, StorageError)>,
+        /// What the reads recorded, counted as the recorded upper bound.
+        recorded_size: usize,
+    }
+
+    /// Reads `keys` in order from `trie` under a recording budget of `limit`, until a read fails.
+    /// Checks the values that are read.
+    fn read_with_budget(
+        trie: &Trie,
+        data: &BTreeMap<Vec<u8>, Vec<u8>>,
+        keys: &[Vec<u8>],
+        limit: usize,
+    ) -> BudgetedReads {
+        let start = trie.recorded_storage_size_upper_bound();
+        trie.set_recording_budget(limit);
+        let mut failure = None;
+        for (index, key) in keys.iter().enumerate() {
+            match trie.get(key, AccessOptions::DEFAULT) {
+                Ok(value) => assert_eq!(value.as_ref(), data.get(key)),
+                Err(err) => {
+                    failure = Some((index, err));
+                    break;
+                }
+            }
+        }
+        trie.clear_recording_budget();
+        BudgetedReads { failure, recorded_size: trie.recorded_storage_size_upper_bound() - start }
+    }
+
+    /// Reads under a budget stop where they would pass it: at the trie node that crosses it,
+    /// which stays recorded, or before a value that would. They never pass it by more than one
+    /// node. The stop is the same whether the trie is read from disk, flat storage or memtrie, and
+    /// when it is replayed from the recorded proof.
+    #[test]
+    fn test_recording_budget_stops_at_the_node_past_it() {
+        let budget_trie = BudgetTrie::new();
+        let keys = budget_trie.small_keys();
+        let mut stopped_at_node = false;
+        let mut stopped_before_value = false;
+        for limit in (1500..2500).step_by(10) {
+            let mut runs = vec![];
+            for storage in ALL_STORAGES {
+                let trie = budget_trie.recording_trie(storage);
+                let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
+                let (index, err) =
+                    reads.failure.as_ref().expect("the reads should pass the budget");
+                assert!(*index > 0, "{storage:?}: the first read already passed the budget");
+                assert_eq!(*err, StorageError::RecordingBudgetExceeded { limit: limit as u64 });
+                let proof = trie.recorded_storage().unwrap();
+                // Past the budget by at most one node: no more than the largest thing recorded.
+                let PartialState::TrieValues(nodes) = &proof.nodes;
+                let largest = nodes.iter().map(|node| node.len()).max().unwrap();
+                assert!(reads.recorded_size <= limit + largest, "{storage:?}: {reads:?}");
+                runs.push((storage, reads, proof));
+            }
+            let (_, disk_reads, disk_proof) = &runs[0];
+            for (storage, reads, proof) in &runs[1..] {
+                assert_eq!(reads, disk_reads, "{storage:?} differs from disk, limit {limit}");
+                assert_partial_storage(proof, disk_proof);
+            }
+            if disk_reads.recorded_size > limit {
+                stopped_at_node = true;
+            } else {
+                stopped_before_value = true;
+            }
+
+            // A validator replays the reads from the proof alone, and stops at the same place.
+            for flat_storage_used in [false, true] {
+                let trie = Trie::from_recorded_storage(
+                    disk_proof.clone(),
+                    budget_trie.state_root,
+                    flat_storage_used,
+                )
+                .recording_reads_new_recorder();
+                let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
+                assert_eq!(&reads, disk_reads, "replay, flat storage used: {flat_storage_used}");
+                assert_partial_storage(&trie.recorded_storage().unwrap(), disk_proof);
+            }
+        }
+        assert!(stopped_at_node, "no budget was crossed by a trie node");
+        assert!(stopped_before_value, "no budget stopped a read before its value");
+    }
+
+    /// A budget crossed partway along the path to a key stops the read at the node that crosses
+    /// it, before the rest of the path: here the root, on every storage and in a replay.
+    #[test]
+    fn test_recording_budget_stops_partway_along_a_path() {
+        const LIMIT: usize = 1;
+        let budget_trie = BudgetTrie::new();
+        let keys = [LARGE_KEY.to_vec()];
+        let expected = StorageError::RecordingBudgetExceeded { limit: LIMIT as u64 };
+
+        let mut proofs = vec![];
+        for storage in ALL_STORAGES {
+            let trie = budget_trie.recording_trie(storage);
+            let reads = read_with_budget(&trie, &budget_trie.data, &keys, LIMIT);
+            assert_eq!(reads.failure, Some((0, expected.clone())), "{storage:?}");
+            let proof = trie.recorded_storage().unwrap();
+            let PartialState::TrieValues(nodes) = &proof.nodes;
+            assert_eq!(nodes.len(), 1, "{storage:?}: only the root should be recorded");
+            assert_eq!(hash(&nodes[0]), budget_trie.state_root, "{storage:?}");
+            assert_eq!(reads.recorded_size, nodes[0].len(), "{storage:?}");
+            proofs.push(proof);
+        }
+
+        let trie = Trie::from_recorded_storage(proofs[0].clone(), budget_trie.state_root, false)
+            .recording_reads_new_recorder();
+        let reads = read_with_budget(&trie, &budget_trie.data, &keys, LIMIT);
+        assert_eq!(reads.failure, Some((0, expected)), "replay");
+        assert_partial_storage(&trie.recorded_storage().unwrap(), &proofs[0]);
+    }
+
+    /// A value whose length would pass the budget is not fetched, and stays out of the proof,
+    /// whether the value is separate from its leaf or inlined. The path to it is recorded, so a
+    /// replay from the proof refuses it the same way, without missing a value.
+    #[test]
+    fn test_recording_budget_refuses_value_before_fetch() {
+        let budget_trie = BudgetTrie::new();
+        for key in [INLINED_KEY, LARGE_KEY] {
+            let value = &budget_trie.data[key];
+            // Room for the path to the value, but not for the value.
+            let limit = value.len() - 1;
+            let keys = [key.to_vec()];
+
+            let mut proofs = vec![];
+            for storage in ALL_STORAGES {
+                let trie = budget_trie.recording_trie(storage);
+                let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
+                let expected = StorageError::RecordingBudgetExceeded { limit: limit as u64 };
+                assert_eq!(reads.failure, Some((0, expected)), "{storage:?}");
+                assert!(reads.recorded_size > 0, "{storage:?}: the path should be recorded");
+                assert!(reads.recorded_size <= limit, "{storage:?}: {reads:?}");
+                let proof = trie.recorded_storage().unwrap();
+                let PartialState::TrieValues(nodes) = &proof.nodes;
+                assert!(
+                    nodes.iter().all(|node| hash(node) != hash(value)),
+                    "{storage:?}: the value is in the proof"
+                );
+                proofs.push((storage, reads, proof));
+            }
+            let (_, disk_reads, disk_proof) = &proofs[0];
+            for (storage, reads, proof) in &proofs[1..] {
+                assert_eq!(reads, disk_reads, "{storage:?} differs from disk");
+                assert_partial_storage(proof, disk_proof);
+            }
+
+            let trie =
+                Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root, false)
+                    .recording_reads_new_recorder();
+            let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
+            assert_eq!(&reads, disk_reads, "replay");
+        }
+    }
+
+    /// A value that is already in the proof adds nothing to it, so reading it again fits in any
+    /// budget, even one that has no room for its length. On every storage and in a replay.
+    #[test]
+    fn test_recording_budget_rereads_recorded_value() {
+        let budget_trie = BudgetTrie::new();
+        for key in [INLINED_KEY, LARGE_KEY] {
+            let value = &budget_trie.data[key];
+            // Room for the value once, with its path, but not twice.
+            let limit = 2 * value.len() - 1;
+            let once = [key.to_vec()];
+            let twice = [key.to_vec(), key.to_vec()];
+
+            let mut runs = vec![];
+            for storage in ALL_STORAGES {
+                let trie = budget_trie.recording_trie(storage);
+                let reads = read_with_budget(&trie, &budget_trie.data, &twice, limit);
+                assert_eq!(reads.failure, None, "{storage:?}");
+                assert!(reads.recorded_size > value.len(), "{storage:?}: {reads:?}");
+                assert!(reads.recorded_size <= limit, "{storage:?}: {reads:?}");
+                // The second read recorded nothing more than the first alone does.
+                let trie_once = budget_trie.recording_trie(storage);
+                let reads_once = read_with_budget(&trie_once, &budget_trie.data, &once, limit);
+                assert_eq!(reads.recorded_size, reads_once.recorded_size, "{storage:?}");
+                runs.push((storage, reads, trie.recorded_storage().unwrap()));
+            }
+            let (_, disk_reads, disk_proof) = &runs[0];
+            for (storage, reads, proof) in &runs[1..] {
+                assert_eq!(reads, disk_reads, "{storage:?} differs from disk");
+                assert_partial_storage(proof, disk_proof);
+            }
+
+            // Already in the proof before the budget is set: rereading it needs no room at all.
+            let trie = budget_trie.recording_trie(Storage::Memtrie);
+            trie.get(key, AccessOptions::DEFAULT).unwrap();
+            let reads = read_with_budget(&trie, &budget_trie.data, &once, 1);
+            assert_eq!(reads, BudgetedReads { failure: None, recorded_size: 0 });
+
+            let trie =
+                Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root, false)
+                    .recording_reads_new_recorder();
+            let reads = read_with_budget(&trie, &budget_trie.data, &twice, limit);
+            assert_eq!(&reads, disk_reads, "replay");
+        }
+    }
+
+    /// A budget does nothing on a trie that doesn't record, and nothing once it is cleared.
+    #[test]
+    fn test_recording_budget_without_recorder_and_cleared() {
+        let budget_trie = BudgetTrie::new();
+        let mut keys = budget_trie.small_keys();
+        keys.push(LARGE_KEY.to_vec());
+        let read_all = |trie: &Trie| {
+            for key in &keys {
+                let value = trie.get(key, AccessOptions::DEFAULT).unwrap();
+                assert_eq!(value.as_ref(), budget_trie.data.get(key));
+            }
+        };
+
+        let shard_uid = ShardUId::single_shard();
+        let tries = TestTriesBuilder::new().with_store(budget_trie.store.clone()).build();
+        let trie = tries.get_trie_for_shard(shard_uid, budget_trie.state_root);
+        trie.set_recording_budget(1);
+        read_all(&trie);
+        assert_eq!(trie.check_recording_budget(), Ok(()));
+
+        let trie = budget_trie.recording_trie(Storage::Disk);
+        trie.set_recording_budget(1);
+        trie.clear_recording_budget();
+        read_all(&trie);
+        assert_eq!(trie.check_recording_budget(), Ok(()));
+    }
+
+    /// A removal grows the recorded upper bound without recording a node, so only an explicit
+    /// check finds that it passed the budget.
+    #[test]
+    fn test_recording_budget_counts_removals() {
+        let budget_trie = BudgetTrie::new();
+        let trie = budget_trie.recording_trie(Storage::Disk);
+        trie.set_recording_budget(1000);
+        assert_eq!(trie.check_recording_budget(), Ok(()));
+        trie.recorder.as_ref().unwrap().record_key_removal();
+        assert_eq!(
+            trie.check_recording_budget(),
+            Err(StorageError::RecordingBudgetExceeded { limit: 1000 })
+        );
     }
 
     #[test]
