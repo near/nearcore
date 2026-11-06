@@ -1,0 +1,56 @@
+name: "Setup sccache"
+description: >
+  Authenticate to GCP, install sccache, and wire it up as RUSTC_WRAPPER —
+  with a graceful fallback. If either GCP auth or sccache daemon startup
+  fails (e.g. the GCS backend is unreachable), the job proceeds without a
+  wrapper instead of hard-failing the build at the first `rustc` invocation.
+  Factored out of the repeated inline setup in ci.yml and benchmarks.yml.
+
+runs:
+  using: "composite"
+  steps:
+    - id: gcp-auth
+      name: Authenticate with Google Cloud
+      continue-on-error: true
+      uses: "google-github-actions/auth@v2"
+      with:
+        workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+        service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
+
+    - if: steps.gcp-auth.outcome == 'success'
+      name: Install sccache
+      uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+
+    # Start the daemon eagerly and only wire up RUSTC_WRAPPER if it reports
+    # healthy. Without this, sccache starts lazily on the first
+    # `sccache rustc …` invocation and a startup timeout there (e.g. a flaky
+    # GCS backend) takes down whatever build step happens to be first.
+    #
+    # `timeout-minutes` is used instead of the shell `timeout` binary so this
+    # works uniformly on Linux / macOS / Windows runners (BSD macOS doesn't
+    # ship GNU `timeout`). Keep the "start" and "export" in one step: the
+    # `SCCACHE_GCS_*` triple then lives in exactly one place.
+    - if: steps.gcp-auth.outcome == 'success'
+      id: sccache-start
+      name: Start sccache daemon and enable wrapper
+      continue-on-error: true
+      timeout-minutes: 1
+      shell: bash
+      env:
+        SCCACHE_GCS_BUCKET: nearone-sccache
+        SCCACHE_GCS_RW_MODE: READ_WRITE
+        SCCACHE_GCS_KEY_PREFIX: nearcore/ci
+      run: |
+        sccache --start-server
+        {
+          echo "SCCACHE_GCS_BUCKET=$SCCACHE_GCS_BUCKET"
+          echo "SCCACHE_GCS_RW_MODE=$SCCACHE_GCS_RW_MODE"
+          echo "SCCACHE_GCS_KEY_PREFIX=$SCCACHE_GCS_KEY_PREFIX"
+          echo "RUSTC_WRAPPER=sccache"
+        } >> "$GITHUB_ENV"
+
+    - if: steps.gcp-auth.outcome != 'success' || steps.sccache-start.outcome != 'success'
+      name: "Report: sccache disabled"
+      shell: bash
+      run: |
+        echo "::warning::sccache disabled for this job (gcp-auth=${{ steps.gcp-auth.outcome }}, sccache-start=${{ steps.sccache-start.outcome }}). Build will proceed without caching."
