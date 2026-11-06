@@ -115,6 +115,9 @@ Here is the list of actions and their corresponding fees:
   - the `execution` part of the fee per byte `action_gas_key_byte`, for the trie key and value of the gas key.
     To compute the number of bytes use `receiver_id.len() + action.public_key.trie_id_len() + 2 + AccessKey::min_gas_key_borsh_len()`.
     `AccessKey::min_gas_key_borsh_len()` is the Borsh length of the smallest gas key record.
+  - For an action that a contract creates, the host function uses the encoded key length (1953 bytes for ML-DSA-65)
+    instead of `trie_id_len()` for the `send` part, and also for the `execution` part unless `fix_ml_dsa_cost_charging`
+    is enabled.
 - From protocol version 88 (nearcore 2.14.0), `UniversalStateInit` uses the sum of the following fees:
   - the base fee `action_universal_state_init`
   - the fee per byte of the serialized state init `action_universal_state_init_per_byte`.
@@ -180,7 +183,8 @@ Then each `ActionReceipt` is passed to `Runtime::apply_action_receipt` where gas
 - all actions inside `ActionReceipt` are passed to `Runtime::apply_action`;
 - `ActionResult` with charged base execution fees is created there;
 - if action execution creates new `ActionReceipt`s, their fees are added to the `ActionResult`. For example, when a function call creates a promise, it pays:
-  - `gas_burnt`: the **send** fees for the new `ActionReceipt` and its actions
+  - `gas_burnt`: the **send** fees for the new `ActionReceipt` and its actions, plus the **send** and **exec** fees
+    of one `DataReceipt` for each promise that the new `ActionReceipt` waits on
   - `gas_used`: `gas_burnt` + the **exec** fees for the new `ActionReceipt` and its actions + the gas attached to the function calls in the new `ActionReceipt`
 - all computed `ActionResult`s are merged into one, where all gas values are summed up;
 - unused gas is refunded in `refund_unspent_gas_and_deposits`, after subtracting the gas refund fee, see [Refunds](../Refunds.md).
