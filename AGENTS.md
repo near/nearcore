@@ -19,7 +19,7 @@ formatting preferences before creating PRs.
 
 ## Testing
 
-- To run specific tests, use `cargo test --package {package} --features test_features -- {path::to::test} --exact --show-output`. Always use `--features test_features`. Use `--feature nightly` if needed.
+- To run specific tests, use `cargo test --package {package} --features test_features -- {path::to::test} --exact --show-output`. Always use `--features test_features`. Use `--features nightly` if needed.
 
 ## Formatting
 
@@ -47,3 +47,7 @@ these documents up to date when making changes to the corresponding code.
 
 - Do NOT update the OpenAPI spec unless explicitly asked.
 - When asked, follow the `openapi-spec` recipe in the `Justfile`.
+
+## Protocol Model
+
+- Do NOT edit files under `protocol-model/` in code PRs, even when a change makes a reference there stale. The model describes one release commit (see the header of `protocol-model/README.md`). It is regenerated separately for each release by following `protocol-model/REGENERATION.md`.
