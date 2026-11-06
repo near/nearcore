@@ -41,6 +41,7 @@ impl RuntimeNode {
             epoch_length: genesis.config.epoch_length,
             runtime_config,
             cumulative_subsidized: Balance::ZERO,
+            block_height: 0,
         }));
         let gas_price = genesis.config.min_gas_price;
         RuntimeNode { signer, client, genesis, account_id: account_id.clone(), gas_price }

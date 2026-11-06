@@ -8,7 +8,7 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
-use crate::spice::data_manager::DataId;
+use crate::spice::data_manager::ReceiptProofId;
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
     pre_spice_boundary_genesis, save_and_record_block,
@@ -363,13 +363,13 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
             for receipt_proof in receipt_proofs {
                 actors.iter_mut().for_each(|actor| {
                     if actor.actor.validator_signer.get().is_some() {
-                        let data_id = DataId::receipt_proof(
+                        let id = ReceiptProofId::new(
                             *block_hash,
                             receipt_proof.1.from_shard_id,
                             receipt_proof.1.to_shard_id,
                         );
                         actor.handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-                            data_id,
+                            id,
                             receipt_proof: receipt_proof.clone(),
                         });
                     }
@@ -933,12 +933,11 @@ fn test_a_valid_network_receipt_is_saved() {
     let to_shard_id = tracked_shard(&actors[0], &block);
     let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     let from_shard_id = receipt_proof.1.from_shard_id;
-    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let id = ReceiptProofId::new(*block.hash(), from_shard_id, to_shard_id);
     let store = actors[0].chain.chain_store.store();
     assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 
-    actors[0]
-        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
 
     assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 }
@@ -962,10 +961,9 @@ fn test_an_invalid_network_receipt_is_dropped() {
         Balance::from_near(1),
     ));
     let from_shard_id = receipt_proof.1.from_shard_id;
-    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let id = ReceiptProofId::new(*block.hash(), from_shard_id, to_shard_id);
 
-    actors[0]
-        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
 
     let store = actors[0].chain.chain_store.store();
     assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
@@ -991,11 +989,10 @@ fn test_receipt_arriving_before_its_executor_exists_is_buffered_until_execution_
     let to_shard_id = tracked_shard(&actors[0], &block);
     let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     let from_shard_id = receipt_proof.1.from_shard_id;
-    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let id = ReceiptProofId::new(*block.hash(), from_shard_id, to_shard_id);
     let store = actors[0].chain.chain_store.store();
 
-    actors[0]
-        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
 
     // Buffered, not dropped: the source block's execution results are not in yet.
     assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
@@ -1028,10 +1025,9 @@ fn test_a_receipt_for_an_untracked_shard_is_dropped() {
     let to_shard_id = untracked_shard(&actors[0], &block);
     let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     let from_shard_id = receipt_proof.1.from_shard_id;
-    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let id = ReceiptProofId::new(*block.hash(), from_shard_id, to_shard_id);
 
-    actors[0]
-        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
 
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 }

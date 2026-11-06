@@ -13,13 +13,13 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::{
     Action, EccTransaction, NonceMode, SignedTransaction, Transaction, TransactionEnvelope,
-    ValidatedTransaction,
+    ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
+    StorageError, TrieAccess, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -116,6 +116,29 @@ pub fn validate_transaction(
         return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
+}
+
+/// Like [`validate_transaction`], but for a transaction of either kind, and it hands back what it
+/// validated. Unlike `ValidatedTransactionEnvelope::new`, it validates the actions of a signed
+/// transaction too, so this is the one to use for a transaction that just arrived.
+#[allow(clippy::result_large_err)]
+pub fn validate_envelope(
+    config: &RuntimeConfig,
+    envelope: TransactionEnvelope,
+    current_protocol_version: ProtocolVersion,
+) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)> {
+    match envelope {
+        TransactionEnvelope::Signed(signed_tx) => {
+            validate_transaction(config, signed_tx, current_protocol_version)
+                .map(ValidatedTransactionEnvelope::Signed)
+                .map_err(|(err, signed_tx)| (err, signed_tx.into()))
+        }
+        TransactionEnvelope::Unsigned(ecc) => {
+            ValidatedEcc::new(config, ecc, current_protocol_version)
+                .map(ValidatedTransactionEnvelope::Unsigned)
+                .map_err(|(err, ecc)| (err, ecc.into()))
+        }
+    }
 }
 
 /// Like [`validate_transaction`], but for a transaction of either kind.
@@ -330,6 +353,16 @@ pub fn get_signer_and_authorization(
             }))
         }
     }
+}
+
+/// Whether the account exists and holds a contract, which an ECC to it needs. An ECC to any
+/// other account has nothing to run, so nobody should spend resources on it.
+// TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
+pub fn account_holds_contract(
+    state_update: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<bool, StorageError> {
+    Ok(get_account(state_update, account_id)?.is_some_and(|account| account.contract().is_some()))
 }
 
 /// Whether this transaction is a self-signed state init that may proceed without
@@ -601,7 +634,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     // Strict regardless of what the transaction asked for, so that exactly one
     // nonce is ever admissible. Monotonic would let the signer pick any value
     // above the floor, and the keys the state init installs start at
-    // `initial_nonce_value(execution_height)`, which can sit *below* such a
+    // `initial_nonce_value(execution_height, ..)`, which can sit *below* such a
     // choice: the same signed bytes would then replay through the ordinary path
     // once the account is initialized. Forcing Strict also lets a V0
     // transaction bootstrap, since V0 cannot express a nonce mode at all.
@@ -1075,7 +1108,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -1083,9 +1115,11 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -1153,7 +1187,7 @@ mod tests {
             signer,
             tries.new_trie_update(ShardUId::single_shard(), root),
             Balance::from_yoctonear(100),
-            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT),
+            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT, PROTOCOL_VERSION),
         )
     }
 
@@ -2564,7 +2598,7 @@ mod tests {
     fn test_bootstrap_nonce_floor_is_account_scoped() {
         let config = RuntimeConfig::test();
         let gas_price = Balance::from_yoctonear(5000);
-        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // Stands in for `initial_nonce_value(creation_height, ..)`; only its relation
         // to the transaction nonce matters, since no block height is passed.
         const BOOTSTRAP_NONCE: Nonce = 1_000;
 

@@ -299,6 +299,19 @@ pub fn create_receipt_id_from_transaction(
     create_hash_index(tx_hash, block_height, 0)
 }
 
+/// Creates the id of the outcome of an external contract call, based on the call's hash and the
+/// height of the block it is included in. The same call included in two blocks gets two ids.
+///
+/// Built like a transaction's receipt id but without the receipt index, so the input is shorter
+/// than that of any id from `create_hash_index` and the two can't collide.
+pub fn create_ecc_outcome_id(ecc_hash: &CryptoHash, block_height: BlockHeight) -> CryptoHash {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<BlockHeight>();
+    let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
+    bytes.extend_from_slice(ecc_hash.as_ref());
+    bytes.extend_from_slice(block_height.to_le_bytes().as_ref());
+    hash(&bytes)
+}
+
 /// Creates a new Receipt ID based on original receipt id.
 pub fn create_receipt_id_from_receipt_id(
     receipt_id: &CryptoHash,
@@ -534,6 +547,16 @@ pub fn get_block_metadata(
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
+
+    #[test]
+    fn test_ecc_outcome_id() {
+        let ecc_hash = hash(b"ecc");
+        let id = create_ecc_outcome_id(&ecc_hash, 7);
+        assert_ne!(id, ecc_hash);
+        assert_ne!(id, create_receipt_id_from_transaction(&ecc_hash, 7));
+        assert_ne!(id, create_ecc_outcome_id(&ecc_hash, 8));
+        assert_ne!(id, create_ecc_outcome_id(&hash(b"other"), 7));
+    }
 
     #[test]
     fn test_derive_near_implicit_account_id() {

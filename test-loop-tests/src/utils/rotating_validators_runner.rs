@@ -147,7 +147,7 @@ impl RotatingValidatorsRunner {
                 // In case some nodes are misbehaving we are sending transaction to each one.
                 for tx_processor_sender in &tx_processor_senders {
                     let process_tx_request = ProcessTxRequest {
-                        transaction: tx.clone(),
+                        transaction: tx.clone().into(),
                         is_forwarded: false,
                         check_only: false,
                     };

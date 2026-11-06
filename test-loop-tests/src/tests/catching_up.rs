@@ -189,7 +189,7 @@ fn test_catchup_random_single_part_sync_common(
             );
             for node in &env.node_datas {
                 node.rpc_handler_sender.send(ProcessTxRequest {
-                    transaction: tx.clone(),
+                    transaction: tx.clone().into(),
                     is_forwarded: false,
                     check_only: false,
                 });

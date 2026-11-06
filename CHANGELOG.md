@@ -4,6 +4,7 @@
 
 ### Protocol Changes
 
+* A new access key starts at nonce `h * 1e6 - 1`, where `h` is the height of the block that creates it, instead of `(h - 1) * 1e6`. This applies to keys added with `AddKey`, gas key nonces, NEAR implicit account keys and the universal account bootstrap nonce. A transaction or delegate action executed at or before the creation height is not valid for the new key, so a transaction that deletes and re-adds its own key cannot execute again with the same hash. Clients that read the key nonce and add 1 are not affected; clients that compute the nonce from the creation height must use the new value.
 * A `FunctionCall` to an account whose contract is a global contract that was never deployed on the chain now fails with `CodeDoesNotExist`, the same error as calling an account with no contract, on chunk producers and chunk validators alike. Only ETH implicit (`0x`) accounts can reach this state: they are created with a hardcoded wallet contract hash and no existence check, so on a chain whose wallet contract has not been deployed the first such call stalled the shard (the producer's apply job panicked in builds with debug assertions, and chunk validators rejected the state witness with `MissingTrieValue`). When the code is missing the runtime now looks up the global contract key, so the proof of absence is part of the state witness and validators reach the same outcome. Behavior is unchanged whenever the contract exists.
 * Limit the number of allowed globals per WASM contract to 65,536. [#16422](https://github.com/near/nearcore/pull/16422)
 * Fixed a bandwidth request over-reservation for shards that were not split in the most recent resharding. Such shards requested roughly double the bandwidth they needed, and the scheduler reserved sender bandwidth for receipts that did not exist. ([#16432](https://github.com/near/nearcore/pull/16432))
@@ -19,6 +20,7 @@
 
 * Added the opt-in `EXPERIMENTAL_indexer_block` RPC to fetch indexer messages by block hash. Enable it with `rpc.enable_indexer_rpc`; `rpc.indexer_max_concurrent_requests` controls request concurrency.
 * Added an experimental `enable_compiler_daemon` node setting for compiling Wasmtime contracts in isolated, memory-limited subprocesses. It is disabled by default. On Linux, enabling it requires Landlock support and causes startup to fail if the sandbox cannot be activated. ([#16067](https://github.com/near/nearcore/pull/16067))
+* View queries on a funded but uninitialized universal (`0u`) account now fail with the new `UNINITIALIZED_ACCOUNT` error. This covers `call_function`, `view_code`, `view_state`, `view_access_key`, `view_access_key_list` and `view_gas_key_nonces`, which used to answer as if the account had no contract, keys or data. `view_account` is unchanged and still reports `state: "uninitialized"`.
 
 ## [2.14.0]
 

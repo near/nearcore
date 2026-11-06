@@ -98,6 +98,16 @@ pub enum ProtocolFeature {
     /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
     /// accepts it there and the header is handled like `BlockHeaderV6`.
     RejectBlockHeaderV7BeforeSpice,
+    /// A new access key, gas key nonce, NEAR implicit account key or universal account bootstrap
+    /// nonce starts at `h * 1e6 - 1` instead of `(h - 1) * 1e6`, where `h` is the creation height. A transaction executed at `h` that deletes and re-adds
+    /// its own key can then not run again with the same hash. See `initial_nonce_value` in
+    /// `near-runtime`.
+    RaiseInitialAccessKeyNonce,
+    /// Track protocol-level contract warmness and cold compilation bytes,
+    /// limiting how many cold contract bytes can be compiled per chunk.
+    /// (not fully implemented, yet. only stabilize when it is fully implemented,
+    /// including payment for new state)
+    ContractCompilationStatus,
 }
 
 impl ProtocolFeature {
@@ -122,6 +132,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
             ProtocolFeature::FixContractLoadingCost => 89,
+            ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
 
             // Nightly features:
@@ -131,6 +142,7 @@ impl ProtocolFeature {
             ProtocolFeature::ExternalContractCalls => 150,
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
+            ProtocolFeature::ContractCompilationStatus => 158,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -178,7 +190,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 158;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

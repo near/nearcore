@@ -70,7 +70,7 @@ fn submit_transactions(
         *nonce_counter += 1;
 
         node_datas[0].rpc_handler_sender.send(ProcessTxRequest {
-            transaction: tx,
+            transaction: tx.into(),
             is_forwarded: false,
             check_only: false,
         });

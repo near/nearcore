@@ -45,7 +45,7 @@ pub(crate) fn action_universal_state_init(
         None => maybe_account.insert(Account::new_uninitialized(
             Balance::ZERO,
             storage_usage_config.num_bytes_account,
-            initial_nonce_value(apply_state.block_height),
+            initial_nonce_value(apply_state.block_height, apply_state.current_protocol_version),
         )),
     };
 
@@ -86,10 +86,13 @@ pub(crate) fn action_universal_state_init(
     };
     // Installed keys must start above the nonce the bootstrap consumed, or those
     // same bytes replay through the access-key path. It's practically impossible
-    // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
+    // for `consumed_nonce` to be bigger than `initial_nonce_value`,
     // but let's keep the check for the sake of complete safety.
     let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
-    let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
+    let access_key_nonce = max(
+        initial_nonce_value(apply_state.block_height, apply_state.current_protocol_version),
+        consumed_nonce,
+    );
     account.initialize().or_inconsistent_state(account_id)?;
     install_universal_account(
         state_update,

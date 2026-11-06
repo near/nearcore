@@ -20,7 +20,7 @@ use near_client::ChunkValidationActor;
 use near_client::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use near_client::spice::data_manager::DataId;
+use near_client::spice::data_manager::ReceiptProofId;
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -897,13 +897,13 @@ impl TestEnv {
                     if id == executor_id {
                         continue;
                     }
-                    let data_id = DataId::receipt_proof(
+                    let id = ReceiptProofId::new(
                         block_hash,
                         receipt_proof.1.from_shard_id,
                         receipt_proof.1.to_shard_id,
                     );
                     executor.handle_incoming_receipts(ExecutorIncomingUnverifiedReceipts {
-                        data_id,
+                        id,
                         receipt_proof: receipt_proof.clone(),
                     })
                 }

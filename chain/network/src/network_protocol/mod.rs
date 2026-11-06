@@ -60,7 +60,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -178,6 +178,16 @@ pub(crate) fn to_unix_nanos(t: time::Utc) -> u64 {
 /// Converts nanoseconds since the unix epoch to UTC time, see `to_unix_nanos`.
 pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
     time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
+}
+
+/// Converts `t` to nanoseconds since the unix epoch. Saturates before 1677 and after 2262.
+pub(crate) fn to_unix_nanos_i64(t: time::Utc) -> i64 {
+    t.unix_timestamp_nanos().clamp(i64::MIN.into(), i64::MAX.into()) as i64
+}
+
+/// Converts nanoseconds since the unix epoch to UTC time.
+pub(crate) fn from_unix_nanos_i64(nanos: i64) -> time::Utc {
+    time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("i64 nanoseconds are in range")
 }
 
 /// Limit on the size of the serialized AccountData message.
@@ -861,7 +871,7 @@ impl T1MessageBody {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum T2MessageBody {
-    ForwardTx(SignedTransaction) = 0,
+    ForwardTx(TransactionEnvelope) = 0,
     TxStatusRequest(AccountId, CryptoHash) = 1,
     TxStatusResponse(Box<FinalExecutionOutcomeView>) = 2,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 3,
@@ -944,7 +954,7 @@ impl T2MessageBody {
 #[repr(u8)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval) = 0,
-    ForwardTx(SignedTransaction) = 1,
+    ForwardTx(TransactionEnvelope) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
@@ -1208,9 +1218,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// Legacy routed message carried in the protobuf `routed` field by nodes released before
-/// `routed_v3` was sent. It is only used to deserialize those messages and convert them to V3;
-/// it is deliberately not a variant of `RoutedMessage`, so it cannot be received over borsh.
+/// Routed message as encoded in the protobuf `routed` field, the only wire format for routed
+/// messages. It is deliberately not a variant of `RoutedMessage`, so it cannot be received over
+/// borsh.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1230,7 +1240,6 @@ pub struct RoutedMessageV1 {
     pub body: RoutedMessageBody,
 }
 
-/// V3 message will remove the signature field for T1.
 /// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
 /// All other fields are the same as in previous versions.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
@@ -1245,9 +1254,9 @@ pub struct RoutedMessageV3 {
     pub ttl: u8,
     /// Message
     pub body: TieredMessageBody,
-    /// Signature only for T2 messages.
-    pub signature: Option<Signature>,
-    /// The time the Routed message was created by `author`.
+    /// Signature from `author` over `target`, `author` and `body`.
+    pub signature: Signature,
+    /// The time the Routed message was created by `author`, in nanoseconds since the unix epoch.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
@@ -1265,9 +1274,7 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.as_ref().is_some_and(|signature| {
-            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
-        })
+        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1316,9 +1323,9 @@ impl RoutedMessage {
         }
     }
 
-    pub fn signature(&self) -> Option<&Signature> {
+    pub fn signature(&self) -> &Signature {
         match self {
-            RoutedMessage::V3(msg) => msg.signature.as_ref(),
+            RoutedMessage::V3(msg) => &msg.signature,
         }
     }
 
@@ -1592,14 +1599,14 @@ impl RawRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let body = RoutedMessageBody::from(self.body.clone());
         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = Some(node_key.sign(hash.as_ref()));
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
             signature,
             ttl: routed_message_ttl,
             body: self.body,
-            created_at: now.map(|t| t.unix_timestamp()),
+            created_at: now.map(to_unix_nanos_i64),
             num_hops: 0,
         })
     }

@@ -80,7 +80,7 @@ enum PeerMessage {
 }
 ```
 
-This is the Rust enum that nearcore 2.14.0 uses in memory. `Arc` and `Box` do not change the encoding. On the wire, each variant is sent in its own field of the protobuf `PeerMessage`, and a message sets only one of these fields. For example, `Routed` is sent in the `routed` field. Its `borsh` field holds the Borsh encoding of the [`RoutedMessageV1`](#routedmessage) structure below. nearcore also accepts a routed message in the `routed_v3` field, but it does not send one. A received `update_nonce_response` field is handled as a `SyncRoutingTable` message with one edge. nearcore does not send this field.
+This is the Rust enum that nearcore 2.14.0 uses in memory. `Arc` and `Box` do not change the encoding. On the wire, each variant is sent in its own field of the protobuf `PeerMessage`, and a message sets only one of these fields. For example, `Routed` is sent in the `routed` field. Its `borsh` field holds the Borsh encoding of the [`RoutedMessageV1`](#routedmessage) structure below. A received `update_nonce_response` field is handled as a `SyncRoutingTable` message with one edge. nearcore does not send this field.
 
 `RequestUpdateNonce` carries a `PartialEdgeInfo`, which is the [EdgeInfo](#edgeinfo) structure below. `PeersRequest` has the optional limits `max_peers` and `max_direct_peers`. `PeersResponse` has two lists of `PeerInfo`: `peers` and `direct_peers`. `Disconnect` has a `remove_from_connection_store` flag. Challenges are disabled, and nodes ignore a `Challenge` message.
 
@@ -162,7 +162,7 @@ struct RoutedMessageV1 {
 #[repr(u8)]
 enum RoutedMessageBody {
     BlockApproval(Approval) = 0,
-    ForwardTx(SignedTransaction) = 1,
+    ForwardTx(TransactionEnvelope) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,

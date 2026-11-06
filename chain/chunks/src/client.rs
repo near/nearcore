@@ -120,6 +120,18 @@ impl ShardedTransactionPool {
         self.pool_for_shard(shard_uid).reintroduce_transactions(validated_txs)
     }
 
+    /// Puts back what the preparation of a chunk took out of the pool. Returns the number of
+    /// prepared transactions that were added or are already present in the pool. See
+    /// `TransactionPool::reintroduce_prepared`.
+    pub fn reintroduce_prepared(
+        &mut self,
+        shard_uid: ShardUId,
+        prepared: impl IntoIterator<Item = impl Into<ValidatedTransactionEnvelope>>,
+        skipped: impl IntoIterator<Item = impl Into<ValidatedTransactionEnvelope>>,
+    ) -> usize {
+        self.pool_for_shard(shard_uid).reintroduce_prepared(prepared, skipped)
+    }
+
     /// Migrate all of the transactions in the pool from the old shard layout to
     /// the new shard layout.
     /// It works by emptying the pools for old shard uids and re-inserting the

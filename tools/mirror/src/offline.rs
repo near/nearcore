@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_chain_primitives::error::EpochErrorResultToChainError;
+use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError};
 use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -218,7 +218,9 @@ impl crate::ChainAccess for ChainAccess {
                 },
             ) {
                 Ok(response) => response,
-                Err(near_chain_primitives::error::QueryError::UnknownAccount { .. }) => {
+                Err(
+                    QueryError::UnknownAccount { .. } | QueryError::UninitializedAccount { .. },
+                ) => {
                     return Ok(ret);
                 }
                 Err(e) => return Err(e.into()),

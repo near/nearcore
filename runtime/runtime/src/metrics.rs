@@ -426,6 +426,16 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: LazyLock<HistogramVec> = Laz
     )
     .unwrap()
 });
+pub static CHUNK_COLD_CONTRACT_BYTES: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_cold_contract_bytes",
+        "cold code bytes touched in a chunk",
+        &["shard_id"],
+        Some(buckets_for_chunk_cold_contract_bytes()),
+    )
+    .unwrap()
+});
+
 pub static CHUNK_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size",
@@ -647,6 +657,11 @@ fn buckets_for_recorded_trie_column_size() -> Vec<f64> {
     buckets
 }
 
+/// Buckets from 0 to 16 MiB in 1 MiB steps.
+fn buckets_for_chunk_cold_contract_bytes() -> Vec<f64> {
+    linear_buckets(0., 1024. * 1024., 17).unwrap()
+}
+
 /// Buckets from 0 to 15.2MB
 fn buckets_for_chunk_storage_proof_size() -> Vec<f64> {
     linear_buckets(0., 800_000., 20).unwrap()
@@ -685,6 +700,12 @@ pub struct ApplyMetrics {
 }
 
 impl ApplyMetrics {
+    /// The gas and the compute that the chunk's transactions counted toward the chunk's limits.
+    #[cfg(test)]
+    pub(crate) fn tx_gas_and_compute(&self) -> (u64, u64) {
+        (self.tx_gas, self.tx_compute_usage)
+    }
+
     /// Updates the internal accumulated counters and returns the difference to
     /// the old counters.
     fn update_accumulated(&mut self, gas: u64, compute: u64) -> (u64, u64) {

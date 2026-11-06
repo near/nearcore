@@ -116,9 +116,7 @@ def test_changes_with_new_account_with_access_key():
 
     # Test happy-path
     block_header = nodes[0].get_block(block_hash)['result']['header']
-    prev_block_header = nodes[0].get_block(
-        block_header['prev_hash'])['result']['header']
-    nonce = prev_block_header['height'] * 1000000
+    nonce = block_header['height'] * 1000000 - 1
     expected_response = {
         "block_hash":
             block_hash,

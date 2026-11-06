@@ -314,6 +314,10 @@ pub enum InvalidTxError {
         cost: Balance,
         reason: DepositCostFailureReason,
     } = 20,
+    /// The target of an external contract call has no contract, or no account.
+    ContractNotFound {
+        contract_id: AccountId,
+    } = 21,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -1081,6 +1085,9 @@ impl Display for InvalidTxError {
                         signer_id, cost
                     ),
                 }
+            }
+            InvalidTxError::ContractNotFound { contract_id } => {
+                write!(f, "account {:?} does not hold a contract", contract_id)
             }
         }
     }

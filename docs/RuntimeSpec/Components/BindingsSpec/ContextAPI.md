@@ -25,7 +25,13 @@ Some of the functions below behave differently depending on how the contract exe
   or a balance. External calls are part of the `ExternalContractCalls` protocol feature, which is not yet stable.
   An external call runs the contract method with the reserved name `__nightly_external_call` (the name will change
   when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
-  action to it fails with `ReservedMethodName`.
+  action to it fails with `ReservedMethodName`. For now, an external call that creates a promise or resumes a
+  yielded one is rejected. This limitation will be lifted in future work on this feature.
+
+  A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
+  doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
+  the call sees the height, the timestamp and the epoch of the parent block, both when the producer runs it and when
+  the chunk is applied. An external call can't read the random seed (see [Math API](MathAPI.md)).
 
 ---
 
@@ -174,6 +180,9 @@ block_index() -> u64
 
 Returns the current block height from genesis.
 
+In an external call, returns the height of the chunk's parent block. Heights can be skipped, so this can be more than
+one less than the height of the block the chunk is in.
+
 ---
 
 ```rust
@@ -182,6 +191,8 @@ block_timestamp() -> u64
 
 Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
 
+In an external call, returns the timestamp of the chunk's parent block.
+
 ---
 
 ```rust
@@ -189,6 +200,8 @@ epoch_height() -> u64
 ```
 
 Returns the current epoch height from genesis.
+
+In an external call, returns the epoch height of the chunk's parent block.
 
 ---
 

@@ -51,7 +51,15 @@ for the rest of the actions until `DeleteAccount`. This gives permission by anot
 pub struct CreateAccountAction {}
 ```
 
-If `receiver_id` has length == 64, this account id is considered to be `hex(public_key)`, meaning creation of account only succeeds if followed up with `AddKey(public_key)` action.
+If `receiver_id` is an implicit account ID, the action fails with `OnlyImplicitAccountCreationAllowed`. Implicit
+account IDs are NEAR-implicit IDs (64 lowercase hex characters), `0x` ETH-implicit IDs, `0s` deterministic IDs and,
+from protocol version 88 (nearcore 2.14.0), `0u` universal IDs. These accounts are created in other ways:
+
+- A NEAR-implicit, ETH-implicit or deterministic account is created by a `Transfer` to its ID, when the `Transfer` is
+  the only action of a receipt that is not a refund.
+- A deterministic account can also be created by `DeterministicStateInit`.
+- From protocol version 88, a universal account is created by `UniversalStateInit`, or by a `Transfer` that is not a
+  refund. That `Transfer` may be batched with other actions.
 
 **Outcome**:
 
@@ -62,8 +70,10 @@ If `receiver_id` has length == 64, this account id is considered to be `hex(publ
 
 **Execution Error**:
 
-- If the action tries to create a top level account whose length is no greater than 32 characters, and `predecessor_id` is not
-`registrar_account_id`, which is defined by the protocol, the following error will be returned
+- If `predecessor_id` is not `registrar_account_id` (currently `registrar`), and the action tries to create a top level
+account whose ID is shorter than `min_allowed_top_level_account_length` (currently 65), the following error will be
+returned. Account IDs are at most 64 characters long, so only the registrar can create named top level accounts with
+`CreateAccount`.
 
 ```rust
 /// A top-level account ID can only be created by registrar.
@@ -80,6 +90,12 @@ the following error will be returned
 ```rust
 /// A newly created account must be under a namespace of the creator account
 CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
+```
+
+- If `receiver_id` is an implicit account ID, the following error will be returned
+
+```rust
+OnlyImplicitAccountCreationAllowed { account_id: AccountId },
 ```
 
 ## DeployContractAction
@@ -221,7 +237,7 @@ pub struct AddKeyAction {
 
 - Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
 - If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](/DataStructures/AccessKey.md#gas-keys) with a balance of 0.
-  The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `(block_height - 1) * 1_000_000`.
+  The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `block_height * 1_000_000 - 1` (`(block_height - 1) * 1_000_000` before protocol version 89).
   These records add to the storage usage of the account, see [Gas Key Nonces](/DataStructures/AccessKey.md#gas-key-nonces).
 
 ### Errors
@@ -666,6 +682,8 @@ pub enum GlobalContractDeployMode {
 - First, the provided code is made available as global contract on the current shard.
 - The same code propagates globally, shard by shard.
 - Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.
+- The account balance is reduced by `global_contract_storage_amount_per_byte` (currently 0.0001 NEAR) times the size of
+  the code in bytes. These tokens are burnt and are not returned. For a 4 MiB contract, this is about 419 NEAR.
 
 ### Errors
 
@@ -675,7 +693,8 @@ pub enum GlobalContractDeployMode {
 
 **Execution Error**:
 
-- `LackBalanceForState` if the account does not hold enough NEAR to cover the added storage.
+- `LackBalanceForState` if the account balance is less than this cost, or if the balance left after paying it does not
+  cover the account's storage staking.
 
 ## UseGlobalContractAction
 
@@ -723,8 +742,11 @@ pub struct DeterministicStateInitAction {
 **Validation Error**:
 
 - `InvalidDeterministicStateInitReceiver` if the receiver id is not derived from the provided `DeterministicAccountStateInit`
-- `DeterministicStateInitKeyLengthExceeded` if any data key is longer than `max_length_storage_key` (4MiB)
+- `DeterministicStateInitKeyLengthExceeded` if any data key is longer than `max_length_storage_key` (2048 bytes)
 - `DeterministicStateInitValueLengthExceeded` if any data value is longer than `max_length_storage_value` (4MiB)
+- From protocol version 87 (nearcore 2.14.0), `TotalNumberOfStateInitEntriesExceeded` if all state init actions in one
+  receipt together carry more than `max_state_init_entries` (1500) data entries. State init actions inside a delegate
+  action count too. The runtime checks this when the receipt is created.
 
 **Execution Error**:
 

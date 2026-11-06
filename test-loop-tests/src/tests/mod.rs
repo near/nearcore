@@ -20,6 +20,8 @@ mod congestion_control_genesis_bootstrap;
 mod congestion_control_limits;
 mod consensus;
 mod contract_distribution_cross_shard;
+#[cfg(feature = "test_features")]
+mod contract_distribution_security;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
@@ -37,6 +39,7 @@ mod early_kickout_probe;
 mod early_kickout_withheld_block;
 mod early_prepare_transactions;
 mod ecc_reserved_method;
+mod ecc_submission;
 mod eth_implicit_missing_global_contract;
 mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;
