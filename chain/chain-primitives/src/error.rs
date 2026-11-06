@@ -3,9 +3,10 @@ use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::errors::{
     ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError, StorageError,
 };
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId, ShardIndex};
 use near_time::Utc;
 use std::io;
 
@@ -22,6 +23,12 @@ pub enum QueryError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error(
         "Contract code for contract ID {contract_account_id} has never been observed on the node"

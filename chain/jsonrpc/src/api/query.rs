@@ -123,6 +123,9 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownAccount { requested_account_id, block_height, block_hash } => {
                 Self::UnknownAccount { requested_account_id, block_height, block_hash }
             }
+            QueryError::UninitializedAccount { requested_account_id, block_height, block_hash } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
             QueryError::NoContractCode { contract_account_id, block_height, block_hash } => {
                 Self::NoContractCode { contract_account_id, block_height, block_hash }
             }
