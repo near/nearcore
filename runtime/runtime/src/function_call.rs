@@ -1,6 +1,6 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
-use crate::contract_compilation_status::record_contract_compilation;
+use crate::contract_compilation_status::contract_compilation_is_admitted;
 use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
@@ -91,27 +91,34 @@ pub(crate) fn action_function_call(
     let outcome = match preparation {
         ContractPreparation::Ready { contract: code_ext, gas_counter } => {
             let contract_id = code_ext.identifier.clone();
-            let contract =
-                preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
             if ProtocolFeature::ContractCompilationStatus
                 .enabled(apply_state.current_protocol_version)
             {
-                if let Some(code_len) = contract_id.resolve_code_len(
-                    runtime_ext.trie_update,
-                    AccessOptions::DEFAULT,
-                    &epoch_info_provider.chain_id(),
-                    apply_state.current_protocol_version,
-                )? {
-                    record_contract_compilation(
+                // Action-receipt preflight made the admission decision.
+                // Execution only verifies that the contract was admitted or already cached.
+                if contract_id
+                    .resolve_code_len(
                         runtime_ext.trie_update,
-                        apply_state,
-                        contract_id.hash(),
-                        code_len,
-                    )?;
+                        AccessOptions::DEFAULT,
+                        &epoch_info_provider.chain_id(),
+                        apply_state.current_protocol_version,
+                    )?
+                    .is_some()
+                {
+                    assert!(
+                        contract_compilation_is_admitted(
+                            runtime_ext.trie_update,
+                            apply_state,
+                            contract_id.hash(),
+                        )?,
+                        "receipt preflight missed a function call contract"
+                    );
                 }
             }
 
+            let contract =
+                preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             execute_function_call(
                 contract,
                 &contract_id,

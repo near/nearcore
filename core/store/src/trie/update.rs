@@ -12,7 +12,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives_core::code::ContractCode;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod iterator;
 
@@ -31,19 +31,32 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 pub struct TrieUpdate {
     pub trie: Trie,
     contract_storage: ContractStorage,
-    /// Code whose compilation was reached during this chunk, including failed receipts.
-    ///
-    /// Code executed that was already compiled, according to the consensus
-    /// contract compilation status, is excluded.
-    ///
-    /// Unlike deployments, this is not rolled back with receipt state.
-    /// Maps code-hash to code-length.
-    contract_compilations: BTreeMap<CryptoHash, u64>,
+    contract_compilation_tracker: ContractCompilationTracker,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
 
 static_assertions::assert_impl_all!(TrieUpdate: Send, Sync);
+
+#[derive(Default)]
+/// Code admitted during this chunk, including deferred or failed receipts.
+///
+/// Admission itself happens per receipt, pre-flight. This shared chunk-level
+/// tracker carries the remaining budget between receipts and is used for
+/// persisting the compilation status per hash, after all receipts of the chunk
+/// were processed. Unlike deployments, compilation status updates are not
+/// rolled back on failing receipts.
+struct ContractCompilationTracker {
+    compilations: BTreeSet<CryptoHash>,
+    total_bytes: u64,
+    limit_reached: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ContractCompilationAdmission {
+    Admitted,
+    Deferred,
+}
 
 pub enum TrieUpdateValuePtr<'a> {
     Ref(&'a Trie, OptimizedValueRef),
@@ -90,7 +103,7 @@ impl TrieUpdate {
         Self {
             trie,
             contract_storage: ContractStorage::new(trie_storage),
-            contract_compilations: BTreeMap::new(),
+            contract_compilation_tracker: Default::default(),
             committed: Default::default(),
             prospective: Default::default(),
         }
@@ -103,7 +116,7 @@ impl TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
             contract_storage: ContractStorage::new(self.trie.storage.clone()),
-            contract_compilations: BTreeMap::new(),
+            contract_compilation_tracker: Default::default(),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),
         }
@@ -125,14 +138,28 @@ impl TrieUpdate {
         &self.contract_storage
     }
 
-    /// Records a deterministic compilation attempt, not a local cache miss or a
-    /// speculative background preparation. Repeated uses of the same code count once.
-    pub fn record_contract_compilation(&mut self, code_hash: CryptoHash, code_len: u64) {
-        self.contract_compilations.insert(code_hash, code_len);
+    /// Attempts to admit a deterministic compilation, not a local cache miss or
+    /// speculative background preparation. Repeated uses of the same code count
+    /// once for both deduplication and byte accounting.
+    pub fn try_admit_contract_compilation(
+        &mut self,
+        code_hash: CryptoHash,
+        code_len: u64,
+        limit: u64,
+    ) -> ContractCompilationAdmission {
+        self.contract_compilation_tracker.try_admit(code_hash, code_len, limit)
     }
 
-    pub fn take_contract_compilations(&mut self) -> BTreeMap<CryptoHash, u64> {
-        std::mem::take(&mut self.contract_compilations)
+    pub fn is_contract_compilation_admitted(&self, code_hash: &CryptoHash) -> bool {
+        self.contract_compilation_tracker.compilations.contains(code_hash)
+    }
+
+    pub fn contract_compilation_limit_reached(&self) -> bool {
+        self.contract_compilation_tracker.limit_reached
+    }
+
+    pub fn take_contract_compilations(&mut self) -> (BTreeSet<CryptoHash>, u64) {
+        self.contract_compilation_tracker.take()
     }
 
     pub fn get_ref(
@@ -335,6 +362,31 @@ impl TrieAccess for TrieUpdate {
     }
 }
 
+impl ContractCompilationTracker {
+    fn try_admit(
+        &mut self,
+        code_hash: CryptoHash,
+        code_len: u64,
+        limit: u64,
+    ) -> ContractCompilationAdmission {
+        if self.compilations.contains(&code_hash) {
+            return ContractCompilationAdmission::Admitted;
+        }
+        if code_len > limit.saturating_sub(self.total_bytes) {
+            self.limit_reached = true;
+            return ContractCompilationAdmission::Deferred;
+        }
+        self.total_bytes = self.total_bytes.saturating_add(code_len);
+        self.compilations.insert(code_hash);
+        ContractCompilationAdmission::Admitted
+    }
+
+    fn take(&mut self) -> (BTreeSet<CryptoHash>, u64) {
+        let tracker = std::mem::take(self);
+        (tracker.compilations, tracker.total_bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +398,26 @@ mod tests {
 
     fn test_key(key: Vec<u8>) -> TrieKey {
         TrieKey::ContractData { account_id: "alice".parse().unwrap(), key }
+    }
+
+    #[test]
+    fn contract_compilation_tracker_admission_boundary() {
+        let mut tracker = ContractCompilationTracker::default();
+        let first = hash(b"first");
+        let second = hash(b"second");
+
+        assert_eq!(tracker.try_admit(first, 4, 10), ContractCompilationAdmission::Admitted);
+        assert_eq!(tracker.try_admit(first, 4, 10), ContractCompilationAdmission::Admitted);
+        assert_eq!(tracker.try_admit(second, 6, 10), ContractCompilationAdmission::Admitted);
+        assert!(!tracker.limit_reached);
+
+        let third = hash(b"third");
+        assert_eq!(tracker.try_admit(third, 1, 10), ContractCompilationAdmission::Deferred);
+        assert!(tracker.limit_reached);
+        let (compilations, total_bytes) = tracker.take();
+        assert_eq!(compilations, BTreeSet::from([first, second]));
+        assert_eq!(total_bytes, 10);
+        assert!(!tracker.limit_reached);
     }
 
     #[test]

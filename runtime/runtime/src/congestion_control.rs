@@ -767,7 +767,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     pub(crate) fn pop(
         &mut self,
         trie_update: &mut TrieUpdate,
-    ) -> Result<Option<StateStoredReceipt<'_>>, RuntimeError> {
+    ) -> Result<Option<StateStoredReceipt<'static>>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
         loop {
@@ -793,6 +793,27 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             }
         }
         Ok(None)
+    }
+
+    /// Undo the most recent pop when compilation defers the head receipt.
+    ///
+    /// Preserves its original metadata and position, including after resharding
+    /// filtered out receipts preceding it.
+    pub(crate) fn restore_front(
+        &mut self,
+        trie_update: &mut TrieUpdate,
+        receipt: &StateStoredReceipt<'_>,
+    ) -> Result<(), RuntimeError> {
+        self.queue.undo_last_pop(trie_update, receipt)?;
+        self.removed_delayed_gas = self
+            .removed_delayed_gas
+            .checked_sub(receipt.metadata().congestion_gas)
+            .ok_or(IntegerOverflowError)?;
+        self.removed_delayed_bytes = self
+            .removed_delayed_bytes
+            .checked_sub(receipt.metadata().congestion_size)
+            .ok_or(IntegerOverflowError)?;
+        Ok(())
     }
 
     pub(crate) fn peek_iter(
