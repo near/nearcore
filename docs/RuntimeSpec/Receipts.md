@@ -309,6 +309,15 @@ InvalidReceiverId { account_id: String },
 
 error is returned.
 
+- refund receiver is invalid. If the `refund_to` of the receipt is set and is not a valid account id, a
+
+```rust
+/// The `refund_to` of an ActionReceipt is not valid.
+InvalidRefundTo { account_id: String },
+```
+
+error is returned.
+
 - some action is invalid. The errors returned here are the same as the validation errors mentioned in [actions](Actions.md).
 - Whether the account still has enough balance to pay for storage. If, for example, the execution of one function call
 action leads to some receipts that require transfer to be generated as a result, the account may no longer have enough

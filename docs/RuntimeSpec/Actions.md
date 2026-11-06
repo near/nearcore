@@ -42,6 +42,13 @@ For the following actions, `predecessor_id` and `receiver_id` are required to be
 
 If they are not equal, the action fails with `ActorNoPermission`.
 
+All actions except `CreateAccount`, `Transfer`, `DeterministicStateInit` and `UniversalStateInit` fail with
+`AccountDoesNotExist` if the receiver account does not exist, and with `AccountNotInitialized` if the receiver is a
+universal account that was created by a `Transfer` and has no state yet.
+
+A receipt may contain at most `max_deploy_actions_per_receipt` (10) `DeployContract` and `DeployGlobalContract` actions
+in total. A new receipt with more fails validation with `TotalNumberOfDeployActionsExceeded`.
+
 NOTE: if the first action in the action list is `CreateAccount`, `predecessor_id` becomes `receiver_id`
 for the rest of the actions until `DeleteAccount`. This gives permission by another account to act on the newly created account.
 
@@ -69,6 +76,12 @@ from protocol version 88 (nearcore 2.14.0), `0u` universal IDs. These accounts a
 ### Errors
 
 **Execution Error**:
+
+- If the account already exists, the following error will be returned
+
+```rust
+AccountAlreadyExists { account_id: AccountId },
+```
 
 - If `predecessor_id` is not `registrar_account_id` (currently `registrar`), and the action tries to create a top level
 account whose ID is shorter than `min_allowed_top_level_account_length` (currently 65), the following error will be
@@ -159,6 +172,9 @@ pub struct TransferAction {
 
 **Execution Error**:
 
+- If the receiver account does not exist and the `Transfer` can not create it, `AccountDoesNotExist` will be returned.
+  A `Transfer` creates a missing NEAR-implicit, ETH-implicit or deterministic account only if it is the only action of
+  a receipt that is not a refund, and a missing universal account only if the receipt is not a refund.
 - If the deposit amount plus the existing amount on the receiver account exceeds `u128::MAX`,
 a `StorageInconsistentState("Account balance integer overflow")` error will be returned.
 
@@ -657,6 +673,10 @@ DelegateActionInvalidNonce
 DelegateActionNonceTooLarge
 ```
 
+- If the `public_key` is a function call access key, the inner actions must be exactly one `FunctionCall` with zero
+  deposit, to the receiver and one of the methods that the key allows. Otherwise `DelegateActionAccessKeyError` is
+  returned with `RequiresFullAccess`, `DepositWithFunctionCall`, `ReceiverMismatch` or `MethodNameMismatch`.
+
 ## DeployGlobalContractAction
 
 ```rust
@@ -707,6 +727,11 @@ pub struct UseGlobalContractAction {
 }
 ```
 **Outcome**:
+
+- removes the current contract code of the account, and its storage usage
+- sets the account contract to the referenced global contract
+- adds the length of the identifier to the account `storage_usage`: 32 bytes for a code hash, or the length of the
+  account id
 
 ### Errors
 

@@ -95,6 +95,37 @@ An ML-DSA-65 key is stored as a hash of the key (SHA3-256 with a domain tag): `m
 The access key serialized in JSON format.
 
 
+## GasKeyNonce
+
+`type: Unnamed struct`
+
+Record that contains the nonce of one nonce index of a gas key. See [Gas Key Nonces](../DataStructures/AccessKey.md#gas-key-nonces).
+
+### account_id
+
+`type: AccountId`
+
+The account ID of the gas key owner.
+
+### public_key
+
+`type: PublicKeyHandle`
+
+The public key of the gas key, in the same format as for [AccessKey](#accesskey).
+
+### index
+
+`type: u16`
+
+The nonce index.
+
+### nonce
+
+`type: u64`
+
+The nonce for this nonce index.
+
+
 ## PostponedReceipt
 
 `type: Box<Receipt>` [Receipt](../RuntimeSpec/Receipts.md)
