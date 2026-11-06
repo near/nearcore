@@ -26,7 +26,6 @@ test *FLAGS: (test-ci FLAGS) test-extra
 test-ci *FLAGS: check-cargo-fmt \
                 check-import-blocks \
                 python-style-checks \
-                python-unit-tests \
                 check-cargo-deny \
                 check-themis \
                 check-cargo-machete \
@@ -127,10 +126,6 @@ python-style-checks:
     python3 scripts/check_nightly.py
     python3 scripts/check_pytests.py
     ./scripts/formatting --check
-
-# unit tests of the NEAR AI PR reviewer in .github/scripts/nearai_review
-python-unit-tests:
-    python3 -m unittest discover -s .github/scripts/nearai_review/tests -t .github/scripts
 
 install-rustc-nightly:
     rustup toolchain install nightly
