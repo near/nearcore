@@ -1140,8 +1140,6 @@ fn certification_lag(
         .map_or(0, |oldest| block.height().saturating_sub(oldest.height())))
 }
 
-/// Computes the uncertified chunks of `block_hash` from the block bodies since the last block
-/// certified as of it, without its parent's uncertified chunks, and records them.
 /// Records `block`'s uncertified chunks by advancing its parent's, for a block this node never
 /// processed but whose parent's row is already recorded.
 pub(crate) fn record_uncertified_chunks_by_advancing(
@@ -1162,7 +1160,9 @@ pub(crate) fn record_uncertified_chunks_by_advancing(
     Ok(())
 }
 
-pub(crate) fn record_uncertified_chunks_from_bodies(
+/// Computes the uncertified chunks of `block_hash` from the block bodies since the last block
+/// certified as of it, without its parent's uncertified chunks, and records them.
+pub(crate) fn record_uncertified_chunks_by_replaying_certification_window(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
