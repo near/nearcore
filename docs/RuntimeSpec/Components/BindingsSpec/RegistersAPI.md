@@ -42,13 +42,12 @@ read_register(register_id: u64, ptr: u64)
 ```
 
 Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
+If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 
 ###### Panics
 
-- If the content extends outside the memory allocated to the guest returns `MemoryAccessViolation` error message;
+- If the content extends outside the memory allocated to the guest, returns `MemoryAccessViolation` error message;
 - If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
-
-If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 
 ---
 

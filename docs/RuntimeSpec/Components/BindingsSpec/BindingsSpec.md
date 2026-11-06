@@ -9,7 +9,8 @@ Also for all functions in the bindings specification the following is true:
 
 - Method execution could result in `MemoryAccessViolation` error if the method causes host to read a piece of memory
   from the guest but it points outside the guest's memory. The host charges gas for the requested length before it
-  checks bounds, so a large out-of-bounds read can fail with a gas error instead;
+  checks bounds, so a large out-of-bounds read can fail with `GasExceeded`, `GasLimitExceeded` or `IntegerOverflow`
+  instead. Logging functions check the log length limit first and fail with `TotalLogLengthExceeded`;
 - Method execution could result in `InvalidRegisterId` error if the guest causes host to read from a register that is
   not set.
 

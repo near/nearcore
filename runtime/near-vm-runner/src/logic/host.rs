@@ -1,3 +1,8 @@
+//! Host function cost formulas write `input_cost(input_len)` for reading an input of
+//! `input_len` bytes: `read_memory_base + read_memory_byte * input_len` from guest memory, or
+//! `read_register_base + read_register_byte * input_len` from a register (`*_len == u64::MAX`).
+//! For a register input, `input_len` is the register length, not `u64::MAX`.
+
 // cspell:words wycheproof
 // Many host functions take `memory: &mut [u8]` for a uniform signature even
 // when they don't write to memory.
@@ -393,6 +398,7 @@ pub fn finite_wasm_stack_exhausted(_ctx: &mut HostCtx, _memory: &mut [u8]) -> Re
 // #################
 
 /// Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
+/// If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 ///
 /// # Arguments
 ///
@@ -401,10 +407,8 @@ pub fn finite_wasm_stack_exhausted(_ctx: &mut HostCtx, _memory: &mut [u8]) -> Re
 ///
 /// # Errors
 ///
-/// * If the content extends outside the memory allocated to the guest returns `MemoryAccessViolation` error message;
+/// * If the content extends outside the memory allocated to the guest, returns `MemoryAccessViolation` error message;
 /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
-///
-/// If `ptr` is wrong but inside guest memory, the function overwrites that guest memory.
 ///
 /// # Cost
 ///
@@ -1059,9 +1063,8 @@ pub fn used_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base +
-///  write_register_byte * 64 + alt_bn128_g1_multiexp_base +
-///  alt_bn128_g1_multiexp_element * num_elements`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 +
+/// alt_bn128_g1_multiexp_base + alt_bn128_g1_multiexp_element * num_elements`
 ///
 /// The element cost is charged before the elements are checked.
 ///
@@ -1114,8 +1117,8 @@ pub fn alt_bn128_g1_multiexp(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base +
-/// write_register_byte * 64 + alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 +
+/// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
 ///
 /// The element cost is charged before the elements are checked.
 pub fn alt_bn128_g1_sum(
@@ -1169,7 +1172,7 @@ pub fn alt_bn128_g1_sum(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + alt_bn128_pairing_check_base +
+/// `input_cost(input_len) + alt_bn128_pairing_check_base +
 /// alt_bn128_pairing_check_element * num_elements`
 ///
 /// The element cost is charged before the elements are checked.
@@ -1228,12 +1231,12 @@ the points (0, 2) and (0, -2), which are on the curve but not in G1, also return
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 96 + bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 96 + bls12381_p1_sum_base +
+bls12381_p1_sum_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1277,12 +1280,12 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 192 + bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 192 + bls12381_p2_sum_base +
+bls12381_p2_sum_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1325,12 +1328,12 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 96 + bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 96 +
+bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1374,12 +1377,12 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 192 + bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 192 +
+bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1415,12 +1418,12 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 96 * num_elements + bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 96 * num_elements +
+bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1457,11 +1460,11 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 192 * num_elements + bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 192 * num_elements +
+bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1506,11 +1509,10 @@ only when the function returns 0.
 /// If `value_len + value_ptr` points outside the memory the function returns
 /// `MemoryAccessViolation`.
 ///
-/// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
+/// If `input_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
 ///
 /// # Cost
-/// `read_memory_base + read_memory_byte * value_len +
-///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
+/// `input_cost(input_len) + bls12381_pairing_base + bls12381_pairing_element * num_elements`
 ///
 /// The element cost is charged before the elements are checked.
 pub fn bls12381_pairing_check(
@@ -1571,11 +1573,11 @@ the points (0, 2) and (0, -2), which are on the curve but not in G1, also return
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 96 * num_elements + bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 96 * num_elements +
+bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1621,12 +1623,12 @@ and nothing will be written to the register.
 If `value_len + value_ptr` points outside the memory or the registers
 use more memory than the limit the function returns `MemoryAccessViolation`.
 
-If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `input_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
 # Cost
 
-`read_memory_base + read_memory_byte * value_len + write_register_base +
-write_register_byte * 192 * num_elements + bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+`input_cost(input_len) + write_register_base + write_register_byte * 192 * num_elements +
+bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
 The element cost is charged before the elements are checked. The register write is charged
 only when the function returns 0.
@@ -1666,8 +1668,8 @@ pub fn random_seed(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> R
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
-/// sha256_base + sha256_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + sha256_base +
+/// sha256_byte * input_len`
 pub fn sha256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1705,8 +1707,8 @@ pub fn sha256(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
-/// keccak256_base + keccak256_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + keccak256_base +
+/// keccak256_byte * input_len`
 pub fn keccak256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1744,8 +1746,8 @@ pub fn keccak256(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 64 +
-/// keccak512_base + keccak512_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 + keccak512_base +
+/// keccak512_byte * input_len`
 pub fn keccak512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1813,8 +1815,8 @@ fn sha3_generic<D: sha3::Digest>(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 32 +
-/// sha3_256_base + sha3_256_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 32 + sha3_256_base +
+/// sha3_256_byte * input_len`
 pub fn sha3_256(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1842,8 +1844,8 @@ pub fn sha3_256(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 48 +
-/// sha3_384_base + sha3_384_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 48 + sha3_384_base +
+/// sha3_384_byte * input_len`
 pub fn sha3_384(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1871,8 +1873,8 @@ pub fn sha3_384(
 ///
 /// # Cost
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 64 +
-/// sha3_512_base + sha3_512_byte * value_len`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 64 + sha3_512_base +
+/// sha3_512_byte * input_len`
 pub fn sha3_512(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1900,10 +1902,10 @@ pub fn sha3_512(
 ///
 /// # Cost
 ///
-///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
+///  Where `message_blocks` is `(input_len + 9).div_ceil(64)`.
 ///
-/// `read_memory_base + read_memory_byte * value_len + write_register_base + write_register_byte * 20 +
-/// ripemd160_base + ripemd160_block * message_blocks`
+/// `input_cost(input_len) + write_register_base + write_register_byte * 20 + ripemd160_base +
+/// ripemd160_block * message_blocks`
 pub fn ripemd160(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1959,8 +1961,9 @@ pub fn ripemd160(
 ///
 /// # Cost
 ///
-/// `read_memory_base * 2 + read_memory_byte * 96 + write_register_base + write_register_byte * 64 +
-/// ecrecover_base`, with the register write charged only on success.
+/// `input_cost(num_bytes_signature) + input_cost(num_bytes_hash) + ecrecover_base +
+/// write_register_base + write_register_byte * 64`, with the register write charged only on
+/// success.
 pub fn ecrecover(
     ctx: &mut HostCtx,
     memory: &mut [u8],
