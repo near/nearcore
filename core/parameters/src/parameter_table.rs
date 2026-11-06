@@ -1,5 +1,7 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
+use crate::config::{
+    BandwidthSchedulerConfig, CongestionControlConfig, ExternalCallsConfig, WitnessConfig,
+};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
     StorageUsageConfig,
@@ -476,6 +478,15 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
+            external_calls_config: ExternalCallsConfig {
+                max_call_size: params.get(Parameter::MaxExternalCallSize)?,
+                max_call_recorded_size: params.get(Parameter::MaxExternalCallRecordedSize)?,
+                chunk_compute_share: params.get(Parameter::ExternalCallsChunkComputeShare)?,
+                chunk_storage_proof_share: params
+                    .get(Parameter::ExternalCallsChunkStorageProofShare)?,
+                chunk_transactions_size_share: params
+                    .get(Parameter::ExternalCallsChunkTransactionsSizeShare)?,
             },
             bandwidth_scheduler_config: BandwidthSchedulerConfig {
                 max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,

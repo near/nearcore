@@ -3,8 +3,9 @@ use super::parameter_table::InvalidConfigError;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
-use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
+use near_primitives_core::types::{Balance, Compute, Gas, ProtocolVersion};
 use near_primitives_core::version::PROTOCOL_VERSION;
+use num_rational::Rational32;
 use std::sync::Arc;
 
 // Lowered promise yield timeout length used in integration tests.
@@ -30,6 +31,8 @@ pub struct RuntimeConfig {
     pub congestion_control_config: CongestionControlConfig,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfig,
+    /// Limits on external contract calls, per call and per chunk.
+    pub external_calls_config: ExternalCallsConfig,
     /// Configuration specific to BandwidthScheduler.
     pub bandwidth_scheduler_config: BandwidthSchedulerConfig,
 
@@ -65,6 +68,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            external_calls_config: runtime_config.external_calls_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             min_gas_purchase_price: runtime_config.min_gas_purchase_price,
             account_creation_charge: runtime_config.account_creation_charge,
@@ -84,6 +88,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            external_calls_config: runtime_config.external_calls_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             min_gas_purchase_price: Balance::ZERO,
             // The free config disables all gas costs; keep account_creation_charge at
@@ -298,6 +303,57 @@ impl WitnessConfig {
     }
 }
 
+/// Limits on external contract calls, per call and per chunk. The gas limit of a call,
+/// `max_gas_burnt_external`, is in `LimitConfig`, since the VM enforces it.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ExternalCallsConfig {
+    /// Max size of an external contract call, in bytes. A call over it is invalid.
+    pub max_call_size: u64,
+    /// Max storage proof an external call's run may record, in bytes. A run is stopped at the
+    /// trie node that crosses it, and a value that would cross it is not fetched.
+    pub max_call_recorded_size: usize,
+    /// The share of the chunk's compute limit that its external calls may use.
+    pub chunk_compute_share: Rational32,
+    /// The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may
+    /// record, the reads of their contract accounts included.
+    pub chunk_storage_proof_share: Rational32,
+    /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
+    /// A chunk whose external calls take more is invalid.
+    pub chunk_transactions_size_share: Rational32,
+}
+
+impl ExternalCallsConfig {
+    /// The compute that a chunk's external calls may use, out of the chunk's compute limit,
+    /// which is its gas limit.
+    pub fn compute_share(&self, chunk_gas_limit: Gas) -> Compute {
+        share_of(self.chunk_compute_share, chunk_gas_limit.as_gas())
+    }
+
+    /// The storage proof that a chunk's external calls may record, in bytes.
+    pub fn storage_proof_share(&self, witness_config: &WitnessConfig) -> u64 {
+        share_of(self.chunk_storage_proof_share, witness_config.main_storage_proof_size_soft_limit)
+    }
+
+    /// The bytes that a chunk's external calls may take together.
+    pub fn transactions_size_share(&self, witness_config: &WitnessConfig) -> u64 {
+        let limit =
+            u64::try_from(witness_config.combined_transactions_size_limit).unwrap_or(u64::MAX);
+        share_of(self.chunk_transactions_size_share, limit)
+    }
+}
+
+/// `share` of `amount`, rounded down. A share that is not positive is zero, and the result
+/// saturates at `u64::MAX`.
+fn share_of(share: Rational32, amount: u64) -> u64 {
+    let (Ok(numerator), Ok(denominator)) =
+        (u128::try_from(*share.numer()), u128::try_from(*share.denom()))
+    else {
+        return 0;
+    };
+    let share = u128::from(amount) * numerator / denominator;
+    u64::try_from(share).unwrap_or(u64::MAX)
+}
+
 /// Configuration specific to BandwidthScheduler
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BandwidthSchedulerConfig {
@@ -331,7 +387,9 @@ impl BandwidthSchedulerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RuntimeConfigStore;
+    use crate::cost::{ActionCosts, ExtCosts};
+    use crate::{ParameterCost, RuntimeConfigStore};
+    use near_primitives_core::chains::MAINNET;
     use near_primitives_core::version::ProtocolFeature;
 
     // TODO(ecc): remove with #16719, which replaces this limit with other shares
@@ -347,5 +405,100 @@ mod tests {
         // Before ECCs a run burns nothing, so there is nothing to divide by.
         let config = store.get_config(version - 1);
         assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(1000)), 0);
+    }
+
+    #[test]
+    fn test_share_of() {
+        assert_eq!(share_of(Rational32::new(2, 5), 1000), 400);
+        assert_eq!(share_of(Rational32::new(1, 40), 4_194_304), 104_857);
+        assert_eq!(share_of(Rational32::new(0, 1), 1000), 0);
+        assert_eq!(share_of(Rational32::new(-1, 2), 1000), 0);
+        assert_eq!(share_of(Rational32::new(1, 20), u64::MAX), u64::MAX / 20);
+        assert_eq!(share_of(Rational32::new(3, 1), u64::MAX), u64::MAX);
+    }
+
+    /// Each share of a chunk's limits that its external calls get fits five calls that use as much
+    /// of it as a call can, at every protocol version with external calls. Five worst-case calls
+    /// are about as many full runs as a chunk producer makes in its time for external calls.
+    #[test]
+    fn test_external_calls_shares_fit_five_worst_case_calls() {
+        const NUM_CALLS: u64 = 5;
+        // The gas limit of a chunk at mainnet genesis, which the compute limit equals.
+        let chunk_gas_limit = Gas::from_teragas(1000);
+        let store = RuntimeConfigStore::for_chain_id(MAINNET);
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        for version in feature_version..=feature_version.max(PROTOCOL_VERSION) {
+            let config = store.get_config(version);
+            let calls = &config.external_calls_config;
+            let witness = &config.witness_config;
+
+            let compute = worst_case_compute(config);
+            let compute_share = calls.compute_share(chunk_gas_limit);
+            assert!(
+                NUM_CALLS * compute <= compute_share,
+                "{NUM_CALLS} calls of {compute} compute don't fit in {compute_share} at protocol version {version}"
+            );
+
+            // A run stops at the trie node that crosses its cap. The share leaves room for that
+            // node and for each call's reads before the run, which the cap doesn't cover.
+            let recorded = u64::try_from(calls.max_call_recorded_size).unwrap();
+            let storage_proof_share = calls.storage_proof_share(witness);
+            assert!(
+                NUM_CALLS * recorded <= storage_proof_share,
+                "{NUM_CALLS} calls recording {recorded} bytes don't fit in {storage_proof_share} at protocol version {version}"
+            );
+
+            let size = calls.max_call_size;
+            let size_share = calls.transactions_size_share(witness);
+            assert!(
+                NUM_CALLS * size <= size_share,
+                "{NUM_CALLS} calls of {size} bytes don't fit in {size_share} at protocol version {version}"
+            );
+        }
+    }
+
+    /// The most compute an external call can use: its whole gas budget, fees included, spent on
+    /// whichever host operation or fee has the highest compute for its gas.
+    fn worst_case_compute(config: &RuntimeConfig) -> Compute {
+        let ext_costs = &config.wasm_config.ext_costs.costs;
+        // The large read overheads cost 1 gas, and are only charged along with a storage read.
+        // So they count as part of the read, or their ratio would swamp all the others.
+        let with_overhead = |cost: ExtCosts, overhead: ExtCosts| ParameterCost {
+            gas: ext_costs[cost].gas.checked_add(ext_costs[overhead].gas).unwrap(),
+            compute: ext_costs[cost].compute + ext_costs[overhead].compute,
+        };
+        let host_operations = ext_costs.iter().filter_map(|(cost, parameter_cost)| match cost {
+            ExtCosts::storage_large_read_overhead_base
+            | ExtCosts::storage_large_read_overhead_byte => None,
+            ExtCosts::storage_read_base => {
+                Some(with_overhead(cost, ExtCosts::storage_large_read_overhead_base))
+            }
+            ExtCosts::storage_read_value_byte => {
+                Some(with_overhead(cost, ExtCosts::storage_large_read_overhead_byte))
+            }
+            _ => Some(*parameter_cost),
+        });
+        // The fees of a call: a self-addressed function call, sent and executed at once.
+        let fees = [
+            ActionCosts::new_action_receipt,
+            ActionCosts::function_call_base,
+            ActionCosts::function_call_byte,
+        ]
+        .into_iter()
+        .flat_map(|cost| {
+            let fee = config.fees.fee(cost);
+            [fee.send_fee(true), fee.exec_fee()]
+        });
+        // Compared as `compute / gas` without dividing: a / b > c / d when a * d > c * b.
+        let (compute, gas) = host_operations
+            .chain(fees)
+            .filter(|cost| cost.gas > Gas::ZERO)
+            .map(|cost| (u128::from(cost.compute), u128::from(cost.gas.as_gas())))
+            .max_by(|(compute_a, gas_a), (compute_b, gas_b)| {
+                (compute_a * gas_b).cmp(&(compute_b * gas_a))
+            })
+            .unwrap();
+        let budget = u128::from(config.wasm_config.limit_config.max_gas_burnt_external.as_gas());
+        Compute::try_from(budget * compute / gas).unwrap()
     }
 }
