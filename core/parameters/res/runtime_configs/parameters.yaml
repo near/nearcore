@@ -26,6 +26,22 @@ per_receipt_storage_proof_size_limit: 4_000_000
 combined_transactions_size_limit: 4_194_304
 new_transactions_validation_state_size_soft_limit: 572_864
 
+# External contract calls config
+max_external_call_size: 0
+max_external_call_recorded_size: 0
+external_calls_chunk_compute_share: {
+  numerator: 0,
+  denominator: 1,
+}
+external_calls_chunk_storage_proof_share: {
+  numerator: 0,
+  denominator: 1,
+}
+external_calls_chunk_transactions_size_share: {
+  numerator: 0,
+  denominator: 1,
+}
+
 # Account creation config
 min_allowed_top_level_account_length: 65
 registrar_account_id: "registrar"
