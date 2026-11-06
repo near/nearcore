@@ -71,6 +71,7 @@
         "bytecode",
         "bytecodes",
         "bytesize",
+	"callees",
         "camino",
         "canonicality",
         "chacha",
