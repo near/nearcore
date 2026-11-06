@@ -1602,13 +1602,19 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 ///
 /// # Errors
 ///
-/// If the size of the registers exceed the set limit `MemoryAccessViolation`.
+/// * If the size of the registers exceed the set limit `MemoryAccessViolation`.
+/// * If called in an external contract call returns `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`.
 pub fn random_seed(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
+    if let ExecutionMode::External { .. } = ctx.context.execution_mode {
+        return Err(
+            HostError::ProhibitedInExternalCall { method_name: "random_seed".to_string() }.into()
+        );
+    }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,

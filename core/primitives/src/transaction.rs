@@ -1191,15 +1191,25 @@ impl ExecutionOutcomeWithId {
         Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
     }
 
-    /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
-    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+    /// The outcome of a refused ECC. Its contract stands in for the signer as the executor.
+    /// Unlike a transaction's, an ECC's outcome id is not its hash: see `create_ecc_outcome_id`.
+    ///
+    /// Nobody pays for a refused call, so it burns no gas and no tokens, and doesn't move the next
+    /// gas price. The work validators did on it is reported as compute, which counts toward the
+    /// chunk's compute limit.
+    pub fn refused_ecc(
+        id: CryptoHash,
+        transaction: &EccTransaction,
+        error: TxExecutionError,
+        compute_usage: Compute,
+    ) -> Self {
         Self {
-            id: transaction.get_hash(),
+            id,
             outcome: ExecutionOutcome {
                 executor_id: transaction.contract_id().clone(),
-                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                status: ExecutionStatus::Failure(error),
                 gas_burnt: Gas::ZERO,
-                compute_usage: Some(0),
+                compute_usage: Some(compute_usage),
                 tokens_burnt: Balance::ZERO,
                 ..Default::default()
             },

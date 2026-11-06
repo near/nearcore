@@ -2,6 +2,7 @@
 pub use crate::account::id::AccountId;
 pub use crate::gas::Gas;
 use crate::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
 use std::num::{NonZeroU64, ParseIntError};
 use std::ops::Add;
 use std::str::FromStr;
@@ -41,6 +42,26 @@ pub type NumSeats = u64;
 pub type BlockHeightDelta = u64;
 
 pub type ProtocolVersion = u32;
+
+/// Identifies a consensus VM configuration generation.
+///
+/// Unlike [`ProtocolVersion`], this changes only when VM configuration changes
+/// invalidate compiled contracts.
+#[derive(
+    borsh::BorshDeserialize,
+    borsh::BorshSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    ProtocolSchema,
+)]
+pub struct VmGeneration(pub ProtocolVersion);
 
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used

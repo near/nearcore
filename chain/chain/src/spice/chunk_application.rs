@@ -241,6 +241,7 @@ pub fn build_spice_apply_chunk_block_context(
         build_block_bandwidth_requests(block_header, prev_block_execution_results, epoch_manager)?;
     Ok(ApplyChunkBlockContext::from_header(
         block_header,
+        prev_block_header,
         gas_price,
         congestion_info,
         bandwidth_requests,
