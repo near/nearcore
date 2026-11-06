@@ -1059,9 +1059,11 @@ pub fn used_gas(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u64> {
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes +
-///  alt_bn128_g1_multiexp_base +
+/// `read_memory_base + read_memory_byte * value_len + write_register_base +
+///  write_register_byte * 64 + alt_bn128_g1_multiexp_base +
 ///  alt_bn128_g1_multiexp_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 ///
 /// cspell:words Pippenger
 pub fn alt_bn128_g1_multiexp(
@@ -1107,13 +1109,15 @@ pub fn alt_bn128_g1_multiexp(
 /// use more memory than the limit, the function returns `MemoryAccessViolation`.
 ///
 /// If point coordinates are not on curve, point is not in the subgroup,
-/// scalar is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
+/// a coordinate is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
 /// the function returns `AltBn128InvalidInput`.
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes +
-/// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
+/// `read_memory_base + read_memory_byte * value_len + write_register_base +
+/// write_register_byte * 64 + alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn alt_bn128_g1_sum(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -1139,7 +1143,8 @@ pub fn alt_bn128_g1_sum(
 }
 
 /// Computes pairing check on alt_bn128 curve.
-/// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is Ate pairing
+/// \prod_i e(g_{1 i}, g_{2 i}) should be equal one, e(g1, g2) is Ate pairing.
+/// Returns 1 if it is and 0 otherwise.
 ///
 /// # Arguments
 ///
@@ -1155,16 +1160,19 @@ pub fn alt_bn128_g1_sum(
 ///
 /// # Errors
 ///
-/// If `value_len + value_ptr` points outside the memory or the registers
-/// use more memory than the limit the function returns `MemoryAccessViolation`.
+/// If `value_len + value_ptr` points outside the memory the function returns
+/// `MemoryAccessViolation`.
 ///
-/// If point coordinates are not on curve, point is not in the subgroup, scalar
+/// If point coordinates are not on curve, point is not in the subgroup, a coordinate
 /// is not in the field or data are wrong serialized, for example,
 /// `value.len()%192!=0`, the function returns `AltBn128InvalidInput`.
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
+/// `read_memory_base + read_memory_byte * value_len + alt_bn128_pairing_check_base +
+/// alt_bn128_pairing_check_element * num_elements`
+///
+/// The element cost is charged before the elements are checked.
 pub fn alt_bn128_pairing_check(
     ctx: &mut HostCtx,
     memory: &mut [u8],
