@@ -465,6 +465,45 @@ fn test_handle_processed_block_with_endorsements_for_chunk_certified_on_another_
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handle_processed_block_with_endorsements_certifying_only_across_forks() {
+    let (mut chain, core_writer_actor) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+
+    let all_validators = test_validators();
+    let endorsement = |validator: &str| {
+        endorsement_into_core_statement(test_chunk_endorsement(validator, &block, chunk_header))
+    };
+    let (fork_a_endorsers, fork_b_endorsers) = all_validators.split_at(all_validators.len() / 2);
+
+    // Each fork carries sub-threshold endorsements and no execution result. Together they cross
+    // the threshold, and the writer never received the endorsements directly.
+    let fork_a = build_block(
+        &mut chain,
+        &block,
+        fork_a_endorsers.iter().map(|v| endorsement(v)).collect_vec(),
+    );
+    process_block(&mut chain, fork_a.clone());
+    core_writer_actor.handle_processed_block(*fork_a.hash()).unwrap();
+
+    let fork_b = build_block(
+        &mut chain,
+        &block,
+        fork_b_endorsers.iter().map(|v| endorsement(v)).collect_vec(),
+    );
+    process_block(&mut chain, fork_b.clone());
+    core_writer_actor.handle_processed_block(*fork_b.hash()).unwrap();
+
+    let execution_results =
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
+    assert_eq!(execution_results.get(&chunk_header.shard_id()), None);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_handle_processed_block_for_block_with_execution_results() {
     let (mut chain, core_writer_actor) = setup();
     let genesis = chain.genesis_block();
