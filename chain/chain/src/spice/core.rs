@@ -1187,7 +1187,15 @@ fn compute_uncertified_chunks_from_bodies(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-    let uncertified_blocks_window = certification_window(chain_store, epoch_manager, block_hash)?
+    let window = match certification_window(chain_store, epoch_manager, block_hash)? {
+        CertificationWindow::Complete(window) => window,
+        CertificationWindow::MissingBody { missing, .. } => {
+            return Err(Error::Other(format!(
+                "missing the body of block {missing} in the certification window of {block_hash}"
+            )));
+        }
+    };
+    let uncertified_blocks_window = window
         .iter()
         .rev()
         .map(|hash| chain_store.get_block(hash))
@@ -1515,25 +1523,40 @@ pub(crate) fn new_uncertified_chunk_info(
     })
 }
 
+/// The blocks whose bodies the uncertified chunks of a block are computed from, newest first.
+pub(crate) enum CertificationWindow {
+    /// Every block of the window has its body in the store.
+    Complete(Vec<CryptoHash>),
+    /// The walk stopped at `missing`, whose body is not in the store. `known` are the blocks above it.
+    MissingBody { known: Vec<CryptoHash>, missing: CryptoHash },
+}
+
+/// The certification window of `block_hash`: `block_hash` back to, excluding, the first ancestor
+/// whose chunks the window's bodies all certify, or a genesis or pre-spice block.
+/// Empty for a genesis or pre-spice `block_hash`.
 pub(crate) fn certification_window(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
-) -> Result<Vec<CryptoHash>, Error> {
+) -> Result<CertificationWindow, Error> {
     let header = chain_store.get_block_header(block_hash)?;
     if header.is_genesis() || !header.is_spice() {
-        return Ok(Vec::new());
+        return Ok(CertificationWindow::Complete(Vec::new()));
     }
 
-    let mut window = Vec::new();
+    let mut known = Vec::new();
     let mut certified: HashSet<SpiceChunkId> = HashSet::new();
     let mut next_hash = *block_hash;
 
     loop {
-        window.push(next_hash);
-        let Ok(block) = chain_store.get_block(&next_hash) else {
-            break;
+        let block = match chain_store.get_block(&next_hash) {
+            Ok(block) => block,
+            Err(Error::DBNotFoundErr(_)) => {
+                return Ok(CertificationWindow::MissingBody { known, missing: next_hash });
+            }
+            Err(err) => return Err(err),
         };
+        known.push(next_hash);
         certified.extend(
             block.spice_core_statements().iter_execution_results().map(|(id, _)| id.clone()),
         );
@@ -1546,8 +1569,7 @@ pub(crate) fn certification_window(
                 certified.contains(&SpiceChunkId { block_hash: next_hash, shard_id })
             })
         {
-            break;
+            return Ok(CertificationWindow::Complete(known));
         }
     }
-    Ok(window)
 }
