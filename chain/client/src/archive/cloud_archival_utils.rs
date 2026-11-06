@@ -114,8 +114,8 @@ pub(crate) struct BlockBatchPull {
     pub end_height: BlockHeight,
     /// The epoch opening inside the batch.
     pub opening_epoch_id: Option<EpochId>,
-    /// The last block written, absent when none was.
-    pub last_present_block_hash: Option<CryptoHash>,
+    /// The blocks written, in height order.
+    pub block_hashes: Vec<CryptoHash>,
 }
 
 /// The last block of an epoch.
@@ -135,7 +135,7 @@ pub(crate) async fn pull_block_batch(
     start_height: BlockHeight,
 ) -> Result<BlockBatchPull, CloudArchivalReaderError> {
     let block_batch = cloud_storage.get_block_batch_for_height(start_height).await?;
-    let mut last_present_block_hash = None;
+    let mut block_hashes = Vec::new();
     let mut epoch_end: Option<EpochEnd> = None;
     let mut update = store.store_update();
     for block_height in start_height..=block_batch.end_height() {
@@ -143,7 +143,7 @@ pub(crate) async fn pull_block_batch(
             continue;
         };
         save_block_data(&mut update, block_data);
-        last_present_block_hash = Some(*block_data.block().header().hash());
+        block_hashes.push(*block_data.block().header().hash());
         if epoch_end.is_none()
             && epoch_manager.is_next_block_in_next_epoch(block_data.block_info())?
         {
@@ -159,11 +159,7 @@ pub(crate) async fn pull_block_batch(
     }
     let opening_epoch_id =
         epoch_end.filter(|end| end.height < block_batch.end_height()).map(|end| end.next_epoch_id);
-    Ok(BlockBatchPull {
-        end_height: block_batch.end_height(),
-        opening_epoch_id,
-        last_present_block_hash,
-    })
+    Ok(BlockBatchPull { end_height: block_batch.end_height(), opening_epoch_id, block_hashes })
 }
 
 /// Downloads `shard_uid`'s batch for the window `from_height` falls in and writes the
@@ -390,7 +386,8 @@ fn save_new_chunk_data(
     let external_calls = external_calls_with_outcome(new_chunk, height);
     chain_store_update.set_external_call_hashes(block_hash, &external_calls);
     // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
-    // need gc at the reader.
+    // need gc at the reader. Such a gc can also delete the `AggregatedEpochStats` rows
+    // below the reader head, since the `validators` endpoint reads only the head's row.
     for transaction in chunk.to_transactions() {
         let bytes = borsh::to_vec(transaction).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Transactions, transaction.get_hash().as_ref(), &bytes);
