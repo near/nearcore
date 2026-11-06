@@ -1225,7 +1225,6 @@ fn test_epoch_info_aggregator() {
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
     record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
     record_block_with_final_block_hash(&mut em, h[1], h[3], h[0], 3, vec![]);
-    assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[3]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
 
@@ -1234,18 +1233,13 @@ fn test_epoch_info_aggregator() {
 
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
     assert_eq!(aggregator.block_tracker, tracker);
-    // get_epoch_info_aggregator_upto_last does not change
-    // epoch_info_aggregator
-    assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
 
     record_block_with_final_block_hash(&mut em, h[3], h[5], h[1], 5, vec![]);
-    assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
 
     update_tracker(&epoch_info, 4..6, &[5], &mut tracker);
 
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
     assert_eq!(aggregator.block_tracker, tracker);
-    assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
 }
 
 /// `version_tracker` and `all_proposals` are last-value (not additive): the
@@ -1299,9 +1293,9 @@ fn test_epoch_info_aggregator_overwrites_latest_version_and_proposal() {
     );
 }
 
-/// If the node stops and restarts, the aggregator should be able to recover
+/// The aggregator rows survive a restart of the epoch manager.
 #[test]
-fn test_epoch_info_aggregator_data_loss() {
+fn test_epoch_info_aggregator_after_restart() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
@@ -1339,8 +1333,13 @@ fn test_epoch_info_aggregator_data_loss() {
             stake_amount.checked_add(Balance::from_yoctonear(10)).unwrap(),
         )],
     );
-    assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
-    em.epoch_info_aggregator = EpochInfoAggregator::default();
+    let mut em = EpochManager::new(
+        em.store.clone(),
+        em.config.clone(),
+        em.reward_calculator.clone(),
+        vec![],
+    )
+    .unwrap();
     record_block(
         &mut em,
         h[3],
@@ -1351,7 +1350,6 @@ fn test_epoch_info_aggregator_data_loss() {
             stake_amount.checked_sub(Balance::from_yoctonear(1)).unwrap(),
         )],
     );
-    assert_eq!(h[3], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
@@ -2001,10 +1999,6 @@ fn test_aggregator_visits_each_block_once() {
     let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
-    // Pinned below EarlyKickout: its per-block seeder reads the aggregator once per block,
-    // so the exact walk count asserted below only holds while the feature is off. The
-    // walk-once invariant itself is protocol-independent, and the seed path has its own
-    // coverage in the early_kickout tests.
     let mut epoch_manager = setup_default_epoch_manager_at_version(
         validators,
         EPOCH_LENGTH as u64,
@@ -2044,11 +2038,6 @@ fn test_aggregator_visits_each_block_once() {
             ("test1".parse().unwrap(), stake_amount),
             ("test2".parse().unwrap(), stake_amount)
         ]),
-    );
-    assert_eq!(
-        EPOCH_LENGTH + 1,
-        epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
-        "Expected every block to be visited exactly once"
     );
 }
 
@@ -2425,46 +2414,6 @@ fn test_version_switch_kickout_old_version() {
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(last_hash)).unwrap();
     check_validators(&epoch_info, just_test1);
-}
-
-/// Epoch aggregator should not need to be recomputed under the following scenario
-///                      /-----------h+2
-/// h-2 ---- h-1 ------ h
-///                      \------h+1
-/// even though from the perspective of h+2 the last final block is h-2.
-#[test]
-fn test_final_block_consistency() {
-    let amount_staked = Balance::from_yoctonear(1_000_000);
-    let validators =
-        vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
-    let num_validators = validators.len();
-    let mut epoch_manager = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
-
-    let h = hash_range(10);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    for i in 1..5 {
-        record_block_with_final_block_hash(
-            &mut epoch_manager,
-            h[i - 1],
-            h[i],
-            if i == 1 { CryptoHash::default() } else { h[i - 2] },
-            i as u64,
-            vec![],
-        );
-    }
-
-    let epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
-
-    epoch_manager
-        .record_block_info(
-            block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY, num_validators),
-            [0; 32],
-        )
-        .unwrap()
-        .store_update
-        .commit();
-    let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
-    assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
 
 #[test]
@@ -3898,9 +3847,9 @@ fn test_aggregator_anchored_chunk_producers() {
         Rational32::new(0, 1),
     );
     let h = hash_range(4);
-    record_seeded_anchored_chain(&mut em, &h);
+    record_seeded_anchored_chain(&mut em, &h[..3]);
 
-    let epoch_id = em.get_epoch_id(&h[3]).unwrap();
+    let epoch_id = em.get_epoch_id(&h[1]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
@@ -3919,6 +3868,9 @@ fn test_aggregator_anchored_chunk_producers() {
         update.insert_ser(DBCol::ChunkProducers, &key, &anchored_stake);
         update.commit();
     }
+    // Record `h[3]` after replacing the row: recording computes its stats from `h[1]`'s
+    // `ChunkProducers` row.
+    record_seeded_block(&mut em, h[3], 3, h[2]);
 
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
     let stats = &aggregator.chunk_production[&shard_id];
@@ -3939,8 +3891,7 @@ fn test_aggregator_anchored_chunk_producers() {
     }
 }
 
-/// Missing anchor row at the epoch's first block (the epoch-sync case) must fall
-/// back to the sampler without tripping the missing-row `debug_assert`.
+/// Missing anchor rows at the epoch's first block must fall back to the sampler.
 #[test]
 fn test_aggregator_missing_epoch_first_block_row_falls_back() {
     use near_primitives::utils::get_block_shard_id;
@@ -3961,14 +3912,14 @@ fn test_aggregator_missing_epoch_first_block_row_falls_back() {
         Rational32::new(0, 1),
     );
     let h = hash_range(4);
-    record_seeded_anchored_chain(&mut em, &h);
+    record_seeded_anchored_chain(&mut em, &h[..3]);
 
-    let epoch_id = em.get_epoch_id(&h[3]).unwrap();
+    let epoch_id = em.get_epoch_id(&h[1]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
 
     // `h[1]` is the epoch's first real block (genesis `h[0]` is pre-genesis);
-    // the height-3 chunk anchors at it. Drop its row to mimic epoch-sync.
+    // the height-3 chunk anchors at it. Delete its rows to force the fallback.
     assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
     {
         let mut update = em.store.store_ref().store_update();
@@ -3977,6 +3928,9 @@ fn test_aggregator_missing_epoch_first_block_row_falls_back() {
         }
         update.commit();
     }
+    // Record `h[3]` after deleting the rows: recording computes its stats from `h[1]`'s
+    // `ChunkProducers` rows.
+    record_seeded_block(&mut em, h[3], 3, h[2]);
 
     // Must not panic despite the missing first-block row.
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
@@ -4027,9 +3981,8 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
     record_seeded_block(&mut em, h[0], 0, CryptoHash::default());
     record_seeded_block(&mut em, h[1], 1, h[0]);
     record_seeded_block(&mut em, h[3], 3, h[1]);
-    record_seeded_block(&mut em, h[4], 4, h[3]);
 
-    let epoch_id = em.get_epoch_id(&h[4]).unwrap();
+    let epoch_id = em.get_epoch_id(&h[1]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
 
@@ -4044,6 +3997,9 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
         }
         update.commit();
     }
+    // Record `h[4]` after deleting the rows: recording computes its stats from `h[1]`'s
+    // `ChunkProducers` rows.
+    record_seeded_block(&mut em, h[4], 4, h[3]);
 
     // The test only discriminates when `sample(3) != sample(4)`.
     let discriminating = shard_layout.shard_ids().any(|shard_id| {

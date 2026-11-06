@@ -4,7 +4,6 @@ use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid_rev};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
@@ -114,19 +113,14 @@ fn format_key_and_value<'a>(
             Box::new(String::from_utf8_lossy(key).to_string()),
             Box::new(String::from_utf8_lossy(value).to_string()),
         ),
-        DBCol::EpochInfo => {
-            if key != AGGREGATOR_KEY {
-                (
-                    Box::new(EpochId::try_from_slice(key).unwrap()),
-                    Box::new(EpochInfo::try_from_slice(value).unwrap()),
-                )
-            } else {
-                (
-                    Box::new(String::from_utf8_lossy(key).to_string()),
-                    Box::new(EpochInfoAggregator::try_from_slice(value).unwrap()),
-                )
-            }
-        }
+        DBCol::EpochInfo => (
+            Box::new(EpochId::try_from_slice(key).unwrap()),
+            Box::new(EpochInfo::try_from_slice(value).unwrap()),
+        ),
+        DBCol::EpochInfoAggregators => (
+            Box::new(CryptoHash::try_from(key).unwrap()),
+            Box::new(EpochInfoAggregator::try_from_slice(value).unwrap()),
+        ),
         DBCol::EpochStart => (
             // TODO: Fix
             Box::new(EpochId::try_from_slice(key).unwrap()),

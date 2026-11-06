@@ -55,8 +55,7 @@ const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 /// Controls how much detail `get_recent_epoch_info` / `get_epoch_info_view` include.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EpochInfoMode {
-    /// Include the per-validator `validator_info`. This is expensive: computing it
-    /// can traverse the whole epoch via the epoch info aggregator.
+    /// Include the per-validator `validator_info`.
     Full,
     /// Omit `validator_info`; only epoch metadata and producer/validator counts.
     Lite,
@@ -398,8 +397,7 @@ impl ClientActor {
             })
             .collect();
 
-        // `get_validator_info` is expensive (it can traverse the whole epoch via the
-        // epoch info aggregator), so only compute it in `Full` mode.
+        // Only `Full` mode includes the per-validator info.
         let validator_info = match mode {
             EpochInfoMode::Lite => None,
             EpochInfoMode::Full => {
