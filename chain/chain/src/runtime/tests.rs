@@ -64,7 +64,7 @@ use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use num_rational::Ratio;
+use num_rational::{Ratio, Rational32};
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -2099,6 +2099,47 @@ fn test_prepare_transactions_goes_on_with_signed_transactions_past_the_ecc_limit
     assert_eq!(packed_eccs(&prepared.transactions).len(), 1);
     assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
     assert_eq!(drain_eccs_from_pool(&mut pool).len(), 3);
+}
+
+/// The ECCs of a chunk take no more than their share of its transaction bytes, or the chunk
+/// would be invalid. The ones past the share wait in the pool, and signed transactions still go
+/// into the chunk.
+#[test]
+fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let eccs = contracts.map(|contract_id| {
+        ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![1; 1000]))
+    });
+    let ecc_size = eccs[0].get_size();
+    // A share with room for two of the ECCs, but not three.
+    let mut runtime_config = RuntimeConfig::test();
+    let share_size = 2 * ecc_size + ecc_size / 2;
+    let combined_size = runtime_config.witness_config.combined_transactions_size_limit;
+    runtime_config.external_calls_config.chunk_transactions_size_share =
+        Rational32::new(i32::try_from(share_size).unwrap(), i32::try_from(combined_size).unwrap());
+    let ecc_config = &runtime_config.external_calls_config;
+    assert_eq!(ecc_config.transactions_size_share(&runtime_config.witness_config), share_size);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool_for(Some(store));
+    let num_signed_txs = pool.len();
+    for ecc in eccs {
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
+    }
+    // Room for more ECCs than the share holds, by count.
+    let gas_limit = env.runtime.genesis_config.gas_limit;
+    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
+    assert!(config.max_eccs_per_chunk(gas_limit) > contracts.len() as u64);
+
+    let (prepared, _) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+
+    assert_eq!(packed_eccs(&prepared.transactions).len(), 2);
+    assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2);
 }
 
 /// An ECC that does not fit in what the chunk has left for transactions waits in the pool, and
