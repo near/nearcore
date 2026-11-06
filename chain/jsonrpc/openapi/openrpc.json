@@ -11387,6 +11387,13 @@
             ],
             "description": "The configuration for congestion control."
           },
+          "max_cold_contract_bytes_per_chunk": {
+            "default": 0,
+            "description": "Maximum cold contract code bytes admitted for compilation per chunk.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "min_gas_purchase_price": {
             "allOf": [
               {
