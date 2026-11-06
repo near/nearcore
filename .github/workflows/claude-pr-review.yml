@@ -89,9 +89,10 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         if: ${{ steps.key-check.outputs.present == 'true' }}
-        uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2 # main @ Claude Code 2.1.128 / Agent SDK 0.2.128 (needed for --effort xhigh)
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1.0.268
         env:
           GH_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_EFFORT_LEVEL: auto
         with:
           # without github_token the action tries to mint a token via the
           # Claude Code GitHub App, which is not installed on this repo
@@ -100,5 +101,4 @@ jobs:
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
             --model opus
-            --effort xhigh
             --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
