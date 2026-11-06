@@ -13,17 +13,20 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::{BlockHeight, StateRoot};
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::gen_changes;
 use near_store::trie::AccessOptions;
-use near_store::{ShardTries, Trie, WrappedTrieChanges};
+use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 // Build a chain of num_blocks on top of prev_block
@@ -903,7 +906,11 @@ fn test_state_sync_tail_update_clears_skipped_heights() {
     let new_chunk_tail = 5;
     let mut store_update = chain.mut_chain_store().store_update();
     store_update
-        .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), new_tail, new_chunk_tail)
+        .clear_data_before_state_sync_tail_update(
+            epoch_manager.as_ref(),
+            *blocks[new_tail as usize].hash(),
+            new_chunk_tail,
+        )
         .unwrap();
     store_update.update_tail(new_tail);
     store_update.update_chunk_tail(new_chunk_tail);
@@ -971,9 +978,15 @@ fn test_state_sync_tail_update_keeps_epoch_sync_proof_inputs() {
     // State sync into epoch S puts the new tail a few blocks after the S-1/S boundary.
     let new_tail = last_block_height_in_ppe + 3;
     assert_eq!(blocks[new_tail as usize].header().epoch_id(), &synced_epoch_id);
+    // Only the epoch boundary protection keeps the S-1 boundary headers.
+    chain.mut_chain_store().transaction_validity_period = 1;
     let mut store_update = chain.mut_chain_store().store_update();
     store_update
-        .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), new_tail, new_tail)
+        .clear_data_before_state_sync_tail_update(
+            epoch_manager.as_ref(),
+            *blocks[new_tail as usize].hash(),
+            new_tail,
+        )
         .unwrap();
     store_update.update_tail(new_tail);
     store_update.update_chunk_tail(new_tail);
@@ -989,4 +1002,102 @@ fn test_state_sync_tail_update_keeps_epoch_sync_proof_inputs() {
     );
     update_epoch_sync_proof(&epoch_store, &proof_epoch_id)
         .expect("epoch sync proof update at the start of epoch S+1 must succeed");
+}
+
+/// Below the new tail, header data survives in the transaction validity window and the tail's
+/// epoch. Further down, headers survive only at epoch boundaries, and chunk producer rows only
+/// for the first post-sync anchors.
+#[test]
+fn test_state_sync_tail_update_deletes_unneeded_headers_and_chunk_producers() {
+    let mut chain = get_chain(Clock::real());
+    let epoch_manager = chain.epoch_manager.clone();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = chain.get_block_by_height(0).unwrap();
+    let mut blocks = vec![prev_block.clone()];
+    for height in 1..=35 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            height,
+        );
+    }
+
+    // Header-only hashes below and inside the validity window. The cleanup never decodes rows.
+    let old_header_only_hash = CryptoHash::hash_bytes(b"old header only");
+    let recent_header_only_hash = CryptoHash::hash_bytes(b"recent header only");
+    let chunk_producer_key = |hash: &CryptoHash| get_block_shard_id(hash, ShardId::new(0));
+    let store = chain.chain_store().store();
+    let mut store_update = store.store_update();
+    for (height, hash) in [(3, old_header_only_hash), (27, recent_header_only_hash)] {
+        let mut header_hashes = chain.chain_store().get_all_header_hashes_by_height(height);
+        header_hashes.insert(hash);
+        store_update.set_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height), &header_hashes);
+        store_update.insert(DBCol::BlockHeader, hash.as_bytes().to_vec(), vec![0]);
+        store_update.insert(DBCol::BlockInfo, hash.as_bytes().to_vec(), vec![0]);
+    }
+    let header_only_hashes = [old_header_only_hash, recent_header_only_hash];
+    for hash in blocks.iter().map(|block| *block.hash()).chain(header_only_hashes) {
+        if !store.exists(DBCol::ChunkProducers, &chunk_producer_key(&hash)) {
+            store_update.insert(DBCol::ChunkProducers, chunk_producer_key(&hash), vec![0]);
+        }
+    }
+    store_update.commit();
+
+    let new_tail: BlockHeight = 30;
+    let transaction_validity_period = 5;
+    chain.mut_chain_store().transaction_validity_period = transaction_validity_period;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update
+        .clear_data_before_state_sync_tail_update(
+            epoch_manager.as_ref(),
+            *blocks[new_tail as usize].hash(),
+            new_tail,
+        )
+        .unwrap();
+    store_update.update_tail(new_tail);
+    store_update.update_chunk_tail(new_tail);
+    store_update.commit().unwrap();
+
+    // Epoch first blocks and the three blocks before each. Block 1 starts the genesis epoch.
+    let mut boundary_heights = HashSet::from([1]);
+    for height in 2..new_tail {
+        let index = height as usize;
+        if blocks[index].header().epoch_id() != blocks[index - 1].header().epoch_id() {
+            boundary_heights.extend([height, height - 1, height - 2, height - 3]);
+        }
+    }
+    assert!(boundary_heights.len() > 4, "expected epoch boundaries below the tail");
+    let tail_epoch_id = blocks[new_tail as usize].header().epoch_id();
+    let tail_epoch_start = (1..=new_tail)
+        .find(|&height| blocks[height as usize].header().epoch_id() == tail_epoch_id)
+        .unwrap();
+    // The tail's epoch extends the kept range past the validity window.
+    assert!(tail_epoch_start < new_tail - transaction_validity_period);
+    let anchor_heights = [new_tail - 1, new_tail - 2];
+    let epoch_store = chain.chain_store().store().epoch_store();
+    for block in &blocks[1..new_tail as usize] {
+        let height = block.header().height();
+        let hash = block.hash();
+        let keep_all = height >= tail_epoch_start;
+        let keep_header = keep_all || boundary_heights.contains(&height);
+        assert_eq!(chain.get_block_header(hash).is_ok(), keep_header, "header at {height}");
+        assert_eq!(epoch_store.get_block_info(hash).is_ok(), keep_header, "info at {height}");
+        assert_eq!(
+            store.exists(DBCol::ChunkProducers, &chunk_producer_key(hash)),
+            keep_all || anchor_heights.contains(&height),
+            "chunk producers at {height}"
+        );
+    }
+    for (hash, keep) in [(old_header_only_hash, false), (recent_header_only_hash, true)] {
+        assert_eq!(store.exists(DBCol::BlockHeader, hash.as_bytes()), keep);
+        assert_eq!(store.exists(DBCol::BlockInfo, hash.as_bytes()), keep);
+        assert_eq!(store.exists(DBCol::ChunkProducers, &chunk_producer_key(&hash)), keep);
+    }
+    for block in &blocks[new_tail as usize..] {
+        assert!(chain.get_block_header(block.hash()).is_ok());
+        assert!(store.exists(DBCol::ChunkProducers, &chunk_producer_key(block.hash())));
+    }
 }

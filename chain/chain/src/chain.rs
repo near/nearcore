@@ -1661,7 +1661,7 @@ impl Chain {
         chain_store_update.save_final_head(&final_head)?;
         chain_store_update.clear_data_before_state_sync_tail_update(
             epoch_manager.as_ref(),
-            new_tail,
+            tail_block_hash,
             new_chunk_tail,
         )?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
