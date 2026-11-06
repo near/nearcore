@@ -58,7 +58,7 @@ Driven by `ClientActor`: blocks are fed via `Client::start_process_block` (`chai
 18. Collect incoming receipts from chunks (non-SPICE; SPICE defers this) (`chain.rs:2594`).
 19. `check_if_finalizable` — drop blocks that cannot reach the final head (`Error::CannotBeFinalized`), bounded to `NUM_PARENTS_TO_CHECK_FINALITY = 20` parents (`chain.rs:2602`, `chain.rs:857`, `chain.rs:129`).
 20. SPICE-ness cross-check and SPICE core-statement validation (`chain.rs:2604`–`chain.rs:2622`, nightly only — see *Protocol-version-gated behavior*).
-21. `apply_chunks_preprocessing` builds the list of per-shard `UpdateShardJob`s (`chain.rs:2625`, `chain.rs:3413`), choosing `ApplyChunksMode::IncludeCatchupShards` vs `ExcludeCatchupShards`. Returns `(apply_chunk_work, BlockPreprocessInfo, apply_chunks_still_applying)`.
+21. `apply_chunks_preprocessing` builds the list of per-shard `UpdateShardJob`s (`chain.rs:2625`, `chain.rs:3413`), choosing `ApplyChunksMode::IsCaughtUp` vs `NotCaughtUp`. Returns `(apply_chunk_work, BlockPreprocessInfo, apply_chunks_still_applying)`.
 
 The order is load-bearing: cheap/local checks precede the first DB I/O (`get_previous_header`, `chain.rs:2485`), and the orphan/epoch decisions are made before expensive validation so a block is parked in the right pool.
 
