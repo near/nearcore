@@ -30,7 +30,7 @@ use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, NonceIndex, ShardId};
 use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
-use rocksdb::DB;
+use rocksdb::{DB, IteratorMode};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -259,6 +259,35 @@ fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
     )?)
+}
+
+// Drops stored pending outcomes that already finished on the target chain but whose nonce update a
+// previous run never applied. on_target_block() deletes an outcome's AccessKeyOutcomes entry before
+// its caller fetches the new nonce and calls try_set_nonces(), so a run that exits in between (e.g.
+// the shutdown drain sees the last tx observed while that nonce is still being fetched) leaves the
+// key waiting on an outcome that nothing will report again, and every tx signed with it is skipped.
+// Clearing the nonce makes store_target_nonce() query it from the target chain instead.
+fn clear_finished_pending_outcomes(db: &DB) -> anyhow::Result<()> {
+    let cf = db.cf_handle(DBCol::Nonces.name()).unwrap();
+    let mut updates = Vec::new();
+    for item in db.iterator_cf(cf, IteratorMode::Start) {
+        let (key, value) = item?;
+        let stored = LatestTargetNonce::try_from_slice(&value)?;
+        let mut pending_outcomes = HashSet::new();
+        for id in &stored.pending_outcomes {
+            if read_pending_outcome(db, id)?.is_some() {
+                pending_outcomes.insert(*id);
+            }
+        }
+        if pending_outcomes.len() != stored.pending_outcomes.len() {
+            updates.push((key, LatestTargetNonce { nonce: None, pending_outcomes }));
+        }
+    }
+    for (key, nonce) in updates {
+        tracing::debug!(target: "mirror", ?nonce, "cleared finished pending outcomes");
+        db.put_cf(cf, &key, &borsh::to_vec(&nonce).unwrap())?;
+    }
+    Ok(())
 }
 
 fn set_last_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
@@ -2249,11 +2278,20 @@ impl<T: ChainAccess> TxMirror<T> {
             let msg = target_stream.recv().await.unwrap();
             let height = msg.block.header.height;
 
-            {
+            let target_block_info = {
                 let mut tracker = tracker.lock();
-                // TODO: handle the return value. it is possible we want to unstake or update nonces
-                // after a restart.
-                tracker.on_target_block(&tx_block_queue, db, msg)?;
+                tracker.on_target_block(&tx_block_queue, db, msg)?
+            };
+            // After a restart, the receipts of key-adding txs sent by the previous run can execute
+            // in the blocks we're catching up on here. on_target_block() has already removed their
+            // pending outcomes from the DB, so if we dropped these updates, those keys' nonces
+            // would stay pending forever and every tx signed with them would be skipped.
+            // TODO: also unstake target_block_info.staked_accounts after a restart.
+            for access_key_update in target_block_info.access_key_updates {
+                let nonce =
+                    crate::fetch_nonce(target_view_client, &access_key_update.nonce_key).await?;
+                let mut tracker = tracker.lock();
+                tracker.try_set_nonces(tx_block_queue, db, access_key_update, nonce)?;
             }
 
             match head {
@@ -2278,6 +2316,7 @@ impl<T: ChainAccess> TxMirror<T> {
         actor_system: near_async::ActorSystem,
         shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
+        clear_finished_pending_outcomes(&self.db)?;
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
