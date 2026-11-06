@@ -330,7 +330,7 @@ fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief 
 }
 
 /// `(produced, expected)` per `(account, shard)` up to `block_hash`, via
-/// `get_validator_info`, which reads the same aggregator `shard_tracker` the blacklist math
+/// `get_validator_info`, which reads the same aggregator `chunk_production` the blacklist math
 /// does — so this is the blacklist's only input besides the epoch start.
 fn chunk_counters(
     handle: &EpochManagerHandle,

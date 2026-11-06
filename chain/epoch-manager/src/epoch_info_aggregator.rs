@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
@@ -19,8 +19,12 @@ use std::collections::{BTreeMap, HashMap};
 pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
-    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    /// For each shard, a map of chunk producer id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+    pub chunk_production: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    /// Map from chunk validator id to (num_endorsements_recorded, num_endorsements_expected) so
+    /// far in the given epoch, summed over all shards. `produced` counts the endorsements that
+    /// the blocks record.
+    pub chunk_endorsement: HashMap<ValidatorId, ValidatorStats>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -35,7 +39,8 @@ impl EpochInfoAggregator {
     pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
         Self {
             block_tracker: Default::default(),
-            shard_tracker: Default::default(),
+            chunk_production: Default::default(),
+            chunk_endorsement: Default::default(),
             version_tracker: Default::default(),
             all_proposals: BTreeMap::default(),
             epoch_id,
@@ -100,7 +105,7 @@ impl EpochInfoAggregator {
             }
         }
 
-        // Step 2: update shard tracker (chunk production/endorsement stats)
+        // Step 2: update chunk production and endorsement stats
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
@@ -111,23 +116,23 @@ impl EpochInfoAggregator {
                     .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
                     .unwrap(),
             };
-            let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
-            tracker
+            let production_stats = self
+                .chunk_production
+                .entry(shard_id)
+                .or_default()
                 .entry(chunk_producer_id)
-                .and_modify(|stats| {
-                    if *mask {
-                        *stats.produced_mut() += 1;
-                    } else {
-                        tracing::debug!(
-                            target: "epoch_tracker",
-                            chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
-                            %shard_id,
-                            block_height = prev_block_height + 1,
-                            "missed chunk");
-                    }
-                    *stats.expected_mut() += 1;
-                })
-                .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
+                .or_default();
+            if *mask {
+                production_stats.produced += 1;
+            } else {
+                tracing::debug!(
+                    target: "epoch_tracker",
+                    chunk_producer = ?epoch_info.validator_account_id(chunk_producer_id),
+                    %shard_id,
+                    block_height = prev_block_height + 1,
+                    "missed chunk");
+            }
+            production_stats.expected += 1;
 
             // With spice we have no chunk endorsements for chunks by design.
             if ProtocolFeature::Spice.enabled(epoch_info.protocol_version()) {
@@ -176,18 +181,12 @@ impl EpochInfoAggregator {
             for (chunk_validator_id, endorsement_produced) in
                 chunk_validators.iter().zip(chunk_endorsements)
             {
-                tracker
-                    .entry(*chunk_validator_id)
-                    .and_modify(|stats| {
-                        let endorsement_stats = stats.endorsement_stats_mut();
-                        if endorsement_produced {
-                            endorsement_stats.produced += 1;
-                        }
-                        endorsement_stats.expected += 1;
-                    })
-                    .or_insert_with(|| {
-                        ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
-                    });
+                let endorsement_stats =
+                    self.chunk_endorsement.entry(*chunk_validator_id).or_default();
+                if endorsement_produced {
+                    endorsement_stats.produced += 1;
+                }
+                endorsement_stats.expected += 1;
             }
         }
 
@@ -270,42 +269,28 @@ impl EpochInfoAggregator {
         }
     }
 
-    /// Merges block and shard trackers from `other` into `self`.
+    /// Merges block, chunk production and chunk endorsement stats from `other` into `self`.
     ///
     /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
     /// merging.
     fn merge_common(&mut self, other: &EpochInfoAggregator) {
         assert_eq!(self.epoch_id, other.epoch_id);
 
-        // merge block tracker
-        for (block_producer_id, stats) in &other.block_tracker {
-            self.block_tracker
-                .entry(*block_producer_id)
-                .and_modify(|e| {
-                    e.expected += stats.expected;
-                    e.produced += stats.produced
-                })
-                .or_insert_with(|| stats.clone());
+        add_stats(&mut self.block_tracker, &other.block_tracker);
+        for (shard_id, stats) in &other.chunk_production {
+            add_stats(self.chunk_production.entry(*shard_id).or_default(), stats);
         }
-        // merge shard tracker
-        for (shard_id, stats) in &other.shard_tracker {
-            self.shard_tracker
-                .entry(*shard_id)
-                .and_modify(|e| {
-                    for (chunk_producer_id, stat) in stats {
-                        e.entry(*chunk_producer_id)
-                            .and_modify(|entry| {
-                                *entry.expected_mut() += stat.expected();
-                                *entry.produced_mut() += stat.produced();
-                                entry.endorsement_stats_mut().expected +=
-                                    stat.endorsement_stats().expected;
-                                entry.endorsement_stats_mut().produced +=
-                                    stat.endorsement_stats().produced;
-                            })
-                            .or_insert_with(|| stat.clone());
-                    }
-                })
-                .or_insert_with(|| stats.clone());
-        }
+        add_stats(&mut self.chunk_endorsement, &other.chunk_endorsement);
+    }
+}
+
+fn add_stats(
+    target: &mut HashMap<ValidatorId, ValidatorStats>,
+    source: &HashMap<ValidatorId, ValidatorStats>,
+) {
+    for (validator_id, stats) in source {
+        let entry = target.entry(*validator_id).or_default();
+        entry.produced += stats.produced;
+        entry.expected += stats.expected;
     }
 }
