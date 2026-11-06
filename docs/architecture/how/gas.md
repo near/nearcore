@@ -236,6 +236,47 @@ runs each call before including it and leaves out the ones that would be
 rejected. An accepted call's fees and gas are burnt, and count toward the
 chunk's gas like any other.
 
+Since a rejected call costs nobody anything, further limits bound the work
+validators do on external calls, per call and per chunk. Besides
+`max_gas_burnt_external`, a call is limited in:
+
+- its size: at most `max_external_call_size`, 20 KiB. A larger call is
+  invalid.
+- the storage proof its run records: at most
+  `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
+  crossing the limit fails the call with `RecordedStorageExceeded`, and a value
+  whose length would cross it isn't read at all. Removals count with the same
+  estimate as the per-receipt storage proof limit uses. The limit applies to
+  the run only, not to reading the contract's account before it.
+
+All the external calls of a chunk together get a share of the chunk's limits:
+
+| Limit | Share | With the current limits |
+| ----- | ----- | ----------------------- |
+| `combined_transactions_size_limit` | `external_calls_chunk_transactions_size_share`, 1/40 | about 100 KiB |
+| the chunk's compute limit, its gas limit | `external_calls_chunk_compute_share`, 2/5 | 400 Tgas of a 1000 Tgas chunk |
+| `main_storage_proof_size_soft_limit` | `external_calls_chunk_storage_proof_share`, 1/20 | 200 KB |
+
+Each share fits five calls that use as much of it as a call can.
+
+The size share is a validity rule, checked along with the size of each call: a
+chunk whose external calls take more is invalid. So is a chunk with two
+external calls to the same contract. The chunk producer packs calls only up to
+the size share.
+
+The compute and storage proof shares are checked at apply, before each call.
+What a call uses is known only once it ran, so a call is admitted as long as
+the calls before it in the chunk are still below both shares, and the chunk
+can pass a share by at most one call. A call admitted counts toward the shares
+whatever comes of it, rejected or accepted: the compute of its fees and its
+run, and the storage proof recorded from reading the contract's account to the
+end of the run. A call that finds a share used up is rejected with
+`ExternalCallChunkLimitExceeded` before anything is read for it, not even the
+contract's account, so it adds nothing to the storage proof. Only such a call
+adds nothing to the shares; a call rejected after it was admitted counts
+toward them like any other. The compute of its fees still counts toward the
+chunk's compute limit, as for every rejected call.
+
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
 
