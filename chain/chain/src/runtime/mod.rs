@@ -948,12 +948,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut skipped_transactions: Vec<ValidatedTransactionEnvelope> = Vec::new();
         let mut num_checked_transactions = 0;
 
-        // ECCs go into the chunk only up to a limit, and only once there is a feature for them.
+        // ECCs go into the chunk only once there is a feature for them.
         // TODO(spice): pack ECCs under Spice as well.
         let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
             && !ProtocolFeature::Spice.enabled(protocol_version);
-        let mut num_eccs_left =
-            if eccs_allowed { runtime_config.max_eccs_per_chunk(prev_block.gas_limit) } else { 0 };
         let mut num_eccs_packed = 0;
         // ECCs may take only their share of the chunk's transaction bytes. A chunk whose ECCs
         // take more is invalid.
@@ -976,7 +974,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
+        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(ecc_size_left > 0) {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -1034,7 +1032,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         total_size += ecc.get_size();
                         ecc_size_left = ecc_size_left.saturating_sub(ecc.get_size());
                         prepared_transactions.transactions.push(ecc.into());
-                        num_eccs_left -= 1;
                         num_eccs_packed += 1;
                     }
                     continue;
@@ -1209,7 +1206,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_left, ecc_size_left, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, ecc_size_left, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])
