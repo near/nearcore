@@ -3,7 +3,7 @@ use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
 use crate::find_skipped_transactions;
 use crate::tests::{
-    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
+    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
     set_sha256_cost,
 };
 use crate::wallet_contract::{
@@ -43,8 +43,8 @@ use near_primitives::errors::{
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV3, DataReceipt, GlobalContractDistributionReceipt,
+    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -78,6 +78,7 @@ use near_store::{
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::iter::once;
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -205,6 +206,7 @@ fn setup_runtime_for_shard(
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        config_store: Arc::new(RuntimeConfigStore::test()),
         next_wasm_config: None,
         vm_generation: Default::default(),
         cache: Some(Box::new(contract_cache)),
@@ -264,7 +266,7 @@ fn test_apply_check_balance_validation_rewards() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &Some(validator_accounts_update),
             &apply_state,
-            &[Receipt::new_balance_refund(&alice_account(), small_refund)],
+            &[Receipt::new_balance_refund(&alice_account(), small_refund, PROTOCOL_VERSION)],
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
@@ -625,6 +627,7 @@ fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
             Receipt::new_balance_refund(
                 &alice_account(),
                 small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
+                PROTOCOL_VERSION,
             )
         })
         .collect()
@@ -2099,7 +2102,10 @@ fn apply_state_at(protocol_version: ProtocolVersion, gas_limit: Option<Gas>) -> 
         Gas::from_teragas(1000),
     );
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::clone(RuntimeConfigStore::new().get_config(protocol_version)),
+    );
     apply_state.gas_limit = gas_limit;
     apply_state
 }
@@ -2261,7 +2267,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let fees = Arc::make_mut(&mut free_config.fees);
     fees.action_fees[ActionCosts::new_action_receipt].execution =
         FeeComponent::Gas(receipt_exec_gas_fee);
-    apply_state.config = Arc::new(free_config);
+    set_config(&mut apply_state, Arc::new(free_config));
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
 
@@ -2625,7 +2631,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => {
             assert!(
                 matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
             );
@@ -2802,7 +2809,8 @@ fn test_apply_surplus_gas_for_function_call() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => match &actions[0] {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => match &actions[0] {
             Action::Transfer(TransferAction { deposit }) => assert_eq!(*deposit, expected_refund),
             other => panic!("Expected transfer action, got {:?}", other),
         },
@@ -3081,7 +3089,7 @@ fn test_main_storage_proof_size_soft_limit() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -3125,7 +3133,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // the first receipt go through but not the second one.
     let mut runtime_config = RuntimeConfig::free();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = 330;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
@@ -3458,7 +3466,10 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     );
     let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::clone(RuntimeConfigStore::new().get_config(protocol_version)),
+    );
     assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
 
     let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
@@ -3844,7 +3855,10 @@ fn apply_call_to_missing_global_contract_for_account(
     );
 
     apply_state.current_protocol_version = producer_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version)),
+    );
 
     // Override only the chain identity; preserve the setup's validators and shard layout.
     struct WalletEpochInfoProvider<'a, T> {
@@ -3918,7 +3932,10 @@ fn apply_call_to_missing_global_contract_for_account(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version)),
+    );
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -4032,7 +4049,7 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
     );
     // The helper installs `RuntimeConfig::test()`; run the deploy and the yield calls without gas
     // accounting noise instead.
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -4143,7 +4160,7 @@ fn test_promise_yield_indices_absent_key_still_applies() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -4202,7 +4219,7 @@ fn test_exclude_contract_code_from_witness() {
     // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE as u64;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let contract_code =
         ContractCode::new(near_test_contracts::sized_contract(CONTRACT_SIZE).to_vec(), None);
@@ -4424,7 +4441,7 @@ fn test_deploy_and_call_different_contracts() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -4614,7 +4631,7 @@ fn test_deploy_and_call_in_apply() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -4751,7 +4768,7 @@ fn test_deploy_existing_contract_to_different_account() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -4836,7 +4853,7 @@ fn test_deploy_and_call_in_same_receipt() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let receipt = create_receipt_with_actions(
@@ -4919,7 +4936,7 @@ fn test_call_account_without_contract() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let receipt = create_receipt_with_actions(
         alice_account(),
@@ -4954,7 +4971,7 @@ fn test_contract_accesses_when_validating_chunk() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -5044,7 +5061,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Choose a contract size that is much more than rest of the storage proof size so that we can show that
     // the contract code is not included in the storage proof at the end of the test.
@@ -5134,7 +5151,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Information about the test account (of predecessor "alice.near") that will be used for create, deploy, and delete actions.
     let test_account_id: AccountId =
@@ -6045,6 +6062,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         random_seed: Default::default(),
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
+        config_store: Arc::new(RuntimeConfigStore::with_one_config(config.as_ref().clone())),
         config,
         next_wasm_config: None,
         vm_generation: Default::default(),
@@ -6513,8 +6531,12 @@ fn test_gas_refund_to_gas_key() {
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund =
-        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        gas_key_signer.public_key(),
+        PROTOCOL_VERSION,
+    );
 
     // Apply the refund receipt
     let apply_result = runtime
@@ -6559,7 +6581,12 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund = Receipt::new_gas_refund(&alice_account(), refund_amount, unknown_key);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        unknown_key,
+        apply_state.current_protocol_version,
+    );
 
     let shard_uid = ShardUId::single_shard();
     let apply_result = runtime
@@ -6899,7 +6926,7 @@ fn setup_promise_input_limit(apply_state: &mut ApplyState, protocol_version: Pro
     let mut config = RuntimeConfig::free();
     let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.limit_config.max_receipt_total_input_size = PROMISE_INPUT_SIZE_LIMIT;
-    apply_state.config = Arc::new(config);
+    set_config(apply_state, Arc::new(config));
     apply_state.current_protocol_version = protocol_version;
 }
 
@@ -7553,6 +7580,7 @@ mod self_signed_state_init {
             random_seed: Default::default(),
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config_store: Arc::new(RuntimeConfigStore::with_one_config(config.clone())),
             config: Arc::new(config),
             next_wasm_config: None,
             vm_generation: Default::default(),
@@ -8522,7 +8550,7 @@ mod self_signed_state_init {
 
     fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
         apply_state.current_protocol_version = version;
-        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+        set_config(apply_state, Arc::new(RuntimeConfig::test_protocol_version(version)));
     }
 
     fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
@@ -8901,7 +8929,7 @@ mod relayer_funded_state_init {
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
-                from_ref(&Receipt::new_balance_refund(&account_id, funding())),
+                from_ref(&Receipt::new_balance_refund(&account_id, funding(), PROTOCOL_VERSION)),
                 SignedValidPeriodTransactions::empty(),
                 &epoch,
                 Default::default(),
@@ -9236,5 +9264,220 @@ fn test_re_added_key_rejects_replayed_tx() {
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
             InvalidTxError::InvalidNonce { .. }
         ))
+    );
+}
+
+/// The version that creates the receipts of the `PinReceiptFees` tests.
+const PINNED_CREATION_VERSION: ProtocolVersion = ProtocolFeature::PinReceiptFees.protocol_version();
+/// The version that executes the receipts of the `PinReceiptFees` tests.
+const PINNED_EXECUTION_VERSION: ProtocolVersion = PINNED_CREATION_VERSION + 1;
+
+/// Applies `receipts` and `transactions` at `version`, whose `Transfer` execution fee is
+/// `factor` times the one of all versions before it.
+fn apply_with_transfer_fee_factor(
+    version: ProtocolVersion,
+    factor: u64,
+    receipts: &[Receipt],
+    transactions: impl FnOnce(&[Arc<Signer>]) -> Vec<SignedTransaction>,
+) -> ApplyResult {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let old_config = Arc::clone(&apply_state.config);
+    let mut new_config = old_config.as_ref().clone();
+    let transfer = &mut Arc::make_mut(&mut new_config.fees).action_fees[ActionCosts::transfer];
+    transfer.execution = FeeComponent::Gas(transfer.exec_fee().gas.checked_mul(factor).unwrap());
+    let new_config = Arc::new(new_config);
+    apply_state.config_store = Arc::new(RuntimeConfigStore::new_custom(BTreeMap::from([
+        (0, old_config),
+        (version, Arc::clone(&new_config)),
+    ])));
+    apply_state.config = new_config;
+    apply_state.current_protocol_version = version;
+    let transactions = transactions(&signers);
+    let num_transactions = transactions.len();
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            receipts,
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// A receipt from alice to bob created at `PINNED_CREATION_VERSION`.
+fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: bob_account(),
+        receipt_id: hash(b"pinned"),
+        receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: alice_account(),
+            refund_to: None,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price,
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions,
+        }),
+    })
+}
+
+/// Applies `receipt` after the `Transfer` execution fee changed by `factor` since it was created.
+/// Returns its outcome and the total amount of the refunds it produced.
+fn apply_pinned_receipt(receipt: &Receipt, factor: u64) -> (ExecutionOutcome, Balance) {
+    let apply_result = apply_with_transfer_fee_factor(
+        PINNED_EXECUTION_VERSION,
+        factor,
+        from_ref(receipt),
+        |_| vec![],
+    );
+    let outcome = apply_result
+        .outcomes
+        .into_iter()
+        .find(|outcome| outcome.id == *receipt.receipt_id())
+        .unwrap()
+        .outcome;
+    let refund = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.predecessor_id().is_system())
+        .map(|receipt| match receipt.receipt() {
+            ReceiptEnum::Action(ActionReceipt { actions, .. })
+            | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => match actions.as_slice() {
+                [Action::Transfer(TransferAction { deposit })] => *deposit,
+                actions => panic!("expected a refund, got {actions:?}"),
+            },
+            receipt => panic!("expected a refund, got {receipt:?}"),
+        })
+        .fold(Balance::ZERO, |sum, refund| sum.checked_add(refund).unwrap());
+    (outcome, refund)
+}
+
+fn transfers(n: usize) -> impl Iterator<Item = Action> {
+    (0..n).map(|_| Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }))
+}
+
+/// A receipt that fails before its transfers execute is refunded them at the fee it was funded
+/// with, not at the increased fee.
+#[test]
+fn test_pin_receipt_fees_failed_receipt() {
+    // Alice can't delete a key of bob, so the transfers don't execute.
+    let delete_key = Action::DeleteKey(Box::new(DeleteKeyAction {
+        public_key: PublicKey::empty(KeyType::ED25519),
+    }));
+    let receipt = pinned_receipt(GAS_PRICE, once(delete_key).chain(transfers(10)).collect());
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    assert_matches!(increased.status, ExecutionStatus::Failure(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+}
+
+/// The executed transfers burn the gas of the fee the receipt was funded with, so that only the
+/// purchased gas is refunded the difference between the purchase and the burn price. Their
+/// compute is priced with the current fee.
+#[test]
+fn test_pin_receipt_fees_successful_receipt() {
+    let purchase_price = GAS_PRICE.checked_mul(2).unwrap();
+    let receipt = pinned_receipt(purchase_price, transfers(10).collect());
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+    assert!(increased.compute_usage.unwrap() > unchanged.compute_usage.unwrap());
+}
+
+/// The relayer of a meta transaction prepaid the static fees of the inner actions when its
+/// receipt was created. Its receipt forwards them at the fees of that version, and the receipt of
+/// the inner actions records the same creation version, so that it is priced with them too.
+#[test]
+fn test_pin_receipt_fees_delegate_action() {
+    let signer = InMemorySigner::test_signer(&alice_account());
+    let delegate_action = DelegateAction {
+        sender_id: alice_account(),
+        receiver_id: bob_account(),
+        actions: transfers(10).map(|action| NonDelegateAction::try_from(action).unwrap()).collect(),
+        nonce: 2,
+        max_block_height: 10000,
+        public_key: signer.public_key(),
+    };
+    let signed_delegate_action = Action::Delegate(Box::new(SignedDelegateAction {
+        signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
+        delegate_action,
+    }));
+    let mut receipt = pinned_receipt(GAS_PRICE, vec![signed_delegate_action]);
+    receipt.set_receiver_id(alice_account());
+
+    let apply = |factor| {
+        apply_with_transfer_fee_factor(
+            PINNED_EXECUTION_VERSION,
+            factor,
+            from_ref(&receipt),
+            |_| vec![],
+        )
+    };
+    let unchanged = apply(1);
+    let increased = apply(3);
+    assert_eq!(increased.outgoing_receipts, unchanged.outgoing_receipts);
+    let inner_receipt = increased
+        .outgoing_receipts
+        .iter()
+        .find(|receipt| receipt.receiver_id() == &bob_account())
+        .unwrap();
+    assert_matches!(
+        inner_receipt.receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            ..
+        })
+    );
+    let outcome = |apply_result: &ApplyResult| apply_result.outcomes[0].outcome.clone();
+    assert_matches!(outcome(&increased).status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcome(&increased).gas_burnt, outcome(&unchanged).gas_burnt);
+    assert_eq!(outcome(&increased).tokens_burnt, outcome(&unchanged).tokens_burnt);
+}
+
+/// A transaction is converted to a receipt that records the current version, from
+/// `PinReceiptFees` on.
+#[test]
+fn test_pin_receipt_fees_transaction_records_creation_version() {
+    let converted_receipt = |version| {
+        let apply_result = apply_with_transfer_fee_factor(version, 1, &[], |signers| {
+            vec![SignedTransaction::send_money(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signers[0],
+                Balance::from_yoctonear(1),
+                CryptoHash::default(),
+            )]
+        });
+        let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+            panic!("expected one receipt, got {:?}", apply_result.outgoing_receipts);
+        };
+        receipt.clone()
+    };
+    assert_matches!(
+        converted_receipt(PINNED_CREATION_VERSION - 1).receipt(),
+        ReceiptEnum::Action(_)
+    );
+    assert_matches!(
+        converted_receipt(PINNED_CREATION_VERSION).receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: PINNED_CREATION_VERSION,
+            ..
+        })
     );
 }

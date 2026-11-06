@@ -6,8 +6,8 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    EccCost, ecc_cost, exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance,
-    total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
+    EccCost, ecc_cost, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
+    total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::external_call::run_external_call;
@@ -38,7 +38,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
@@ -97,6 +97,7 @@ use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
+use receipt_runtime_configs::ReceiptRuntimeConfigs;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
@@ -128,6 +129,7 @@ pub mod metrics;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
+mod receipt_runtime_configs;
 pub mod state_viewer;
 #[cfg(test)]
 mod tests;
@@ -214,6 +216,10 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime configs of all protocol versions. Receipts created at an older protocol version
+    /// pay their static fees with the config of that version, see `ReceiptRuntimeConfigs`.
+    /// `config` must be its config of `current_protocol_version`.
+    pub config_store: Arc<RuntimeConfigStore>,
     /// If `Some`, the next epoch's `wasm_config` differs from the current one
     /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
     /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
@@ -606,6 +612,7 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
+        receipt_runtime_configs: &ReceiptRuntimeConfigs,
         promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
@@ -613,7 +620,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+        let exec_fees = receipt_runtime_configs.exec_fee(action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -821,6 +828,7 @@ impl Runtime {
                     account_id,
                     delete_account,
                     &apply_state.config,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
@@ -829,6 +837,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    receipt_runtime_configs,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -840,6 +849,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    receipt_runtime_configs,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -953,7 +963,8 @@ impl Runtime {
         let account_did_not_exist = account.is_none();
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionReceiptResult::new();
-        let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
+        let receipt_runtime_configs = ReceiptRuntimeConfigs::new(apply_state, &action_receipt);
+        let exec_fees = receipt_runtime_configs.new_action_receipt_exec_fee();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
@@ -1003,6 +1014,7 @@ impl Runtime {
                     &mut actor_id,
                     receipt,
                     &action_receipt,
+                    &receipt_runtime_configs,
                     Arc::clone(&promise_results),
                     &action_hash,
                     action_index,
@@ -1104,8 +1116,9 @@ impl Runtime {
                 receipt,
                 &action_receipt,
                 &mut result,
-                &apply_state.config,
+                &receipt_runtime_configs,
                 created_new_account,
+                apply_state.current_protocol_version,
             )?
         };
         stats.balance.gas_deficit_amount =
@@ -1194,6 +1207,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -1245,6 +1262,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 if new_receipt.is_instant_receipt() {
@@ -1304,6 +1323,12 @@ impl Runtime {
     ///
     /// In this configuration, gas price changes do not affect refunds, either.
     /// Thus, we only create refunds for unspent gas and for deposits.
+    ///
+    /// The refund is computed with the creation config of
+    /// `receipt_runtime_configs`, which priced the static fees of the receipt
+    /// when it was created. Then the prepaid gas is the gas purchased for the
+    /// receipt, and the refund never exceeds it. The refund receipts are
+    /// created at `current_protocol_version`.
     fn refund_unspent_gas_and_deposits(
         &self,
         gas_burn_price: Balance,
@@ -1311,9 +1336,11 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
         result: &mut ActionReceiptResult,
-        config: &RuntimeConfig,
+        receipt_runtime_configs: &ReceiptRuntimeConfigs,
         created_account: bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
+        let config = receipt_runtime_configs.creation_config();
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
             .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
@@ -1409,10 +1436,12 @@ impl Runtime {
         let gas_balance_refund = safe_add_balance(unused_gas_balance_refund, burned_gas_refund)?;
 
         if deposit_refund > Balance::ZERO {
-            result.new_receipts.push(Receipt::new_balance_refund(
+            let receipt = Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
-            ));
+                current_protocol_version,
+            );
+            result.new_receipts.push(receipt);
         }
         if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
@@ -1421,6 +1450,7 @@ impl Runtime {
                 &action_receipt.signer_id(),
                 gas_balance_refund,
                 action_receipt.signer_public_key().clone(),
+                current_protocol_version,
             ));
         }
 
@@ -2272,6 +2302,7 @@ impl Runtime {
                         pubkey.clone(),
                         result.receipt_gas_price,
                         tx.transaction.actions().to_vec(),
+                        processing_state.apply_state.current_protocol_version,
                     );
                     let outcome = ExecutionOutcomeWithId {
                         id: tx.get_hash(),
@@ -3565,7 +3596,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

@@ -12,7 +12,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -207,20 +207,17 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_action_receipt = ActionReceiptV2 {
-                    signer_id: action_receipt.signer_id().clone(),
-                    signer_public_key: action_receipt.signer_public_key().clone(),
-                    refund_to: receipt.refund_to,
-                    gas_price: action_receipt.gas_price(),
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                };
-                let new_receipt = if receipt.is_promise_yield {
-                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                } else {
-                    ReceiptEnum::ActionV2(new_action_receipt)
-                };
+                let new_receipt = ReceiptEnum::new_action_receipt_from_promise(
+                    apply_state.current_protocol_version,
+                    action_receipt.signer_id().clone(),
+                    receipt.refund_to,
+                    action_receipt.signer_public_key().clone(),
+                    action_receipt.gas_price(),
+                    receipt.output_data_receivers,
+                    receipt.input_data_ids,
+                    receipt.actions,
+                    receipt.is_promise_yield,
+                );
 
                 Receipt::V0(ReceiptV0 {
                     predecessor_id: account_id.clone(),

@@ -108,6 +108,11 @@ pub enum ProtocolFeature {
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
     /// including payment for new state)
     ContractCompilationStatus,
+    /// Price the static fees of an action receipt with the fees of the protocol version it was
+    /// created at, which new action receipts record, see
+    /// `ActionReceiptV3::creation_protocol_version`. Before this feature, a receipt created before
+    /// a fee increase and executed after it was refunded at the new fees, which minted tokens.
+    PinReceiptFees,
 }
 
 impl ProtocolFeature {
@@ -134,6 +139,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 89,
             ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
+            // Protects the fee increases after this version, such as `FixMlDsaCostCharging`.
+            ProtocolFeature::PinReceiptFees => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

@@ -1007,7 +1007,8 @@ fn assert_single_hop_resolves_across_reshard(
     // node 0's store (the single validator).
     let tx_outcome_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-tx");
     let child_receipt_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-child-receipt");
-    let child_receipt = Receipt::new_balance_refund(boundary_account, Balance::ZERO);
+    let child_receipt =
+        Receipt::new_balance_refund(boundary_account, Balance::ZERO, PROTOCOL_VERSION);
 
     let store = env.validator().store();
     let outcome_ids_key = get_block_shard_id(&block_hash_pre, parent_shard_id);
@@ -1175,7 +1176,8 @@ fn test_hint_multi_hop_resolves_across_resharding() {
     });
     // The queried child receipt only needs to decode — the hint scan reads it to
     // fill `receiver_account_id`; its predecessor is irrelevant to the walk.
-    let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
+    let child_receipt =
+        Receipt::new_balance_refund(&boundary_account, Balance::ZERO, PROTOCOL_VERSION);
 
     let store = env.validator().store();
 
@@ -1325,7 +1327,8 @@ fn test_hint_forward_gap() {
     // mirror of the backward test). Child shard has real outcome rows to append to.
     let tx_outcome_id = CryptoHash::hash_bytes(b"reshard-forward-gap-synthetic-tx");
     let child_receipt_id = CryptoHash::hash_bytes(b"reshard-forward-gap-synthetic-child-receipt");
-    let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
+    let child_receipt =
+        Receipt::new_balance_refund(&boundary_account, Balance::ZERO, PROTOCOL_VERSION);
 
     let store = env.validator().store();
     let outcome_ids_key = get_block_shard_id(&block_hash_anchor, child_shard_id);

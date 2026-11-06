@@ -85,6 +85,20 @@ too small, the transaction fails with a `NotEnoughGasKeyBalance` error. Gas
 refunds for such a transaction go back to the gas key balance. If the gas key
 no longer exists, they go to the account balance.
 
+Protocol upgrades can also change the static fees, the gas costs of creating a
+receipt and of executing its actions. A receipt's gas is purchased with the fees
+of the protocol version it is created at. Since `PinReceiptFees` (protocol
+version 89), action receipts record that version as `creation_protocol_version`,
+and the runtime charges and refunds their static fees with the fees of that
+version, also when they execute after a fee change. A receipt created by a
+contract records the version it was created at, since the contract paid its
+static fees with the fees of that version. The receipt of the inner actions of a
+meta transaction records the version of the relayer's receipt, which prepaid
+them. Only the compute costs of the fees, which limit the work done in a chunk,
+follow the current fees. Before `PinReceiptFees`, refunds were computed with the
+current fees, so a receipt that executed after a fee increase could be refunded
+gas it never purchased.
+
 #### Earlier gas pricing
 
 Gas is bought once at the beginning, but the gas price may change during

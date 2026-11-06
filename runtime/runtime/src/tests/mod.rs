@@ -1,6 +1,6 @@
 use crate::ApplyState;
 use near_crypto::Signer;
-use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
+use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::AccessKey;
 use near_primitives::action::{Action, AddKeyAction, CreateAccountAction, TransferAction};
 use near_primitives::hash::{CryptoHash, hash};
@@ -9,6 +9,7 @@ use near_primitives::test_utils::account_new;
 use near_primitives::types::{AccountId, Balance, Compute, Gas, MerkleHash, StateChangeCause};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, get_account, set_account};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use testlib::runtime_utils::bob_account;
 
@@ -72,6 +73,15 @@ fn create_receipt_for_create_account(
     })
 }
 
+/// Makes `config` the runtime config of every protocol version: the current config of
+/// `apply_state` and the only config of its config store, so that receipts created at any
+/// version are also priced with it.
+pub(crate) fn set_config(apply_state: &mut ApplyState, config: Arc<RuntimeConfig>) {
+    let configs = BTreeMap::from([(0, Arc::clone(&config))]);
+    apply_state.config_store = Arc::new(RuntimeConfigStore::new_custom(configs));
+    apply_state.config = config;
+}
+
 /// Sets the given gas and compute costs for sha256 in the runtime config.
 /// Sets the rest of the costs to free. Returns the sha256 cost.
 fn set_sha256_cost(
@@ -84,7 +94,7 @@ fn set_sha256_cost(
         ParameterCost { gas: Gas::from_gas(gas_cost), compute: Compute::from(compute_cost) };
     let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost;
-    apply_state.config = Arc::new(free_config);
+    set_config(apply_state, Arc::new(free_config));
     sha256_cost
 }
 

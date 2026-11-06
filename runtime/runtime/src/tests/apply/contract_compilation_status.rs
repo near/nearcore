@@ -23,7 +23,8 @@ fn setup() -> Fixture {
     );
     state.current_protocol_version = ProtocolFeature::ContractCompilationStatus.protocol_version();
     let configs = RuntimeConfigStore::new();
-    state.config = configs.get_config(state.current_protocol_version).clone();
+    let config = configs.get_config(state.current_protocol_version).clone();
+    set_config(&mut state, config);
     state.vm_generation = configs.vm_generation(state.current_protocol_version);
     Fixture { runtime, tries, root, state, signers, epochs }
 }

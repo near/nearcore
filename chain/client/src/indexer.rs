@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
 use near_primitives::utils::create_ecc_outcome_id;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
     ReceiptView, StateChangesView, TransactionEnvelopeView,
@@ -172,6 +172,7 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
             &runtime_config,
             gas_price,
+            protocol_version,
         )?;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
@@ -484,6 +485,7 @@ fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<Vec<ReceiptView>, FailedToFetchData> {
     let mut local_receipts = Vec::new();
     for indexer_tx in tx_iter {
@@ -526,6 +528,7 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             tx.public_key.clone(),
             cost.receipt_gas_price,
             vec![],
+            protocol_version,
         );
         let mut receipt_view: ReceiptView = receipt.into();
         let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {
