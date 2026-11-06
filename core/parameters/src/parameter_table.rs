@@ -459,6 +459,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 canonical_universal_state_init: params
                     .get(Parameter::CanonicalUniversalStateInit)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
+                fix_register_input_charging: params.get(Parameter::FixRegisterInputCharging)?,
                 ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
