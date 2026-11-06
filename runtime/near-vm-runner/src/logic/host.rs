@@ -2447,8 +2447,9 @@ pub fn sleep_nanos(_ctx: &mut HostCtx, _memory: &mut [u8], nanos: u64) -> Result
 /// # Cost
 ///
 /// This is a convenience function that encapsulates several costs:
-/// `burnt_gas := dispatch cost of the receipt + base dispatch cost of the data receipt`
-/// `used_gas := burnt_gas + exec cost of the receipt + base exec cost of the data receipt`
+/// `burnt_gas := dispatch cost of the receipt + (base dispatch cost + base exec cost of the data
+/// receipt) * num data dependencies`
+/// `used_gas := burnt_gas + exec cost of the receipt`
 /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
 /// pay for the content transmitted through the dependency upon the actual creation of the
 /// DataReceipt.
