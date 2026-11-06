@@ -3,7 +3,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use crate::utils::account::create_validator_id;
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
@@ -155,53 +155,54 @@ fn test_producer_sending_large_encoded_length_chunks() {
     let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
-    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
-        match request {
-            NetworkRequests::PartialEncodedChunkMessage {
+    env.network_rule(
+        0,
+        |request| matches!(request, NetworkRequests::PartialEncodedChunkMessage { .. }),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedChunkMessage {
                 account_id,
                 mut partial_encoded_chunk,
-            } => {
-                let header = partial_encoded_chunk.header;
+            } = request
+            else {
+                unreachable!("the rule matches partial chunk messages only");
+            };
+            let header = partial_encoded_chunk.header;
 
-                let epoch_id =
-                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
-                let chunk_producer_info = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        shard_id: header.shard_id(),
-                        epoch_id,
-                        height_created: header.height_created(),
-                    })
-                    .unwrap();
-                let signer = create_test_signer(chunk_producer_info.account_id().as_str());
-                let new_encoded_length = u64::MAX;
-                let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-                    *header.prev_block_hash(),
-                    header.prev_state_root(),
-                    *header.prev_outcome_root(),
-                    *header.encoded_merkle_root(),
-                    new_encoded_length,
-                    header.height_created(),
-                    header.shard_id(),
-                    header.prev_gas_used(),
-                    header.gas_limit(),
-                    header.prev_balance_burnt(),
-                    *header.prev_outgoing_receipts_root(),
-                    *header.tx_root(),
-                    header.prev_validator_proposals().collect(),
-                    header.congestion_info(),
-                    header.bandwidth_requests().unwrap().clone(),
-                    header.proposed_split().cloned(),
-                    &signer,
-                ));
-                partial_encoded_chunk.header = new_header;
-                HandlerResult::Unhandled(NetworkRequests::PartialEncodedChunkMessage {
-                    account_id,
-                    partial_encoded_chunk,
+            let epoch_id =
+                epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
+            let chunk_producer_info = epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    shard_id: header.shard_id(),
+                    epoch_id,
+                    height_created: header.height_created(),
                 })
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+                .unwrap();
+            let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+            let new_encoded_length = u64::MAX;
+            let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                *header.prev_block_hash(),
+                header.prev_state_root(),
+                *header.prev_outcome_root(),
+                *header.encoded_merkle_root(),
+                new_encoded_length,
+                header.height_created(),
+                header.shard_id(),
+                header.prev_gas_used(),
+                header.gas_limit(),
+                header.prev_balance_burnt(),
+                *header.prev_outgoing_receipts_root(),
+                *header.tx_root(),
+                header.prev_validator_proposals().collect(),
+                header.congestion_info(),
+                header.bandwidth_requests().unwrap().clone(),
+                header.proposed_split().cloned(),
+                &signer,
+            ));
+
+            partial_encoded_chunk.header = new_header;
+            vec![NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk }]
+        })),
+    );
 
     env.node_runner(0).run_for_number_of_blocks(10);
 }
@@ -233,56 +234,62 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
     let recipient_account = create_validator_id(1);
     let inflated_reached_recipient = Arc::new(AtomicBool::new(false));
     let inflated_reached_recipient_clone = Arc::clone(&inflated_reached_recipient);
-    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
-        match request {
-            NetworkRequests::PartialEncodedStateWitness(parts) => {
-                let inflated = parts
-                    .into_iter()
-                    .map(|(account_id, witness)| {
-                        let key = witness.chunk_production_key();
-                        let chunk_producer_info =
-                            epoch_manager.get_chunk_producer_info(&key).unwrap();
-                        let signer = create_test_signer(chunk_producer_info.account_id().as_str());
-                        let dummy_header = ShardChunkHeader::new_dummy(
-                            key.height_created,
-                            key.shard_id,
-                            CryptoHash::default(),
-                            PROTOCOL_VERSION,
-                        );
-                        let part_ord = witness.part_ord();
-                        let part = witness.into_part().into_vec();
-                        let new_witness = VersionedPartialEncodedStateWitness::new(
-                            key.epoch_id,
-                            dummy_header,
-                            CryptoHash::default(),
-                            part_ord,
-                            part,
-                            (MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize) + 1,
-                            &signer,
-                            PROTOCOL_VERSION,
-                        );
-                        if account_id == recipient_account {
-                            inflated_reached_recipient_clone.store(true, Ordering::Relaxed);
-                        }
-                        (account_id, new_witness)
-                    })
-                    .collect();
-                HandlerResult::Unhandled(NetworkRequests::PartialEncodedStateWitness(inflated))
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+    env.network_rule(
+        0,
+        |request| matches!(request, NetworkRequests::PartialEncodedStateWitness(..)),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedStateWitness(parts) = request else {
+                unreachable!("the rule matches witness parts only");
+            };
+            let inflated = parts
+                .into_iter()
+                .map(|(account_id, witness)| {
+                    let key = witness.chunk_production_key();
+                    let chunk_producer_info = epoch_manager.get_chunk_producer_info(&key).unwrap();
+                    let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+                    let dummy_header = ShardChunkHeader::new_dummy(
+                        key.height_created,
+                        key.shard_id,
+                        CryptoHash::default(),
+                        PROTOCOL_VERSION,
+                    );
+                    let part_ord = witness.part_ord();
+                    let part = witness.into_part().into_vec();
+                    let new_witness = VersionedPartialEncodedStateWitness::new(
+                        key.epoch_id,
+                        dummy_header,
+                        CryptoHash::default(),
+                        part_ord,
+                        part,
+                        (MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize) + 1,
+                        &signer,
+                        PROTOCOL_VERSION,
+                    );
+                    if account_id == recipient_account {
+                        inflated_reached_recipient_clone.store(true, Ordering::Relaxed);
+                    }
+                    (account_id, new_witness)
+                })
+                .collect();
+
+            vec![NetworkRequests::PartialEncodedStateWitness(inflated)]
+        })),
+    );
 
     let inflated_forward_seen = Arc::new(AtomicBool::new(false));
     let inflated_forward_seen_clone = Arc::clone(&inflated_forward_seen);
-    env.node_datas[1].register_override_handler(&mut env.test_loop.data, move |request| {
-        if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
+    env.network_rule(
+        1,
+        |request| matches!(request, NetworkRequests::PartialEncodedStateWitnessForward(..)),
+        Action::Observe(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = request else {
+                return;
+            };
             if witness.encoded_length() > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
                 inflated_forward_seen_clone.store(true, Ordering::Relaxed);
             }
-        }
-        HandlerResult::Unhandled(request)
-    });
+        })),
+    );
 
     env.node_runner(0).run_for_number_of_blocks(15);
 
@@ -314,41 +321,48 @@ fn test_partial_witness_foreign_part_not_forwarded() {
     let injected_parts: Arc<Mutex<HashSet<(ChunkProductionKey, usize)>>> =
         Arc::new(Mutex::new(HashSet::new()));
     let injected_parts_clone = Arc::clone(&injected_parts);
-    env.node_datas[0].register_override_handler(&mut env.test_loop.data, move |request| {
-        match request {
-            NetworkRequests::PartialEncodedStateWitness(mut parts) => {
-                let foreign_part = parts
-                    .iter()
-                    .find(|(account_id, _)| account_id != &recipient_account)
-                    .map(|(_, witness)| witness.clone());
-                if let Some(witness) = foreign_part {
-                    injected_parts_clone
-                        .lock()
-                        .insert((witness.chunk_production_key(), witness.part_ord()));
-                    parts.push((recipient_account.clone(), witness));
-                }
-                HandlerResult::Unhandled(NetworkRequests::PartialEncodedStateWitness(parts))
+    env.network_rule(
+        0,
+        |request| matches!(request, NetworkRequests::PartialEncodedStateWitness(..)),
+        Action::Replace(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedStateWitness(mut parts) = request else {
+                unreachable!("the rule matches witness parts only");
+            };
+            let foreign_part = parts
+                .iter()
+                .find(|(account_id, _)| account_id != &recipient_account)
+                .map(|(_, witness)| witness.clone());
+            if let Some(witness) = foreign_part {
+                injected_parts_clone
+                    .lock()
+                    .insert((witness.chunk_production_key(), witness.part_ord()));
+                parts.push((recipient_account.clone(), witness));
             }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+
+            vec![NetworkRequests::PartialEncodedStateWitness(parts)]
+        })),
+    );
 
     let foreign_forward_seen = Arc::new(AtomicBool::new(false));
     let foreign_forward_seen_clone = Arc::clone(&foreign_forward_seen);
     let own_forward_seen = Arc::new(AtomicBool::new(false));
     let own_forward_seen_clone = Arc::clone(&own_forward_seen);
     let injected_parts_watch = Arc::clone(&injected_parts);
-    env.node_datas[1].register_override_handler(&mut env.test_loop.data, move |request| {
-        if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
+    env.network_rule(
+        1,
+        |request| matches!(request, NetworkRequests::PartialEncodedStateWitnessForward(..)),
+        Action::Observe(Box::new(move |request| {
+            let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = request else {
+                return;
+            };
             let part = (witness.chunk_production_key(), witness.part_ord());
             if injected_parts_watch.lock().contains(&part) {
                 foreign_forward_seen_clone.store(true, Ordering::Relaxed);
             } else {
                 own_forward_seen_clone.store(true, Ordering::Relaxed);
             }
-        }
-        HandlerResult::Unhandled(request)
-    });
+        })),
+    );
 
     env.node_runner(0).run_for_number_of_blocks(15);
 

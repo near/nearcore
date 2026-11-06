@@ -64,7 +64,7 @@ fn test_ptq_p_max() {
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -103,7 +103,7 @@ fn test_ptq_nonce_constraint() {
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -156,7 +156,7 @@ fn test_ptq_accumulates_across_blocks() {
 
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -209,7 +209,7 @@ fn test_ptq_cleanup_on_certification() {
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
@@ -248,7 +248,7 @@ fn setup_gas_key_spice_env(
     num_nonces: NonceIndex,
     fund_amount: Balance,
 ) -> GasKeySpiceEnv {
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(account, Balance::from_near(1_000))
         .add_user_account(receiver, Balance::from_near(0))

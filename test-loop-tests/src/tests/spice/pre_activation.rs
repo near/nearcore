@@ -5,11 +5,9 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
-use crate::setup::state::NodeExecutionData;
+use crate::setup::network_rules::Action;
 use crate::utils::account::create_account_id;
 use near_async::messaging::CanSend as _;
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::activation::SpiceMessageKind;
 use near_client::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
@@ -144,29 +142,27 @@ struct SpiceTrafficCounter {
 }
 
 impl SpiceTrafficCounter {
-    /// Installs the counter on every node's peer manager.
-    fn install(env: &mut TestLoopEnv) -> Self {
+    /// Installs the counter on every node.
+    fn install(env: &TestLoopEnv) -> Self {
         let counter = Self::default();
-        for node in &env.node_datas {
-            counter.install_on(&mut env.test_loop.data, node);
+        for index in 0..env.node_datas.len() {
+            let counter = counter.clone();
+            env.network_rule(
+                index,
+                |_| true,
+                Action::Observe(Box::new(move |request| {
+                    counter.total.fetch_add(1, Ordering::Relaxed);
+                    if is_spice_request(request) {
+                        counter.spice.fetch_add(1, Ordering::Relaxed);
+                    }
+                })),
+            );
         }
         counter
     }
 
-    fn install_on(&self, data: &mut TestLoopData, node: &NodeExecutionData) {
-        let counter = self.clone();
-        node.register_override_handler(data, move |request| {
-            counter.total.fetch_add(1, Ordering::Relaxed);
-            if is_spice_request(&request) {
-                counter.spice.fetch_add(1, Ordering::Relaxed);
-            }
-            // Unhandled passes the request on to the real handler.
-            HandlerResult::Unhandled(request)
-        });
-    }
-
     /// Asserts no spice request was emitted. Also asserts the counter saw *some*
-    /// traffic, so that a handler that silently failed to install cannot pass.
+    /// traffic, so that a rule that silently failed to install cannot pass.
     fn assert_no_spice_traffic(&self) {
         assert!(
             self.total.load(Ordering::Relaxed) > 0,
@@ -240,9 +236,6 @@ fn test_pre_spice_chain_survives_node_restart() {
     // `restart_node` appends the new node rather than replacing the killed one, which
     // still holds an entry for the same account, so address the restarted node by index.
     let restarted_index = env.restart_node(&new_identifier, killed_node_state);
-    // It also builds a fresh peer manager, so re-install the counter on it.
-    let restarted = env.node_datas[restarted_index].clone();
-    traffic.install_on(&mut env.test_loop.data, &restarted);
 
     // Drive the restarted node until it has caught up to where the chain got while it
     // was down; `run_until_head_height` panics if it never does.

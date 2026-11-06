@@ -1,7 +1,8 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+#[cfg(feature = "test_features")]
+use crate::setup::network_rules::Action;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -220,36 +221,39 @@ fn test_optimistic_block_after_missing_block() {
 
 #[cfg(feature = "test_features")]
 fn alter_optimistic_block_at_height(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     height: BlockHeight,
     signer: Arc<ValidatorSigner>,
 ) {
     use near_primitives::optimistic_block;
 
-    for data in &env.node_datas {
-        data.register_override_handler(&mut env.test_loop.data, {
-            let validator_signer = signer.clone();
-            move |request: NetworkRequests| {
-                if let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
-                    &request
-                {
-                    if optimistic_block.height() == height {
-                        let altered_ob = optimistic_block::OptimisticBlock::alter(
-                            optimistic_block,
-                            &validator_signer,
-                            OptimisticBlockAdvType::InvalidTimestamp(
-                                optimistic_block.block_timestamp() - 15000000,
-                            ),
-                        );
-                        return HandlerResult::Unhandled(NetworkRequests::OptimisticBlock {
-                            chunk_producers: chunk_producers.clone(),
-                            optimistic_block: altered_ob,
-                        });
-                    }
+    for index in 0..env.node_datas.len() {
+        let validator_signer = signer.clone();
+        env.network_rule(
+            index,
+            move |request| {
+                matches!(request, NetworkRequests::OptimisticBlock { optimistic_block, .. }
+                    if optimistic_block.height() == height)
+            },
+            Action::Replace(Box::new(move |request| {
+                let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
+                    request
+                else {
+                    unreachable!("the rule matches optimistic blocks only");
                 };
-                HandlerResult::Unhandled(request)
-            }
-        });
+                let altered_ob = optimistic_block::OptimisticBlock::alter(
+                    &optimistic_block,
+                    &validator_signer,
+                    OptimisticBlockAdvType::InvalidTimestamp(
+                        optimistic_block.block_timestamp() - 15000000,
+                    ),
+                );
+                vec![NetworkRequests::OptimisticBlock {
+                    chunk_producers,
+                    optimistic_block: altered_ob,
+                }]
+            })),
+        );
     }
 }
 
