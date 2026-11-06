@@ -80,6 +80,22 @@ impl ShardSkip {
         self
     }
 
+    /// Whether the silence lasts the whole first spice epoch, however long that epoch takes.
+    pub fn silences_first_spice_epoch(&self) -> bool {
+        self.epochs == Epochs::FirstSpice
+    }
+
+    /// Whether the fault keeps shard `shard_index`'s chunk at `offset` from the boundary out,
+    /// the offsets counted as the other faults count them: `-1` is the last pre-spice block
+    /// and `0` the first spice block.
+    pub fn silences(&self, shard_index: usize, offset: i64, epoch_length: i64) -> bool {
+        shard_index == self.shard
+            && match self.epochs {
+                Epochs::PreSpice | Epochs::LastPreSpice => offset < 0,
+                Epochs::FirstSpice => (0..epoch_length).contains(&offset),
+            }
+    }
+
     fn shard_id(&self) -> ShardId {
         self.shard_id.expect("the shard id is read off the layout at built")
     }

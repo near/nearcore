@@ -21,6 +21,7 @@ use near_o11y::testonly::init_test_logger;
 use random::RandomSpec;
 use resolve::{Profile, conflicts_of};
 use scenario::{Fault, Scenario};
+use std::env;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 mod driver;
@@ -406,12 +407,28 @@ fn ultra_slow_test_spice_activation_matrix_pairwise_c() {
 
 /// Sampled scenarios from a fixed seed, run on request; the scenarios are logged before
 /// the first run and a failing one is printed, so a failure is reproduced as a preset of
-/// the same faults rather than by re-sampling.
+/// the same faults rather than by re-sampling. `SPICE_RANDOM_SEED` and
+/// `SPICE_RANDOM_MAX_FAULTS` pick another seed or fault count without editing the test, and
+/// `SPICE_RANDOM_ONLY` (comma separated indices) runs just those of the sampled scenarios.
 #[test]
 #[ignore]
 fn ultra_slow_test_spice_activation_matrix_random() {
     init_test_logger();
-    run_scenarios(RandomSpec::new(1).count(8).max_faults(3).sample());
+    let from_env = |name: &str, default: usize| {
+        env::var(name).ok().and_then(|value| value.parse().ok()).unwrap_or(default)
+    };
+    let seed = from_env("SPICE_RANDOM_SEED", 1) as u64;
+    let max_faults = from_env("SPICE_RANDOM_MAX_FAULTS", 3);
+    let mut scenarios = RandomSpec::new(seed).count(8).max_faults(max_faults).sample();
+    if let Ok(only) = env::var("SPICE_RANDOM_ONLY") {
+        let keep: Vec<usize> = only.split(',').filter_map(|index| index.parse().ok()).collect();
+        let mut index = 0;
+        scenarios.retain(|_| {
+            index += 1;
+            keep.contains(&(index - 1))
+        });
+    }
+    run_scenarios(scenarios);
 }
 
 /// SCENARIOS UNDER INVESTIGATION: each of these fails today on what looks like a product
@@ -448,6 +465,17 @@ fn under_investigation_presets() -> Vec<Scenario> {
         Scenario::new()
             .fault(ShardSkip::new().epochs(Epochs::LastPreSpice))
             .fault(ValidatorChurn::new()),
+        // With every contract-accesses message dropped, a validator asks one node for the
+        // contract code it lacks and nothing retries or asks another when that node is down
+        // (`TODO(spice-contract-distribution)` in `chunk_validator_actor.rs`), so the chunks
+        // that needed the code are never validated and the run stops certifying: "the
+        // terminal condition was not reached within 210 blocks, with 1 spice epochs still to
+        // leave". Crashing node 1 for one block is enough, at any height from -3 to 3 and for
+        // any downtime tried (1 and 4); crashing node 0 or node 2 instead does not stall, and
+        // neither does the crash without `drop_contract_accesses`.
+        Scenario::new()
+            .fault(DropContractAccesses::new())
+            .fault(NodeCrash::new().node(1).at(At::Height(2)).down(1)),
     ]
 }
 

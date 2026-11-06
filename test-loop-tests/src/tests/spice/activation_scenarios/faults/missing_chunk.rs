@@ -194,6 +194,25 @@ impl MissingChunk {
         self.how == How::Parts || offset >= 0
     }
 
+    /// The `(shard index, offset)` pairs a pattern asks to be present, for the resolver's
+    /// overlap checks.
+    pub fn present_offsets(&self, num_shards: usize) -> Vec<(usize, i64)> {
+        self.requested(num_shards)
+            .into_iter()
+            .flat_map(|(index, offsets)| {
+                offsets
+                    .into_iter()
+                    .filter(|(_, missing)| !*missing)
+                    .map(move |(offset, _)| (index, offset))
+            })
+            .collect()
+    }
+
+    /// Whether the fault names pre-spice heights by a pattern.
+    pub fn has_patterns(&self) -> bool {
+        !self.patterns.is_empty()
+    }
+
     /// The `(shard index, offset)` pairs this fault drops, for the resolver's overlap checks.
     pub fn dropped_offsets(&self, num_shards: usize) -> Vec<(usize, i64)> {
         self.requested(num_shards)

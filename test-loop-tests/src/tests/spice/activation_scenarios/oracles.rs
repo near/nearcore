@@ -536,6 +536,9 @@ fn check_stateless_endorsers(
         .get_execution_results_by_shard_id(last_pre_spice.header())
         .map_err(|err| format!("the certified results are unavailable: {err}"))?;
 
+    // A restarted node has a new index and the same account, so it is excluded by account.
+    let excluded_accounts: HashSet<&AccountId> =
+        excluded.iter().map(|index| &env.node_datas[*index].account_id).collect();
     for shard_id in shard_layout.shard_ids() {
         let certified = certified
             .get(&shard_id)
@@ -543,7 +546,7 @@ fn check_stateless_endorsers(
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let mut stateless_endorsers = Vec::new();
         for (index, data) in env.node_datas.iter().enumerate() {
-            if !env.is_alive(index) || excluded.contains(&index) {
+            if !env.is_alive(index) || excluded_accounts.contains(&data.account_id) {
                 continue;
             }
             let applied_locally = env

@@ -89,6 +89,11 @@ impl BadFirstSpiceBlock {
         }
     }
 
+    /// Whether the rewrite gives the last pre-spice block a spice header.
+    pub fn is_spice_header_pre_spice(&self) -> bool {
+        self.mode == Mode::SpiceHeaderPreSpice
+    }
+
     pub fn mode(mut self, mode: Mode) -> Self {
         self.mode = mode;
         self

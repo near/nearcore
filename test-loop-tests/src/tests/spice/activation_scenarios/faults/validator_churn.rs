@@ -63,6 +63,11 @@ impl ValidatorChurn {
         self
     }
 
+    /// Whether a chunk-only validator takes the leaver's place as a producer, as no joiner does.
+    pub fn promotes_a_chunk_only_validator(&self) -> bool {
+        self.leaves() && !self.joins()
+    }
+
     fn joins(&self) -> bool {
         self.kind != Kind::Leave
     }

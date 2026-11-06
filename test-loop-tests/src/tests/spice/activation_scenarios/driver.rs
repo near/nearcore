@@ -40,6 +40,9 @@ const TICK_TIMEOUT: Duration = Duration::seconds(120);
 /// How long certification may take to catch up with the head at `done`, in test-loop
 /// time; a slow catch-up the chain waits on can put it far behind.
 const CERTIFICATION_TIMEOUT: Duration = Duration::seconds(600);
+/// How long the driver's node may take to execute up to the terminal height, in test-loop
+/// time. Execution trails the head under spice, and the view queries read the executed state.
+const EXECUTION_TIMEOUT: Duration = Duration::seconds(600);
 /// How long the first full epoch may take, in test-loop time, before the run's own
 /// `warmed_up` at the start of the second.
 const WARMUP_TIMEOUT: Duration = Duration::seconds(120);
@@ -426,6 +429,26 @@ impl Driver {
             panic!(
                 "certification did not catch up with the head at height {terminal_height} \
                  within {CERTIFICATION_TIMEOUT} of test-loop time\n{}",
+                self.describe_setup(),
+            );
+        }
+        // The driver's node executes asynchronously, and its executed head can trail the
+        // height it certified by a few epochs' worth of blocks; the queries the oracles make
+        // at a height need that block executed.
+        let executed = env.rpc_runner().try_run_until(
+            |node| {
+                node.client()
+                    .chain
+                    .chain_store
+                    .spice_final_execution_head()
+                    .map_or(false, |tip| tip.height >= terminal_height)
+            },
+            EXECUTION_TIMEOUT,
+        );
+        if executed.is_err() {
+            panic!(
+                "the driver's node did not execute up to the terminal height {terminal_height} \
+                 within {EXECUTION_TIMEOUT} of test-loop time\n{}",
                 self.describe_setup(),
             );
         }

@@ -16,6 +16,8 @@ const DEFAULT_TASK: &str = task_names::SPICE_STATELESS_VALIDATION;
 const DEFAULT_DELAY_MS: u64 = 2000;
 const DEFAULT_START: WindowStart = WindowStart::Offset(-3);
 const DEFAULT_END: WindowEnd = WindowEnd::Offset(3);
+/// How many heights past its end a window that has not caught a task yet stays open.
+const MAX_EXTENSION: i64 = 8;
 
 /// The spawner task `task` on `node` takes `delay` between `start` and `end`, through the
 /// env's task delays: added at `start`, lifted at `end`, and the fired check reads how many
@@ -200,8 +202,14 @@ impl Fault for SlowNode {
                 }
                 // At or past the end: the block at the end offset may not exist, and a
                 // window that stayed open would hide every gap after it.
+                // The task it slows runs after the execution that feeds it, so a window that
+                // has not caught one yet stays open, for a bounded while, until it has.
                 if let WindowEnd::Offset(end) = self.end {
-                    if *offset >= end && self.is_open() {
+                    let caught = self.handle.as_ref().is_some_and(|handle| handle.matched() > 0);
+                    if *offset >= end
+                        && self.is_open()
+                        && (caught || *offset >= end + MAX_EXTENSION)
+                    {
                         self.close(env);
                     }
                 }

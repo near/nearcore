@@ -175,6 +175,13 @@ impl Fault for PartialDataFault {
 
     fn validate(&self, resolved: Resolved) -> Result<(), String> {
         let profile = resolved.profile;
+        if self.from == Producers::All && self.kind == Kind::Equivocate {
+            return Err(
+                "equivocate from every producer binds each of them to the conflicting commitment \
+                 it sends first, so no producer's data decodes and nothing certifies"
+                    .to_string(),
+            );
+        }
         if self.from == Producers::All && matches!(self.kind, Kind::Drop | Kind::Corrupt) {
             return Err(format!(
                 "{:?} from every producer leaves no copy of the data anywhere, so nothing \

@@ -1,8 +1,8 @@
 //! Profile choice and the conflict list: turns a scenario into the setup it runs on.
 
 use super::faults::{
-    BadBoundaryWitness, DataBeforeBlock, ForkAtBoundary, LateChunk, MissingChunk, NodeCrash,
-    SlowNode,
+    BadBoundaryWitness, BadFirstSpiceBlock, DataBeforeBlock, ForkAtBoundary, LateChunk,
+    MissingChunk, NodeCrash, ShardSkip, SlowNode, ValidatorChurn,
 };
 use super::loads;
 use super::scenario::{Fault as _, Scenario};
@@ -497,6 +497,91 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
         .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
         .flat_map(|fault| fault.dropped_offsets(profile.num_shards()))
         .collect();
+    // A chunk of a silenced shard is absent whatever else happens to it, so a delay of it
+    // shows nothing and the delayed chunk is not there to arrive late.
+    let epoch_length = profile.epoch_length() as i64;
+    for skip in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<ShardSkip>()) {
+        for late in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<LateChunk>()) {
+            let (shard, offset) = late.delayed_offset();
+            if skip.silences(shard, offset, epoch_length) {
+                errors.push(format!(
+                    "late_chunk with shard_skip: shard {shard}'s chunk at offset {offset} is \
+                     silenced, so it cannot arrive late"
+                ));
+            }
+        }
+    }
+    // The leaver's producer slot goes to a chunk-only validator when nobody joins, and the
+    // chunk-only validators are the late trackers, whose catch-up the fault slows: as a
+    // producer one of them skips its slots while it catches up.
+    if has("late_tracker")
+        && faults
+            .iter()
+            .filter_map(|fault| fault.as_any().downcast_ref::<ValidatorChurn>())
+            .any(ValidatorChurn::promotes_a_chunk_only_validator)
+    {
+        errors.push(
+            "late_tracker with validator_churn leaving and nobody joining: a late tracker \
+             becomes a block producer and skips its slots while it catches up"
+                .to_string(),
+        );
+    }
+    // The late trackers stretch the first spice epoch, since an epoch cannot end before its
+    // first block certifies and the certification waits on their endorsements, and a silence
+    // that lasts the whole epoch then outlasts the transactions' validity period: the
+    // silenced shard's senders' transactions expire unincluded.
+    if has("late_tracker")
+        && faults
+            .iter()
+            .filter_map(|fault| fault.as_any().downcast_ref::<ShardSkip>())
+            .any(ShardSkip::silences_first_spice_epoch)
+    {
+        errors.push(
+            "late_tracker with shard_skip over the first spice epoch: the late trackers \
+             stretch that epoch far past the transactions' validity period, so the silenced \
+             shard's senders' transactions expire"
+                .to_string(),
+        );
+    }
+    // A spice header on the last pre-spice block moves the first spice block, and the offsets
+    // from `1` up, measured against the estimate, then land on the heights the first spice
+    // block's offset `0` lands on, where the chunk producer can be the block producer, whose
+    // chunk dropping parts cannot keep out.
+    if faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<BadFirstSpiceBlock>())
+        .any(BadFirstSpiceBlock::is_spice_header_pre_spice)
+        && (dropped.iter().any(|(_, offset)| *offset >= 1)
+            || faults
+                .iter()
+                .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
+                .any(MissingChunk::has_patterns))
+    {
+        errors.push(
+            "missing_chunk with bad_first_spice_block in spice_header_pre_spice mode: the \
+             boundary moves, so a pattern over the pre-spice heights lands on the wrong \
+             blocks and the chunks dropped from offset 1 up can be their block producer's \
+             own, which dropping parts cannot keep out"
+                .to_string(),
+        );
+    }
+    // The delayed chunk, still included, shifts the timing so that the crashed node is a block
+    // past the last pre-spice block when the driver finds it, and cannot be killed there.
+    if faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<LateChunk>())
+        .any(LateChunk::arrives_included)
+        && faults
+            .iter()
+            .filter_map(|fault| fault.as_any().downcast_ref::<NodeCrash>())
+            .any(NodeCrash::kills_at_last_pre_spice)
+    {
+        errors.push(
+            "late_chunk arriving included with node_crash at the last pre-spice block: the \
+             crashed node is already past that block when the driver finds it"
+                .to_string(),
+        );
+    }
     // The post state and implicit transition modes change a boundary witness only when
     // it carries an implicit transition, which it does when the boundary block lacks the
     // shard's chunk.
@@ -508,6 +593,22 @@ fn conflicts(scenario: &Scenario, resolved: Resolved) -> Vec<String> {
             errors.push(format!(
                 "{witness:?}: the mode changes a boundary witness only when the boundary block \
                  lacks the shard's chunk; add missing_chunk at offset -1"
+            ));
+        }
+    }
+    // A delayed chunk that does not arrive in time is missing, so it cannot be one a pattern
+    // asks to be present.
+    let present: Vec<(usize, i64)> = faults
+        .iter()
+        .filter_map(|fault| fault.as_any().downcast_ref::<MissingChunk>())
+        .flat_map(|fault| fault.present_offsets(profile.num_shards()))
+        .collect();
+    for late in faults.iter().filter_map(|fault| fault.as_any().downcast_ref::<LateChunk>()) {
+        let (shard, offset) = late.delayed_offset();
+        if !late.arrives_included() && present.contains(&(shard, offset)) {
+            errors.push(format!(
+                "late_chunk with missing_chunk: shard {shard}'s chunk at offset {offset} is \
+                 delayed past the block producer's wait, but a pattern asks for it to be present"
             ));
         }
     }

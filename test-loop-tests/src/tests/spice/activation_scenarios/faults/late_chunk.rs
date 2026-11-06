@@ -126,6 +126,11 @@ impl LateChunk {
         self
     }
 
+    /// Whether the chunk arrives in time to be included, only late.
+    pub fn arrives_included(&self) -> bool {
+        self.outcome == Outcome::Included
+    }
+
     /// The `(shard index, offset)` pair this fault delays, for the resolver's overlap checks.
     pub fn delayed_offset(&self) -> (usize, i64) {
         (self.shard, self.at)

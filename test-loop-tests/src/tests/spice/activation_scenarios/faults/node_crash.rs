@@ -12,8 +12,9 @@ use crate::setup::state::NodeSetupState;
 use crate::utils::gaps::forwarding_dead_ends;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use std::any::Any;
+use std::collections::HashSet;
 use std::fmt::{self, Debug, Formatter};
 
 /// When the node is killed.
@@ -129,6 +130,11 @@ impl NodeCrash {
         self
     }
 
+    /// Whether the node is killed when its head is the last pre-spice block.
+    pub fn kills_at_last_pre_spice(&self) -> bool {
+        self.at == At::LastPreSpice
+    }
+
     pub fn target(&self) -> usize {
         self.node
     }
@@ -183,7 +189,27 @@ impl NodeCrash {
             producer_outage_relaxations(env, self.account_id(), killed_at + 1, self.restarted_at);
         let node = env.rpc_node();
         let unavailable = killed_at..self.caught_up_at.unwrap_or(node.head().height + 1);
-        let lost = forwarding_dead_ends(&node, self.account_id(), unavailable);
+        let mut lost = forwarding_dead_ends(&node, self.account_id(), unavailable.clone());
+        // The shards whose chunks the crashed producer missed. While it was down, and until
+        // it had caught up, the other producers' pools diverged from its own: a transaction
+        // of an account there can be rejected by the restarted node as from a fork it does
+        // not know, and the later nonces it accepts are then included first, which leaves
+        // the earlier nonces stale in the live producers' pools, where they are dropped
+        // unincluded, as under `shard_skip`. So every transaction submitted in that window
+        // for those shards can be lost, not only those the routing sent to the account alone.
+        let missed_shards: HashSet<ShardId> = self
+            .relaxations
+            .iter()
+            .filter(|relaxation| relaxation.oracle == OracleId::ChunkCompleteness)
+            .filter_map(|relaxation| match &relaxation.narrowing {
+                Narrowing::ShardHeights(pairs) => Some(pairs),
+                _ => None,
+            })
+            .flat_map(|pairs| pairs.iter().map(|(shard_id, _)| *shard_id))
+            .collect();
+        for shard_id in &missed_shards {
+            lost.extend(unavailable.clone().map(|height| (*shard_id, height)));
+        }
         tracing::info!(
             target: "test",
             killed_at,
@@ -195,6 +221,10 @@ impl NodeCrash {
         self.relaxations.push(Relaxation {
             oracle: OracleId::ExactlyOnce,
             narrowing: Narrowing::ShardHeights(lost),
+        });
+        self.relaxations.push(Relaxation {
+            oracle: OracleId::ExactlyOnce,
+            narrowing: Narrowing::Shards(missed_shards),
         });
     }
 }
@@ -246,9 +276,17 @@ impl Fault for NodeCrash {
         self
     }
 
-    fn validate(&self, _resolved: Resolved) -> Result<(), String> {
+    fn validate(&self, resolved: Resolved) -> Result<(), String> {
         if self.down == 0 {
             return Err("down must be at least 1 block".to_string());
+        }
+        if self.at == At::BoundaryPending && resolved.profile.is_chunk_only_validator(self.node) {
+            return Err(format!(
+                "at=boundary_pending: node {} is a chunk-only validator, which executes no \
+                 chunk, so the window of a spice head over a pre-spice execution head never \
+                 comes for it",
+                self.node,
+            ));
         }
         Ok(())
     }
