@@ -12,8 +12,20 @@ pub(super) struct ChainHeights {
 }
 
 impl ChainHeights {
-    pub(super) fn update_final_execution_head(&mut self, height: BlockHeight) {
-        self.final_execution_head = self.final_execution_head.max(Some(height));
+    /// Updates the final execution head to `height` and returns the lower bound of the heights to
+    /// look at again: the ones newly at or below it, and the previous head's, where an item can be
+    /// kept only while it is at the head. `None` if it did not rise.
+    pub(super) fn update_final_execution_head(
+        &mut self,
+        height: BlockHeight,
+    ) -> Option<Bound<BlockHeight>> {
+        let from = match self.final_execution_head {
+            Some(head) if head >= height => return None,
+            Some(head) => Bound::Included(head),
+            None => Bound::Unbounded,
+        };
+        self.final_execution_head = Some(height);
+        Some(from)
     }
 
     /// Updates the final head to `height` and returns the lower bound of the heights newly at
