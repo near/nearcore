@@ -147,6 +147,18 @@ impl CloudArchivalRecentReader {
         let mut reader_head = self.ensure_reader_head()?;
         self.check_state_anchors(&reader_head)?;
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
+        // The pull below logs a gap only where it begins, so a gap that starts at the head is
+        // logged here.
+        if !self
+            .store
+            .exists(DBCol::EpochInfoAggregators, reader_head.last_present_block_hash.as_ref())
+        {
+            tracing::warn!(
+                target: "cloud_archival",
+                block_hash = %reader_head.last_present_block_hash,
+                "validators endpoint data not available until the next epoch start"
+            );
+        }
 
         while !self.interrupt.is_cancelled() {
             let sleep_duration = match self.try_pull_next_batch(&reader_head).await {
