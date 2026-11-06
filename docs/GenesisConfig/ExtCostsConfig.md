@@ -266,7 +266,7 @@ Cost for calling promise_and
 
 `type: Gas`
 
-Cost for calling promise_and for each promise
+Cost for calling promise_and for each byte of the promise index array (8 bytes per promise)
 
 ### promise_return
 
