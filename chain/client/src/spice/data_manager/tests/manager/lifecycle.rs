@@ -77,19 +77,22 @@ fn track_block_skips_items_already_on_disk() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
-    let (chain, blocks) = chain_with_blocks(2);
+fn blocks_below_the_final_execution_head_are_not_tracked() {
+    let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
 
-    // Height 1 is finally executed: neither the processed block nor a later track adds it.
+    // Height 1 is below the head: neither the processed block nor a later track adds it. The head's
+    // own block is tracked: the block applying its proofs is above the head.
     let requests = manager.on_block_processed(&blocks[0]);
-    manager.track_block(&blocks[0]);
-    manager.track_block(&blocks[1]);
+    for block in &blocks {
+        manager.track_block(block);
+    }
 
     assert_eq!(requests, vec![]);
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
 }
 
 #[test]
@@ -105,7 +108,7 @@ fn a_processed_block_tracks_its_items() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
+fn a_processed_block_expires_the_items_below_the_final_execution_head() {
     let (chain, all_blocks) = chain_with_blocks(4);
     // Heights 2, 3, 4.
     let blocks = &all_blocks[1..];
@@ -118,11 +121,11 @@ fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
     manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
     assert_eq!(
         manager.manager.items_by_height.keys().copied().collect_vec(),
-        vec![blocks[2].header().height()],
+        vec![blocks[1].header().height(), blocks[2].header().height()],
     );
 }
 
@@ -151,7 +154,11 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     for id in &fork_ids {
         assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
     }
-    assert!(manager.manager.items_by_height.is_empty());
+    // Only the head's own block is left: the block applying its proofs is above the head.
+    assert_eq!(
+        manager.manager.items_by_height.keys().copied().collect_vec(),
+        vec![canonical_at_4.header().height()],
+    );
 }
 
 /// The fork at height 3 is certified by its own child, so it takes the only window slot
@@ -287,7 +294,7 @@ fn expiry_drops_the_expired_items_from_every_index() {
     manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
     manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     manager.assert_forgotten(&expired);
@@ -611,7 +618,7 @@ fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
 /// The final execution head waits only on the shards tracked in its epoch, so a proof into a shard
 /// caught up for the next epoch is kept at or below that head until the head leaves the epoch of
 /// the block applying it, or until it is done. A proof into a shard tracked in that epoch is past
-/// once the head is at its block.
+/// once the head is past its block.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn spice_catchup_keeps_proofs_into_the_caught_up_shard_below_the_final_execution_head() {
@@ -657,13 +664,15 @@ fn spice_catchup_keeps_proofs_into_the_caught_up_shard_below_the_final_execution
     manager.set_final_execution_head(before_sync);
     manager.on_block_processed(before_sync);
     assert!(manager.is_tracking(&receipt_id(before_sync, SHARD_2, SHARD_1)));
-    assert!(!manager.is_tracking(&receipt_id(before_sync, SHARD_2, SHARD_0)));
+    assert!(manager.is_tracking(&receipt_id(before_sync, SHARD_2, SHARD_0)));
     manager.track_block(after_sync);
 
     // Past them in the sync block's epoch, the head expires only the proofs into shard 0.
     manager.set_final_execution_head(&blocks[sync_height + 2]);
     manager.on_block_processed(&blocks[sync_height + 3]);
-    assert!(!manager.is_tracking(&receipt_id(after_sync, SHARD_2, SHARD_0)));
+    for block in [before_sync, after_sync] {
+        assert!(!manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_0)));
+    }
     for block in [before_sync, after_sync] {
         assert!(manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_1)));
     }
