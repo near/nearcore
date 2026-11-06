@@ -591,3 +591,103 @@ fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         );
     }
 }
+
+/// The final execution head waits only on the shards tracked in its epoch, so a proof into a shard
+/// caught up for the next epoch is kept at or below that head until the head leaves the epoch of
+/// the block applying it, or until it is done. A proof into a shard tracked in that epoch is past
+/// once the head is at its block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn spice_catchup_keeps_proofs_into_the_caught_up_shard_below_the_final_execution_head() {
+    const SHARD_0: u64 = 0;
+    const SHARD_1: u64 = 1;
+    const SHARD_2: u64 = 2;
+
+    let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=(3 * chain.epoch_length - 1) {
+        let block = record_block_at(&mut chain, blocks.last().unwrap(), height);
+        blocks.push(block);
+    }
+    let epoch_starts: Vec<usize> = (2..blocks.len())
+        .filter(|&height| {
+            chain
+                .epoch_manager
+                .is_next_block_epoch_start(blocks[height].header().prev_hash())
+                .unwrap()
+        })
+        .collect();
+    let [sync_height, next_epoch_start, ..] = epoch_starts[..] else {
+        panic!("the chain crosses two epoch boundaries");
+    };
+    assert!(next_epoch_start + 1 < blocks.len(), "the chain extends past the next epoch's start");
+
+    let schedule = vec![
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0), ShardId::new(SHARD_1)],
+    ];
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::Schedule(schedule),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+    let mut manager =
+        TestManager::with_shard_tracker(&chain, shard_tracker.clone(), PullConfig::default());
+    let before_sync = &blocks[sync_height - 1];
+    let after_sync = &blocks[sync_height + 1];
+
+    // At the head, the block applying a proof is above it: the sync block here.
+    manager.set_final_execution_head(before_sync);
+    manager.on_block_processed(before_sync);
+    assert!(manager.is_tracking(&receipt_id(before_sync, SHARD_2, SHARD_1)));
+    assert!(!manager.is_tracking(&receipt_id(before_sync, SHARD_2, SHARD_0)));
+    manager.track_block(after_sync);
+
+    // Past them in the sync block's epoch, the head expires only the proofs into shard 0.
+    manager.set_final_execution_head(&blocks[sync_height + 2]);
+    manager.on_block_processed(&blocks[sync_height + 3]);
+    assert!(!manager.is_tracking(&receipt_id(after_sync, SHARD_2, SHARD_0)));
+    for block in [before_sync, after_sync] {
+        assert!(manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_1)));
+    }
+
+    // A block below the head, as startup hands it over again, tracks only those as well.
+    let mut restarted =
+        TestManager::with_shard_tracker(&chain, shard_tracker, PullConfig::default());
+    restarted.track_block(after_sync);
+    assert!(restarted.is_tracking(&receipt_id(after_sync, SHARD_2, SHARD_1)));
+    assert!(!restarted.is_tracking(&receipt_id(after_sync, SHARD_2, SHARD_0)));
+
+    // Once done, a proof kept below the head is dropped.
+    let done = receipt_id(after_sync, SHARD_1, SHARD_1);
+    let producer = manager.item(&done).producers[0].account_id.clone();
+    manager.deliver(&producer, &done, &receipt_data(SHARD_1, SHARD_1));
+    save_proof(&chain, after_sync, &receipt_data(SHARD_1, SHARD_1));
+    manager.on_block_processed(&blocks[sync_height + 4]);
+    manager.assert_forgotten(&done);
+
+    // Once the head leaves the epoch, the rest is past.
+    manager.set_final_execution_head(&blocks[next_epoch_start]);
+    manager.on_block_processed(&blocks[next_epoch_start + 1]);
+    for block in [before_sync, after_sync] {
+        assert!(!manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_1)));
+    }
+}
+
+/// Saves and records a block at `height` on `prev` with the epoch ids the epoch manager expects,
+/// without processing it, so that the chain can cross an epoch boundary.
+fn record_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
+    let epoch_manager = chain.epoch_manager.clone();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let producer = epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
+    let signer = Arc::new(create_test_signer(producer.account_id().as_str()));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev, signer)
+        .height(height)
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
+        .build();
+    save_and_record_block(chain, &block);
+    block
+}
