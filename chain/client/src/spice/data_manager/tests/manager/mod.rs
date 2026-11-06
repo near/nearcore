@@ -268,8 +268,13 @@ fn needed_receipt_ids(
     shard_tracker: &ShardTracker,
     block: &Block,
 ) -> HashSet<DataId> {
-    receipt_proof::needed_items(chain.epoch_manager.as_ref(), shard_tracker, block.header())
-        .unwrap()
-        .into_iter()
-        .collect()
+    receipt_proof::needed_items(
+        &chain.chain_store().chain_store(),
+        chain.epoch_manager.as_ref(),
+        shard_tracker,
+        block.header(),
+    )
+    .unwrap()
+    .into_iter()
+    .collect()
 }
