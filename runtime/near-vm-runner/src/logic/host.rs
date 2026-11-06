@@ -1925,14 +1925,15 @@ pub fn ripemd160(
 ///
 /// # Errors
 ///
-/// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
+/// * If `hash_ptr` or `sig_ptr` point outside the memory or the registers use more
 ///   memory than the limit, then returns `MemoryAccessViolation`.
 /// * If the signature is not 64 bytes, the hash is not 32 bytes, `v` is above 3 or
 ///   `malleability_flag` is not 0 or 1, returns `ECRecoverError`.
 ///
 /// # Cost
 ///
-/// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
+/// `read_memory_base * 2 + read_memory_byte * 96 + write_register_base + write_register_byte * 64 +
+/// ecrecover_base`, with the register write charged only on success.
 pub fn ecrecover(
     ctx: &mut HostCtx,
     memory: &mut [u8],
