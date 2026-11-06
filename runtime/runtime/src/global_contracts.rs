@@ -1,8 +1,8 @@
 use crate::actions::OrInconsistentState;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::congestion_control::ReceiptSink;
-use crate::contract_compilation_status::record_contract_compilation;
-use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
+use crate::contract_compilation_status::try_admit_contract_compilation;
+use crate::{ActionResult, ApplyState, ProcessingResult, clear_account_contract_storage_usage};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
@@ -18,7 +18,7 @@ use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
-use near_store::{StorageError, TrieAccess as _, TrieUpdate};
+use near_store::{ContractCompilationAdmission, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -116,7 +116,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
     receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
-) -> Result<Compute, RuntimeError> {
+) -> Result<ProcessingResult<Compute>, RuntimeError> {
     let _span = tracing::debug_span!(
         target: "runtime",
         "apply_global_contract_distribution_receipt",
@@ -128,6 +128,13 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     };
     let compute =
         apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
+    let compute = match compute {
+        ProcessingResult::Processed(compute) => compute,
+        ProcessingResult::Deferred => {
+            state_update.rollback();
+            return Ok(ProcessingResult::Deferred);
+        }
+    };
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -138,7 +145,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         receipt_to_tx,
     )?;
 
-    Ok(compute)
+    Ok(ProcessingResult::Processed(compute))
 }
 
 fn initiate_distribution(
@@ -194,7 +201,7 @@ fn apply_distribution_current_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
-) -> Result<Compute, RuntimeError> {
+) -> Result<ProcessingResult<Compute>, RuntimeError> {
     let identifier = match &global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => GlobalContractCodeIdentifier::CodeHash(*hash),
         GlobalContractIdentifier::AccountId(account_id) => {
@@ -204,7 +211,26 @@ fn apply_distribution_current_shard(
 
     let is_nonce_fresh = check_and_update_nonce(global_contract_data, &identifier, state_update)?;
     if !is_nonce_fresh {
-        return Ok(0);
+        return Ok(ProcessingResult::Processed(0));
+    }
+
+    let code_hash = match global_contract_data.id() {
+        GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
+        GlobalContractIdentifier::AccountId(_) => None,
+    };
+    let code = ContractCode::new(global_contract_data.code().to_vec(), code_hash);
+    // A distribution receipt has its own admission before mutating distribution
+    // state: unlike an action receipt, this check is the receipt's preflight.
+    if ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version)
+        && try_admit_contract_compilation(
+            state_update,
+            apply_state,
+            *code.hash(),
+            global_contract_data.code().len() as u64,
+        )? == ContractCompilationAdmission::Deferred
+    {
+        // No compilation or distribution work has been performed yet.
+        return Ok(ProcessingResult::Deferred);
     }
 
     let config = apply_state.config.wasm_config.clone();
@@ -213,10 +239,6 @@ fn apply_distribution_current_shard(
     state_update.set(trie_key, global_contract_data.code().to_vec());
 
     // Record the deploy so a same-chunk call can find the code without a warm cache.
-    let code_hash = match global_contract_data.id() {
-        GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
-        GlobalContractIdentifier::AccountId(_) => None,
-    };
     if ProtocolFeature::GlobalContractSameChunkCallFix.enabled(apply_state.current_protocol_version)
     {
         state_update.record_global_contract_deploy(ContractCode::new(
@@ -226,17 +248,12 @@ fn apply_distribution_current_shard(
     }
 
     state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
-
-    let code = ContractCode::new(global_contract_data.code().to_vec(), code_hash);
     precompile_contract_with_warming(
         &code,
         config,
         apply_state.next_wasm_config.clone(),
         apply_state.cache.as_deref(),
     );
-    if ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version) {
-        record_contract_compilation(state_update, apply_state, *code.hash(), code_len)?;
-    }
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
     let fees = &apply_state.config.fees;
     let per_byte_total = fees
@@ -247,7 +264,7 @@ fn apply_distribution_current_shard(
         .deploy_global_contract_execution_base
         .checked_add(per_byte_total)
         .ok_or(IntegerOverflowError)?;
-    Ok(compute)
+    Ok(ProcessingResult::Processed(compute))
 }
 
 // Checks if the incoming nonce is fresh and updates the stored nonce. Returns
