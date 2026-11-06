@@ -8,7 +8,6 @@ use near_primitives::receipt::VersionedActionReceipt;
 use near_primitives::transaction::Action;
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolVersion;
-use std::sync::Arc;
 
 /// The information about the runtime configs of a receipt at two important
 /// time points: when the receipt was created and at the current protocol
@@ -33,22 +32,13 @@ impl<'a> ReceiptRuntimeConfigs<'a> {
         apply_state: &'a ApplyState,
         action_receipt: &VersionedActionReceipt,
     ) -> Self {
-        let current = apply_state.config.as_ref();
         let current_protocol_version = apply_state.current_protocol_version;
         let creation_protocol_version = match action_receipt.creation_protocol_version() {
             Some(creation_protocol_version) => creation_protocol_version,
             None => current_protocol_version,
         };
-        let config_store = &apply_state.config_store;
-        let creation_config = config_store.get_config(creation_protocol_version);
-        // Use the current config unless the config changed since the receipt was created. The
-        // current config is the one of the store, except in tests that modify it.
-        let creation =
-            if Arc::ptr_eq(creation_config, config_store.get_config(current_protocol_version)) {
-                current
-            } else {
-                creation_config.as_ref()
-            };
+        let creation = apply_state.config_store.get_config(creation_protocol_version).as_ref();
+        let current = apply_state.config.as_ref();
         Self { creation_protocol_version, creation, current }
     }
 

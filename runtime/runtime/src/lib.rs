@@ -218,6 +218,7 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// The Runtime configs of all protocol versions. Receipts created at an older protocol version
     /// pay their static fees with the config of that version, see `ReceiptRuntimeConfigs`.
+    /// `config` must be its config of `current_protocol_version`.
     pub config_store: Arc<RuntimeConfigStore>,
     /// If `Some`, the next epoch's `wasm_config` differs from the current one
     /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind

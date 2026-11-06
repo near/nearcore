@@ -3,7 +3,7 @@ use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
 use crate::find_skipped_transactions;
 use crate::tests::{
-    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
+    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
     set_sha256_cost,
 };
 use crate::wallet_contract::{
@@ -2102,7 +2102,10 @@ fn apply_state_at(protocol_version: ProtocolVersion, gas_limit: Option<Gas>) -> 
         Gas::from_teragas(1000),
     );
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::clone(RuntimeConfigStore::new().get_config(protocol_version)),
+    );
     apply_state.gas_limit = gas_limit;
     apply_state
 }
@@ -2264,7 +2267,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let fees = Arc::make_mut(&mut free_config.fees);
     fees.action_fees[ActionCosts::new_action_receipt].execution =
         FeeComponent::Gas(receipt_exec_gas_fee);
-    apply_state.config = Arc::new(free_config);
+    set_config(&mut apply_state, Arc::new(free_config));
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
 
@@ -3086,7 +3089,7 @@ fn test_main_storage_proof_size_soft_limit() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -3130,7 +3133,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // the first receipt go through but not the second one.
     let mut runtime_config = RuntimeConfig::free();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = 330;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
@@ -3463,7 +3466,10 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     );
     let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::clone(RuntimeConfigStore::new().get_config(protocol_version)),
+    );
     assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
 
     let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
@@ -3849,7 +3855,10 @@ fn apply_call_to_missing_global_contract_for_account(
     );
 
     apply_state.current_protocol_version = producer_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version)),
+    );
 
     // Override only the chain identity; preserve the setup's validators and shard layout.
     struct WalletEpochInfoProvider<'a, T> {
@@ -3923,7 +3932,10 @@ fn apply_call_to_missing_global_contract_for_account(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
+    set_config(
+        &mut apply_state,
+        Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version)),
+    );
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -4037,7 +4049,7 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
     );
     // The helper installs `RuntimeConfig::test()`; run the deploy and the yield calls without gas
     // accounting noise instead.
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -4148,7 +4160,7 @@ fn test_promise_yield_indices_absent_key_still_applies() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -4207,7 +4219,7 @@ fn test_exclude_contract_code_from_witness() {
     // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE as u64;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let contract_code =
         ContractCode::new(near_test_contracts::sized_contract(CONTRACT_SIZE).to_vec(), None);
@@ -4429,7 +4441,7 @@ fn test_deploy_and_call_different_contracts() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -4619,7 +4631,7 @@ fn test_deploy_and_call_in_apply() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -4756,7 +4768,7 @@ fn test_deploy_existing_contract_to_different_account() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -4841,7 +4853,7 @@ fn test_deploy_and_call_in_same_receipt() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let receipt = create_receipt_with_actions(
@@ -4924,7 +4936,7 @@ fn test_call_account_without_contract() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let receipt = create_receipt_with_actions(
         alice_account(),
@@ -4959,7 +4971,7 @@ fn test_contract_accesses_when_validating_chunk() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -5049,7 +5061,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Choose a contract size that is much more than rest of the storage proof size so that we can show that
     // the contract code is not included in the storage proof at the end of the test.
@@ -5139,7 +5151,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Information about the test account (of predecessor "alice.near") that will be used for create, deploy, and delete actions.
     let test_account_id: AccountId =
@@ -6914,7 +6926,7 @@ fn setup_promise_input_limit(apply_state: &mut ApplyState, protocol_version: Pro
     let mut config = RuntimeConfig::free();
     let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.limit_config.max_receipt_total_input_size = PROMISE_INPUT_SIZE_LIMIT;
-    apply_state.config = Arc::new(config);
+    set_config(apply_state, Arc::new(config));
     apply_state.current_protocol_version = protocol_version;
 }
 
@@ -8538,7 +8550,7 @@ mod self_signed_state_init {
 
     fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
         apply_state.current_protocol_version = version;
-        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+        set_config(apply_state, Arc::new(RuntimeConfig::test_protocol_version(version)));
     }
 
     fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
