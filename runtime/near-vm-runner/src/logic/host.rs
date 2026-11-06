@@ -480,7 +480,7 @@ pub fn write_register(
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If string is not UTF-8 returns `BadUTF8`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 ///
@@ -2581,9 +2581,9 @@ pub fn promise_then(
 ///   `InvalidPromiseIndex`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of receipt dependencies exceeds `max_number_input_data_dependencies`
-///   limit returns `NumInputDataDependenciesExceeded`.
+///   limit returns `NumberInputDataDependenciesExceeded`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2592,7 +2592,7 @@ pub fn promise_then(
 ///
 /// # Cost
 ///
-/// `base + promise_and_base + promise_and_per_promise * num_promises + cost of reading promise ids from memory`.
+/// `base + promise_and_base + promise_and_per_promise * 8 * num_promises + cost of reading promise ids from memory`.
 pub fn promise_and(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -2652,7 +2652,7 @@ pub fn promise_and(
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2700,7 +2700,7 @@ pub fn promise_batch_create(
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
 /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-///   returns `NumPromisesExceeded`.
+///   returns `NumberPromisesExceeded`.
 ///
 /// # Returns
 ///
@@ -2761,6 +2761,10 @@ pub fn promise_batch_then(
 /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
 /// returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns `CannotSetRefundToOnJointPromise`.
+/// * If the account id is not UTF-8 returns `BadUTF8`, or if it is not a valid account id
+///   returns `InvalidAccountId`.
 ///
 /// # Cost
 ///
@@ -2960,8 +2964,8 @@ pub fn promise_batch_action_deploy_global_contract(
     )
 }
 
-/// Appends `DeployGlobalContractByAccountId` action to the batch of actions for the given
-/// promise pointed by `promise_idx`.
+/// Appends a `DeployGlobalContract` action that identifies the code by the receiver account id
+/// to the batch of actions for the given promise pointed by `promise_idx`.
 ///
 /// # Errors
 ///
@@ -3086,7 +3090,7 @@ pub fn promise_batch_action_use_global_contract(
 /// * If called as view function returns `ProhibitedInView`.
 /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host returns
 /// `MemoryAccessViolation`.
-/// * If account_id string is not UTF-8 returns `BadUtf8`.
+/// * If account_id string is not UTF-8 returns `BadUTF8`.
 ///
 /// # Cost
 ///
@@ -3175,7 +3179,8 @@ fn read_contract_id(
 }
 
 /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
-/// pointed by `promise_idx`.
+/// pointed by `promise_idx`. Returns the index of the new action, which
+/// [`set_state_init_data_entry`] takes.
 ///
 /// # Errors
 ///
@@ -3213,7 +3218,8 @@ pub fn promise_batch_action_state_init(
 }
 
 /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
-/// pointed by `promise_idx`.
+/// pointed by `promise_idx`. Returns the index of the new action, which
+/// [`set_state_init_data_entry`] takes.
 ///
 /// # Errors
 ///
@@ -3224,7 +3230,7 @@ pub fn promise_batch_action_state_init(
 /// * If called as view function returns [`HostError::ProhibitedInView`].
 /// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
 /// guest or host returns [`HostError::MemoryAccessViolation`].
-/// * If account_id string is not UTF-8 returns `BadUtf8`.
+/// * If account_id string is not UTF-8 returns `BadUTF8`.
 ///
 /// # Cost
 ///
@@ -3297,9 +3303,7 @@ fn promise_batch_action_state_init_impl(
 /// `burnt_gas` := base +
 ///             + deterministic_state_init_entry send fee
 ///             + deterministic_state_init_byte send fee * (key_len + value_len)
-///             + cost of reading account id from memory
-///             + cost of decoding account_id as UTF-8
-///             + cost of reading amount from memory
+///             + cost of reading key and value from memory
 ///
 /// `used_gas`  := burnt_gas +
 ///             + deterministic_state_init_entry exec fee
@@ -3451,9 +3455,9 @@ pub fn universal_state_init_to_account_id(
 ///
 /// Deliberately does not check that the promise's receiver is the account the
 /// state init derives to. That check belongs to the receipt this creates, and
-/// runs when that receipt is validated, so bytes that are not a state init at all
-/// (or, from `CanonicalUniversalStateInit` on, not a canonical one) are rejected
-/// there rather than here. [`universal_state_init_to_account_id`] tells a
+/// runs when that receipt is validated at the end of the current function call, so bytes
+/// that are not a state init at all (or, from `CanonicalUniversalStateInit` on, not a
+/// canonical one) fail the current function call then rather than here. [`universal_state_init_to_account_id`] tells a
 /// contract up front.
 ///
 /// # Errors
@@ -3558,7 +3562,7 @@ fn pay_universal_state_init_terms(
 ///
 /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
 ///  + cost of reading u128, method_name and arguments from the memory`
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas`
 pub fn promise_batch_action_function_call(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3604,9 +3608,8 @@ pub fn promise_batch_action_function_call(
 /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
 /// using up all remaining available gas.
 ///
-/// If the `gas_weight` parameter is set as a large value, the amount of distributed gas
-/// to each action can be 0 or a very low value because the amount of gas per weight is
-/// based on the floor division of the amount of gas by the sum of weights.
+/// Each function call gets `floor(unused_gas * gas_weight / sum_of_weights)`, so a function call
+/// with a small weight relative to the sum can get 0 or very little gas.
 ///
 /// Any remaining gas will be distributed to the last scheduled function call with a weight
 /// specified.
@@ -3721,8 +3724,11 @@ pub fn promise_batch_action_function_call_weight(
 ///
 /// # Cost
 ///
-/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading u128 from memory `
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+/// `burnt_gas := base + dispatch action base fee + cost of reading u128 from memory `
+/// `used_gas := burnt_gas + exec action base fee`
+///
+/// If the receiver is an implicit, deterministic or universal account, the fees also include
+/// `create_account`, and for a NEAR-implicit account `add_full_access_key`.
 pub fn promise_batch_action_transfer(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -3900,7 +3906,8 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
 /// `promise_idx`. The access key will have `GasKeyFunctionCall` permission.
 ///
 /// The `method_names` parameter is a comma-separated list of method names that the gas key
-/// is allowed to call.
+/// is allowed to call. The allowance must be `0` (unlimited); any other value fails the
+/// current function call after it returns with `GasKeyFunctionCallAllowanceNotAllowed`.
 ///
 /// # Errors
 ///
@@ -4055,7 +4062,8 @@ pub fn promise_batch_action_stake(
 }
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-/// `promise_idx`. The access key will have `FullAccess` permission.
+/// `promise_idx`. The access key will have `FullAccess` permission. The `nonce` argument is
+/// ignored: the runtime sets the initial nonce of the key.
 ///
 /// # Errors
 ///
@@ -4106,7 +4114,8 @@ pub fn promise_batch_action_add_key_with_full_access(
 }
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-/// `promise_idx`. The access key will have `FunctionCall` permission.
+/// `promise_idx`. The access key will have `FunctionCall` permission. The `nonce` argument is
+/// ignored: the runtime sets the initial nonce of the key.
 ///
 /// # Errors
 ///
@@ -4267,7 +4276,7 @@ pub fn promise_batch_action_delete_key(
 /// # Cost
 ///
 /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading and parsing account id from memory `
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + fees for transferring funds to the beneficiary`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
 pub fn promise_batch_action_delete_account(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -4427,6 +4436,9 @@ pub fn promise_yield_create(
 }
 
 /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
+///
+/// The yield ID must be 32 bytes, otherwise returns `YieldIdMalformed`. If a yield with the same
+/// ID is already pending for this account, returns `u64::MAX` and creates no promise.
 pub fn promise_yield_create_with_id(
     ctx: &mut HostCtx,
     memory: &mut [u8],
@@ -4554,7 +4566,7 @@ pub fn promise_yield_create_with_id(
 ///
 /// # Errors
 ///
-/// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
+/// * If `data_id_len + data_id_ptr` points outside the memory of the guest or host
 /// returns `MemoryAccessViolation`;
 /// * If a malformed data id is passed, returns `DataIdMalformed`;
 /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`;
@@ -4709,7 +4721,7 @@ pub fn promise_results_count(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u6
 /// places it into the register.
 ///
 /// * If promise result is complete and successful copies its blob into the register;
-/// * If promise result is complete and failed or incomplete keeps register unused;
+/// * If promise result is complete and failed or incomplete does not modify the register;
 ///
 /// # Returns
 ///
@@ -4725,7 +4737,7 @@ pub fn promise_results_count(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<u6
 ///
 /// # Cost
 ///
-/// `base + cost of writing data into a register`
+/// `base + write_register_base`
 pub fn promise_result(
     ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -4764,6 +4776,8 @@ pub fn promise_result(
 /// # Errors
 ///
 /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns `CannotReturnJointPromise`.
 /// * If called as view function returns `ProhibitedInView`.
 ///
 /// # Cost
@@ -4874,7 +4888,7 @@ pub fn panic(ctx: &mut HostCtx, _memory: &mut [u8]) -> Result<()> {
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If string is not UTF-8 returns `BadUTF8`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 ///
@@ -4894,7 +4908,7 @@ pub fn panic_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> R
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-8 returns `BadUtf8`.
+/// * If string is not UTF-8 returns `BadUTF8`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 /// * If the total number of logs will exceed the `max_number_logs` returns
@@ -4985,8 +4999,8 @@ pub fn abort(
 
 /// Writes the code deployed on current contract being executed to the register.
 ///
-/// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
-/// depending on the return value.
+/// The register gets a `CryptoHash` or an `AccountId`, depending on the return value. For `0`
+/// the register is not modified.
 ///
 /// # Returns
 ///
@@ -5000,8 +5014,8 @@ pub fn abort(
 ///
 /// # Cost
 ///
-/// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
-/// `write_memory_byte` - the cost of writing the data to the register
+/// `base + write_register_base + write_register_byte * num_bytes`, where `num_bytes` is 32 for a
+/// hash or the length of the account id. For `0` only `base` is charged.
 pub fn current_contract_code(
     ctx: &mut HostCtx,
     _memory: &mut [u8],
@@ -5048,7 +5062,7 @@ pub fn current_contract_code(
 ///
 /// # Errors
 ///
-/// * If account is not UTF-8 encoded then returns `BadUtf8`;
+/// * If account is not UTF-8 encoded then returns `BadUTF8`;
 /// * If account is not valid then returns `InvalidAccountId`.
 ///
 /// # Cost
@@ -5384,7 +5398,7 @@ pub fn storage_has_key(
 ///
 /// # Errors
 ///
-/// * If string is not UTF-8 returns `BadUtf8`
+/// * If string is not UTF-8 returns `BadUTF8`
 /// * If the log is over available memory in wasm runner, returns `MemoryAccessViolation`
 ///
 /// # Cost
