@@ -1654,34 +1654,12 @@ impl Chain {
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
-        let tip = Tip::from_header(prev_block.header());
-        let final_head = Tip::from_header(self.genesis.header());
-        // Update related heads now.
-        let mut chain_store_update = self.mut_chain_store().store_update();
-        chain_store_update.save_body_head(&tip)?;
-        // Reset final head to genesis since at this point we don't have the last final block.
-        chain_store_update.save_final_head(&final_head)?;
-        // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
-        // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
-        // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail);
-        // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
-        chain_store_update.update_chunk_tail(new_chunk_tail);
-        chain_store_update.commit()?;
-
+        // The sync block is processed next. It starts from its parent's uncertified chunks and
+        // credits its parent's endorsements against its grandparent's, and this node processed
+        // neither block. The rows are written before the heads move: after a crash in between, the
+        // next state sync writes them again, skipping the ones already there.
         if header.is_spice() {
-            let execution_head = Tip::from_header(&header);
-            let mut store_update = self.chain_store.store().store_update();
-            let mut adapter = store_update.chain_store_update();
-            adapter.set_spice_execution_head(&execution_head)?;
-            adapter.set_spice_final_execution_head(&execution_head);
-            store_update.commit();
-
-            // The sync block is processed next. It starts from its parent's uncertified chunks
-            // and credits its parent's endorsements against its grandparent's, and this node
-            // processed neither block.
             let chain_store = self.chain_store.store().chain_store();
-
             if prev_block.header().is_spice() {
                 record_uncertified_chunks_from_bodies(
                     &chain_store,
@@ -1704,6 +1682,30 @@ impl Chain {
                 )?;
                 store_update.commit();
             }
+        }
+
+        let tip = Tip::from_header(prev_block.header());
+        let final_head = Tip::from_header(self.genesis.header());
+        // Update related heads now.
+        let mut chain_store_update = self.mut_chain_store().store_update();
+        chain_store_update.save_body_head(&tip)?;
+        // Reset final head to genesis since at this point we don't have the last final block.
+        chain_store_update.save_final_head(&final_head)?;
+        // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
+        // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
+        // New Tail can not be earlier than `prev_block.header.inner_lite.height`
+        chain_store_update.update_tail(new_tail);
+        // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
+        chain_store_update.update_chunk_tail(new_chunk_tail);
+        chain_store_update.commit()?;
+
+        if header.is_spice() {
+            let execution_head = Tip::from_header(&header);
+            let mut store_update = self.chain_store.store().store_update();
+            let mut adapter = store_update.chain_store_update();
+            adapter.set_spice_execution_head(&execution_head)?;
+            adapter.set_spice_final_execution_head(&execution_head);
+            store_update.commit();
         }
 
         // State sync moves the head without processing a block, so the tracker has to be told
