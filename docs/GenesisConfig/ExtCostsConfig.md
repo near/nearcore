@@ -4,7 +4,8 @@
 
 `type: Gas`
 
-Base cost for calling a host function.
+Base cost for calling a host function. Not all host functions charge it; for example, the hash and signature
+verification functions charge only their own base costs.
 
 ## read_memory_base
 
