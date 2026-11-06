@@ -4918,6 +4918,72 @@
         "title": "ExtCostsConfigView",
         "type": "object"
       },
+      "ExternalCallChunkLimit": {
+        "description": "A share of a chunk's limits that its external calls used up, with what the chunk's earlier\nexternal calls used and the share.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The compute used by the chunk's earlier external calls reached their share of the chunk's\ncompute limit.",
+            "properties": {
+              "Compute": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Compute"
+            ],
+            "title": "Compute",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The storage proof recorded by the chunk's earlier external calls reached their share of\nthe chunk's storage proof limit.",
+            "properties": {
+              "StorageProof": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "StorageProof"
+            ],
+            "title": "StorageProof",
+            "type": "object"
+          }
+        ],
+        "title": "ExternalCallChunkLimit"
+      },
       "ExternalCallsConfigView": {
         "description": "Limits on external contract calls, per call and per chunk.",
         "properties": {
@@ -7258,6 +7324,28 @@
               "ContractNotFound"
             ],
             "title": "ContractNotFound",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An external contract call didn't run because the chunk's external calls used up one of\ntheir shares of the chunk's limits.",
+            "properties": {
+              "ExternalCallChunkLimitExceeded": {
+                "properties": {
+                  "limit": {
+                    "$ref": "#/components/schemas/ExternalCallChunkLimit"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ExternalCallChunkLimitExceeded"
+            ],
+            "title": "ExternalCallChunkLimitExceeded",
             "type": "object"
           }
         ],
@@ -12945,6 +13033,31 @@
               "MemTrieLoadingError"
             ],
             "title": "MemTrieLoadingError",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A read would record more of the trie than the recording budget set on it allows.\nSee `Trie::set_recording_budget`.",
+            "properties": {
+              "RecordingBudgetExceeded": {
+                "properties": {
+                  "limit": {
+                    "description": "The budget, in bytes of recorded storage proof.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RecordingBudgetExceeded"
+            ],
+            "title": "RecordingBudgetExceeded",
             "type": "object"
           }
         ],

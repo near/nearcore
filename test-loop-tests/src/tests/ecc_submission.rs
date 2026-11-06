@@ -13,7 +13,6 @@ use near_client::ProcessTxResponse;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::InvalidTxError;
-use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
@@ -365,10 +364,11 @@ fn test_eccs_to_one_contract_land_in_separate_chunks_in_order() {
     }
 }
 
-/// The producer packs no more ECCs than apply takes: with room for two ECCs per chunk, four ECCs
-/// to different contracts go into chunks of two at most, and every one of them gets an outcome.
+/// The producer packs no more ECCs into a chunk than their share of its transaction bytes
+/// holds: six ECCs of the largest size to different contracts go into chunks of five at most,
+/// each within the share, and every one of them gets an outcome.
 #[test]
-fn test_chunks_hold_as_many_eccs_as_apply_takes() {
+fn test_chunks_hold_eccs_within_their_size_share() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
@@ -377,9 +377,8 @@ fn test_chunks_hold_as_many_eccs_as_apply_takes() {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
-    let contract_ids = ["c1", "c2", "c3", "c4"].map(create_account_id);
-    let mut builder =
-        TestLoopBuilder::new().enable_rpc().epoch_length(10).gas_limit(Gas::from_teragas(80));
+    let contract_ids = ["c1", "c2", "c3", "c4", "c5", "c6"].map(create_account_id);
+    let mut builder = TestLoopBuilder::new().enable_rpc().epoch_length(10);
     for contract_id in &contract_ids {
         builder = builder.add_user_account(contract_id, Balance::from_near(1_000));
     }
@@ -390,12 +389,19 @@ fn test_chunks_hold_as_many_eccs_as_apply_takes() {
     }
     let node = env.rpc_node();
     let config = node.client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
-    assert_eq!(config.max_eccs_per_chunk(Gas::from_teragas(80)), 2);
+    let max_call_size = config.external_calls_config.max_call_size;
+    let size_share = config.external_calls_config.transactions_size_share(&config.witness_config);
+    assert_eq!(size_share / max_call_size, 5);
     let first_height = node.head().height;
 
-    let eccs = contract_ids.each_ref().map(|id| EccTransaction::new(id.clone(), vec![1]));
+    let eccs = contract_ids.each_ref().map(|id| {
+        let overhead = EccTransaction::new(id.clone(), vec![]).get_size();
+        let payload_len = usize::try_from(max_call_size - overhead).unwrap();
+        EccTransaction::new(id.clone(), vec![1; payload_len])
+    });
     let hashes = eccs.each_ref().map(EccTransaction::get_hash);
     for ecc in eccs {
+        assert_eq!(ecc.get_size(), max_call_size);
         assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
     }
     env.rpc_runner().run_until(
@@ -414,11 +420,19 @@ fn test_chunks_hold_as_many_eccs_as_apply_takes() {
         .flat_map(|block| node.block_chunks(&block))
         .map(|chunk| (chunk.chunk_hash().clone(), chunk))
         .collect::<HashMap<_, _>>();
-    let eccs_per_chunk = chunks
+    let ecc_sizes_per_chunk = chunks
         .values()
-        .map(|chunk| chunk.to_transactions().iter().filter(|tx| tx.as_unsigned().is_some()).count())
-        .filter(|num_eccs| *num_eccs > 0)
+        .map(|chunk| {
+            let transactions = chunk.to_transactions();
+            let eccs = transactions.iter().filter_map(|tx| tx.as_unsigned());
+            eccs.map(EccTransaction::get_size).collect::<Vec<_>>()
+        })
+        .filter(|sizes| !sizes.is_empty())
         .collect::<Vec<_>>();
-    assert_eq!(eccs_per_chunk.iter().sum::<usize>(), 4, "{eccs_per_chunk:?}");
-    assert!(eccs_per_chunk.iter().all(|num_eccs| *num_eccs <= 2), "{eccs_per_chunk:?}");
+    let num_eccs = ecc_sizes_per_chunk.iter().map(Vec::len).sum::<usize>();
+    assert_eq!(num_eccs, 6, "{ecc_sizes_per_chunk:?}");
+    for sizes in &ecc_sizes_per_chunk {
+        assert!(sizes.len() <= 5, "{ecc_sizes_per_chunk:?}");
+        assert!(sizes.iter().sum::<u64>() <= size_share, "{ecc_sizes_per_chunk:?}");
+    }
 }

@@ -40,10 +40,12 @@ use near_primitives::deterministic_account_id::{
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, EpochError,
-    FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
+    ExternalCallChunkLimit, FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
     ReceiptEnum, ReceiptV0,
@@ -1897,6 +1899,261 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
     assert_eq!(replay_result.state_root, apply_result.state_root);
 }
 
+/// A contract to set up for the tests of the chunk's shares for ECCs, with plenty of balance.
+fn funded_ecc_contract(account_id: &AccountId, code: Vec<u8>) -> EccContractSetup {
+    EccContractSetup {
+        account_id: account_id.clone(),
+        code,
+        amount: Balance::from_near(1_000),
+        locked: Balance::ZERO,
+    }
+}
+
+/// A share of `amount` so small that any one ECC uses it up, though a chunk that used nothing
+/// has room.
+fn tiny_share(amount: u64) -> Rational32 {
+    let denominator = i32::try_from(amount).unwrap_or(i32::MAX);
+    Rational32::new(1, denominator)
+}
+
+/// Sets up `contracts`, lets `change_apply_state` change the apply state, and applies a chunk
+/// with an ECC to each of `callees`, in order, on a trie that records its reads. Returns the
+/// apply state, the state root before the chunk and the result.
+fn apply_eccs_under_shares(
+    contracts: Vec<EccContractSetup>,
+    data: Vec<(AccountId, Vec<(Vec<u8>, Vec<u8>)>)>,
+    callees: &[AccountId],
+    change_apply_state: impl FnOnce(&mut ApplyState),
+) -> (Runtime, ShardTries, ApplyState, CryptoHash, ApplyResult, impl EpochInfoProvider) {
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contracts(contracts);
+    for (account_id, data) in data {
+        root = set_contract_data(&tries, root, &account_id, data);
+    }
+    // Fresh trie access accounting, as every apply has: the setup's would count some of the
+    // chunk's trie reads as cached.
+    apply_state.trie_access_tracker_state = Default::default();
+    change_apply_state(&mut apply_state);
+    let transactions = callees
+        .iter()
+        .map(|account_id| EccTransaction::new(account_id.clone(), ECC_PAYLOAD.to_vec()).into())
+        .collect();
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        transactions,
+        &epoch_info_provider,
+    );
+    assert_eq!(apply_result.outcomes.len(), callees.len());
+    (runtime, tries, apply_state, root, apply_result, epoch_info_provider)
+}
+
+/// What the chunk's earlier ECCs used and the share, from the status of an ECC refused for being
+/// past a share.
+fn refused_past_share(status: &ExecutionStatus) -> ExternalCallChunkLimit {
+    match status {
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::ExternalCallChunkLimitExceeded { limit },
+        )) => limit.clone(),
+        _ => panic!("expected the ECC to be refused past a share, got {status:?}"),
+    }
+}
+
+/// Once the chunk's ECCs use up their share of the chunk's compute, a further ECC is refused
+/// without running. A run the contract refuses counts toward the share too.
+#[test]
+fn test_apply_ecc_refused_past_compute_share() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let panicking: AccountId = "panicking.near".parse().unwrap();
+    let contracts = vec![
+        funded_ecc_contract(&panicking, ecc_contract("(call $write_payload) unreachable")),
+        funded_ecc_contract(&bob_account(), ecc_accepting_contract()),
+    ];
+    let callees = [panicking, bob_account()];
+    let (_, tries, apply_state, root, apply_result, _) =
+        apply_eccs_under_shares(contracts, vec![], &callees, |apply_state| {
+            let gas_limit = apply_state.gas_limit.unwrap().as_gas();
+            let config = Arc::make_mut(&mut apply_state.config);
+            config.external_calls_config.chunk_compute_share = tiny_share(gas_limit);
+        });
+
+    let [first, second] = &apply_result.outcomes[..] else { unreachable!() };
+    assert_matches!(
+        first.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+    );
+    let calls_config = &apply_state.config.external_calls_config;
+    let share = calls_config.compute_share(apply_state.gas_limit.unwrap());
+    let used = first.outcome.compute_usage.unwrap();
+    assert!(used >= share);
+    assert_eq!(
+        refused_past_share(&second.outcome.status),
+        ExternalCallChunkLimit::Compute { used, limit: share }
+    );
+    // The second call didn't run: bob's account and data are as they were. Only the compute of
+    // its fees counts toward the chunk.
+    let (_, value) = bob_ecc_state(&tries, root);
+    assert_eq!(value, None);
+    let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
+    assert_eq!(second.outcome.compute_usage, Some(fee.compute_burnt));
+    assert_eq!(second.outcome.gas_burnt, Gas::ZERO);
+}
+
+/// Once the chunk's ECCs use up their share of the chunk's storage proof, a further ECC is
+/// refused without running, and without reading its contract account. A run stopped by its
+/// recording budget counts toward the share, and the share is passed by at most that one run.
+/// A validator replaying the chunk from its proof alone doesn't need the refused call's account.
+#[test]
+fn test_apply_ecc_refused_past_storage_proof_share() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let config = RuntimeConfig::test();
+    let reader: AccountId = "reader.near".parse().unwrap();
+    let num_values = many_values(&config).len() as u64;
+    let contracts = vec![
+        funded_ecc_contract(
+            &reader,
+            ecc_contract(&ecc_body_on_keys("storage_read", 0, num_values)),
+        ),
+        funded_ecc_contract(&bob_account(), ecc_accepting_contract()),
+    ];
+    let data = vec![(reader.clone(), many_values(&config))];
+    let callees = [reader, bob_account()];
+    let (runtime, tries, mut apply_state, root, apply_result, epoch_info_provider) =
+        apply_eccs_under_shares(contracts, data, &callees, |apply_state| {
+            let config = Arc::make_mut(&mut apply_state.config);
+            let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
+        });
+
+    let [first, second] = &apply_result.outcomes[..] else { unreachable!() };
+    assert_eq!(
+        first.outcome.status,
+        ExecutionStatus::Failure(recorded_storage_exceeded(&apply_state.config))
+    );
+    let calls_config = &apply_state.config.external_calls_config;
+    let share = calls_config.storage_proof_share(&apply_state.config.witness_config);
+    let ExternalCallChunkLimit::StorageProof { used, limit } =
+        refused_past_share(&second.outcome.status)
+    else {
+        panic!("expected the storage proof share, got {:?}", second.outcome.status);
+    };
+    assert_eq!(limit, share);
+    // The run that passed the share recorded past its own budget, by at most one trie node,
+    // besides the reads of the call before the run.
+    let cap = calls_config.max_call_recorded_size as u64;
+    assert!(used > cap, "{used} <= {cap}");
+    assert!(used <= share + cap + 4096, "{used} passes the share by more than one call");
+
+    // Bob's account wasn't read: it isn't in the proof.
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    let bob_hash = hash(&borsh::to_vec(&bob).unwrap());
+    let proof = apply_result.proof.clone().unwrap();
+    let PartialState::TrieValues(nodes) = &proof.nodes;
+    assert!(nodes.iter().all(|node| hash(node) != bob_hash), "bob's account is in the proof");
+
+    // A validator replays the chunk from the proof alone.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    apply_state.trie_access_tracker_state = Default::default();
+    let trie = Trie::from_recorded_storage(proof, root, true).recording_reads_new_recorder();
+    let transactions: Vec<TransactionEnvelope> = callees
+        .iter()
+        .map(|account_id| EccTransaction::new(account_id.clone(), ECC_PAYLOAD.to_vec()).into())
+        .collect();
+    let replay_result = runtime
+        .apply(
+            trie,
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; callees.len()]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(replay_result.outcomes, apply_result.outcomes);
+    assert_eq!(replay_result.state_root, apply_result.state_root);
+}
+
+/// The read of a call's contract account counts toward the share of the storage proof, even
+/// when the account is missing and the call is refused without running.
+#[test]
+fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let missing: AccountId = "missing.near".parse().unwrap();
+    let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
+    let callees = [missing, bob_account()];
+    let (_, _, _, _, apply_result, _) =
+        apply_eccs_under_shares(contracts, vec![], &callees, |apply_state| {
+            let config = Arc::make_mut(&mut apply_state.config);
+            let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
+        });
+
+    let [first, second] = &apply_result.outcomes[..] else { unreachable!() };
+    assert_matches!(
+        first.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::SignerDoesNotExist { .. }
+        ))
+    );
+    let ExternalCallChunkLimit::StorageProof { used, limit } =
+        refused_past_share(&second.outcome.status)
+    else {
+        panic!("expected the storage proof share, got {:?}", second.outcome.status);
+    };
+    assert!(used >= limit && used > 0, "{used} {limit}");
+}
+
+/// Without a gas limit of the chunk, as in views and tools, there is no share of the chunk's
+/// compute, but the share of its storage proof still applies.
+#[test]
+fn test_apply_eccs_without_gas_limit() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let panicking: AccountId = "panicking.near".parse().unwrap();
+    let contracts = || {
+        vec![
+            funded_ecc_contract(&panicking, ecc_contract("(call $write_payload) unreachable")),
+            funded_ecc_contract(&bob_account(), ecc_accepting_contract()),
+        ]
+    };
+    let callees = [panicking.clone(), bob_account()];
+
+    let (_, _, _, _, apply_result, _) =
+        apply_eccs_under_shares(contracts(), vec![], &callees, |apply_state| {
+            let gas_limit = apply_state.gas_limit.unwrap().as_gas();
+            apply_state.gas_limit = None;
+            let config = Arc::make_mut(&mut apply_state.config);
+            config.external_calls_config.chunk_compute_share = tiny_share(gas_limit);
+        });
+    assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+
+    let (_, _, _, _, apply_result, _) =
+        apply_eccs_under_shares(contracts(), vec![], &callees, |apply_state| {
+            apply_state.gas_limit = None;
+            let config = Arc::make_mut(&mut apply_state.config);
+            let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
+        });
+    assert_matches!(
+        refused_past_share(&apply_result.outcomes[1].outcome.status),
+        ExternalCallChunkLimit::StorageProof { .. }
+    );
+}
+
+// TODO(ecc): test the limits on external calls end to end in test-loop once a chunk producer
+// packs them within the shares.
+
 /// A signed transaction from a contract after an accepted ECC to it, in the same chunk, starts
 /// from the account the call left. If it started from the account at the start of the chunk,
 /// saving it would undo the call's charge and storage usage.
@@ -1942,46 +2199,6 @@ fn test_apply_ecc_then_signed_transaction_from_contract() {
     );
     let burnt = charge.checked_add(transfer_outcome.outcome.tokens_burnt).unwrap();
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, burnt);
-}
-
-/// A second ECC to a contract in the same chunk starts from the account the first one left.
-#[test]
-fn test_apply_two_eccs_to_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
-    let (bob_before, _) = bob_ecc_state(&tries, root);
-    // The second payload overwrites the first, so the storage usage grows only once.
-    let second_payload = ECC_PAYLOAD.to_ascii_uppercase();
-    let second = EccTransaction::new(bob_account(), second_payload.clone());
-    let (root, apply_result) = apply_envelopes_and_commit(
-        &runtime,
-        &tries,
-        root,
-        &apply_state,
-        vec![ecc_to_bob().into(), second.into()],
-        &epoch_info_provider,
-    );
-
-    let [first_outcome, second_outcome] = apply_result.outcomes.as_slice() else {
-        panic!("expected two outcomes, got {:?}", apply_result.outcomes);
-    };
-    assert_matches!(first_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
-    assert_matches!(second_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
-    let charges =
-        first_outcome.outcome.tokens_burnt.checked_add(second_outcome.outcome.tokens_burnt);
-    let charges = charges.unwrap();
-
-    let (bob_after, value) = bob_ecc_state(&tries, root);
-    assert_eq!(value, Some(second_payload));
-    assert_eq!(bob_after.amount(), bob_before.amount().checked_sub(charges).unwrap());
-    assert_eq!(
-        bob_after.storage_usage(),
-        storage_usage_after_ecc(&apply_state.config, bob_before.storage_usage())
-    );
-    assert_eq!(apply_result.stats.balance.tx_burnt_amount, charges);
 }
 
 /// A refused ECC keeps the outgoing buffer pops that `forward_from_buffer` staged before it. The
@@ -2439,144 +2656,47 @@ fn apply_state_at(protocol_version: ProtocolVersion, gas_limit: Option<Gas>) -> 
     apply_state
 }
 
-/// An apply state at the version of ECCs, for a chunk that has room for `num_eccs` of them.
-fn apply_state_with_room_for_eccs(num_eccs: u64) -> ApplyState {
-    let version = ProtocolFeature::ExternalContractCalls.protocol_version();
-    let config_store = RuntimeConfigStore::new();
-    let config = config_store.get_config(version);
-    // Half of the gas limit goes to ECCs, 20 Tgas each.
-    let ecc_gas = config.wasm_config.limit_config.max_gas_burnt_external;
-    let gas_limit = Gas::from_gas(2 * num_eccs * ecc_gas.as_gas());
-    assert_eq!(config.max_eccs_per_chunk(gas_limit), num_eccs);
-    apply_state_at(version, Some(gas_limit))
-}
-
 fn test_eccs(tags: &[u8]) -> Vec<EccTransaction> {
     tags.iter().map(|tag| EccTransaction::new(bob_account(), vec![*tag])).collect()
-}
-
-/// The outcome ids that apply gives `eccs` in a chunk applied with `apply_state`.
-fn ecc_outcome_ids(apply_state: &ApplyState, eccs: &[EccTransaction]) -> Vec<CryptoHash> {
-    eccs.iter().map(|ecc| create_ecc_outcome_id(ecc.hash(), apply_state.block_height)).collect()
 }
 
 fn failed_with(status: &ExecutionStatus, error: InvalidTxError) -> bool {
     *status == ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error))
 }
 
-/// The ECCs of a chunk past the limit are skipped, with no outcome, the way a repeated hash is.
-/// The others fail with an outcome as before. Signed transactions are not counted, wherever they
-/// are in the chunk.
+/// Before ECCs, they fail in the validation, all of them with an outcome.
 #[test]
-fn test_apply_skips_eccs_past_the_limit() {
-    let apply_state = apply_state_with_room_for_eccs(2);
-    let eccs = test_eccs(&[1, 2, 3, 4]);
-    let hashes = ecc_outcome_ids(&apply_state, &eccs);
-
-    // The transfer goes first, in the middle, and last.
-    for transfer_at in [0, 2, 4] {
-        let applied = apply_chunk_of_eccs(&apply_state, eccs.clone(), transfer_at);
-
-        let mut expected = vec![hashes[0], hashes[1]];
-        expected.insert(transfer_at.min(2), applied.transfer_hash);
-        assert_eq!(applied.ids, expected, "transfer at {transfer_at}");
-        for (id, status) in applied.ids.iter().zip(&applied.statuses) {
-            if *id == applied.transfer_hash {
-                assert_matches!(status, ExecutionStatus::SuccessReceiptId(_));
-            } else {
-                assert_matches!(status, ExecutionStatus::Failure(_));
-            }
-        }
-    }
-}
-
-/// A chunk with no room for ECCs, where the gas limit is too low for even one, skips all of them.
-#[test]
-fn test_apply_skips_all_eccs_when_there_is_no_room() {
-    let apply_state = apply_state_with_room_for_eccs(0);
-
-    let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2]), 2);
-
-    assert_eq!(applied.ids, vec![applied.transfer_hash]);
-}
-
-/// Before ECCs, they fail in the validation, all of them with an outcome, and nothing is counted,
-/// even though the gas limit of the chunk would leave no room for them.
-#[test]
-fn test_apply_does_not_limit_eccs_before_the_feature() {
+fn test_apply_eccs_before_the_feature_get_outcomes() {
     let version = ProtocolFeature::ExternalContractCalls.protocol_version() - 1;
     let apply_state = apply_state_at(version, Some(Gas::from_teragas(1000)));
 
     let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2, 3, 4]), 4);
 
     assert_eq!(applied.ids.len(), 5);
+    assert_eq!(applied.ids[4], applied.transfer_hash);
     for status in &applied.statuses[..4] {
         assert!(failed_with(status, InvalidTxError::InvalidTransactionVersion), "{status:?}");
     }
 }
 
-/// With no gas limit of the chunk, there is no limit of ECCs either.
-#[test]
-fn test_apply_does_not_limit_eccs_without_gas_limit() {
-    let version = ProtocolFeature::ExternalContractCalls.protocol_version();
-    let apply_state = apply_state_at(version, None);
-
-    let applied = apply_chunk_of_eccs(&apply_state, test_eccs(&[1, 2, 3, 4]), 4);
-
-    assert_eq!(applied.ids.len(), 5);
-}
-
-/// A repeat of an ECC is skipped as a repeated hash, and does not use up the limit.
-#[test]
-fn test_apply_does_not_count_repeated_eccs() {
-    let apply_state = apply_state_with_room_for_eccs(2);
-    let eccs = test_eccs(&[1, 1, 2, 3]);
-    let hashes = ecc_outcome_ids(&apply_state, &eccs);
-
-    let applied = apply_chunk_of_eccs(&apply_state, eccs, 4);
-
-    assert_eq!(applied.ids, vec![hashes[0], hashes[2], applied.transfer_hash]);
-}
-
-/// An ECC that fails its validation counts toward the limit all the same.
-#[test]
-fn test_apply_counts_invalid_eccs() {
-    let apply_state = apply_state_with_room_for_eccs(1);
-    let max_size = apply_state.config.wasm_config.limit_config.max_transaction_size;
-    let oversized = EccTransaction::new(bob_account(), vec![0; max_size as usize + 1]);
-    let oversized_hash = create_ecc_outcome_id(oversized.hash(), apply_state.block_height);
-    let oversized_size = oversized.get_size();
-    let mut eccs = vec![oversized];
-    eccs.extend(test_eccs(&[2]));
-
-    let applied = apply_chunk_of_eccs(&apply_state, eccs, 2);
-
-    assert_eq!(applied.ids, vec![oversized_hash, applied.transfer_hash]);
-    let error = InvalidTxError::TransactionSizeExceeded { size: oversized_size, limit: max_size };
-    assert!(failed_with(&applied.statuses[0], error), "{:?}", applied.statuses[0]);
-}
-
-/// What apply skips is found before anything is read from the state: a repeat of a hash, and an
-/// ECC past the limit, which is counted without the repeats and the signed transactions.
+/// What apply skips is found before anything is read from the state: a repeat of a hash.
 #[test]
 fn test_find_skipped_transactions() {
-    let signers = [alice_account()].map(|account_id| InMemorySigner::test_signer(&account_id));
-    let transfer = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        bob_account(),
-        &signers[0],
-        Balance::from_near(1),
-        CryptoHash::default(),
-    );
-    let [ecc1, ecc2, ecc3] = [1, 2, 3].map(|tag| EccTransaction::new(bob_account(), vec![tag]));
-    let txs = [ecc1.clone().into(), ecc1.into(), transfer.into(), ecc2.into(), ecc3.into()];
+    let signer = InMemorySigner::test_signer(&alice_account());
+    let [transfer1, transfer2] = [1, 2].map(|nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            &signer,
+            Balance::from_near(1),
+            CryptoHash::default(),
+        )
+    });
+    let ecc = EccTransaction::new(bob_account(), vec![1]);
+    let txs = [transfer1.clone().into(), ecc.into(), transfer1.into(), transfer2.into()];
 
-    let skipped = |max_eccs| find_skipped_transactions(&txs, max_eccs);
-
-    assert_eq!(skipped(Some(2)), vec![false, true, false, false, true]);
-    assert_eq!(skipped(Some(0)), vec![true, true, false, true, true]);
-    assert_eq!(skipped(None), vec![false, true, false, false, false]);
+    assert_eq!(find_skipped_transactions(&txs), vec![false, false, true, false]);
 }
 
 #[test]

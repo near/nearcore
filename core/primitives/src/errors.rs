@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, NonceIndex, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, Compute, NonceIndex, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -209,6 +209,31 @@ pub enum DepositCostFailureReason {
     LackBalanceForState = 1,
 }
 
+/// A share of a chunk's limits that its external calls used up, with what the chunk's earlier
+/// external calls used and the share.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum ExternalCallChunkLimit {
+    /// The compute used by the chunk's earlier external calls reached their share of the chunk's
+    /// compute limit.
+    Compute { used: Compute, limit: Compute } = 0,
+    /// The storage proof recorded by the chunk's earlier external calls reached their share of
+    /// the chunk's storage proof limit.
+    StorageProof { used: u64, limit: u64 } = 1,
+}
+
 /// An error happened during TX execution
 #[derive(
     BorshSerialize,
@@ -324,6 +349,11 @@ pub enum InvalidTxError {
     ContractNotFound {
         contract_id: AccountId,
     } = 21,
+    /// An external contract call didn't run because the chunk's external calls used up one of
+    /// their shares of the chunk's limits.
+    ExternalCallChunkLimitExceeded {
+        limit: ExternalCallChunkLimit,
+    } = 22,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -1095,6 +1125,22 @@ impl Display for InvalidTxError {
             InvalidTxError::ContractNotFound { contract_id } => {
                 write!(f, "account {:?} does not hold a contract", contract_id)
             }
+            InvalidTxError::ExternalCallChunkLimitExceeded {
+                limit: ExternalCallChunkLimit::Compute { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk used {} of compute, past their share of {}",
+                Gas::from_gas(*used),
+                Gas::from_gas(*limit)
+            ),
+            InvalidTxError::ExternalCallChunkLimitExceeded {
+                limit: ExternalCallChunkLimit::StorageProof { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk recorded {} bytes of storage proof, past their share \
+                 of {} bytes",
+                used, limit
+            ),
         }
     }
 }
