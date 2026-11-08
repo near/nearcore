@@ -5,6 +5,7 @@ mod compile_errors;
 mod compiler_daemon;
 mod external_call_deposit;
 mod external_call_gas_limit;
+mod external_call_host_functions;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod ml_dsa_verify_integration;
