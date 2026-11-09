@@ -246,9 +246,14 @@ validators do on external calls, per call and per chunk. Besides
 - the storage proof its run records: at most
   `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
   crossing the limit fails the call with `RecordedStorageExceeded`, and a value
-  whose length would cross it isn't read at all. Removals count with the same
-  estimate as the per-receipt storage proof limit uses. The limit applies to
-  the run only, not to reading the contract's account before it.
+  whose length would cross it isn't read at all. The limit applies to the run
+  only, not to reading the contract's account before it.
+
+  Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
+  proof limit uses too, even for a key that isn't there. So removals are costly
+  in an external call: it can remove no more than ten keys, and fewer, as the
+  trie nodes it reads count as well. Larger cleanups belong in the receipts the
+  call creates, once external calls can create them.
 
 All the external calls of a chunk together get a share of the chunk's limits:
 
