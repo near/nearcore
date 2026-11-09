@@ -43,6 +43,12 @@ impl Fixture {
     }
 
     fn apply(&mut self, receipts: &[Receipt]) -> ApplyResult {
+        self.apply_with_eccs(receipts, vec![])
+    }
+
+    fn apply_with_eccs(&mut self, receipts: &[Receipt], eccs: Vec<EccTransaction>) -> ApplyResult {
+        let valid = vec![true; eccs.len()];
+        let transactions = eccs.into_iter().map(TransactionEnvelope::from).collect();
         let result = self
             .runtime
             .apply(
@@ -52,7 +58,7 @@ impl Fixture {
                 &None,
                 &self.state,
                 receipts,
-                SignedValidPeriodTransactions::empty(),
+                SignedValidPeriodTransactions::new(transactions, valid),
                 &self.epochs,
                 Default::default(),
             )
@@ -296,6 +302,143 @@ fn counts_all_global_switches_and_local_code_in_one_receipt() {
 fn budget_contracts() -> [Vec<u8>; 3] {
     ["", "nop", "nop nop"]
         .map(|body| wat_contract(&format!("(module (func (export \"main\") {body}))")))
+}
+
+#[test]
+fn ecc_compilation_budget_skips_cold_code_and_deduplicates() {
+    let mut f = setup();
+    let first = ecc_contract("nop");
+    let second = ecc_contract("nop nop");
+    f.install_cold(&[f.receipt(0, vec![deploy(&first)]), f.receipt(1, vec![deploy(&second)])]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = second.len() as u64;
+    let eccs = vec![
+        EccTransaction::new(alice_account(), vec![0]),
+        EccTransaction::new(bob_account(), vec![1]),
+        EccTransaction::new(alice_account(), vec![2]),
+    ];
+    let pre_root = f.root;
+    let pre_congestion = f.state.congestion_info.clone();
+    let skipped_account = bob_ecc_state(&f.tries, pre_root);
+    let result = f.apply_with_eccs(&[], eccs.clone());
+    assert_eq!(bob_ecc_state(&f.tries, f.root), skipped_account);
+    assert_eq!(result.cold_contract_bytes, first.len() as u64);
+    assert_eq!(result.outcomes.len(), 2);
+    for (outcome, ecc) in result.outcomes.iter().zip([&eccs[0], &eccs[2]]) {
+        assert_eq!(outcome.id, create_ecc_outcome_id(ecc.hash(), f.state.block_height));
+        assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    }
+    assert_eq!(result.delayed_receipts_count, 0, "skipped eccs must not be queued");
+
+    // Admission and skips must replay identically using only the recorded witness.
+    f.state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    f.state.trie_access_tracker_state = Default::default();
+    let next_congestion = replace(&mut f.state.congestion_info, pre_congestion);
+    let replay = f
+        .runtime
+        .apply(
+            Trie::from_recorded_storage(result.proof.clone().unwrap(), pre_root, false),
+            &None,
+            &f.state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                eccs.iter().cloned().map(TransactionEnvelope::from).collect(),
+                vec![true; eccs.len()],
+            ),
+            &f.epochs,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(replay.state_root, result.state_root);
+    assert_eq!(replay.outcomes, result.outcomes);
+    assert_eq!(replay.cold_contract_bytes, result.cold_contract_bytes);
+    f.state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
+    f.state.congestion_info = next_congestion;
+    f.assert_cached(&first);
+    assert_eq!(f.compilation_status(&second), None);
+
+    // A skipped ECC can be submitted again in a later chunk.
+    let retry = f.apply_with_eccs(&[], vec![eccs[1].clone()]);
+    assert_eq!(retry.cold_contract_bytes, second.len() as u64);
+    assert_eq!(retry.outcomes.len(), 1);
+    assert_matches!(retry.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    f.assert_cached(&second);
+
+    // Consensus-warm code does not need any remaining compilation budget.
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    let warm = f.apply_with_eccs(&[], eccs);
+    assert_eq!(warm.cold_contract_bytes, 0);
+    assert_eq!(warm.outcomes.len(), 3);
+    assert!(
+        warm.outcomes
+            .iter()
+            .all(|outcome| matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_)))
+    );
+}
+
+#[test]
+fn ecc_and_receipts_share_compilation_budget() {
+    let mut f = setup();
+    let first = ecc_contract("nop");
+    let second = ecc_contract("nop nop");
+    f.install_cold(&[f.receipt(0, vec![deploy(&first)]), f.receipt(1, vec![deploy(&second)])]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = second.len() as u64;
+    let same_code = f.receipt(0, vec![call("cb")]);
+    let receipt = f.receipt(1, vec![call("cb")]);
+    let result = f.apply_with_eccs(
+        &[same_code.clone(), receipt.clone()],
+        vec![EccTransaction::new(alice_account(), vec![])],
+    );
+    assert_eq!(result.cold_contract_bytes, first.len() as u64);
+    assert_eq!(result.outcomes.len(), 2);
+    assert_eq!(result.outcomes[1].id, *same_code.receipt_id());
+    assert_matches!(result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(result.delayed_receipts_count, 1);
+    f.assert_cached(&first);
+    assert_eq!(f.compilation_status(&second), None);
+
+    let retry = f.apply(&[]);
+    assert_eq!(retry.cold_contract_bytes, second.len() as u64);
+    assert_eq!(retry.delayed_receipts_count, 0);
+    assert_eq!(retry.outcomes.len(), 1);
+    assert_eq!(retry.outcomes[0].id, *receipt.receipt_id());
+    assert_matches!(retry.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+#[test]
+fn refused_ecc_retains_compilation_admission() {
+    let mut f = setup();
+    let refused = ecc_contract("unreachable");
+    let other = ecc_contract("nop nop");
+    f.install_cold(&[f.receipt(0, vec![deploy(&refused)]), f.receipt(1, vec![deploy(&other)])]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = other.len() as u64;
+    let result = f.apply_with_eccs(
+        &[],
+        vec![
+            EccTransaction::new(alice_account(), vec![0]),
+            EccTransaction::new(bob_account(), vec![1]),
+        ],
+    );
+    assert_eq!(result.cold_contract_bytes, refused.len() as u64);
+    assert_eq!(result.outcomes.len(), 1);
+    assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
+    assert_eq!(result.outcomes[0].outcome.gas_burnt, Gas::ZERO);
+    f.assert_cached(&refused);
+    assert_eq!(f.compilation_status(&other), None);
+}
+
+#[test]
+fn ecc_compilation_budget_is_protocol_gated() {
+    let mut f = setup();
+    let code = ecc_contract("nop");
+    f.install_cold(&[f.receipt(0, vec![deploy(&code)])]);
+    f.state.current_protocol_version -= 1;
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    let result = f.apply_with_eccs(&[], vec![EccTransaction::new(alice_account(), vec![])]);
+    assert_eq!(result.cold_contract_bytes, 0);
+    assert_eq!(result.outcomes.len(), 1);
+    assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(f.compilation_status(&code), None);
 }
 
 #[test]

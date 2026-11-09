@@ -2138,7 +2138,7 @@ impl Runtime {
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         // Decided before anything is read from the state, so that nothing is read for them.
         let skipped = find_skipped_transactions(maybe_expired_txs, max_eccs);
-        let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
+        let mut num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
@@ -2241,12 +2241,15 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    process_external_call(
+                    let processing_result = process_external_call(
                         processing_state,
                         &accounts,
                         ecc,
                         maybe_validation_error,
                     )?;
+                    if matches!(processing_result, ProcessingResult::Deferred) {
+                        num_skipped_txs += 1;
+                    }
                     continue;
                 }
             };
@@ -3201,6 +3204,9 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>)
 /// `accounts` and in the trie) is charged, and the fees and the run count toward the chunk's gas
 /// and compute.
 ///
+/// Calls whose cold code exceeds the chunk's compilation budget are skipped without an outcome,
+/// like calls beyond the chunk's ECC count limit.
+///
 /// If the call is refused, before or after the run, any writes are rolled back and nobody pays.
 /// The validators' work on it still counts toward the chunk's compute, so it stays bounded, but
 /// not toward the chunk's gas: since nobody pays for it, it shouldn't move the next gas price.
@@ -3209,7 +3215,7 @@ fn process_external_call(
     accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
     ecc: &EccTransaction,
     validation_error: Option<InvalidTxError>,
-) -> Result<(), RuntimeError> {
+) -> Result<ProcessingResult<()>, RuntimeError> {
     let apply_state = processing_state.apply_state;
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
@@ -3268,6 +3274,13 @@ fn process_external_call(
         &outcome_id,
         &cost,
     )?;
+    let run = match run {
+        ProcessingResult::Processed(run) => run,
+        ProcessingResult::Deferred => {
+            processing_state.state_update.rollback();
+            return Ok(ProcessingResult::Deferred);
+        }
+    };
     match run.verdict {
         Ok(charge) => {
             processing_state.total.add(run.gas_burnt.as_gas(), run.compute_usage)?;
@@ -3285,7 +3298,7 @@ fn process_external_call(
     }
     let outcome = run.into_outcome(outcome_id, ecc, account);
     processing_state.outcomes.push(outcome);
-    Ok(())
+    Ok(ProcessingResult::Processed(()))
 }
 
 /// Records the outcome of an external contract call refused before its method runs, and counts
@@ -3296,12 +3309,12 @@ fn refuse_ecc_before_run(
     ecc: &EccTransaction,
     error: TxExecutionError,
     compute_usage: Compute,
-) -> Result<(), RuntimeError> {
+) -> Result<ProcessingResult<()>, RuntimeError> {
     processing_state.total.add(0, compute_usage)?;
     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     let outcome = ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute_usage);
     processing_state.outcomes.push(outcome);
-    Ok(())
+    Ok(ProcessingResult::Processed(()))
 }
 
 /// Checks an external contract call before it runs: it passed validation, and its contract
