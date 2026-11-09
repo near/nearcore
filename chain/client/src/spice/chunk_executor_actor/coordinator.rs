@@ -318,17 +318,16 @@ impl ChunkExecutorActor {
                 || self
                     .shard_tracker
                     .cares_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
-                || found(
-                    chunk_store.get_chunk_extra(&final_execution_head.last_block_hash, shard_uid),
-                )?
-                .is_some()
+                || chunk_store
+                    .get_chunk_extra(&final_execution_head.last_block_hash, shard_uid)
+                    .is_ok()
             {
                 continue;
             }
 
             // State sync writes the chunk extra at the sync block last, after the shard's state,
             // flat storage and memtrie, but the shard is only caught up once its catchup is done.
-            if found(chunk_store.get_chunk_extra(&sync_hash, shard_uid))?.is_none()
+            if chunk_store.get_chunk_extra(&sync_hash, shard_uid).is_err()
                 || is_catching_up(
                     &self.chain_store,
                     self.epoch_manager.as_ref(),
@@ -341,10 +340,10 @@ impl ChunkExecutorActor {
 
             let mut block_hash = sync_hash;
             while block_hash != final_execution_head.last_block_hash {
-                let Some(next) = found(self.chain_store.get_next_block_hash(&block_hash))? else {
+                let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
                     break;
                 };
-                let Some(header) = found(self.chain_store.get_block_header(&next))? else {
+                let Ok(header) = self.chain_store.get_block_header(&next) else {
                     break;
                 };
                 if header.height() > final_execution_head.height {
@@ -732,15 +731,5 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
         if let Err(err) = self.coordinator_post_apply(&block_hash, &outgoing_proofs) {
             tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
         }
-    }
-}
-
-/// The value a store read returns, or `None` when it is not stored, so that a caller can tell a
-/// missing value apart from a failed read.
-fn found<T>(result: Result<T, Error>) -> Result<Option<T>, Error> {
-    match result {
-        Ok(value) => Ok(Some(value)),
-        Err(Error::DBNotFoundErr(_)) => Ok(None),
-        Err(err) => Err(err),
     }
 }
