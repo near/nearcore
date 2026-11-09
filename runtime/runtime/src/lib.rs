@@ -11,9 +11,10 @@ use crate::config::{
 };
 use crate::congestion_control::{DelayedReceiptQueueWrapper, IteratedReceipt};
 use crate::contract_compilation_status::contract_compilation_is_admitted;
+use crate::external_call::process_external_call;
 pub use crate::external_call::{
     EccDryRun, EccDryRunContext, EccDryRunOutput, ExternalCallsInChunk, ProcessedExternalCall,
-    dry_run_external_call, dry_run_external_call_with_output, process_external_call,
+    dry_run_external_call, dry_run_external_call_with_output,
 };
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
@@ -2332,7 +2333,7 @@ impl Runtime {
             shard_layout.as_ref().map(|layout| (layout, apply_state.shard_id));
         // Decided before anything is read from the state, so that nothing is read for them.
         let skipped = find_skipped_transactions(maybe_expired_txs, shard_layout_and_id);
-        let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
+        let mut num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
@@ -2439,7 +2440,14 @@ impl Runtime {
                         ecc,
                         maybe_validation_error,
                     )?;
-                    record_external_call(processing_state, receipt_sink, ecc, processed)?;
+                    match processed {
+                        ProcessingResult::Processed(processed) => {
+                            record_external_call(processing_state, receipt_sink, ecc, processed)?;
+                        }
+                        ProcessingResult::Deferred => {
+                            num_skipped_txs += 1;
+                        }
+                    }
                     continue;
                 }
             };
