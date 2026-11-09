@@ -11,7 +11,8 @@
 //! Note that this does not simulate action execution, we just assume all
 //! actions in the receipt succeed. If an action fails during execution,
 //! following actions are not executed and hence their contracts would not need
-//! to be prepared. Those contracts still need to go through admission.
+//! to be prepared. Those contracts still need to go through admission, except
+//! function calls that are guaranteed to abort during contract loading.
 
 use crate::ApplyState;
 use crate::cache_warming::precompile_contract_with_warming;
@@ -19,6 +20,7 @@ use crate::contract_code::RuntimeContractIdentifier;
 use crate::contract_compilation_status::{
     contract_compilation_is_admitted, try_admit_contract_compilation,
 };
+use crate::contract_preparation::gas_counter;
 use crate::function_call::record_contract_call;
 use crate::wallet_contract::eth_wallet_global_contract_hash;
 use near_primitives::account::AccountContract;
@@ -33,6 +35,7 @@ use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{ContractCompilationAdmission, TrieUpdate, get_account};
 use near_vm_runner::ContractCode;
+use near_vm_runner::logic::ExecutionMode;
 use std::sync::Arc;
 
 /// Preflight an action receipt by admitting and preparing contracts in action
@@ -82,7 +85,19 @@ pub(crate) fn preflight_receipt_contracts(
                 contract = AccountContract::Local(code_hash);
                 deployed_hash = Some(code_hash);
             }
-            Action::FunctionCall(_) => {
+            Action::FunctionCall(action) => {
+                // Mirror demand preparation without charging the receipt here.
+                // Calls that cannot pay for loading must not consume compilation budget.
+                let loading_base = if apply_state.config.wasm_config.fix_contract_loading_cost {
+                    match gas_counter(&apply_state.config, &ExecutionMode::Internal, action.gas)
+                        .charge_loading_base(&action.method_name)
+                    {
+                        Ok(base) => Some(base),
+                        Err(_) => continue,
+                    }
+                } else {
+                    None
+                };
                 let identifier = RuntimeContractIdentifier::resolve(
                     account_id,
                     contract.clone(),
@@ -118,6 +133,11 @@ pub(crate) fn preflight_receipt_contracts(
                     // The protocol's wallet contract may not exist on this chain.
                     continue;
                 };
+                if let Some(base) = loading_base {
+                    if base.charge_bytes(code_len).is_err() {
+                        continue;
+                    }
+                }
                 if try_admit_contract_compilation(
                     state_update,
                     apply_state,

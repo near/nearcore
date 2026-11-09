@@ -667,7 +667,7 @@ fn global_distribution_and_compilation_errors_are_warm() {
 }
 
 #[test]
-fn preflight_admits_calls_and_deploys_even_after_a_loading_abort() {
+fn preflight_skips_loading_abort_but_still_admits_later_deployment() {
     let mut f = setup();
     let first = near_test_contracts::trivial_contract();
     let second = near_test_contracts::rs_contract();
@@ -676,9 +676,55 @@ fn preflight_admits_calls_and_deploys_even_after_a_loading_abort() {
         f.receipt(0, vec![Action::function_call("main", vec![], Gas::from_gas(1)), deploy(second)]);
     let result = f.apply(&[receipt]);
     assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
-    assert_eq!(result.cold_contract_bytes, first.len().checked_add(second.len()).unwrap() as u64);
-    f.assert_cached(first);
+    assert_eq!(result.cold_contract_bytes, second.len() as u64);
+    assert_eq!(f.compilation_status(first), None);
     f.assert_cached(second);
+}
+
+#[test]
+fn preflight_loading_affordability_controls_admission() {
+    let code = budget_contracts()[0].clone();
+    let config = setup().state.config;
+    let costs = &config.wasm_config.ext_costs;
+    let base = costs.gas_cost(ExtCosts::contract_loading_base);
+    let bytes =
+        costs.gas_cost(ExtCosts::contract_loading_bytes).checked_mul(code.len() as u64).unwrap();
+    let loading = base.checked_add(bytes).unwrap();
+
+    for global in [false, true] {
+        for (method, gas, admitted) in [
+            ("", Gas::from_teragas(30), false),
+            ("main", Gas::from_gas(1), false),
+            ("main", base, false),
+            ("main", loading.checked_sub(Gas::from_gas(1)).unwrap(), false),
+            ("main", loading, true),
+        ] {
+            let mut f = setup();
+            let id = GlobalContractIdentifier::CodeHash(hash(&code));
+            if global {
+                f.install_cold(&[
+                    distribute(id.clone(), &code),
+                    f.receipt(0, vec![use_global(id)]),
+                ]);
+            } else {
+                f.install_cold(&[f.receipt(0, vec![deploy(&code)])]);
+            }
+            // An aborting call must execute (and fail), not defer, even with no budget.
+            Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk =
+                if admitted { code.len() as u64 } else { 0 };
+            let receipt = f.receipt(0, vec![Action::function_call(method, vec![], gas)]);
+            let result = f.apply(&[receipt]);
+            assert_eq!(result.outcomes.len(), 1);
+            assert_eq!(result.delayed_receipts_count, 0);
+            assert_eq!(result.cold_contract_bytes, if admitted { code.len() as u64 } else { 0 });
+            if admitted {
+                f.assert_cached(&code);
+            } else {
+                assert_matches!(result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
+                assert_eq!(f.compilation_status(&code), None);
+            }
+        }
+    }
 }
 
 #[test]
