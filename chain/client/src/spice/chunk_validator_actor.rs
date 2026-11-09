@@ -88,22 +88,25 @@ pub struct SpiceChunkValidatorActor {
 }
 
 /// A chunk's witness candidates and the contract code requested for them.
-struct PartialChunkData {
+pub(super) struct PartialChunkData {
     /// Whether a contract accesses message arrived; only the first one starts a code request.
     accesses_received: bool,
-    /// Code hashes requested from a producer, each with the index in `bytes_received` of the
-    /// request that asked for it.
+    /// Code requests sent to producers; each hash is in at most one of them.
     // TODO(spice-data-distribution): code is requested once and never again, so a request
     // that is never answered stalls every candidate needing that code until the chunk is evicted.
-    requested_code: HashMap<CodeHash, usize>,
-    /// Uncompressed code bytes stored for each request, at most
-    /// `MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE` each.
-    bytes_received: Vec<u64>,
+    requests: Vec<CodeRequest>,
     /// Requested code received so far.
     /// TODO(spice),TODO(pipelining): This is not strictly needed - we could send the contracts for compilation/caching as they arrive without waiting for all of them + witness to be present.
     code: HashMap<CodeHash, CodeBytes>,
     /// Candidates whose block is ready, waiting for contract code.
     candidates: Vec<WitnessCandidate>,
+}
+
+/// Contract code asked for in one request, and the bytes of it stored so far.
+struct CodeRequest {
+    contracts: HashSet<CodeHash>,
+    /// At most `MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE`.
+    bytes_stored: u64,
 }
 
 /// A witness waiting for the contract code its own accesses list names.
@@ -114,11 +117,10 @@ struct WitnessCandidate {
 }
 
 impl PartialChunkData {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             accesses_received: false,
-            requested_code: HashMap::new(),
-            bytes_received: Vec::new(),
+            requests: Vec::new(),
             code: HashMap::new(),
             candidates: Vec::new(),
         }
@@ -126,29 +128,30 @@ impl PartialChunkData {
 
     /// Returns the hashes in `contracts` not requested yet, and marks them as requested by one
     /// new request.
-    fn take_unrequested(&mut self, contracts: HashSet<CodeHash>) -> HashSet<CodeHash> {
-        let unrequested: HashSet<CodeHash> =
-            contracts.into_iter().filter(|hash| !self.requested_code.contains_key(hash)).collect();
-        if unrequested.is_empty() {
-            return unrequested;
+    pub(super) fn take_unrequested(&mut self, contracts: HashSet<CodeHash>) -> HashSet<CodeHash> {
+        let unrequested: HashSet<CodeHash> = contracts
+            .into_iter()
+            .filter(|hash| !self.requests.iter().any(|request| request.contracts.contains(hash)))
+            .collect();
+        if !unrequested.is_empty() {
+            self.requests.push(CodeRequest { contracts: unrequested.clone(), bytes_stored: 0 });
         }
-        let request = self.bytes_received.len();
-        self.bytes_received.push(0);
-        self.requested_code.extend(unrequested.iter().map(|hash| (hash.clone(), request)));
         unrequested
     }
 
     /// Stores `bytes` if `hash` was requested, is not stored yet, and fits what is left of its
     /// request's cap. Returns whether it was stored.
-    fn store_code(&mut self, hash: &CodeHash, bytes: &CodeBytes) -> bool {
-        let Some(&request) = self.requested_code.get(hash) else {
-            return false;
-        };
+    pub(super) fn store_code(&mut self, hash: &CodeHash, bytes: &CodeBytes) -> bool {
         if self.code.contains_key(hash) {
             return false;
         }
-        let bytes_received = &mut self.bytes_received[request];
-        let Some(total) = bytes_received
+        let Some(request) =
+            self.requests.iter_mut().find(|request| request.contracts.contains(hash))
+        else {
+            return false;
+        };
+        let Some(total) = request
+            .bytes_stored
             .checked_add(bytes.0.len() as u64)
             .filter(|total| *total <= MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE)
         else {
@@ -159,7 +162,7 @@ impl PartialChunkData {
             );
             return false;
         };
-        *bytes_received = total;
+        request.bytes_stored = total;
         self.code.insert(hash.clone(), bytes.clone());
         true
     }

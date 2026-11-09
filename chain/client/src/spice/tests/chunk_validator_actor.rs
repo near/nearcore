@@ -1,5 +1,5 @@
 use crate::spice::chunk_validator_actor::{
-    MAX_BLOCKS_WITH_PENDING_CONTRACT_ACCESSES, SpiceChunkStateWitnessMessage,
+    MAX_BLOCKS_WITH_PENDING_CONTRACT_ACCESSES, PartialChunkData, SpiceChunkStateWitnessMessage,
     SpiceChunkValidatorActor,
 };
 use assert_matches::assert_matches;
@@ -48,7 +48,7 @@ use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, MAX_CONTRACTS_PER_REQUEST, MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE,
-    MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE, SpiceContractCodeResponse,
+    SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::{
     ChunkProductionKey,
@@ -1161,48 +1161,27 @@ fn candidate_witness_not_ready_when_its_code_arrives_is_validated_later() {
     assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 1);
 }
 
-/// Code past what is left of its request's cap is not stored, so a witness needing it is not
-/// validated even once every response arrived.
+/// Code past what is left of its request's cap is not stored, and another request still stores
+/// up to its own cap.
 #[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn slow_test_code_past_its_request_cap_is_not_stored() {
-    let mut actor = setup_two_validators();
-    let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
-    let starting_state_root = test_starting_state_root(&actor);
-    record_execution_results(&actor, &prev_block, starting_state_root);
+fn code_past_its_request_cap_is_not_stored_and_other_requests_keep_their_own_cap() {
+    let quarter = MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE / 4;
+    let quarter_code = CodeBytes(Arc::from(vec![0u8; quarter as usize]));
+    let byte_code = CodeBytes(Arc::from(vec![0u8]));
+    // Hashes are made up: storing does not check them against the bytes.
+    let code_hash = |index: u8| CodeHash(hash(&[index]));
+    let first: Vec<CodeHash> = (0..5).map(code_hash).collect();
+    let second = code_hash(5);
 
-    // Full responses that together stay just under the request cap, then one that passes it.
-    let full_responses = MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE
-        / MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE;
-    let full_size = (MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE - (1 << 20)) as usize;
-    let last_size = (full_responses << 20) as usize + 1;
-    let code_sizes = (0..full_responses).map(|_| full_size).chain([last_size]);
-    let make_code = |index: u8, size: usize| {
-        let mut bytes = vec![0u8; size];
-        bytes[0] = index;
-        CodeBytes(Arc::from(bytes))
-    };
-    let contracts: HashSet<CodeHash> = code_sizes
-        .clone()
-        .enumerate()
-        .map(|(index, size)| CodeHash(hash(&make_code(index as u8, size).0)))
-        .collect();
-    let witness_message = valid_witness_message_with_accesses(
-        &actor,
-        &block,
-        &prev_block,
-        &starting_state_root,
-        &contracts,
-    );
-    actor.handle(witness_message.span_wrap());
-    assert_eq!(drain_contract_requests(&mut actor.network_rc), vec![contracts]);
+    let mut entry = PartialChunkData::new();
+    entry.take_unrequested(first.iter().cloned().collect());
+    entry.take_unrequested(HashSet::from([second.clone()]));
 
-    for (index, size) in code_sizes.enumerate() {
-        send_contract_code(&mut actor, &block, vec![make_code(index as u8, size)]);
+    for hash in &first[..4] {
+        assert!(entry.store_code(hash, &quarter_code));
     }
-    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    assert!(!entry.store_code(&first[4], &byte_code));
+    assert!(entry.store_code(&second, &quarter_code));
 }
 
 /// Code received for a fake witness serves the honest one that follows: a producer answers one
