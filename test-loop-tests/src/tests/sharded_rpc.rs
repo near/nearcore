@@ -458,7 +458,7 @@ fn test_rpc_call_function_with_state_init() {
         assert_eq!(response.result.result, value, "EXPERIMENTAL_call_function on {node}");
     }
 
-    // Errors: an init for another account, and one with undeployed code.
+    // Errors: an init for another account, and one with missing code.
     let other = UniversalStateInit::V1(UniversalStateInitV1 {
         code: None,
         data: BTreeMap::new(),

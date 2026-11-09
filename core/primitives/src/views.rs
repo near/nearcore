@@ -3221,6 +3221,7 @@ mod tests {
             args: vec![].into(),
             state_init,
         };
+        // cspell:ignore AQID
         let cases = [
             (call(None), None),
             (
