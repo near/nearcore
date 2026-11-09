@@ -5,18 +5,13 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::{Action, NetworkRequestsMatcher, RuleHandle};
 use crate::utils::node::TestLoopNode;
-use near_async::messaging::CanSend as _;
-use near_client::BlockResponse;
-use near_network::types::{NetworkRequests, NetworkResponses};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger_with_directives;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 const EPOCH_LENGTH: u64 = 1100;
@@ -25,41 +20,25 @@ const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
 /// Deliver the withheld block after its canonical sibling and before the sibling's child.
 /// Every head is then on the sibling, so a node that cannot record the child cannot progress.
-fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
-    let late: Arc<Mutex<Option<Arc<Block>>>> = Arc::new(Mutex::new(None));
-    let client_senders: Vec<_> =
-        env.node_datas.iter().map(|data| data.client_sender.clone()).collect();
-    for data in &env.node_datas {
-        let late = late.clone();
-        let client_senders = client_senders.clone();
-        let peer_id = data.peer_id.clone();
-        data.register_override_handler(&mut env.test_loop.data, move |request| {
-            let NetworkRequests::Block { block } = &request else {
-                return HandlerResult::Unhandled(request);
-            };
-            if block.header().height() == withheld {
-                *late.lock() = Some(block.clone());
-                return HandlerResult::Handled(NetworkResponses::NoResponse);
-            }
-            if block.header().height() > withheld + 1 {
-                if let Some(late) = late.lock().take() {
-                    for sender in &client_senders {
-                        let response = BlockResponse {
-                            block: late.clone(),
-                            peer_id: peer_id.clone(),
-                            was_requested: false,
-                        };
-                        sender.send(response.span_wrap());
-                    }
-                }
-            }
-            HandlerResult::Unhandled(request)
-        });
+fn deliver_late(env: &TestLoopEnv, withheld: BlockHeight) {
+    let matches = || NetworkRequestsMatcher::block_broadcasts(withheld..withheld + 1);
+    let held: Vec<RuleHandle> = (0..env.node_datas.len())
+        .map(|index| {
+            env.node_network(index).add_incoming_rule(matches(), Action::hold_until_lifted())
+        })
+        .collect();
+    // The sibling's broadcast lifts the holds. The withheld block then goes out from its
+    // producer right after the sibling, and a block interval before the sibling's child.
+    let sibling = || NetworkRequestsMatcher::block_broadcasts(withheld + 1..withheld + 2);
+    for index in 0..env.node_datas.len() {
+        let held = held.clone();
+        env.node_network(index)
+            .observe_messages(sibling(), move |_| held.iter().for_each(RuleHandle::lift));
     }
 }
 
 fn withhold_block(mut env: TestLoopEnv, withheld: BlockHeight) -> (TestLoopEnv, CryptoHash) {
-    deliver_late(&mut env, withheld);
+    deliver_late(&env, withheld);
     env.node_runner(0).run_until_head_height(withheld - 1);
     let parent = env.node(0).client().chain.get_block_hash_by_height(withheld - 1).unwrap();
 

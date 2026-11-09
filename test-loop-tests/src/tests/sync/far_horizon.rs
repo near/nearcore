@@ -767,14 +767,14 @@ fn test_far_horizon_tx_during_sync() {
 }
 
 // Scenario: A fresh node enters StateSync but state part downloads always
-// fail (an override handler drops StateRequestPart messages). The chain
+// fail (a network rule drops StateRequestPart messages). The chain
 // advances to a new epoch, making the sync hash stale. The node should
 // detect this and trigger recovery.
 //
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards
 //   - Network runs past the epoch sync horizon
-//   - Add a fresh node, install override handler that drops state part requests
+//   - Add a fresh node, add a network rule that drops state part requests
 //   - Node enters StateSync (parts blocked), record the sync hash
 //   - Advance the chain until validators have a different sync hash
 //
@@ -786,9 +786,8 @@ fn test_far_horizon_tx_during_sync() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_far_horizon_stale_sync_hash_detection() {
-    use crate::setup::peer_manager_actor::HandlerResult;
     use near_client::sync::state::sync_hash_stale_above_height;
-    use near_network::types::{NetworkRequests, NetworkResponses};
+    use near_network::types::NetworkRequests;
 
     init_test_logger();
 
@@ -816,14 +815,9 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let new_node_idx = env.add_node("new_node", node_state);
 
     // Drop state part requests so state sync never completes.
-    env.node_datas[new_node_idx].register_override_handler(&mut env.test_loop.data, |request| {
-        match &request {
-            NetworkRequests::StateRequestPart { .. } => {
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+    env.node_network(new_node_idx).drop_messages(NetworkRequestsMatcher::new(|request| {
+        matches!(request, NetworkRequests::StateRequestPart { .. })
+    }));
 
     // Run until new node enters StateSync and record its sync hash.
     let mut node_sync_hash = None;

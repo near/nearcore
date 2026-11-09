@@ -138,11 +138,11 @@ impl CloudArchiveHarnessBuilder {
     }
 
     /// Sets the number of block-and-chunk-producer validators.
-    // TODO(cloud_archival): drop the raised counts once `block_dropper_by_height` also
+    // TODO(cloud_archival): drop the raised counts once the block drop condition also
     // intercepts `BlockRequest` responses.
     fn validators(mut self, count: usize) -> Self {
         // `drop_blocks_at` / `drop_chunks` need count >= 4 to be observable on
-        // the chain; see `block_dropper_by_height` in `test-loop-tests/src/utils/network.rs`.
+        // the chain; see `blocks_at_heights_matcher` in `test-loop-tests/src/utils/network.rs`.
         assert!(count > 0);
         self.num_validators = Some(count);
         self

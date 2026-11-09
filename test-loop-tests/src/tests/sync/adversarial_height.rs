@@ -8,6 +8,7 @@
 
 use super::util::{TEST_EPOCH_SYNC_HORIZON, run_until_synced, track_sync_status};
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::network_rules::NetworkRequestsMatcher;
 use crate::setup::peer_manager_actor::ClientSenderForTestLoopNetwork;
 use crate::setup::peer_manager_actor::TestLoopNetworkBlockInfo;
 use crate::setup::state::NodeExecutionData;
@@ -332,10 +333,9 @@ fn block_with_raised_height(block: &Block, height: BlockHeight) -> Arc<Block> {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
-    use crate::setup::peer_manager_actor::HandlerResult;
     use near_client::SyncStatus;
     use near_client::sync::state::sync_hash_stale_above_height;
-    use near_network::types::{NetworkRequests, NetworkResponses};
+    use near_network::types::NetworkRequests;
 
     init_test_logger();
 
@@ -363,14 +363,9 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
     let victim_idx = env.add_node("victim", node_state);
 
     // Drop state part requests so state sync stays in progress.
-    env.node_datas[victim_idx].register_override_handler(&mut env.test_loop.data, |request| {
-        match &request {
-            NetworkRequests::StateRequestPart { .. } => {
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
+    env.node_network(victim_idx).drop_messages(NetworkRequestsMatcher::new(|request| {
+        matches!(request, NetworkRequests::StateRequestPart { .. })
+    }));
 
     env.node_runner(victim_idx).run_until(
         |node| matches!(node.client().sync_handler.sync_status, SyncStatus::StateSync(_)),

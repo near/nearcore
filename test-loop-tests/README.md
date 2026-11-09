@@ -197,6 +197,8 @@ env.node_network(1).add_outgoing_rule(
 - `add_incoming_rule` applies to what reaches a node from any sender, and
   `env.node_network(a).add_rule_to(&b, ..)` to what `a` sends `b` only. Neither affects the
   other recipients of a broadcast.
+- `env.add_drop_condition` returns one handle for a drop condition on every account,
+  including nodes added later.
 - `register_override_handler` is still available for tests that deliver messages
   themselves.
 

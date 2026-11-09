@@ -1,6 +1,6 @@
 use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
-use super::network_rules::TestLoopNodeNetwork;
+use super::network_rules::{RuleHandle, TestLoopNodeNetwork};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{archival_account_id, rpc_account_id};
@@ -14,6 +14,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -24,23 +25,35 @@ pub struct TestLoopEnv {
 }
 
 impl TestLoopEnv {
-    /// The function is used to add a new network drop condition to the test loop environment.
-    /// While adding a new drop_condition, we iterate through all the nodes and register the
-    /// drop_condition with the node's peer_manager_actor.
-    ///
-    /// Additionally, we store the drop_condition in the shared_state.
-    /// While adding a new node to the environment, we can iterate through all the drop_conditions
-    /// and register them with the new node's peer_manager_actor.
+    /// Adds a network drop condition: a drop rule on the account of every node, and on the
+    /// account of every node added later.
     pub fn drop(mut self, drop_condition: DropCondition) -> Self {
-        for data in &self.node_datas {
+        self.add_drop_condition(drop_condition);
+        self
+    }
+
+    /// Same as [`Self::drop`], but borrows the environment and returns the condition's
+    /// handle: one switch over its rule on every account, the accounts of nodes added later
+    /// included, whose count covers them all. Lifting it ends the condition everywhere.
+    pub fn add_drop_condition(&mut self, drop_condition: DropCondition) -> RuleHandle {
+        let handle = RuleHandle::default();
+        // Rules are keyed by account and a restarted node is a new entry with the account of
+        // the old one, so each account gets the rule once, through its latest entry.
+        let mut seen = HashSet::new();
+        for data in self.node_datas.iter().rev() {
+            if !seen.insert(&data.account_id) {
+                continue;
+            }
             data.register_drop_condition(
-                &mut self.test_loop.data,
+                &self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
+                &self.shared_state.network_rules,
                 &drop_condition,
+                &handle,
             );
         }
-        self.shared_state.drop_conditions.push(drop_condition);
-        self
+        self.shared_state.drop_conditions.push((drop_condition, handle.clone()));
+        handle
     }
 
     /// Reach block with height `genesis_height + 3`. Check that it can be done
@@ -142,8 +155,15 @@ impl TestLoopEnv {
     /// Returns the index of the new node in `node_datas`. The stopped node keeps its own entry.
     pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) -> usize {
         // setup_client handles adding the account_id and peer_id details to network_shared_state
-        let node_data =
+        let mut node_data =
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
+        // The endorsement-delay rule of the account outlives the killed node and reads its
+        // delay, so the restarted node shares it rather than starting from zero.
+        if let Some(previous) =
+            self.node_datas.iter().rev().find(|data| data.account_id == node_data.account_id)
+        {
+            node_data.expected_execution_delay = previous.expected_execution_delay.clone();
+        }
         self.node_datas.push(node_data);
         self.node_datas.len() - 1
     }
