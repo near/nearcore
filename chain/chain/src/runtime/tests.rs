@@ -1418,16 +1418,7 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     }
     init_test_logger();
     let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
-    // A free config leaves no room for ECCs in a chunk, so this one charges fees.
-    let config = TestEnvConfig {
-        epoch_length: 4,
-        has_reward: false,
-        minimum_stake_divisor: None,
-        zero_fees: false,
-        create_flat_storage: true,
-        runtime_config_store: None,
-    };
-    let mut env = TestEnv::new_with_config(vec![validators.clone()], config);
+    let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let contract_id = validators[0].clone();
     let signer = InMemorySigner::test_signer(&contract_id);
     // The ECC method returns the block height, the epoch height and the contract account's
@@ -1910,20 +1901,17 @@ fn pool_with_eccs(eccs: impl IntoIterator<Item = ValidatedEcc>) -> TransactionPo
     pool
 }
 
-/// Prepares the transactions of the pool for a chunk with `gas_limit`, in a state where the
-/// accounts `with_contract` hold a contract and the other ones do not.
+/// Prepares the transactions of the pool, in a state where the accounts `with_contract` hold a
+/// contract and the other ones do not.
 fn prepare_eccs(
     env: &TestEnv,
     chain: &Chain,
     pool: &mut TransactionPool,
     skip_tx_hashes: HashSet<CryptoHash>,
     with_contract: &[&str],
-    gas_limit: Gas,
 ) -> (PreparedTransactions, SkippedTransactions) {
-    let change_context =
-        |context: &mut PrepareTransactionsBlockContext| context.gas_limit = gas_limit;
     let change_state = give_contracts(with_contract);
-    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, change_context)
+    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, |_| {})
 }
 
 fn prepare_eccs_with_context(
@@ -2022,10 +2010,9 @@ fn test_prepare_transactions_packs_one_ecc_per_contract() {
         ecc("test2", 1),
         ecc("test2", 2),
     ]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
     let (prepared, skipped) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], gas_limit);
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert_eq!(
         packed_eccs(&prepared.transactions),
@@ -2070,10 +2057,8 @@ fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
     let (env, chain, _) = get_test_env_with_room_for_two_kilobyte_eccs();
     let contracts = ["test1", "test2", "test3", "test4"];
     let mut pool = pool_with_eccs(contracts.map(|contract_id| kilobyte_ecc(contract_id, 1)));
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
 
     let first_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(first_chunk.len(), 2);
@@ -2084,7 +2069,6 @@ fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
         &mut pool,
         prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
         &contracts,
-        gas_limit,
     );
     let next_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(next_chunk.len(), 2);
@@ -2106,10 +2090,8 @@ fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
     let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
     let contracts = ["test1", "test2", "test3", "test4"];
     let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
 
     let first_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(first_chunk.len(), 2);
@@ -2120,7 +2102,6 @@ fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
         &mut pool,
         prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
         &contracts,
-        gas_limit,
     );
     let next_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(next_chunk.len(), 2);
@@ -2144,10 +2125,8 @@ fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
         let ecc = kilobyte_ecc(contract_id, 1);
         assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
     }
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
 
     assert_eq!(packed_eccs(&prepared.transactions).len(), 2);
     assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
@@ -2169,10 +2148,8 @@ fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
     let big_ecc =
         ValidatedEcc::new_for_test(EccTransaction::new("test1".parse().unwrap(), vec![1; 2000]));
     assert_eq!(pool.insert_transaction(big_ecc), InsertTransactionResult::Success);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"], gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert!(signed_txs(&prepared.transactions).count() > 0);
@@ -2265,10 +2242,8 @@ fn test_prepare_transactions_leaves_eccs_in_pool_when_there_is_no_room() {
     for contract_id in ["test1", "test2"] {
         assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
     }
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
@@ -2288,10 +2263,8 @@ fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool =
         pool_with_eccs([ecc("test1", 1), ecc("test2", 1), ecc("test2", 2), ecc("nobody", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, skipped) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"], gas_limit);
+    let (prepared, skipped) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
 
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
     assert!(skipped.0.is_empty());
@@ -2308,7 +2281,6 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
     let by_hash = AccountContract::Global(CryptoHash::hash_bytes(b"code"));
     let by_account = AccountContract::GlobalByAccount("deployer.near".parse().unwrap());
 
@@ -2318,7 +2290,7 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
         &mut pool,
         HashSet::new(),
         give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]),
-        |context| context.gas_limit = gas_limit,
+        |_| {},
     );
 
     assert_eq!(
@@ -2339,16 +2311,9 @@ fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test1", 2), ecc("test1", 3)]);
     let in_previous_chunk = ecc("test1", 1).get_hash();
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, skipped) = prepare_eccs(
-        &env,
-        &chain,
-        &mut pool,
-        HashSet::from([in_previous_chunk]),
-        &["test1"],
-        gas_limit,
-    );
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::from([in_previous_chunk]), &["test1"]);
 
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 2)]);
     assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![in_previous_chunk]);
@@ -2367,10 +2332,8 @@ fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(pool.len(), 2);

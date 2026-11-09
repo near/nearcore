@@ -1368,9 +1368,9 @@ fn test_apply_ecc_refused_lack_balance_for_storage() {
 /// Applies a chunk with only `ecc`, to a contract with `code`. Returns the ECC's outcome and the
 /// gas and the compute that the chunk's transactions counted toward the chunk's limits.
 ///
-/// The limit of ECCs in a chunk lets them take at most half of the chunk's gas limit, so ECCs
-/// alone can't fill a chunk. Tests of what an ECC counts toward the limits check these totals,
-/// which the limits are checked against, instead of a receipt that the chunk delays.
+/// One ECC can't fill a chunk: it burns at most `max_gas_burnt_external`, far below the chunk's
+/// gas limit. Tests of what an ECC counts toward the limits check these totals, which the limits
+/// are checked against, instead of a receipt that the chunk delays.
 fn apply_ecc_alone(code: Vec<u8>, ecc: EccTransaction) -> (ExecutionOutcome, u64, u64) {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
