@@ -1962,7 +1962,8 @@ fn refused_past_share(status: &ExecutionStatus) -> ExternalCallChunkLimit {
 }
 
 /// Once the chunk's ECCs use up their share of the chunk's compute, a further ECC is refused
-/// without running. A run the contract refuses counts toward the share too.
+/// without running, and counts no compute toward the chunk. A run the contract refuses counts
+/// toward the share too.
 #[test]
 fn test_apply_ecc_refused_past_compute_share() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1994,12 +1995,11 @@ fn test_apply_ecc_refused_past_compute_share() {
         refused_past_share(&second.outcome.status),
         ExternalCallChunkLimit::Compute { used, limit: share }
     );
-    // The second call didn't run: bob's account and data are as they were. Only the compute of
-    // its fees counts toward the chunk.
+    // The second call didn't run: bob's account and data are as they were. Not even the compute
+    // of its fees counts toward the chunk.
     let (_, value) = bob_ecc_state(&tries, root);
     assert_eq!(value, None);
-    let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
-    assert_eq!(second.outcome.compute_usage, Some(fee.compute_burnt));
+    assert_eq!(second.outcome.compute_usage, Some(0));
     assert_eq!(second.outcome.gas_burnt, Gas::ZERO);
 }
 
@@ -2044,6 +2044,7 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
         panic!("expected the storage proof share, got {:?}", second.outcome.status);
     };
     assert_eq!(limit, share);
+    assert_eq!(second.outcome.compute_usage, Some(0));
     // The run that passed the share recorded past its own budget, by at most one trie node,
     // besides the reads of the call before the run.
     let cap = calls_config.max_call_recorded_size as u64;

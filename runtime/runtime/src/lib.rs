@@ -3040,7 +3040,8 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
 /// If the call is refused, before or after the run, any writes are rolled back and nobody pays.
 /// The validators' work on it still counts toward the chunk's compute, so it stays bounded, but
 /// not toward the chunk's gas: since nobody pays for it, it shouldn't move the next gas price.
-/// Every call that passes the check of the shares counts toward them, whatever comes of it.
+/// The exception is a call refused past a share, which counts no compute: see below. Every call
+/// that passes the check of the shares counts toward them, whatever comes of it.
 fn process_external_call<'a>(
     processing_state: &mut ApplyProcessingReceiptState,
     external_calls: &mut ExternalCallsInChunk,
@@ -3064,9 +3065,14 @@ fn process_external_call<'a>(
     }
     // The check comes before anything is read for the call, so that a call past a share adds
     // nothing to the storage proof.
+    //
+    // Such a call counts no compute toward the chunk either, on purpose. Refusing it takes far
+    // less work than its fees' compute stands for, less than reading an account. If it counted
+    // that compute, a chunk producer could fill its chunk's compute limit with calls it knows
+    // are past the shares, so that the chunk processes no receipts, at no cost to anyone and
+    // with the chunk still produced. `max_external_calls_per_chunk` bounds the work they take.
     if let Err(err) = external_calls.fits() {
-        let compute = cost.compute_burnt;
-        return refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), compute);
+        return refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), 0);
     }
     // Everything recorded from here on, the read of the contract account included, counts toward
     // the share of the chunk's storage proof.
@@ -3163,7 +3169,8 @@ fn process_admitted_external_call<'a>(
 }
 
 /// Records the outcome of an external contract call refused before its method runs, and counts
-/// `compute_usage`, the compute of its fees, toward the chunk's compute.
+/// `compute_usage` toward the chunk's compute: the compute of its fees, or none for a call
+/// refused past the chunk's shares for ECCs.
 fn refuse_ecc_before_run(
     processing_state: &mut ApplyProcessingReceiptState,
     outcome_id: CryptoHash,

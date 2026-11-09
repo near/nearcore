@@ -229,7 +229,9 @@ the work validators did on it, fees included, counts toward the chunk's
 compute limit, so that work stays bounded. This holds even for a call rejected
 before any contract code runs, for example because the contract's account
 doesn't exist or has no contract: validators still check it, so the compute of
-its fees counts. A rejected call burns no gas, though, and its outcome reports
+its fees counts. The one exception is a call rejected because the chunk's
+external calls used up one of their shares, described below. A rejected call
+burns no gas, though, and its outcome reports
 no gas burnt: nobody pays for it, so it doesn't add to the chunk's gas used or
 move the next gas price, which everyone else pays. An honest chunk producer
 runs each call before including it and leaves out the ones that would be
@@ -276,8 +278,16 @@ end of the run. A call that finds a share used up is rejected with
 `ExternalCallChunkLimitExceeded` before anything is read for it, not even the
 contract's account, so it adds nothing to the storage proof. Only such a call
 adds nothing to the shares; a call rejected after it was admitted counts
-toward them like any other. The compute of its fees still counts toward the
-chunk's compute limit, as for every rejected call.
+toward them like any other.
+
+Unlike every other rejected call, a call rejected past a share counts no
+compute toward the chunk, not even that of its fees. This is on purpose:
+rejecting it takes far less work than the fees stand for, less than reading an
+account. If it counted the compute of its fees, a chunk producer could fill its
+chunk's compute limit with calls it knows will be rejected, so that the chunk
+processes no receipts, at no cost to anyone and with the chunk still produced
+and rewarded. The work of rejecting such calls is bounded by
+`max_external_calls_per_chunk` instead.
 
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
