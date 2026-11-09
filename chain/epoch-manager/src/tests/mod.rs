@@ -1,4 +1,6 @@
+#[cfg(feature = "test_features")]
 mod early_kickout;
+#[cfg(feature = "test_features")]
 mod epoch_start_fork_determinism;
 mod pick_shard_to_split;
 mod random_epochs;
