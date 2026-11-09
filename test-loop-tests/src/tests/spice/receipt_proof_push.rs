@@ -28,10 +28,12 @@ fn test_spice_receipt_proof_push_goes_to_the_next_blocks_destination_producers()
 
     let pushed: Arc<Mutex<HashMap<(CryptoHash, ShardId, ShardId), HashSet<AccountId>>>> =
         Default::default();
-    for node in &env.node_datas {
+    for index in 0..env.node_datas.len() {
         let pushed = pushed.clone();
-        env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle()).register_observer(
-            Box::new(move |request| {
+        env.observe_messages_from(
+            index,
+            |request| matches!(request, NetworkRequests::SpicePartialData { .. }),
+            move |request| {
                 let NetworkRequests::SpicePartialData { partial_data, recipients } = request else {
                     return;
                 };
@@ -45,7 +47,7 @@ fn test_spice_receipt_proof_push_goes_to_the_next_blocks_destination_producers()
                     .entry((*block_hash, *from_shard_id, *to_shard_id))
                     .or_default()
                     .extend(recipients.iter().cloned());
-            }),
+            },
         );
     }
 

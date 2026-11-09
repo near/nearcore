@@ -1,22 +1,21 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
-use near_async::messaging::{IntoSender, Sender};
-use near_network::recv_permit::RecvMessagePermit;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::setup::network_rules::Action;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
-    PartialEncodedChunk, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV3,
+    PartialEncodedChunkWithArcReceipts, ShardChunkHeader, ShardChunkHeaderV3,
 };
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
-use std::collections::HashMap;
+use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
 
 /// Partial chunk for `(height, shard_id)` with an *unknown* `prev_block_hash`,
 /// zero parts, and a throwaway signer whose producer signature does not verify.
-fn make_unknown_prev_chunk(height: BlockHeight, shard_id: ShardId) -> PartialEncodedChunk {
+fn make_unknown_prev_chunk(
+    height: BlockHeight,
+    shard_id: ShardId,
+) -> PartialEncodedChunkWithArcReceipts {
     let unknown_prev =
         CryptoHash::hash_bytes(format!("unknown-prev-{height}-{shard_id}").as_bytes());
     let signer = create_test_signer("unknown_prev_chunk_producer");
@@ -39,11 +38,13 @@ fn make_unknown_prev_chunk(height: BlockHeight, shard_id: ShardId) -> PartialEnc
         None,
         &signer,
     ));
-    PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+    PartialEncodedChunkWithArcReceipts {
         header,
         parts: Vec::new(),
         prev_outgoing_receipts: Vec::new(),
-    })
+        prev_prev_block_hash: None,
+        epoch_id: None,
+    }
 }
 
 /// End-to-end: for the target shard, an unknown-prev chunk is injected into each
@@ -56,43 +57,47 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
     let target_shard = ShardId::new(0);
     let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build();
 
-    // No-delay senders so an injected chunk is processed before the genuine one,
-    // which the default handler delivers with NETWORK_DELAY.
-    let shards_manager_senders: HashMap<AccountId, Sender<ShardsManagerRequestFromNetwork>> = env
-        .node_datas
-        .iter()
-        .map(|data| (data.account_id.clone(), data.shards_manager_sender.clone().into_sender()))
-        .collect();
-
-    for node_data in &env.node_datas {
-        let shards_manager_senders = shards_manager_senders.clone();
-        node_data.register_override_handler(&mut env.test_loop.data, move |request| {
-            if let NetworkRequests::PartialEncodedChunkMessage {
-                account_id: ref to,
-                partial_encoded_chunk: ref genuine,
-            } = request
-            {
-                let header = &genuine.header;
-                if header.shard_id() == target_shard {
-                    let preempting =
-                        make_unknown_prev_chunk(header.height_created(), header.shard_id());
-                    if let Some(sender) = shards_manager_senders.get(to) {
-                        sender.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            preempting,
-                            RecvMessagePermit::none(),
-                        ));
-                    }
-                }
-            }
-            // Pass the genuine chunk through unchanged.
-            HandlerResult::Unhandled(request)
-        });
+    // Every chunk message for the target shard goes out behind an injected copy for the same
+    // recipient, carrying the unknown-prev chunk: both are routed the same way, so the
+    // injected one arrives first.
+    let mut injections = Vec::new();
+    for index in 0..env.node_datas.len() {
+        let injection = env.network_rule(
+            index,
+            move |request| {
+                matches!(request, NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. }
+                    if partial_encoded_chunk.header.shard_id() == target_shard)
+            },
+            Action::Replace(Box::new(|genuine| {
+                let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                } = &genuine
+                else {
+                    unreachable!("the rule matches partial chunk messages only");
+                };
+                let header = &partial_encoded_chunk.header;
+                let preempting = NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: account_id.clone(),
+                    partial_encoded_chunk: make_unknown_prev_chunk(
+                        header.height_created(),
+                        header.shard_id(),
+                    ),
+                };
+                vec![preempting, genuine]
+            })),
+        );
+        injections.push(injection);
     }
 
     let start_height = env.node(0).head().height;
     let window = 12;
     let end_height = start_height + window;
     env.node_runner(0).run_until_head_height(end_height);
+    assert!(
+        injections.iter().any(|injection| injection.matched() > 0),
+        "no chunk message for the target shard was sent"
+    );
 
     // chunk_mask is indexed by shard index, not shard id.
     let node = env.node(0);

@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::network_rules::Action;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::create_account_ids;
 use itertools::Itertools as _;
@@ -20,12 +21,10 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rand::{Rng as _, thread_rng};
-use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
@@ -296,20 +295,13 @@ fn slow_test_long_gap_between_blocks() {
         })
         .build();
 
-    for node in &env.node_datas {
-        node.register_override_handler(&mut env.test_loop.data, move |request| match &request {
+    for index in 0..env.node_datas.len() {
+        env.drop_messages_from(index, move |request| match request {
             NetworkRequests::Approval { approval_message } => {
-                if approval_message.approval.target_height < target_height {
-                    return HandlerResult::Handled(NetworkResponses::NoResponse);
-                } else {
-                    if approval_message.target == "test1" {
-                        return HandlerResult::Unhandled(request);
-                    } else {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
-                }
+                approval_message.approval.target_height < target_height
+                    || approval_message.target != "test1"
             }
-            _ => return HandlerResult::Unhandled(request),
+            _ => false,
         });
     }
 
@@ -338,17 +330,17 @@ fn test_rpc_forwards_retried_transaction() {
     assert!(env.rpc_node().client().validator_signer.get().is_some());
 
     // Record ForwardTx messages sent by the RPC node
-    let forward_tx_requests = Rc::new(RefCell::new(Vec::new()));
+    let forward_tx_requests = Arc::new(Mutex::new(Vec::new()));
     let forward_tx_requests_clone = forward_tx_requests.clone();
-    env.node_datas[rpc_data_idx].register_override_handler(&mut env.test_loop.data, move |nr| {
-        match &nr {
-            NetworkRequests::ForwardTx(account, transaction) => forward_tx_requests_clone
-                .borrow_mut()
-                .push((account.clone(), transaction.get_hash())),
-            _ => {}
-        }
-        HandlerResult::Unhandled(nr)
-    });
+    env.network_rule(
+        rpc_data_idx,
+        |request| matches!(request, NetworkRequests::ForwardTx(..)),
+        Action::Observe(Box::new(move |request| {
+            if let NetworkRequests::ForwardTx(account, transaction) = request {
+                forward_tx_requests_clone.lock().push((account.clone(), transaction.get_hash()));
+            }
+        })),
+    );
 
     // Submit tx1 twice
     let tx1 = SignedTransaction::send_money(
@@ -376,10 +368,10 @@ fn test_rpc_forwards_retried_transaction() {
     // There should be two ForwardTx(validator0, tx1) messages recorded.
     let validator_acc: AccountId = "validator0".parse().unwrap();
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx1.get_hash()), (validator_acc.clone(), tx1.get_hash())]
     );
-    forward_tx_requests.borrow_mut().clear();
+    forward_tx_requests.lock().clear();
 
     // Now set validator_signer to None.
     env.rpc_node().client().validator_signer.update(None);
@@ -409,7 +401,7 @@ fn test_rpc_forwards_retried_transaction() {
 
     // There should be two ForwardTx(validator0, tx2) messages recorded.
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
     );
 }
