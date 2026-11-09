@@ -6,6 +6,7 @@ use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
+use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
@@ -16,7 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::types::{AccountId, Balance, EpochInfoProvider};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -31,6 +32,93 @@ use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{ExecutionMode, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// Who signs and pays for the receipts a contract run creates.
+pub(crate) struct NewReceiptSigner<'a> {
+    pub signer_id: &'a AccountId,
+    pub signer_public_key: &'a PublicKey,
+    pub gas_price: Balance,
+}
+
+/// Turns the promises of a successful contract run into receipts without ids.
+pub(crate) fn new_receipts(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    account_id: &AccountId,
+    receipt_manager: ReceiptManager,
+    signer: &NewReceiptSigner,
+) -> Result<Vec<Receipt>, StorageError> {
+    let config = &apply_state.config;
+    // Fetch metadata for PromiseYield timeout queue
+    let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
+    let initial_promise_yield_indices = promise_yield_indices.clone();
+
+    let mut new_receipts: Vec<_> = receipt_manager
+        .action_receipts
+        .into_iter()
+        .map(|receipt| {
+            // If the newly created receipt is a PromiseYield, enqueue a timeout for it
+            if receipt.is_promise_yield {
+                enqueue_promise_yield_timeout(
+                    state_update,
+                    &mut promise_yield_indices,
+                    account_id.clone(),
+                    receipt.input_data_ids[0],
+                    apply_state.block_height
+                        + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+                );
+            }
+
+            let new_action_receipt = ActionReceiptV2 {
+                signer_id: signer.signer_id.clone(),
+                signer_public_key: signer.signer_public_key.clone(),
+                refund_to: receipt.refund_to,
+                gas_price: signer.gas_price,
+                output_data_receivers: receipt.output_data_receivers,
+                input_data_ids: receipt.input_data_ids,
+                actions: receipt.actions,
+            };
+            let new_receipt = if receipt.is_promise_yield {
+                ReceiptEnum::PromiseYieldV2(new_action_receipt)
+            } else {
+                ReceiptEnum::ActionV2(new_action_receipt)
+            };
+
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: account_id.clone(),
+                receiver_id: receipt.receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: new_receipt,
+            })
+        })
+        .collect();
+
+    // Create data receipts for resumed yields
+    new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
+        let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
+
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+            // "Generating receipt IDs" section
+            receipt_id: CryptoHash::default(),
+            receipt: if receipt.is_promise_resume {
+                ReceiptEnum::PromiseResume(new_data_receipt)
+            } else {
+                ReceiptEnum::Data(new_data_receipt)
+            },
+        })
+    }));
+
+    // Commit metadata for yielded promises queue
+    if promise_yield_indices != initial_promise_yield_indices {
+        set_promise_yield_indices(state_update, &promise_yield_indices);
+    }
+    Ok(new_receipts)
+}
 
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
@@ -187,75 +275,13 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
-        let initial_promise_yield_indices = promise_yield_indices.clone();
-
-        let mut new_receipts: Vec<_> = receipt_manager
-            .action_receipts
-            .into_iter()
-            .map(|receipt| {
-                // If the newly created receipt is a PromiseYield, enqueue a timeout for it
-                if receipt.is_promise_yield {
-                    enqueue_promise_yield_timeout(
-                        state_update,
-                        &mut promise_yield_indices,
-                        account_id.clone(),
-                        receipt.input_data_ids[0],
-                        apply_state.block_height
-                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
-                    );
-                }
-
-                let new_action_receipt = ActionReceiptV2 {
-                    signer_id: action_receipt.signer_id().clone(),
-                    signer_public_key: action_receipt.signer_public_key().clone(),
-                    refund_to: receipt.refund_to,
-                    gas_price: action_receipt.gas_price(),
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                };
-                let new_receipt = if receipt.is_promise_yield {
-                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                } else {
-                    ReceiptEnum::ActionV2(new_action_receipt)
-                };
-
-                Receipt::V0(ReceiptV0 {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: receipt.receiver_id,
-                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                    // "Generating receipt IDs" section
-                    receipt_id: CryptoHash::default(),
-                    receipt: new_receipt,
-                })
-            })
-            .collect();
-
-        // Create data receipts for resumed yields
-        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
-            let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
-
-            Receipt::V0(ReceiptV0 {
-                predecessor_id: account_id.clone(),
-                receiver_id: account_id.clone(),
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: if receipt.is_promise_resume {
-                    ReceiptEnum::PromiseResume(new_data_receipt)
-                } else {
-                    ReceiptEnum::Data(new_data_receipt)
-                },
-            })
-        }));
-
-        // Commit metadata for yielded promises queue
-        if promise_yield_indices != initial_promise_yield_indices {
-            set_promise_yield_indices(state_update, &promise_yield_indices);
-        }
-
+        let signer = NewReceiptSigner {
+            signer_id: action_receipt.signer_id(),
+            signer_public_key: action_receipt.signer_public_key(),
+            gas_price: action_receipt.gas_price(),
+        };
+        let new_receipts =
+            new_receipts(state_update, apply_state, account_id, receipt_manager, &signer)?;
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
         result.subsidized_amount =
