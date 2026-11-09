@@ -64,7 +64,7 @@ use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use num_rational::Ratio;
+use num_rational::{Ratio, Rational32};
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -1418,16 +1418,7 @@ fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
     }
     init_test_logger();
     let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
-    // A free config leaves no room for ECCs in a chunk, so this one charges fees.
-    let config = TestEnvConfig {
-        epoch_length: 4,
-        has_reward: false,
-        minimum_stake_divisor: None,
-        zero_fees: false,
-        create_flat_storage: true,
-        runtime_config_store: None,
-    };
-    let mut env = TestEnv::new_with_config(vec![validators.clone()], config);
+    let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let contract_id = validators[0].clone();
     let signer = InMemorySigner::test_signer(&contract_id);
     // The ECC method returns the block height, the epoch height and the contract account's
@@ -1893,9 +1884,15 @@ fn prepare_transactions_extra_in_state(
 }
 
 /// Whether the producer packs ECCs in this build: not before the feature, and not under Spice yet.
+/// If not, logs that the test is skipped.
 fn eccs_are_packed() -> bool {
-    ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        && !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    let packed = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        && !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+    if !packed {
+        init_test_logger();
+        tracing::info!("skipping: ECCs are not packed in this build");
+    }
+    packed
 }
 
 fn ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
@@ -1910,20 +1907,17 @@ fn pool_with_eccs(eccs: impl IntoIterator<Item = ValidatedEcc>) -> TransactionPo
     pool
 }
 
-/// Prepares the transactions of the pool for a chunk with `gas_limit`, in a state where the
-/// accounts `with_contract` hold a contract and the other ones do not.
+/// Prepares the transactions of the pool, in a state where the accounts `with_contract` hold a
+/// contract and the other ones do not.
 fn prepare_eccs(
     env: &TestEnv,
     chain: &Chain,
     pool: &mut TransactionPool,
     skip_tx_hashes: HashSet<CryptoHash>,
     with_contract: &[&str],
-    gas_limit: Gas,
 ) -> (PreparedTransactions, SkippedTransactions) {
-    let change_context =
-        |context: &mut PrepareTransactionsBlockContext| context.gas_limit = gas_limit;
     let change_state = give_contracts(with_contract);
-    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, change_context)
+    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, |_| {})
 }
 
 fn prepare_eccs_with_context(
@@ -2011,7 +2005,6 @@ fn drain_eccs_from_pool(pool: &mut TransactionPool) -> Vec<(String, Vec<u8>)> {
 #[test]
 fn test_prepare_transactions_packs_one_ecc_per_contract() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2022,10 +2015,9 @@ fn test_prepare_transactions_packs_one_ecc_per_contract() {
         ecc("test2", 1),
         ecc("test2", 2),
     ]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
     let (prepared, skipped) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], gas_limit);
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert_eq!(
         packed_eccs(&prepared.transactions),
@@ -2039,35 +2031,48 @@ fn test_prepare_transactions_packs_one_ecc_per_contract() {
     );
 }
 
-/// Once the chunk has all the ECCs it may hold, the rest stay in the pool.
+/// An ECC of about 1 KB, which starts with `tag`.
+fn kilobyte_ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
+    ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![tag; 1000]))
+}
+
+/// A test env whose ECCs' share of a chunk's transaction bytes holds two `kilobyte_ecc`s, but not
+/// three.
+fn get_test_env_with_room_for_two_kilobyte_eccs() -> (TestEnv, Chain, TransactionPool) {
+    let ecc_size = kilobyte_ecc("test1", 1).get_size();
+    let mut runtime_config = RuntimeConfig::test();
+    let share_size = 2 * ecc_size + ecc_size / 2;
+    let combined_size = runtime_config.witness_config.combined_transactions_size_limit;
+    runtime_config.external_calls_config.chunk_transactions_size_share =
+        Rational32::new(i32::try_from(share_size).unwrap(), i32::try_from(combined_size).unwrap());
+    let ecc_config = &runtime_config.external_calls_config;
+    assert_eq!(ecc_config.transactions_size_share(&runtime_config.witness_config), share_size);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    get_test_env_with_chain_and_pool_for(Some(store))
+}
+
+/// Once the chunk's ECCs take their share of its transaction bytes, the rest stay in the pool,
+/// and the next chunk takes them.
 #[test]
-fn test_prepare_transactions_leaves_eccs_past_the_limit() {
+fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
-    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let (env, chain, _) = get_test_env_with_room_for_two_kilobyte_eccs();
     let contracts = ["test1", "test2", "test3", "test4"];
-    let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
-    // Room for two ECCs.
-    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
-    let gas_limit =
-        Gas::from_gas(2 * 2 * config.wasm_config.limit_config.max_gas_burnt_external.as_gas());
-    assert_eq!(config.max_eccs_per_chunk(gas_limit), 2);
+    let mut pool = pool_with_eccs(contracts.map(|contract_id| kilobyte_ecc(contract_id, 1)));
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
 
     let first_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(first_chunk.len(), 2);
-    // The ones left go into the next chunk, which has them to itself.
+    // The ones left go into the next chunk.
     let (prepared, _) = prepare_eccs(
         &env,
         &chain,
         &mut pool,
         prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
         &contracts,
-        gas_limit,
     );
     let next_chunk = packed_eccs(&prepared.transactions);
     assert_eq!(next_chunk.len(), 2);
@@ -2075,30 +2080,59 @@ fn test_prepare_transactions_leaves_eccs_past_the_limit() {
     assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 
-/// Signed transactions keep going into the chunk after the ECCs have used up their limit.
+/// Once the chunk holds `max_calls_per_chunk` ECCs, the rest stay in the pool, and the next chunk
+/// takes them.
 #[test]
-fn test_prepare_transactions_goes_on_with_signed_transactions_past_the_ecc_limit() {
+fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
-    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.max_calls_per_chunk = 2;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+    let first_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(first_chunk.len(), 2);
+    // The ones left go into the next chunk.
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
+        &contracts,
+    );
+    let next_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(next_chunk.len(), 2);
+    assert!(next_chunk.iter().all(|ecc| !first_chunk.contains(ecc)));
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// The ECCs of a chunk take no more than their share of its transaction bytes, or the chunk
+/// would be invalid. The ones past the share wait in the pool, and signed transactions still go
+/// into the chunk.
+#[test]
+fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_room_for_two_kilobyte_eccs();
     let num_signed_txs = pool.len();
     let contracts = ["test1", "test2", "test3", "test4"];
     for contract_id in contracts {
-        assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
+        let ecc = kilobyte_ecc(contract_id, 1);
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
     }
-    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
-    let one_ecc_gas = config.wasm_config.limit_config.max_gas_burnt_external;
-    let gas_limit = Gas::from_gas(2 * one_ecc_gas.as_gas());
-    assert_eq!(config.max_eccs_per_chunk(gas_limit), 1);
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
 
-    assert_eq!(packed_eccs(&prepared.transactions).len(), 1);
+    assert_eq!(packed_eccs(&prepared.transactions).len(), 2);
     assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
-    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 3);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2);
 }
 
 /// An ECC that does not fit in what the chunk has left for transactions waits in the pool, and
@@ -2106,7 +2140,6 @@ fn test_prepare_transactions_goes_on_with_signed_transactions_past_the_ecc_limit
 #[test]
 fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let mut runtime_config = RuntimeConfig::test();
@@ -2116,10 +2149,8 @@ fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
     let big_ecc =
         ValidatedEcc::new_for_test(EccTransaction::new("test1".parse().unwrap(), vec![1; 2000]));
     assert_eq!(pool.insert_transaction(big_ecc), InsertTransactionResult::Success);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"], gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert!(signed_txs(&prepared.transactions).count() > 0);
@@ -2131,7 +2162,6 @@ fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
 #[test]
 fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2200,18 +2230,20 @@ fn test_can_accept_ecc_checks_contract_and_fees() {
     ));
 }
 
-/// A chunk with no room for ECCs gets none, and they all stay in the pool. Signed transactions
-/// are not affected.
+/// A chunk with no room for ECCs, as their share of its transaction bytes is zero, gets none,
+/// and they all stay in the pool. Signed transactions are not affected.
 #[test]
 fn test_prepare_transactions_leaves_eccs_in_pool_when_there_is_no_room() {
-    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.chunk_transactions_size_share = Rational32::new(0, 1);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool_for(Some(store));
     let num_signed_txs = pool.len();
     for contract_id in ["test1", "test2"] {
         assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
     }
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], Gas::ZERO);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
@@ -2225,16 +2257,13 @@ fn test_prepare_transactions_leaves_eccs_in_pool_when_there_is_no_room() {
 #[test]
 fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool =
         pool_with_eccs([ecc("test1", 1), ecc("test2", 1), ecc("test2", 2), ecc("nobody", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, skipped) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"], gas_limit);
+    let (prepared, skipped) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
 
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
     assert!(skipped.0.is_empty());
@@ -2246,12 +2275,10 @@ fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
 #[test]
 fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
     let by_hash = AccountContract::Global(CryptoHash::hash_bytes(b"code"));
     let by_account = AccountContract::GlobalByAccount("deployer.near".parse().unwrap());
 
@@ -2261,7 +2288,7 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
         &mut pool,
         HashSet::new(),
         give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]),
-        |context| context.gas_limit = gas_limit,
+        |_| {},
     );
 
     assert_eq!(
@@ -2276,22 +2303,14 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
 #[test]
 fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test1", 2), ecc("test1", 3)]);
     let in_previous_chunk = ecc("test1", 1).get_hash();
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, skipped) = prepare_eccs(
-        &env,
-        &chain,
-        &mut pool,
-        HashSet::from([in_previous_chunk]),
-        &["test1"],
-        gas_limit,
-    );
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::from([in_previous_chunk]), &["test1"]);
 
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 2)]);
     assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![in_previous_chunk]);
@@ -2310,10 +2329,8 @@ fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
-    let gas_limit = env.runtime.genesis_config.gas_limit;
 
-    let (prepared, _) =
-        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"], gas_limit);
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
 
     assert!(packed_eccs(&prepared.transactions).is_empty());
     assert_eq!(pool.len(), 2);
@@ -2323,7 +2340,6 @@ fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
 #[test]
 fn test_prepare_transactions_drops_eccs_to_a_congested_shard() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();

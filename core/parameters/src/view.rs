@@ -1,4 +1,4 @@
-use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::config::{CongestionControlConfig, ExternalCallsConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -23,6 +23,9 @@ pub struct RuntimeConfigView {
     pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
+    /// Limits on external contract calls, per call and per chunk.
+    #[serde(default)]
+    pub external_calls_config: ExternalCallsConfigView,
     /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
     /// burned might be lower, in which case the difference is refunded after execution.
     #[serde(default)]
@@ -218,6 +221,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 config.congestion_control_config,
             ),
             witness_config: WitnessConfigView::from(config.witness_config),
+            external_calls_config: ExternalCallsConfigView::from(config.external_calls_config),
             min_gas_purchase_price: config.min_gas_purchase_price,
             account_creation_charge: config.account_creation_charge,
         }
@@ -762,6 +766,55 @@ impl From<WitnessConfig> for WitnessConfigView {
             combined_transactions_size_limit: config.combined_transactions_size_limit,
             new_transactions_validation_state_size_soft_limit: config
                 .new_transactions_validation_state_size_soft_limit,
+        }
+    }
+}
+
+/// Limits on external contract calls, per call and per chunk.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ExternalCallsConfigView {
+    /// Max size of an external contract call, in bytes.
+    pub max_call_size: u64,
+    /// Max storage proof an external call's run may record, in bytes.
+    pub max_call_recorded_size: usize,
+    /// The share of the chunk's compute limit that its external calls may use.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
+    pub chunk_compute_share: Rational32,
+    /// The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may
+    /// record.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
+    pub chunk_storage_proof_share: Rational32,
+    /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
+    pub chunk_transactions_size_share: Rational32,
+    /// Max number of external calls in a chunk.
+    pub max_calls_per_chunk: u64,
+}
+
+/// No external calls: what a node reports before it knows of them.
+impl Default for ExternalCallsConfigView {
+    fn default() -> Self {
+        Self {
+            max_call_size: 0,
+            max_call_recorded_size: 0,
+            chunk_compute_share: Rational32::from_integer(0),
+            chunk_storage_proof_share: Rational32::from_integer(0),
+            chunk_transactions_size_share: Rational32::from_integer(0),
+            max_calls_per_chunk: 0,
+        }
+    }
+}
+
+impl From<ExternalCallsConfig> for ExternalCallsConfigView {
+    fn from(config: ExternalCallsConfig) -> Self {
+        Self {
+            max_call_size: config.max_call_size,
+            max_call_recorded_size: config.max_call_recorded_size,
+            chunk_compute_share: config.chunk_compute_share,
+            chunk_storage_proof_share: config.chunk_storage_proof_share,
+            chunk_transactions_size_share: config.chunk_transactions_size_share,
+            max_calls_per_chunk: config.max_calls_per_chunk,
         }
     }
 }

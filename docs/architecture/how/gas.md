@@ -218,23 +218,80 @@ call with the same method name and input: receipt creation, the function call
 base fee, and the per-byte fee for the method name and the payload, each with
 its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward `max_gas_burnt_external`, so a larger
-payload leaves less of the budget to the method. With the largest payload the
-fees are about 8 Tgas. The contract must exist, have a contract deployed and
-be able to afford the fees, or the call is rejected before any contract code is
-loaded. Like the rest of the call, the fees are charged after the call, and
-only if the contract accepts it.
+payload leaves less of the budget to the method. With the largest payload, up
+to the 20 KiB cap on a call's size, the fees are about 1.3 Tgas. The contract
+must exist, have a contract deployed and be able to afford the fees, or the
+call is rejected before any contract code is loaded. Like the rest of the call,
+the fees are charged after the call, and only if the contract accepts it.
 
 A rejected call pays nothing, but it isn't free for the chunk. The compute of
 the work validators did on it, fees included, counts toward the chunk's
 compute limit, so that work stays bounded. This holds even for a call rejected
 before any contract code runs, for example because the contract's account
 doesn't exist or has no contract: validators still check it, so the compute of
-its fees counts. A rejected call burns no gas, though, and its outcome reports
-no gas burnt: nobody pays for it, so it doesn't add to the chunk's gas used or
-move the next gas price, which everyone else pays. An honest chunk producer
-runs each call before including it and leaves out the ones that would be
-rejected. An accepted call's fees and gas are burnt, and count toward the
-chunk's gas like any other.
+its fees counts. The one exception is a call rejected because the chunk's
+external calls reached one of their shares, described below. A rejected call
+burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
+so it doesn't add to the chunk's gas used or move the next gas price, which
+everyone else pays. An honest chunk producer runs each call before including it
+and leaves out the ones that would be rejected. An accepted call's fees and gas
+are burnt, and count toward the chunk's gas like any other.
+
+Since a rejected call costs nobody anything, further limits bound the work
+validators do on external calls, per call and per chunk. Besides
+`max_gas_burnt_external`, a call is limited in:
+
+- its size: at most `max_external_call_size`, 20 KiB. A larger call is
+  invalid.
+- the storage proof its run records: at most
+  `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
+  crossing the limit fails the call with `RecordedStorageExceeded`, and a value
+  whose length would cross it isn't read at all. The limit applies to the run
+  only, not to reading the contract's account before it.
+
+  Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
+  proof limit uses too, even for a key that isn't there. So removals are costly
+  in an external call: it can remove no more than ten keys, and fewer, as the
+  trie nodes it reads count as well. Larger cleanups belong in the receipts the
+  call creates, once external calls can create them.
+
+All the external calls of a chunk together get a share of the chunk's limits:
+
+| Limit | Share | With the current limits |
+| ----- | ----- | ----------------------- |
+| `combined_transactions_size_limit` | `external_calls_chunk_transactions_size_share`, 1/40 | about 100 KiB |
+| the chunk's compute limit, its gas limit | `external_calls_chunk_compute_share`, 2/5 | 400 Tgas of a 1000 Tgas chunk |
+| `main_storage_proof_size_soft_limit` | `external_calls_chunk_storage_proof_share`, 1/20 | 200 KB |
+
+Each share fits five calls that use as much of it as a call can.
+
+The size share is a validity rule, checked along with the size of each call: a
+chunk whose external calls take more is invalid. So is a chunk with two
+external calls to the same contract, and a chunk with more than
+`max_external_calls_per_chunk` external calls, 100, however small they are.
+The chunk producer keeps to these rules when it packs calls: one call per
+contract, the size share and the number of calls.
+
+The compute and storage proof shares are checked at apply, before each call.
+What a call uses is known only once it ran, so a call is admitted as long as
+the calls before it in the chunk are still below both shares, and the chunk
+can pass a share by at most one call. A call admitted counts toward the shares
+whatever comes of it, rejected or accepted: the compute of its fees and its
+run, and the storage proof recorded from reading the contract's account to the
+end of the run. A call that finds a share reached is rejected with
+`ExternalCallChunkShareReached` before anything is read for it, not even the
+contract's account, so it adds nothing to the storage proof. Only such a call
+adds nothing to the shares; a call rejected after it was admitted counts
+toward them like any other.
+
+Unlike every other rejected call, a call rejected because a share was reached
+counts no compute toward the chunk, not even that of its fees. This is on
+purpose: rejecting it takes far less work than the fees stand for, less than
+reading an account. If it counted the compute of its fees, a chunk producer
+could fill its chunk's compute limit with calls it knows will be rejected, so
+that the chunk processes no receipts, at no cost to anyone and with the chunk
+still produced and rewarded. The work of rejecting such calls is bounded by
+`max_external_calls_per_chunk` instead.
 
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
