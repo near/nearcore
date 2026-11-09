@@ -635,10 +635,9 @@ pub async fn start_with_config_and_synchronization_impl(
     let state_sync_spawner: Arc<dyn FutureSpawner> =
         actor_system.new_multi_threaded_future_spawner("state sync").into();
 
-    let (block_notification_watch_sender, block_notification_watch_receiver) =
-        tokio::sync::watch::channel(None);
-    #[cfg(not(feature = "json_rpc"))]
-    let _ = block_notification_watch_receiver;
+    let block_notification_watch_sender = tokio::sync::watch::Sender::new(None);
+    #[cfg(feature = "json_rpc")]
+    let block_notification_watch_receiver = block_notification_watch_sender.subscribe();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -786,9 +785,7 @@ pub async fn start_with_config_and_synchronization_impl(
     state_sync_dumper.start();
 
     #[cfg(feature = "json_rpc")]
-    let hot_store = storage.get_hot_store();
-    #[cfg(feature = "json_rpc")]
-    let cold_store = storage.get_cold_store();
+    let (hot_store, cold_store) = (storage.get_hot_store(), storage.get_cold_store());
 
     let (network_actor, _tcp) = PeerManagerActor::spawn(
         Clock::real(),

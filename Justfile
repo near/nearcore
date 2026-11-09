@@ -78,6 +78,9 @@ check-non-default:
     cargo check -p near-runtime
     deps="$(cargo tree -p near-runtime -e normal --target all --prefix none --format '{p}')" \
         && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
+    # Ensure that nearcore builds without the JSON-RPC and Rosetta RPC servers
+    RUSTFLAGS="-D warnings" \
+    cargo check -p nearcore --no-default-features
 
 # check rust formatting
 check-cargo-fmt:
