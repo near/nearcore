@@ -4,7 +4,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::create_validator_id;
+use crate::utils::account::{create_account_id, create_validator_id};
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -15,6 +15,8 @@ use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::action::{Action, DeployContractAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -22,7 +24,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use parking_lot::Mutex;
@@ -144,6 +147,87 @@ fn test_producer_with_expired_transactions() {
         block = node.block(*block.header().prev_hash());
     }
     assert_eq!(included_txs, 26, "producer should have included the submitted transactions");
+}
+
+/// A malicious chunk producer tries to ship a chunk containing a
+/// transaction that is invalid for the active protocol version's runtime
+/// config. Without pre-validation of the chunk's new transactions, chunk
+/// validators would endorse the chunk; with the gate in
+/// `pre_validate_chunk_state_witness`, the witness is rejected and the
+/// chunk slot stays "missing".
+///
+/// The gate's broader purpose is to defend against a malicious producer
+/// smuggling a transaction whose wire format isn't enabled at the active
+/// protocol version yet (e.g. an `EccTransaction` before
+/// `ExternalContractCalls`). Without the gate, validators would endorse
+/// such a chunk and the runtime at the active protocol version would
+/// then be unable to apply the transaction. We also shrink
+/// `max_transaction_size` so the "oversized" tx stays small and the test
+/// stays fast.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_producer_with_invalid_tx_rejected_at_pre_validation() {
+    init_test_logger();
+
+    // Shrink `max_transaction_size` so the "oversized" transaction we craft
+    // below (and the chunk carrying it) stays tiny. The default 1.5 MiB
+    // limit would force a multi-MiB transaction whose borsh serialization
+    // dominates the test's runtime.
+    const MAX_TX_SIZE: u64 = 10 * 1024;
+    let mut runtime_config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
+    Arc::make_mut(&mut runtime_config.wasm_config).limit_config.max_transaction_size = MAX_TX_SIZE;
+    let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
+
+    let user_account = create_account_id("user0");
+    let mut env = TestLoopBuilder::new()
+        .validators(1, 2)
+        .add_user_accounts(std::slice::from_ref(&user_account), Balance::from_near(1_000_000))
+        .runtime_config_store(runtime_config_store)
+        .build();
+
+    // Tell the malicious chunk producer to skip runtime verification of
+    // transactions while producing chunks, so an oversized tx injected
+    // directly into its pool is picked up unconditionally.
+    env.validator_runner().send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+        AdvProduceChunksMode::ProduceWithoutTxVerification,
+    ));
+
+    // Craft a transaction whose borsh-serialized size exceeds
+    // `max_transaction_size`. Only the size matters; the payload content is
+    // otherwise irrelevant.
+    let signer = create_user_test_signer(&user_account);
+    let block_hash = env.validator().head().last_block_hash;
+    let oversized_tx = SignedTransaction::from_actions(
+        1,
+        user_account.clone(),
+        user_account,
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: vec![0u8; (MAX_TX_SIZE * 2) as usize],
+        })],
+        block_hash,
+    );
+    env.validator().submit_tx_pool(oversized_tx);
+
+    // Wait for the block at which the malicious chunk producer would ship a
+    // chunk containing the oversized tx. The first new block after the
+    // adversarial mode is enabled may still ship a chunk built before the
+    // mode took effect; by the second new block the chunk producer has
+    // picked up the oversized tx and chunk validators reject the witness
+    // for the chunk.
+    env.validator_runner().run_for_number_of_blocks(2);
+
+    // The block at the head height must have no new chunk for the shard —
+    // chunk validators rejected the witness for the malicious chunk, so
+    // the chunk slot is "missing" and the previous chunk is carried over.
+    let head_block = env.validator().head_block();
+    assert_eq!(
+        head_block.chunks().iter_new().count(),
+        0,
+        "expected no new chunks at the head block; the witness for the \
+         malicious chunk should not be endorsed",
+    );
 }
 
 #[test]
