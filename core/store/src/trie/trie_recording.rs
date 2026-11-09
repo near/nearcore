@@ -430,8 +430,8 @@ mod trie_recording_tests {
     use itertools::Itertools;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-    use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
+    use near_primitives::state::{FlatStateValue, PartialState};
     use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use rand::prelude::SliceRandom;
@@ -821,7 +821,9 @@ mod trie_recording_tests {
     const ALL_STORAGES: [Storage; 3] = [Storage::Disk, Storage::FlatStorage, Storage::Memtrie];
 
     /// A trie with many keys of small values, which memtrie and flat storage inline, and two
-    /// keys of large values: `INLINED_KEY` is still inlined, `LARGE_KEY` is not.
+    /// keys of large values: `INLINED_KEY` is still inlined, `LARGE_KEY` is not. The two large
+    /// values sit on either side of `INLINE_DISK_VALUE_THRESHOLD`, so they keep covering both
+    /// cases if it moves.
     struct BudgetTrie {
         store: Store,
         state_root: StateRoot,
@@ -837,8 +839,13 @@ mod trie_recording_tests {
             let tries = TestTriesBuilder::new().with_flat_storage(true).build();
             let mut data: BTreeMap<Vec<u8>, Vec<u8>> =
                 (0..200u8).map(|i| (format!("key{i:03}").into_bytes(), vec![i; 100])).collect();
-            data.insert(INLINED_KEY.to_vec(), vec![1; 3000]);
-            data.insert(LARGE_KEY.to_vec(), vec![2; 5000]);
+            let threshold = FlatStateValue::INLINE_DISK_VALUE_THRESHOLD;
+            data.insert(INLINED_KEY.to_vec(), vec![1; threshold]);
+            data.insert(LARGE_KEY.to_vec(), vec![2; threshold + 1]);
+            for (key, value) in &data {
+                let inlined = FlatStateValue::should_inline(value.len());
+                assert_eq!(inlined, key != LARGE_KEY, "{:?}", String::from_utf8_lossy(key));
+            }
             let changes =
                 data.iter().map(|(key, value)| (key.clone(), Some(value.clone()))).collect_vec();
             let state_root =
