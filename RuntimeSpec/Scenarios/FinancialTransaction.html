@@ -205,16 +205,17 @@ and <code>broadcast_tx_commit</code> still work. <code>broadcast_tx_async</code>
 <p>We skip the details on how the transaction arrives to be processed by the runtime, since it is a part of the blockchain layer
 discussion.
 We consider the moment where <code>SignedTransaction</code> is getting passed to <code>Runtime::apply</code> of the
-<code>runtime</code> crate.
-<code>Runtime::apply</code> immediately passes transaction to <code>Runtime::process_transaction</code>
-which in turn does the following:</p>
+<code>near-runtime</code> crate.
+<code>Runtime::apply</code> passes the transactions to <code>Runtime::process_transactions</code>,
+which for each transaction does the following:</p>
 <ul>
 <li>Verifies that transaction is valid;</li>
 <li>Applies initial reversible and irreversible charges to <code>alice_near</code> account;</li>
 <li>Creates a receipt with the same set of actions directed towards <code>bob_near</code>.</li>
 </ul>
-<p>The first two items are performed inside <code>Runtime::verify_and_charge_transaction</code> method.
-Specifically it does the following checks:</p>
+<p>The first two items are performed by <code>validate_transaction_envelope</code>, which verifies the signature, and by
+<code>verify_and_charge_tx_ephemeral</code>, which does the other checks.
+Together they do the following checks:</p>
 <ul>
 <li>Verifies that the signature of the transaction is correct based on the transaction hash and the attached public key;</li>
 <li>Retrieves the latest state of the <code>alice_near</code> account, and simultaneously checks that it exists;</li>
@@ -234,9 +235,7 @@ It will check that this receipt does not have data dependencies (which is only t
 <ul>
 <li>Retrieves the state of <code>bob_near</code> account, if it still exists (it is possible that Bob has deleted his account concurrently with the transfer transaction);</li>
 <li>Computes the cost of processing a receipt and a transfer action;</li>
-<li>Computes how much reward should be burnt;</li>
 <li>Checks if <code>bob_near</code> still exists and if it does, deposits the transferred tokens to <code>bob_near</code>;</li>
-<li>Checks if <code>bob_near</code> still exists and if so, deposits the gas reward to the <code>bob_near</code> account;</li>
 <li>Checks if <code>bob_near</code> has enough balance for the storage deposit, the transaction's temporary state is dropped/rolled back if there is not enough balance;</li>
 </ul>
 

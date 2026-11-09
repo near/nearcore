@@ -144,17 +144,19 @@
 <h1 id="economics-api"><a class="header" href="#economics-api">Economics API</a></h1>
 <p>Accounts own certain balance; and each transaction and each receipt have certain amount of balance and prepaid gas
 attached to them.
-During the contract execution, the contract has access to the following <code>u128</code> values:</p>
+During the contract execution, the contract has access to the following values (balances are <code>u128</code>, gas is <code>u64</code>):</p>
 <ul>
 <li><code>account_balance</code> -- the balance attached to the given account. This includes the <code>attached_deposit</code> that was attached
-to the transaction;</li>
+to the transaction. It decreases by each deposit the call attaches to a promise, except 1 yoctoNEAR attached to a
+function call when the balance is zero;</li>
 <li><code>attached_deposit</code> -- the balance that was attached to the call that will be immediately deposited before
 the contract execution starts;</li>
-<li><code>prepaid_gas</code> -- the tokens attached to the call that can be used to pay for the gas;</li>
+<li><code>prepaid_gas</code> -- the gas attached to the call;</li>
 <li><code>used_gas</code> -- the gas that was already burnt during the contract execution and attached to promises (cannot exceed <code>prepaid_gas</code>);</li>
 </ul>
-<p>If contract execution fails <code>prepaid_gas - used_gas</code> is refunded back to <code>signer_account_id</code> and <code>attached_deposit</code>
-is refunded back to <code>predecessor_account_id</code>.</p>
+<p>If contract execution fails, the unused gas is refunded back to <code>signer_account_id</code> (see <a href="../../Refunds.html">Refunds</a>)
+and <code>attached_deposit</code> is refunded back to <code>refund_to_account_id</code>, which is <code>predecessor_account_id</code> unless the
+predecessor set another account.</p>
 <p>An external call (see <a href="ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
 the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
 calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the

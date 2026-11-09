@@ -256,7 +256,7 @@ caused the callback. This function returns the result in blob format and places 
 </ul>
 <h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
 <ul>
-<li>If <code>result_idx</code> does not correspond to an existing result panics with <code>InvalidResultIndex</code>.</li>
+<li>If <code>result_idx</code> does not correspond to an existing result panics with <code>InvalidPromiseResultIndex</code>.</li>
 <li>If copying the blob exhausts the memory limit it panics with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -275,6 +275,9 @@ caused the callback. This function returns the result in blob format and places 
 <h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotReturnJointPromise</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
 <h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
 <ul>
@@ -326,7 +329,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-8"><a class="header" href="#panics-8">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
 <hr />
@@ -341,7 +345,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-9"><a class="header" href="#panics-9">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>code_len + code_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -364,8 +369,9 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-10"><a class="header" href="#panics-10">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
-<li>If <code>account_id_len + account_id_ptr</code> or <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
+<li>If <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
 or <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -381,7 +387,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-11"><a class="header" href="#panics-11">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -403,7 +410,8 @@ The function call then fails with <code>NewReceiptValidationError</code> (<code>
 <h6 id="panics-12"><a class="header" href="#panics-12">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with <code>InvalidPublicKey</code>.</li>
 <li>If <code>amount_ptr + 16</code> or <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -424,7 +432,8 @@ The access key will have <code>FullAccess</code> permission, details: <a href=".
 <h6 id="panics-13"><a class="header" href="#panics-13">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -454,9 +463,10 @@ The access key will have <code>FunctionCall</code> permission, details: <a href=
 <h6 id="panics-14"><a class="header" href="#panics-14">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
-<li>if <code>method_names</code> is not a valid <code>utf-8</code> string, fails with <code>BadUTF8</code>.</li>
+<li>if <code>method_names</code> is not a valid <code>utf-8</code> string, fails with <code>InvalidMethodName</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code>, <code>allowance_ptr + 16</code>, <code>receiver_id_len + receiver_id_ptr</code> or
 <code>method_names_len + method_names_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -475,7 +485,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-15"><a class="header" href="#panics-15">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -490,12 +501,12 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <span class="boring">}
 </span></code></pre></pre>
 <p>Appends <code>DeleteAccount</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
-Action is used to delete an account. It can be performed on a newly created account, on your own account or an account with
-insufficient funds to pay rent. Takes <code>beneficiary_id</code> to indicate where to send the remaining funds.</p>
+Action is used to delete an account. It can be performed on a newly created account or on your own account. Takes <code>beneficiary_id</code> to indicate where to send the remaining funds.</p>
 <h6 id="panics-16"><a class="header" href="#panics-16">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>beneficiary_id_len + beneficiary_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>

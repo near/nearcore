@@ -168,9 +168,9 @@ the host:</p>
 </ul>
 <p>For example:
 <code>storage_write(u64::MAX, 0, u64::MAX, 1, 2)</code> -- insert key-value into storage, where key is read from register 0,
-value is read from register 1, and result is saved to register 2.</p>
-<p>Note, if some function takes <code>register_id</code> then it means this function can copy some data into this register. If
-<code>register_id == u64::MAX</code> then the copying does not happen. This allows some micro-optimizations in the future.</p>
+value is read from register 1, and the old value, if the key existed, is saved to register 2.</p>
+<p>Note, if some function takes <code>register_id</code> then it means this function can copy some data into this register.
+<code>register_id == u64::MAX</code> is an ordinary register.</p>
 <p>Note, we allow multiple registers on the host, identified with <code>u64</code> number. The guest does not have to use them in
 order and can for instance save some blob in register <code>5000</code> and another value in register <code>1</code>.</p>
 <h4 id="specification"><a class="header" href="#specification">Specification</a></h4>
@@ -179,16 +179,12 @@ order and can for instance save some blob in register <code>5000</code> and anot
 </span>read_register(register_id: u64, ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
-<p>Writes the entire content from the register <code>register_id</code> into the memory of the guest starting with <code>ptr</code>.</p>
+<p>Writes the entire content from the register <code>register_id</code> into the memory of the guest starting with <code>ptr</code>.
+If <code>ptr</code> is wrong but inside guest memory, the function overwrites that guest memory.</p>
 <h6 id="panics"><a class="header" href="#panics">Panics</a></h6>
 <ul>
-<li>If the content extends outside the memory allocated to the guest. In Wasmer, it returns <code>MemoryAccessViolation</code> error message;</li>
+<li>If the content extends outside the memory allocated to the guest, returns <code>MemoryAccessViolation</code> error message;</li>
 <li>If <code>register_id</code> is pointing to unused register returns <code>InvalidRegisterId</code> error message.</li>
-</ul>
-<h6 id="undefined-behavior"><a class="header" href="#undefined-behavior">Undefined Behavior</a></h6>
-<ul>
-<li>If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]

@@ -148,12 +148,14 @@ near-vm-runner, which runs contracts on Wasmtime) exposes to the guest (the smar
 <p>Also for all functions in the bindings specification the following is true:</p>
 <ul>
 <li>Method execution could result in <code>MemoryAccessViolation</code> error if the method causes host to read a piece of memory
-from the guest but it points outside the guest's memory;</li>
+from the guest but it points outside the guest's memory. The host charges gas for the requested length before it
+checks bounds, so a large out-of-bounds read can fail with <code>GasExceeded</code>, <code>GasLimitExceeded</code> or <code>IntegerOverflow</code>
+instead. <code>log_utf8</code> and <code>panic_utf8</code> check the log length limit first and fail with <code>TotalLogLengthExceeded</code>;</li>
 <li>Method execution could result in <code>InvalidRegisterId</code> error if the guest causes host to read from a register that is
 not set.</li>
 </ul>
 <p>Execution of a bindings function call result in an error being generated. This error causes execution of the smart contract
-to be terminated and the error message written into the logs of the transaction that caused the execution. Many bindings
+to be terminated, and the error becomes the execution result of the receipt. Many bindings
 functions can throw specialized error messages, but there is also a list of error messages that can be thrown by almost
 any function:</p>
 <ul>

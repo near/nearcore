@@ -150,16 +150,16 @@ In the JSON view they are nested under the <code>limit_config</code> key of <cod
 <p>Costs for runtime externals</p>
 <h2 id="grow_mem_cost"><a class="header" href="#grow_mem_cost">grow_mem_cost</a></h2>
 <p>`type: u32</p>
-<p>Gas cost of a growing memory by single page.</p>
+<p>Not charged. <code>memory.grow</code> is charged with <code>linear_op_base_cost</code> and <code>linear_op_unit_cost</code>.</p>
 <h2 id="regular_op_cost"><a class="header" href="#regular_op_cost">regular_op_cost</a></h2>
 <p>`type: u32</p>
 <p>Gas cost of a regular operation.</p>
 <h2 id="linear_op_base_cost"><a class="header" href="#linear_op_base_cost">linear_op_base_cost</a></h2>
 <p>`type: u64</p>
-<p>Base gas cost of a bulk memory/table operation.</p>
+<p>Base gas cost of a bulk memory/table operation, <code>memory.grow</code> or <code>table.grow</code>.</p>
 <h2 id="linear_op_unit_cost"><a class="header" href="#linear_op_unit_cost">linear_op_unit_cost</a></h2>
 <p>`type: u64</p>
-<p>Gas cost per unit of a bulk memory/table operation.</p>
+<p>Gas cost per unit of a bulk memory/table operation, <code>memory.grow</code> or <code>table.grow</code>.</p>
 <h2 id="max_gas_burnt"><a class="header" href="#max_gas_burnt">max_gas_burnt</a></h2>
 <p>`type: Gas</p>
 <p>Max amount of gas that can be used, excluding gas attached to promises.</p>
@@ -168,10 +168,10 @@ In the JSON view they are nested under the <code>limit_config</code> key of <cod
 <p>How tall the stack is allowed to grow?</p>
 <h2 id="initial_memory_pages"><a class="header" href="#initial_memory_pages">initial_memory_pages</a></h2>
 <p>`type: u32</p>
+<p>The initial number of memory pages.</p>
 <h2 id="max_memory_pages"><a class="header" href="#max_memory_pages">max_memory_pages</a></h2>
 <p>`type: u32</p>
-<p>The initial number of memory pages.
-What is the maximal memory pages amount is allowed to have for
+<p>What is the maximal memory pages amount is allowed to have for
 a contract.</p>
 <h2 id="registers_memory_limit"><a class="header" href="#registers_memory_limit">registers_memory_limit</a></h2>
 <p>`type: u64</p>

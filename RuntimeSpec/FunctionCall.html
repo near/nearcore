@@ -439,13 +439,12 @@ reported as <code>ExecutionError</code> with a message that starts with <code>Li
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
-    /// General errors for ECDSA recover.
+    /// Invalid input to `ecrecover`. See `ecrecover` for the cases.
     ECRecoverError { msg: String },
     /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
-    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
-    /// derived from bytes).
+    /// Invalid input to `ed25519_verify`. See `ed25519_verify` for the cases.
     Ed25519VerifyInvalidInput { msg: String },
     /// Input length mismatch for p256 signature verification (signature is not 64
     /// bytes or public key is not 33 bytes). Parse failures of otherwise

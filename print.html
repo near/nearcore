@@ -2466,7 +2466,7 @@ The <code>RoutingSyncV2</code> message does not exist on the network.</p>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="account-receipt-storage"><a class="header" href="#account-receipt-storage">Account Receipt Storage</a></h1>
-<p>There is a definition of all the keys and values we store in the Account Storage</p>
+<p>These are the keys and values that the runtime stores for receipts of an account</p>
 <h2 id="received-data"><a class="header" href="#received-data">Received data</a></h2>
 <p><em>key = <code>receiver_id: String</code>,<code>data_id: CryptoHash</code></em>
 <em>value = <code>Option&lt;Vec&lt;u8&gt;&gt;</code></em></p>
@@ -2476,6 +2476,28 @@ The <code>RoutingSyncV2</code> message does not exist on the network.</p>
 <p><em>key = <code>receiver_id</code>,<code>data_id</code></em>
 <em>value = <code>receipt_id</code></em></p>
 <p>Runtime saves incoming <a href="RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a> until all required <code>DataReceipt</code> items for the same <code>receiver_id</code> have been received and matched, so that the postponed <code>receipt_id</code> receipt can be executed once its data dependencies are fully satisfied. See the <a href="RuntimeSpec/Receipts.html#case-1-call-to-multiple-contracts-and-await-responses">Receipt Case</a> for more details.</p>
+<p>The postponed receipt itself is stored under</p>
+<p><em>key = <code>receiver_id</code>,<code>receipt_id</code></em>
+<em>value = <code>Receipt</code></em></p>
+<h2 id="pending-data-count"><a class="header" href="#pending-data-count">Pending data count</a></h2>
+<p><em>key = <code>receiver_id</code>,<code>receipt_id</code></em>
+<em>value = <code>u32</code></em></p>
+<p>The number of input data items that the postponed receipt <code>receipt_id</code> still waits for. When it reaches zero, the
+runtime executes the receipt and removes it.</p>
+<h2 id="yielded-receipts"><a class="header" href="#yielded-receipts">Yielded receipts</a></h2>
+<p>A receipt created by <code>promise_yield_create</code> waits for data from <code>promise_yield_resume</code> or for a timeout. The runtime
+stores:</p>
+<ul>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>Receipt</code></em>: the yielded receipt.</li>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>PromiseYieldStatus</code></em>: <code>Yielded</code>, or <code>ResumeInitiated</code> after the first
+<code>promise_yield_resume</code>.</li>
+</ul>
+<p>For a receipt created by <code>promise_yield_create_with_id</code>, the runtime also stores the mapping between the yield id that
+the contract chose and the <code>data_id</code>:</p>
+<ul>
+<li><em>key = <code>receiver_id</code>,<code>yield_id</code></em>, <em>value = <code>data_id</code></em></li>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>yield_id</code></em></li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="actions"><a class="header" href="#actions">Actions</a></h1>
 <p>There are a several action types in Near:</p>
@@ -2517,6 +2539,11 @@ processing.</p>
 <li><code>WithdrawFromGasKey</code></li>
 </ul>
 <p>If they are not equal, the action fails with <code>ActorNoPermission</code>.</p>
+<p>All actions except <code>CreateAccount</code>, <code>Transfer</code>, <code>DeterministicStateInit</code> and <code>UniversalStateInit</code> fail with
+<code>AccountDoesNotExist</code> if the receiver account does not exist, and with <code>AccountNotInitialized</code> if the receiver is a
+universal account that was created by a <code>Transfer</code> and has no state yet.</p>
+<p>A receipt may contain at most <code>max_deploy_actions_per_receipt</code> (10) <code>DeployContract</code> and <code>DeployGlobalContract</code> actions
+in total. A new receipt with more fails validation with <code>TotalNumberOfDeployActionsExceeded</code>.</p>
 <p>NOTE: if the first action in the action list is <code>CreateAccount</code>, <code>predecessor_id</code> becomes <code>receiver_id</code>
 for the rest of the actions until <code>DeleteAccount</code>. This gives permission by another account to act on the newly created account.</p>
 <h2 id="createaccountaction"><a class="header" href="#createaccountaction">CreateAccountAction</a></h2>
@@ -2538,10 +2565,18 @@ refund. That <code>Transfer</code> may be batched with other actions.</li>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>creates an account with <code>id</code> = <code>receiver_id</code></li>
-<li>sets Account <code>storage_usage</code> to <code>account_cost</code> (genesis config)</li>
+<li>sets Account <code>storage_usage</code> to <code>num_bytes_account</code> (runtime config)</li>
 </ul>
 <h3 id="errors"><a class="header" href="#errors">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
+<ul>
+<li>If the account already exists, the following error will be returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>AccountAlreadyExists { account_id: AccountId },
+<span class="boring">}
+</span></code></pre></pre>
 <ul>
 <li>If <code>predecessor_id</code> is not <code>registrar_account_id</code> (currently <code>registrar</code>), and the action tries to create a top level
 account whose ID is shorter than <code>min_allowed_top_level_account_length</code> (currently 65), the following error will be
@@ -2591,7 +2626,7 @@ CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
 <h3 id="errors-1"><a class="header" href="#errors-1">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
-<li>if the length of <code>code</code> exceeds <code>max_contract_size</code>, which is a genesis parameter, the following error will be returned:</li>
+<li>if the length of <code>code</code> exceeds <code>max_contract_size</code>, which is a runtime config parameter, the following error will be returned:</li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2635,6 +2670,9 @@ ContractSizeExceeded { size: u64, limit: u64 },
 <h3 id="errors-2"><a class="header" href="#errors-2">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
 <ul>
+<li>If the receiver account does not exist and the <code>Transfer</code> can not create it, <code>AccountDoesNotExist</code> will be returned.
+A <code>Transfer</code> creates a missing NEAR-implicit, ETH-implicit or deterministic account only if it is the only action of
+a receipt that is not a refund, and a missing universal account only if the receipt is not a refund.</li>
 <li>If the deposit amount plus the existing amount on the receiver account exceeds <code>u128::MAX</code>,
 a <code>StorageInconsistentState(&quot;Account balance integer overflow&quot;)</code> error will be returned.</li>
 </ul>
@@ -2716,6 +2754,8 @@ value is 10.</p>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>Adds a new <a href="RuntimeSpec//DataStructures/AccessKey.html">AccessKey</a> to the receiver's account and associates it with a <code>public_key</code> provided.</li>
+<li>For a regular key, the <code>nonce</code> field of the provided <code>AccessKey</code> is ignored. The nonce is set to <code>block_height * 1_000_000 - 1</code>
+(<code>(block_height - 1) * 1_000_000</code> before protocol version 89).</li>
 <li>If the permission is <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>, the new key is a <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-keys">gas key</a> with a balance of 0.
 The <code>nonce</code> field of the key is set to 0. The runtime also creates <code>num_nonces</code> nonce records for the key, each set to <code>block_height * 1_000_000 - 1</code> (<code>(block_height - 1) * 1_000_000</code> before protocol version 89).
 These records add to the storage usage of the account, see <a href="RuntimeSpec//DataStructures/AccessKey.html#gas-key-nonces">Gas Key Nonces</a>.</li>
@@ -2733,7 +2773,7 @@ InvalidAccountId { account_id: AccountId },
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the length of some method name exceed <code>max_length_method_name</code>, which is a genesis parameter (current value is 256),
+<li>If the length of some method name exceed <code>max_length_method_name</code>, which is a runtime config parameter (current value is 256),
 the following error will be returned </li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2743,7 +2783,7 @@ AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the sum of length of method names (with 1 extra character for every method name) exceeds <code>max_number_bytes_method_names</code>, which is a genesis parameter (current value is 2000),
+<li>If the sum of length of method names (with 1 extra character for every method name) exceeds <code>max_number_bytes_method_names</code>, which is a runtime config parameter (current value is 2000),
 the following error will be returned</li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2870,6 +2910,7 @@ InvalidAccountId { account_id: AccountId },
 DeleteActionMustBeFinal
 <span class="boring">}
 </span></code></pre></pre>
+<p><strong>Execution Error</strong>:</p>
 <ul>
 <li>If the account still has locked balance due to staking, the following error will be returned</li>
 </ul>
@@ -2879,7 +2920,6 @@ DeleteActionMustBeFinal
 DeleteAccountStaking { account_id: AccountId }
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Execution Error</strong>:</p>
 <ul>
 <li>If the storage usage of the account is more than 10,000 bytes, the following error is returned and nothing is deleted.
 The storage of the contract code or of the global contract reference does not count.
@@ -3125,7 +3165,7 @@ DelegateActionSenderDoesNotMatchTxReceiver
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the current block is equal or greater than <code>max_block_height</code></li>
+<li>If the current block is greater than <code>max_block_height</code></li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3169,6 +3209,11 @@ DelegateActionInvalidNonce
 DelegateActionNonceTooLarge
 <span class="boring">}
 </span></code></pre></pre>
+<ul>
+<li>If the <code>public_key</code> is a function call access key, the inner actions must be exactly one <code>FunctionCall</code> with zero
+deposit, to the receiver and one of the methods that the key allows. Otherwise <code>DelegateActionAccessKeyError</code> is
+returned with <code>RequiresFullAccess</code>, <code>DepositWithFunctionCall</code>, <code>ReceiverMismatch</code> or <code>MethodNameMismatch</code>.</li>
+</ul>
 <h2 id="deployglobalcontractaction"><a class="header" href="#deployglobalcontractaction">DeployGlobalContractAction</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3219,6 +3264,12 @@ cover the account's storage staking.</li>
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Outcome</strong>:</p>
+<ul>
+<li>removes the current contract code of the account, and its storage usage</li>
+<li>sets the account contract to the referenced global contract</li>
+<li>adds the length of the identifier to the account <code>storage_usage</code>: 32 bytes for a code hash, or the length of the
+account id</li>
+</ul>
 <h3 id="errors-11"><a class="header" href="#errors-11">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
@@ -3242,18 +3293,14 @@ take a while for it to propagate to all shards.)</li>
 </span></code></pre></pre>
 <p><strong>Outcome</strong>:</p>
 <ul>
-<li>if the account was already created before:
+<li>if the account does not exist, creates an account with deterministic account id</li>
+<li>if the account has no contract (it does not exist, or it was created by a transfer):
 <ul>
-<li>do nothing</li>
-</ul>
-</li>
-<li>if the account was not created before:
-<ul>
-<li>creates an account with deterministic account id</li>
 <li>sets the contract code to the specified global contract</li>
 <li>stores the initial data into the contract storage</li>
 </ul>
 </li>
+<li>uses as much of <code>deposit</code> as the account needs for storage staking, and refunds the rest</li>
 </ul>
 <h3 id="errors-12"><a class="header" href="#errors-12">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
@@ -3269,6 +3316,7 @@ action count too. The runtime checks this when the receipt is created.</li>
 <ul>
 <li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
 take a while for it to propagate to all shards.)</li>
+<li><code>LackBalanceForState</code> if <code>deposit</code> does not cover the balance that the account lacks for storage staking</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="applying-chunk"><a class="header" href="#applying-chunk">Applying chunk</a></h1>
@@ -3291,9 +3339,7 @@ take a while for it to propagate to all shards.)</li>
 <h2 id="processing-order"><a class="header" href="#processing-order">Processing order</a></h2>
 <ul>
 <li>If this is first block of an epoch, dispense <a href="RuntimeSpec/../Economics/Economics.html#validator-rewards-calculation">epoch rewards</a> to validators (in order of <em>validator_accounts_update.stake_info</em>)</li>
-<li>Slash locked balance for malicious behavior (in order of <em>validator_accounts_update.slashing_info</em>)</li>
 <li>If <a href="RuntimeSpec/../Economics/Economics.html#protocol-treasury">treasury account</a> was not one of validators and this is first block of an epoch, dispense treasury account reward</li>
-<li>If this is first block of new version or first block with chunk of new version, apply corresponding migrations</li>
 <li>If this block do not have chunk for this shard, end process early</li>
 <li>Process <a href="RuntimeSpec/Transactions.html">transactions</a> (in order of <em>transactions</em>)</li>
 <li>Process local <a href="RuntimeSpec/Receipts.html">receipts</a> (in order of <em>transactions</em> that generated them)</li>
@@ -3464,12 +3510,14 @@ near-vm-runner, which runs contracts on Wasmtime) exposes to the guest (the smar
 <p>Also for all functions in the bindings specification the following is true:</p>
 <ul>
 <li>Method execution could result in <code>MemoryAccessViolation</code> error if the method causes host to read a piece of memory
-from the guest but it points outside the guest's memory;</li>
+from the guest but it points outside the guest's memory. The host charges gas for the requested length before it
+checks bounds, so a large out-of-bounds read can fail with <code>GasExceeded</code>, <code>GasLimitExceeded</code> or <code>IntegerOverflow</code>
+instead. <code>log_utf8</code> and <code>panic_utf8</code> check the log length limit first and fail with <code>TotalLogLengthExceeded</code>;</li>
 <li>Method execution could result in <code>InvalidRegisterId</code> error if the guest causes host to read from a register that is
 not set.</li>
 </ul>
 <p>Execution of a bindings function call result in an error being generated. This error causes execution of the smart contract
-to be terminated and the error message written into the logs of the transaction that caused the execution. Many bindings
+to be terminated, and the error becomes the execution result of the receipt. Many bindings
 functions can throw specialized error messages, but there is also a list of error messages that can be thrown by almost
 any function:</p>
 <ul>
@@ -3534,18 +3582,6 @@ and <code>promise_batch_then</code>. <code>promise_batch_action_function_call_we
 <p>Context API mostly provides read-only functions that access current information about the blockchain, the accounts
 (that originally initiated the chain of cross-contract calls, the immediate contract that called the current one, the account of the current contract),
 other important information like storage usage.</p>
-<p>Many of the below functions are currently implemented through <code>data_read</code> which allows to read generic context data.
-However, there is no reason to have <code>data_read</code> instead of the specific functions:</p>
-<ul>
-<li><code>data_read</code> does not solve forward compatibility. If later we want to add another context function, e.g. <code>executed_operations</code>
-we can just declare it as a new function, instead of encoding it as <code>DATA_TYPE_EXECUTED_OPERATIONS = 42</code> which is passed
-as the first argument to <code>data_read</code>;</li>
-<li><code>data_read</code> does not help with renaming. If later we decide to rename <code>signer_account_id</code> to <code>originator_id</code> then one could
-argue that contracts that rely on <code>data_read</code> would not break, while contracts relying on <code>signer_account_id()</code> would. However
-the name change often means the change of the semantics, which means the contracts using this function are no longer safe to
-execute anyway.</li>
-</ul>
-<p>However there is one reason to not have <code>data_read</code> -- it makes <code>API</code> more human-like which is a general direction Wasm APIs, like WASI are moving towards to.</p>
 <p>Some of the functions below behave differently depending on how the contract execution was initiated:</p>
 <ul>
 <li>
@@ -3586,7 +3622,8 @@ the chunk is applied. An external call can't read the random seed (see <a href="
 <span class="boring">}
 </span></code></pre></pre>
 <p>All contract calls are a result of some transaction that was signed by some account using
-some access key and submitted into a memory pool (either through the wallet using RPC or by a node itself). This function returns the id of that account.</p>
+some access key and submitted into a memory pool (either through the wallet using RPC or by a node itself). This function returns the id of that account.
+For a receipt created from a delegate action (meta transaction), this is the relayer that signed the outer transaction.</p>
 <h6 id="normal-operation"><a class="header" href="#normal-operation">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the signer account id into the register.</li>
@@ -3598,10 +3635,6 @@ for the call itself.</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
-<ul>
-<li>Currently we conflate <code>originator_id</code> and <code>sender_id</code> in our code base.</li>
-</ul>
 <hr />
 <h4 id="signer_account_pk"><a class="header" href="#signer_account_pk">signer_account_pk</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3611,16 +3644,14 @@ for the call itself.</li>
 </span></code></pre></pre>
 <p>Saves the public key fo the access key that was used by the signer into the register.
 In rare situations smart contract might want to know the exact access key that was used to send the original transaction,
-e.g. to increase the allowance or manipulate with the public key.</p>
+e.g. to increase the allowance or manipulate with the public key.
+The key is borsh-encoded: one key type byte (0 ed25519, 1 secp256k1, 2 ML-DSA-65), then the key bytes.
+For a receipt created from a delegate action, this is the relayer's key.</p>
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
 <li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
-</ul>
-<h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
 </ul>
 <hr />
 <h4 id="predecessor_account_id"><a class="header" href="#predecessor_account_id">predecessor_account_id</a></h4>
@@ -3641,10 +3672,6 @@ that does function invocation on the contract or another contract as a result of
 <li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
 <li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
-<h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
-</ul>
 <hr />
 <h4 id="refund_to_account_id"><a class="header" href="#refund_to_account_id">refund_to_account_id</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3664,10 +3691,6 @@ can set this to another account id when sending the receipt.</p>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
-</ul>
 <hr />
 <h4 id="input-7"><a class="header" href="#input-7">input</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3679,21 +3702,11 @@ can set this to another account id when sending the receipt.</p>
 <h6 id="normal-operation-3"><a class="header" href="#normal-operation-3">Normal operation</a></h6>
 <ul>
 <li>If input is provided saves the bytes (potentially zero) of input into register.</li>
-<li>If input is not provided does not modify the register.</li>
-</ul>
-<h6 id="returns"><a class="header" href="#returns">Returns</a></h6>
-<ul>
-<li>If input was not provided returns <code>0</code>;</li>
-<li>If input was provided returns <code>1</code>; If input is zero bytes returns <code>1</code>, too.</li>
+<li>If input is not provided writes 0 bytes into the register.</li>
 </ul>
 <h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
-<h6 id="current-bugs-4"><a class="header" href="#current-bugs-4">Current bugs</a></h6>
-<ul>
-<li>Implemented as part of <code>data_read</code>. However there is no reason to have one unified function, like <code>data_read</code> that can
-be used to read all</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -3730,23 +3743,25 @@ one less than the height of the block the chunk is in.</p>
 invocation. This includes:</p>
 <ul>
 <li>The data written with <code>storage_*</code> functions during current and previous execution;</li>
-<li>The bytes needed to store the account protobuf and the access keys of the given account.</li>
+<li>The bytes needed to store the account and the access keys of the given account.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="economics-api"><a class="header" href="#economics-api">Economics API</a></h1>
 <p>Accounts own certain balance; and each transaction and each receipt have certain amount of balance and prepaid gas
 attached to them.
-During the contract execution, the contract has access to the following <code>u128</code> values:</p>
+During the contract execution, the contract has access to the following values (balances are <code>u128</code>, gas is <code>u64</code>):</p>
 <ul>
 <li><code>account_balance</code> -- the balance attached to the given account. This includes the <code>attached_deposit</code> that was attached
-to the transaction;</li>
+to the transaction. It decreases by each deposit the call attaches to a promise, except 1 yoctoNEAR attached to a
+function call when the balance is zero;</li>
 <li><code>attached_deposit</code> -- the balance that was attached to the call that will be immediately deposited before
 the contract execution starts;</li>
-<li><code>prepaid_gas</code> -- the tokens attached to the call that can be used to pay for the gas;</li>
+<li><code>prepaid_gas</code> -- the gas attached to the call;</li>
 <li><code>used_gas</code> -- the gas that was already burnt during the contract execution and attached to promises (cannot exceed <code>prepaid_gas</code>);</li>
 </ul>
-<p>If contract execution fails <code>prepaid_gas - used_gas</code> is refunded back to <code>signer_account_id</code> and <code>attached_deposit</code>
-is refunded back to <code>predecessor_account_id</code>.</p>
+<p>If contract execution fails, the unused gas is refunded back to <code>signer_account_id</code> (see <a href="RuntimeSpec/Components/BindingsSpec/../../Refunds.html">Refunds</a>)
+and <code>attached_deposit</code> is refunded back to <code>refund_to_account_id</code>, which is <code>predecessor_account_id</code> unless the
+predecessor set another account.</p>
 <p>An external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
 the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
 calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
@@ -3774,7 +3789,7 @@ attached_deposit(balance_ptr: u64)
 <ul>
 <li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>.</li>
 </ul>
-<h6 id="current-bugs-5"><a class="header" href="#current-bugs-5">Current bugs</a></h6>
+<h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
 <ul>
 <li>Use a different name;</li>
 </ul>
@@ -3854,8 +3869,11 @@ submits the call could wait for a value that suits them.</p>
 <p>Sets the blob of data as the return value of the contract.</p>
 <h6 id="panics-12"><a class="header" href="#panics-12">Panics</a></h6>
 <ul>
-<li>If <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>value_len + value_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>value_len == u64::MAX</code> and <code>value_ptr</code> points to an unused register it panics with <code>InvalidRegisterId</code>;</li>
+<li>If the value is longer than <code>max_length_returned_data</code> (4 MiB) it panics with <code>ReturnedValueLengthExceeded</code>.</li>
 </ul>
+<p>If <code>value_return</code> or <code>promise_return</code> is called more than once, the last call sets the return value.</p>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3905,13 +3923,17 @@ larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>Tota
 </span>log_utf16(len: u64, ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
-<p>Logs the UTF-16 encoded string. <code>len</code> is the number of bytes in the string.
+<p>Logs the UTF-16 little-endian encoded string. <code>len</code> is the number of bytes in the string.
 See https://stackoverflow.com/a/5923961 that explains that null termination is not defined through encoding.</p>
 <h6 id="normal-behavior-2"><a class="header" href="#normal-behavior-2">Normal behavior</a></h6>
 <p>If <code>len == u64::MAX</code> then treats the string as null-terminated with two-byte sequence of <code>0x00 0x00</code>.</p>
 <h6 id="panics-15"><a class="header" href="#panics-15">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>len</code> is odd and not <code>u64::MAX</code>, or the string is not UTF-16, returns <code>BadUTF16</code>;</li>
+<li>If the UTF-16 length of the string, or the UTF-8 length of the decoded string, plus the bytes already logged in
+this function call is larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>;</li>
+<li>If this function call already has <code>max_number_logs</code> (100) logs, returns <code>NumberOfLogsExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="abort"><a class="header" href="#abort">abort</a></h4>
@@ -3957,7 +3979,7 @@ and can throw a panic if there is an attempted copying that exceeds the guest re
 or <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="returns-1"><a class="header" href="#returns-1">Returns</a></h6>
+<h6 id="returns"><a class="header" href="#returns">Returns</a></h6>
 <ul>
 <li>Index of the new promise that uniquely identifies it within the current execution of the method.</li>
 </ul>
@@ -3984,7 +4006,7 @@ or <code>amount_ptr + 16</code> points outside the memory of the guest or host, 
 or <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="returns-2"><a class="header" href="#returns-2">Returns</a></h6>
+<h6 id="returns-1"><a class="header" href="#returns-1">Returns</a></h6>
 <ul>
 <li>Index of the new promise that uniquely identifies it within the current execution of the method.</li>
 </ul>
@@ -4004,7 +4026,7 @@ The array contains indices of promises that need to be waited on jointly.</p>
 <li>If any of the promises in the array do not correspond to existing promises panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="returns-3"><a class="header" href="#returns-3">Returns</a></h6>
+<h6 id="returns-2"><a class="header" href="#returns-2">Returns</a></h6>
 <ul>
 <li>Index of the new promise that uniquely identifies it within the current execution of the method.</li>
 </ul>
@@ -4042,7 +4064,7 @@ caused the callback. This function returns the result in blob format and places 
 <li>If promise result is complete and successful copies its blob into the register;</li>
 <li>If promise result is complete and failed or incomplete keeps register unused;</li>
 </ul>
-<h6 id="returns-4"><a class="header" href="#returns-4">Returns</a></h6>
+<h6 id="returns-3"><a class="header" href="#returns-3">Returns</a></h6>
 <ul>
 <li>If promise result is not complete returns <code>0</code>;</li>
 <li>If promise result is complete and successful returns <code>1</code>;</li>
@@ -4050,11 +4072,11 @@ caused the callback. This function returns the result in blob format and places 
 </ul>
 <h6 id="panics-20"><a class="header" href="#panics-20">Panics</a></h6>
 <ul>
-<li>If <code>result_idx</code> does not correspond to an existing result panics with <code>InvalidResultIndex</code>.</li>
+<li>If <code>result_idx</code> does not correspond to an existing result panics with <code>InvalidPromiseResultIndex</code>.</li>
 <li>If copying the blob exhausts the memory limit it panics with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-6"><a class="header" href="#current-bugs-6">Current bugs</a></h6>
+<h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
 <ul>
 <li>We currently have two separate functions to check for result completion and copy it.</li>
 </ul>
@@ -4069,8 +4091,11 @@ caused the callback. This function returns the result in blob format and places 
 <h6 id="panics-21"><a class="header" href="#panics-21">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotReturnJointPromise</code>.</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-7"><a class="header" href="#current-bugs-7">Current bugs</a></h6>
+<h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
 <ul>
 <li>The current name <code>return_promise</code> is inconsistent with the naming convention of Promise API.</li>
 </ul>
@@ -4086,7 +4111,7 @@ caused the callback. This function returns the result in blob format and places 
 <li>If <code>account_id_len + account_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="returns-5"><a class="header" href="#returns-5">Returns</a></h6>
+<h6 id="returns-4"><a class="header" href="#returns-4">Returns</a></h6>
 <ul>
 <li>Index of the new promise that uniquely identifies it within the current execution of the method.</li>
 </ul>
@@ -4104,7 +4129,7 @@ caused the callback. This function returns the result in blob format and places 
 <li>If <code>account_id_len + account_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="returns-6"><a class="header" href="#returns-6">Returns</a></h6>
+<h6 id="returns-5"><a class="header" href="#returns-5">Returns</a></h6>
 <ul>
 <li>Index of the new promise that uniquely identifies it within the current execution of the method.</li>
 </ul>
@@ -4120,7 +4145,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-24"><a class="header" href="#panics-24">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
 <hr />
@@ -4135,7 +4161,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-25"><a class="header" href="#panics-25">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>code_len + code_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -4158,8 +4185,9 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-26"><a class="header" href="#panics-26">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
-<li>If <code>account_id_len + account_id_ptr</code> or <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
+<li>If <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
 or <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -4175,7 +4203,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-27"><a class="header" href="#panics-27">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -4197,7 +4226,8 @@ The function call then fails with <code>NewReceiptValidationError</code> (<code>
 <h6 id="panics-28"><a class="header" href="#panics-28">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with <code>InvalidPublicKey</code>.</li>
 <li>If <code>amount_ptr + 16</code> or <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -4218,7 +4248,8 @@ The access key will have <code>FullAccess</code> permission, details: <a href="R
 <h6 id="panics-29"><a class="header" href="#panics-29">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -4248,9 +4279,10 @@ The access key will have <code>FunctionCall</code> permission, details: <a href=
 <h6 id="panics-30"><a class="header" href="#panics-30">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
-<li>if <code>method_names</code> is not a valid <code>utf-8</code> string, fails with <code>BadUTF8</code>.</li>
+<li>if <code>method_names</code> is not a valid <code>utf-8</code> string, fails with <code>InvalidMethodName</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code>, <code>allowance_ptr + 16</code>, <code>receiver_id_len + receiver_id_ptr</code> or
 <code>method_names_len + method_names_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -4269,7 +4301,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <h6 id="panics-31"><a class="header" href="#panics-31">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If the given public key is not a valid public key (e.g. wrong length) <code>InvalidPublicKey</code>.</li>
 <li>If <code>public_key_len + public_key_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -4284,12 +4317,12 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <span class="boring">}
 </span></code></pre></pre>
 <p>Appends <code>DeleteAccount</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
-Action is used to delete an account. It can be performed on a newly created account, on your own account or an account with
-insufficient funds to pay rent. Takes <code>beneficiary_id</code> to indicate where to send the remaining funds.</p>
+Action is used to delete an account. It can be performed on a newly created account or on your own account. Takes <code>beneficiary_id</code> to indicate where to send the remaining funds.</p>
 <h6 id="panics-32"><a class="header" href="#panics-32">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
-<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
+<li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code> panics with
+<code>CannotAppendActionToJointPromise</code>.</li>
 <li>If <code>beneficiary_id_len + beneficiary_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -4321,9 +4354,9 @@ the host:</p>
 </ul>
 <p>For example:
 <code>storage_write(u64::MAX, 0, u64::MAX, 1, 2)</code> -- insert key-value into storage, where key is read from register 0,
-value is read from register 1, and result is saved to register 2.</p>
-<p>Note, if some function takes <code>register_id</code> then it means this function can copy some data into this register. If
-<code>register_id == u64::MAX</code> then the copying does not happen. This allows some micro-optimizations in the future.</p>
+value is read from register 1, and the old value, if the key existed, is saved to register 2.</p>
+<p>Note, if some function takes <code>register_id</code> then it means this function can copy some data into this register.
+<code>register_id == u64::MAX</code> is an ordinary register.</p>
 <p>Note, we allow multiple registers on the host, identified with <code>u64</code> number. The guest does not have to use them in
 order and can for instance save some blob in register <code>5000</code> and another value in register <code>1</code>.</p>
 <h4 id="specification"><a class="header" href="#specification">Specification</a></h4>
@@ -4332,16 +4365,12 @@ order and can for instance save some blob in register <code>5000</code> and anot
 </span>read_register(register_id: u64, ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
-<p>Writes the entire content from the register <code>register_id</code> into the memory of the guest starting with <code>ptr</code>.</p>
+<p>Writes the entire content from the register <code>register_id</code> into the memory of the guest starting with <code>ptr</code>.
+If <code>ptr</code> is wrong but inside guest memory, the function overwrites that guest memory.</p>
 <h6 id="panics-33"><a class="header" href="#panics-33">Panics</a></h6>
 <ul>
-<li>If the content extends outside the memory allocated to the guest. In Wasmer, it returns <code>MemoryAccessViolation</code> error message;</li>
+<li>If the content extends outside the memory allocated to the guest, returns <code>MemoryAccessViolation</code> error message;</li>
 <li>If <code>register_id</code> is pointing to unused register returns <code>InvalidRegisterId</code> error message.</li>
-</ul>
-<h6 id="undefined-behavior"><a class="header" href="#undefined-behavior">Undefined Behavior</a></h6>
-<ul>
-<li>If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -4372,7 +4401,7 @@ not follow the specification are considered to be bugs that need to be fixed.</p
 <li>If key is not in use it inserts the key-value pair and does not modify the register;</li>
 <li>If key is in use it inserts the key-value and copies the old value into the <code>register_id</code>.</li>
 </ul>
-<h6 id="returns-7"><a class="header" href="#returns-7">Returns</a></h6>
+<h6 id="returns-6"><a class="header" href="#returns-6">Returns</a></h6>
 <ul>
 <li>If key was not used returns <code>0</code>;</li>
 <li>If key was used returns <code>1</code>.</li>
@@ -4388,13 +4417,8 @@ execution of the contract stops. For mocks of the host that would only cause a n
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 <li>If the value is longer than <code>max_length_storage_value</code> (4,194,304 bytes) it panics with <code>ValueLengthExceeded</code>;</li>
 <li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
-</ul>
-<h6 id="current-bugs-8"><a class="header" href="#current-bugs-8">Current bugs</a></h6>
-<ul>
-<li><code>External::storage_set</code> trait can return an error which is then converted to a generic non-descriptive
-<code>StorageUpdateError</code>, <a href="https://github.com/nearprotocol/nearcore/blob/942bd7bdbba5fb3403e5c2f1ee3c08963947d0c6/runtime/wasm/src/runtime.rs#L210">here</a>
-however the actual implementation does not return error at all, <a href="https://github.com/nearprotocol/nearcore/blob/4773873b3cd680936bf206cebd56bdc3701ddca9/runtime/runtime/src/ext.rs#L95">see</a>;</li>
-<li>Does not return into the registers.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_read"><a class="header" href="#storage_read">storage_read</a></h4>
@@ -4409,7 +4433,7 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If key is used copies the content of the value into the <code>register_id</code>, even if the content is zero bytes;</li>
 <li>If key is not present then does not modify the register.</li>
 </ul>
-<h6 id="returns-8"><a class="header" href="#returns-8">Returns</a></h6>
+<h6 id="returns-7"><a class="header" href="#returns-7">Returns</a></h6>
 <ul>
 <li>If key was not present returns <code>0</code>;</li>
 <li>If key was present returns <code>1</code>.</li>
@@ -4420,10 +4444,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
-</ul>
-<h6 id="current-bugs-9"><a class="header" href="#current-bugs-9">Current bugs</a></h6>
-<ul>
-<li>This function currently does not exist.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_remove"><a class="header" href="#storage_remove">storage_remove</a></h4>
@@ -4439,7 +4461,7 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If key is used, removes the key-value from the trie and copies the content of the value into the <code>register_id</code>, even if the content is zero bytes.</li>
 <li>If key is not present then does not modify the register.</li>
 </ul>
-<h6 id="returns-9"><a class="header" href="#returns-9">Returns</a></h6>
+<h6 id="returns-8"><a class="header" href="#returns-8">Returns</a></h6>
 <ul>
 <li>If key was not present returns <code>0</code>;</li>
 <li>If key was present returns <code>1</code>.</li>
@@ -4452,10 +4474,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 <li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
-</ul>
-<h6 id="current-bugs-10"><a class="header" href="#current-bugs-10">Current bugs</a></h6>
-<ul>
-<li>Does not return into the registers.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_has_key"><a class="header" href="#storage_has_key">storage_has_key</a></h4>
@@ -4475,6 +4495,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_iter_prefix"><a class="header" href="#storage_iter_prefix">storage_iter_prefix</a></h4>
@@ -4483,19 +4505,7 @@ however the actual implementation does not return error at all, <a href="https:/
 </span>storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Creates an iterator object inside the host.
-Returns the identifier that uniquely differentiates the given iterator from other iterators that can be simultaneously
-created.</p>
-<h6 id="normal-operation-9"><a class="header" href="#normal-operation-9">Normal operation</a></h6>
-<ul>
-<li>It iterates over the keys that have the provided prefix. The order of iteration is defined by the lexicographic
-order of the bytes in the keys. If there are no keys, it creates an empty iterator, see below on empty iterators;</li>
-</ul>
-<h6 id="panics-38"><a class="header" href="#panics-38">Panics</a></h6>
-<ul>
-<li>If <code>prefix_len + prefix_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 <hr />
 <h4 id="storage_iter_range"><a class="header" href="#storage_iter_range">storage_iter_range</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -4503,17 +4513,7 @@ order of the bytes in the keys. If there are no keys, it creates an empty iterat
 </span>storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Similarly to <code>storage_iter_prefix</code>
-creates an iterator object inside the host.</p>
-<h6 id="normal-operation-10"><a class="header" href="#normal-operation-10">Normal operation</a></h6>
-<p>Unless lexicographically <code>start &lt; end</code>, it creates an empty iterator.
-Iterates over all key-values such that keys are between <code>start</code> and <code>end</code>, where <code>start</code> is inclusive and <code>end</code> is exclusive.</p>
-<p>Note, this definition allows for <code>start</code> or <code>end</code> keys to not actually exist on the given trie.</p>
-<h6 id="panics-39"><a class="header" href="#panics-39">Panics</a></h6>
-<ul>
-<li>If <code>start_len + start_ptr</code> or <code>end_len + end_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 <hr />
 <h4 id="storage_iter_next"><a class="header" href="#storage_iter_next">storage_iter_next</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -4521,27 +4521,7 @@ Iterates over all key-values such that keys are between <code>start</code> and <
 </span>storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Advances iterator and saves the next key and value in the register.</p>
-<h6 id="normal-operation-11"><a class="header" href="#normal-operation-11">Normal operation</a></h6>
-<ul>
-<li>If iterator is not empty (after calling next it points to a key-value), copies the key into <code>key_register_id</code> and value into <code>value_register_id</code> and returns <code>1</code>;</li>
-<li>If iterator is empty returns <code>0</code>.</li>
-</ul>
-<p>This allows us to iterate over the keys that have zero bytes stored in values.</p>
-<h6 id="panics-40"><a class="header" href="#panics-40">Panics</a></h6>
-<ul>
-<li>If <code>key_register_id == value_register_id</code> panics with <code>MemoryAccessViolation</code>;</li>
-<li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If <code>iterator_id</code> does not correspond to an existing iterator panics with <code>InvalidIteratorId</code></li>
-<li>If between the creation of the iterator and calling <code>storage_iter_next</code> any modification to storage was done through
-<code>storage_write</code> or <code>storage_remove</code> the iterator is invalidated and the error message is <code>IteratorWasInvalidated</code>.</li>
-</ul>
-<h6 id="current-bugs-11"><a class="header" href="#current-bugs-11">Current bugs</a></h6>
-<ul>
-<li>Not implemented, currently we have <code>storage_iter_next</code> and <code>data_read</code> + <code>DATA_TYPE_STORAGE_ITER</code> that together fulfill
-the purpose, but have unspecified behavior.</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtime-fees"><a class="header" href="#runtime-fees">Runtime Fees</a></h1>
 <p>Runtime fees are measured in Gas. Gas price will be discussed separately.</p>
@@ -4718,6 +4698,9 @@ This is the length of the key as stored in the trie: 33 bytes for ED25519 and ML
 <li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of the gas key.
 To compute the number of bytes use <code>receiver_id.len() + action.public_key.trie_id_len() + 2 + AccessKey::min_gas_key_borsh_len()</code>.
 <code>AccessKey::min_gas_key_borsh_len()</code> is the Borsh length of the smallest gas key record.</li>
+<li>For an action that a contract creates, the host function uses the encoded key length (1953 bytes for ML-DSA-65)
+instead of <code>trie_id_len()</code> for the <code>send</code> part, and also for the <code>execution</code> part unless <code>fix_ml_dsa_cost_charging</code>
+is enabled.</li>
 </ul>
 </li>
 <li>
@@ -4783,7 +4766,9 @@ Unused gas and the price difference for burned gas are refunded, see <a href="Ru
 <li><code>ActionResult</code> with charged base execution fees is created there;</li>
 <li>if action execution creates new <code>ActionReceipt</code>s, their fees are added to the <code>ActionResult</code>. For example, when a function call creates a promise, it pays:
 <ul>
-<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions</li>
+<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions, plus the base <strong>send</strong> and <strong>exec</strong>
+fees of one <code>DataReceipt</code> for each promise that the new <code>ActionReceipt</code> waits on. The per-byte <code>DataReceipt</code>
+fees are burnt later, by the <code>value_return</code> call of the function that produces the data</li>
 <li><code>gas_used</code>: <code>gas_burnt</code> + the <strong>exec</strong> fees for the new <code>ActionReceipt</code> and its actions + the gas attached to the function calls in the new <code>ActionReceipt</code></li>
 </ul>
 </li>
@@ -5158,13 +5143,12 @@ reported as <code>ExecutionError</code> with a message that starts with <code>Li
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
-    /// General errors for ECDSA recover.
+    /// Invalid input to `ecrecover`. See `ecrecover` for the cases.
     ECRecoverError { msg: String },
     /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
-    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
-    /// derived from bytes).
+    /// Invalid input to `ed25519_verify`. See `ed25519_verify` for the cases.
     Ed25519VerifyInvalidInput { msg: String },
     /// Input length mismatch for p256 signature verification (signature is not 64
     /// bytes or public key is not 33 bytes). Parse failures of otherwise
@@ -5279,11 +5263,10 @@ handling, are rejected;</li>
 <li><code>1_024</code> types (signatures), set by the <code>max_types_per_contract</code> runtime parameter from protocol
 version 84;</li>
 <li><code>1_000_000</code> function imports and local function definitions;</li>
-<li><code>100_000</code> imports;</li>
-<li><code>100_000</code> exports;</li>
+<li><code>1_000_000</code> imports;</li>
+<li><code>1_000_000</code> exports;</li>
 <li><code>1_000_000</code> global imports and module-local global definitions;</li>
 <li><code>100_000</code> data segments;</li>
-<li><code>1</code> table;</li>
 <li><code>1</code> memory;</li>
 </ul>
 </li>
@@ -5295,6 +5278,7 @@ bytes each;</li>
 <li>All imports must be function imports from the <code>env</code> module. A module that imports a table, a
 global or a memory is rejected. The runtime provides the contract memory itself, as described in
 <a href="RuntimeSpec/Preparation.html#memory-normalization">Memory normalization</a>;</li>
+<li>The wasm module may contain no more than <code>max_tables_per_contract</code> (<code>1</code>) tables;</li>
 <li>Tables may not specify an initial size of more than <code>10_000</code> entries (the
 <code>max_elements_per_contract_table</code> runtime parameter, from protocol version 82);</li>
 <li>The wasm module may contain no more function imports and local function definitions than the
@@ -5362,8 +5346,11 @@ construction and are accounted for much like other instructions not mentioned in
 also means that calling the <code>used_gas</code> host function at different points of the same metered block
 would return the same value if the <code>base</code> cost was <code>0</code>.</p>
 <p>All the instructions covered by a metered block are assigned a fee based on the <code>regular_op_cost</code>
-runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
-then charged by instrumentation inserted at the beginning of each metered block.</p>
+runtime parameter. The <code>block</code>, <code>else</code> and <code>end</code> instructions do not cause any fee to be charged. A
+sum of these fees is then charged by instrumentation inserted at the beginning of each metered block.</p>
+<p>The <code>memory.grow</code>, <code>memory.init</code>, <code>memory.copy</code>, <code>memory.fill</code>, <code>table.grow</code>, <code>table.init</code>,
+<code>table.copy</code> and <code>table.fill</code> instructions are not part of this sum. Each of them is charged just
+before it runs: <code>linear_op_base_cost</code> plus <code>linear_op_unit_cost</code> for each unit of its count operand.</p>
 <h3 id="examples-1"><a class="header" href="#examples-1">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
 <p>In this section some examples of the instrumentation are presented as an understanding aid to the
@@ -5372,7 +5359,7 @@ a specific point of the program. The programs presented here are not intended to
 to produce meaningful behavior.</p>
 <h4 id="block-instruction-does-not-terminate-a-metered-block"><a class="header" href="#block-instruction-does-not-terminate-a-metered-block"><code>block</code> instruction does not terminate a metered block</a></h4>
 <pre><code class="language-wat">(func
-  (; charge_gas(6 regular_op_cost) ;)
+  (; charge_gas(5 regular_op_cost) ;)
   nop
   block
     nop
@@ -5382,8 +5369,8 @@ to produce meaningful behavior.</p>
   nop)
 </code></pre>
 <p>This function has just 1 metered block, covering both the <code>block..end</code> block as well as the 2 <code>nop</code>
-instructions outside of it. As a result the gas fee for all 6 instructions will be charged at the
-beginning of the function (even if we can see <code>unreachable</code> would be executed after 4 instructions,
+instructions outside of it. As a result the gas fee for all 6 instructions (5 <code>regular_op_cost</code>, as <code>block</code> is free) will
+be charged at the beginning of the function (even if we can see <code>unreachable</code> would be executed after 4 instructions,
 terminating the execution).</p>
 <h4 id="branching-instructions-pop-a-metered-block"><a class="header" href="#branching-instructions-pop-a-metered-block">Branching instructions pop a metered block</a></h4>
 <p>Introducing a conditional branch to the example from the previous section would split the metered
@@ -5593,7 +5580,7 @@ Refund receipts have a gas price of 0.</p>
 <p><code>input_data_ids</code> are the receipt data dependencies. <code>input_data_ids</code> correspond to <code>DataReceipt.data_id</code>.</p>
 <h4 id="actions-1"><a class="header" href="#actions-1">actions</a></h4>
 <ul>
-<li><strong><code>type</code></strong>: <a href="RuntimeSpec/Actions.html#functioncallaction"><code>FunctionCall</code></a> | <a href="RuntimeSpec/Actions.html#transferaction"><code>TransferAction</code></a> | <a href="RuntimeSpec/Actions.html#stakeaction"><code>StakeAction</code></a> | <a href="RuntimeSpec/Actions.html#addkeyaction"><code>AddKeyAction</code></a> | <a href="RuntimeSpec/Actions.html#deletekeyaction"><code>DeleteKeyAction</code></a> | <a href="RuntimeSpec/Actions.html#createaccountaction"><code>CreateAccountAction</code></a> | <a href="RuntimeSpec/Actions.html#deleteaccountaction"><code>DeleteAccountAction</code></a></li>
+<li><strong><code>type</code></strong>: <code>Vec&lt;Action&gt;</code>. See <a href="RuntimeSpec/Actions.html">Actions</a> for the action kinds.</li>
 </ul>
 <h2 id="datareceipt"><a class="header" href="#datareceipt">DataReceipt</a></h2>
 <p><code>DataReceipt</code> represents a final result of some contract execution.</p>
@@ -5694,13 +5681,9 @@ Receipt {
     }
 }
 </code></pre>
-<pre><code class="language-python">data_receipts[&quot;alice,e5fa44&quot;] = borsh_serialize(Receipt{
-    receiver_id: &quot;alice&quot;,
-    receipt: DataReceipt {
-        data_id: &quot;e5fa44&quot;,
-        data: &quot;some data for alice&quot;,
-    }
-};
+<pre><code class="language-python">data_receipts[&quot;alice,e5fa44&quot;] = borsh_serialize(ReceivedData{
+    data: &quot;some data for alice&quot;,
+});
 pending_data_receipt_count[&quot;alice,5e73d4&quot;] = 1`
 del pending_data_receipt_store[&quot;alice,e5fa44&quot;]
 </code></pre>
@@ -5714,14 +5697,10 @@ Receipt{
     }
 }
 </code></pre>
-<pre><code class="language-python">data_receipts[&quot;alice,7448d8&quot;] = borsh_serialize(Receipt{
-    receiver_id: &quot;alice&quot;,
-    receipt: DataReceipt {
-        data_id: &quot;7448d8&quot;,
-        data: &quot;some more data for alice&quot;,
-    }
-};
-postponed_receipt_id = pending_data_receipt_store[&quot;alice,5e73d4&quot;]
+<pre><code class="language-python">data_receipts[&quot;alice,7448d8&quot;] = borsh_serialize(ReceivedData{
+    data: &quot;some more data for alice&quot;,
+});
+postponed_receipt_id = pending_data_receipt_store[&quot;alice,7448d8&quot;]
 postponed_receipt = postponed_receipts[postponed_receipt_id]
 del postponed_receipts[postponed_receipt_id]
 del pending_data_receipt_count[&quot;alice,5e73d4&quot;]
@@ -5743,7 +5722,17 @@ mainly two types of errors:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// The `receiver_id` of a Receipt is not valid.
-InvalidReceiverId { account_id: AccountId },
+InvalidReceiverId { account_id: String },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+<ul>
+<li>refund receiver is invalid. If the <code>refund_to</code> of the receipt is set and is not a valid account id, a</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The `refund_to` of an ActionReceipt is not valid.
+InvalidRefundTo { account_id: String },
 <span class="boring">}
 </span></code></pre></pre>
 <p>error is returned.</p>
@@ -5838,25 +5827,22 @@ of the runtime, and describing the functions that the runtime performs.</p>
 <h2 id="components-1"><a class="header" href="#components-1">Components</a></h2>
 <p>The components of the runtime can be described through the crates:</p>
 <ul>
-<li><code>near-vm-logic</code> -- describes the interface that smart contract uses to interact with the blockchain.
+<li>the <code>logic</code> module of <code>near-vm-runner</code> -- describes the interface that smart contract uses to interact with the blockchain.
 Encapsulates the behavior of the blockchain visible to the smart contract, e.g. fee rules, storage access rules, promise rules;</li>
-<li><code>near-vm-runner</code> crate -- a wrapper around Wasmer that does the actual execution of the smart contract code. It exposes the
-interface provided by <code>near-vm-logic</code> to the smart contract;</li>
-<li><code>runtime</code> crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
+<li><code>near-vm-runner</code> crate -- a wrapper around Wasmtime that does the actual execution of the smart contract code. It exposes the
+interface provided by its <code>logic</code> module to the smart contract;</li>
+<li><code>near-runtime</code> crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
 a smart contract call within a transaction or a receipt it calls <code>near-vm-runner</code>, for all other actions, like account
 creation, it processes them in-place.</li>
 </ul>
 <p>The utility crates are:</p>
 <ul>
-<li><code>near-runtime-fees</code> -- a convenience crate that encapsulates configuration of fees. We might get rid ot it later;</li>
-<li><code>near-vm-errors</code> -- contains the hierarchy of errors that can be occurred during transaction or receipt processing;</li>
-<li><code>near-vm-runner-standalone</code> -- a runnable tool that allows running the runtime without the blockchain, e.g. for
-integration testing of L2 projects;</li>
+<li><code>near-parameters</code> -- encapsulates the configuration of fees and limits;</li>
 <li><code>runtime-params-estimator</code> -- benchmarks the runtime and generates the config with the fees.</li>
 </ul>
 <p>Separately, from the components we describe <a href="RuntimeSpec/Components/BindingsSpec/BindingsSpec.html">the Bindings Specification</a> which is an
 important part of the runtime that specifies the functions that the smart contract can call from its host -- the runtime.
-The specification is defined in <code>near-vm-logic</code>, but it is exposed to the smart contract in <code>near-vm-runner</code>.</p>
+The specification is defined in the <code>logic</code> module of <code>near-vm-runner</code>, and it is exposed to the smart contract in <code>near-vm-runner</code>.</p>
 <h2 id="functions"><a class="header" href="#functions">Functions</a></h2>
 <ul>
 <li>Receipt consumption and production</li>
@@ -6222,16 +6208,17 @@ and <code>broadcast_tx_commit</code> still work. <code>broadcast_tx_async</code>
 <p>We skip the details on how the transaction arrives to be processed by the runtime, since it is a part of the blockchain layer
 discussion.
 We consider the moment where <code>SignedTransaction</code> is getting passed to <code>Runtime::apply</code> of the
-<code>runtime</code> crate.
-<code>Runtime::apply</code> immediately passes transaction to <code>Runtime::process_transaction</code>
-which in turn does the following:</p>
+<code>near-runtime</code> crate.
+<code>Runtime::apply</code> passes the transactions to <code>Runtime::process_transactions</code>,
+which for each transaction does the following:</p>
 <ul>
 <li>Verifies that transaction is valid;</li>
 <li>Applies initial reversible and irreversible charges to <code>alice_near</code> account;</li>
 <li>Creates a receipt with the same set of actions directed towards <code>bob_near</code>.</li>
 </ul>
-<p>The first two items are performed inside <code>Runtime::verify_and_charge_transaction</code> method.
-Specifically it does the following checks:</p>
+<p>The first two items are performed by <code>validate_transaction_envelope</code>, which verifies the signature, and by
+<code>verify_and_charge_tx_ephemeral</code>, which does the other checks.
+Together they do the following checks:</p>
 <ul>
 <li>Verifies that the signature of the transaction is correct based on the transaction hash and the attached public key;</li>
 <li>Retrieves the latest state of the <code>alice_near</code> account, and simultaneously checks that it exists;</li>
@@ -6251,9 +6238,7 @@ It will check that this receipt does not have data dependencies (which is only t
 <ul>
 <li>Retrieves the state of <code>bob_near</code> account, if it still exists (it is possible that Bob has deleted his account concurrently with the transfer transaction);</li>
 <li>Computes the cost of processing a receipt and a transfer action;</li>
-<li>Computes how much reward should be burnt;</li>
 <li>Checks if <code>bob_near</code> still exists and if it does, deposits the transferred tokens to <code>bob_near</code>;</li>
-<li>Checks if <code>bob_near</code> still exists and if so, deposits the gas reward to the <code>bob_near</code> account;</li>
 <li>Checks if <code>bob_near</code> has enough balance for the storage deposit, the transaction's temporary state is dropped/rolled back if there is not enough balance;</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
@@ -6278,7 +6263,7 @@ She then composes the following transaction that calls the <code>travel_agency</
             method_name: &quot;reserve_trip&quot;,
             args: &quot;{\&quot;city\&quot;: \&quot;Venice\&quot;, \&quot;date\&quot;: 20191201}&quot;,
             gas: 1000000,
-            tokens: 100,
+            deposit: 100,
         })
     ],
 }
@@ -6290,8 +6275,8 @@ the contract should be called. The <code>receiver_id</code> field in <code>Trans
 it is up to the contract developer what serialization format they choose for their arguments. In this example, the contract
 developer has chosen to use JSON and so the tool that Alice uses to compose this transaction is expected to use JSON too
 to pass the arguments. <code>gas</code> declares how much gas <code>alice_near</code> has prepaid for dynamically calculated fees of the smart
-contract executions and other actions that this transaction may spawn. The <code>tokens</code> is the amount of <code>alice_near</code> attaches
-to be deposited to whatever smart contract that it is calling to. Notice, <code>gas</code> and <code>tokens</code> are in different units of
+contract executions and other actions that this transaction may spawn. The <code>deposit</code> is the amount that <code>alice_near</code> attaches
+to be deposited to whatever smart contract that it is calling to. Notice, <code>gas</code> and <code>deposit</code> are in different units of
 measurement.</p>
 <p>Now, consider a slightly more complex scenario. In this scenario Alice uses a restricted access key to call the function.
 That is the permission of the access key is not <code>AccessKeyPermission::FullAccess</code> but is instead: <code>AccessKeyPermission::FunctionCall(FunctionCallPermission)</code>
@@ -6307,7 +6292,7 @@ creating an access key that can be used strictly for trip management.
 This access key allows up to 0.25 NEAR (<code>250000000000000000000000</code> yoctoNEAR) to be spent on gas. It cannot be used to
 transfer tokens or to attach a deposit. It can be only used to call <code>travel_agency</code> and it can be only used with the
 <code>reserve_trip</code> and <code>cancel_trip</code> methods. A transaction signed with this key must have exactly one <code>FunctionCall</code> action
-with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>tokens: 100</code>), so with this key it would be rejected
+with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>deposit: 100</code>), so with this key it would be rejected
 with <code>DepositWithFunctionCall</code>.
 The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
 that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
@@ -6342,15 +6327,14 @@ call the storage API. Specifically <code>&quot;{\&quot;city\&quot;: \&quot;Venic
 <li>Calls <code>near_vm_runner::run</code> which does the following:
 <ul>
 <li>Inject gas, stack, and other kinds of metering;</li>
-<li>Verify that Wasm code does not use floats;</li>
-<li>Checks that bindings API functions that the smart contract is trying to call are actually those provided by <code>near_vm_logic</code>;</li>
+<li>Checks that bindings API functions that the smart contract is trying to call are actually those provided by the <code>logic</code> module of <code>near-vm-runner</code>;</li>
 <li>Compiles Wasm code into the native binary;</li>
 <li>Calls <code>reserve_trip</code> on the smart contract.
 <ul>
 <li>During the execution of the smart contract it will at some point call <code>promise_create</code> and <code>promise_then</code>, which will
 call method on <code>RuntimeExt</code> that will record that two promises were created and that the second one should
-wait on the first one. Specifically, <code>promise_create</code> will call <code>RuntimeExt::create_receipt(vec![], &quot;hotel_near&quot;)</code>
-returning <code>0</code> and then <code>RuntimeExt::create_receipt(vec![0], &quot;travel_agency&quot;)</code>;</li>
+wait on the first one. Specifically, <code>promise_create</code> will call <code>RuntimeExt::create_action_receipt(vec![], &quot;hotel_near&quot;)</code>
+returning <code>0</code> and then <code>RuntimeExt::create_action_receipt(vec![0], &quot;travel_agency&quot;)</code>;</li>
 </ul>
 </li>
 </ul>
@@ -6790,7 +6774,8 @@ Mainnet uses 5.</p>
 <h1 id="extcostsconfig"><a class="header" href="#extcostsconfig">ExtCostsConfig</a></h1>
 <h2 id="base"><a class="header" href="#base">base</a></h2>
 <p><code>type: Gas</code></p>
-<p>Base cost for calling a host function.</p>
+<p>Base cost for calling a host function. Not all host functions charge it; for example, the hash and signature
+verification functions charge only their own base costs.</p>
 <h2 id="read_memory_base"><a class="header" href="#read_memory_base">read_memory_base</a></h2>
 <p><code>type: Gas</code></p>
 <p>Base cost for guest memory read</p>
@@ -6890,28 +6875,28 @@ Mainnet uses 5.</p>
 <p>Storage trie check for key existence per key byte</p>
 <h3 id="storage_iter_create_prefix_base"><a class="header" href="#storage_iter_create_prefix_base">storage_iter_create_prefix_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie prefix iterator cost base</p>
+<p>Create trie prefix iterator cost base. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_prefix_byte"><a class="header" href="#storage_iter_create_prefix_byte">storage_iter_create_prefix_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie prefix iterator cost per byte.</p>
+<p>Create trie prefix iterator cost per byte. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_range_base"><a class="header" href="#storage_iter_create_range_base">storage_iter_create_range_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost base</p>
+<p>Create trie range iterator cost base. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_from_byte"><a class="header" href="#storage_iter_create_from_byte">storage_iter_create_from_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost per byte of from key.</p>
+<p>Create trie range iterator cost per byte of from key. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_to_byte"><a class="header" href="#storage_iter_create_to_byte">storage_iter_create_to_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost per byte of to key.</p>
+<p>Create trie range iterator cost per byte of to key. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_base"><a class="header" href="#storage_iter_next_base">storage_iter_next_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator per key base cost</p>
+<p>Trie iterator per key base cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_key_byte"><a class="header" href="#storage_iter_next_key_byte">storage_iter_next_key_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator next key byte cost</p>
+<p>Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_value_byte"><a class="header" href="#storage_iter_next_value_byte">storage_iter_next_value_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator next key byte cost</p>
+<p>Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="touching_trie_node"><a class="header" href="#touching_trie_node">touching_trie_node</a></h3>
 <p><code>type: Gas</code></p>
 <p>Cost per touched trie node</p>
@@ -6921,7 +6906,7 @@ Mainnet uses 5.</p>
 <p>Cost for calling promise_and</p>
 <h3 id="promise_and_per_promise"><a class="header" href="#promise_and_per_promise">promise_and_per_promise</a></h3>
 <p><code>type: Gas</code></p>
-<p>Cost for calling promise_and for each promise</p>
+<p>Cost for calling promise_and for each byte of the promise index array (8 bytes per promise)</p>
 <h3 id="promise_return-1"><a class="header" href="#promise_return-1">promise_return</a></h3>
 <p><code>type: Gas</code></p>
 <p>Cost for calling promise_return</p>
@@ -6935,16 +6920,16 @@ In the JSON view they are nested under the <code>limit_config</code> key of <cod
 <p>Costs for runtime externals</p>
 <h2 id="grow_mem_cost"><a class="header" href="#grow_mem_cost">grow_mem_cost</a></h2>
 <p>`type: u32</p>
-<p>Gas cost of a growing memory by single page.</p>
+<p>Not charged. <code>memory.grow</code> is charged with <code>linear_op_base_cost</code> and <code>linear_op_unit_cost</code>.</p>
 <h2 id="regular_op_cost"><a class="header" href="#regular_op_cost">regular_op_cost</a></h2>
 <p>`type: u32</p>
 <p>Gas cost of a regular operation.</p>
 <h2 id="linear_op_base_cost"><a class="header" href="#linear_op_base_cost">linear_op_base_cost</a></h2>
 <p>`type: u64</p>
-<p>Base gas cost of a bulk memory/table operation.</p>
+<p>Base gas cost of a bulk memory/table operation, <code>memory.grow</code> or <code>table.grow</code>.</p>
 <h2 id="linear_op_unit_cost"><a class="header" href="#linear_op_unit_cost">linear_op_unit_cost</a></h2>
 <p>`type: u64</p>
-<p>Gas cost per unit of a bulk memory/table operation.</p>
+<p>Gas cost per unit of a bulk memory/table operation, <code>memory.grow</code> or <code>table.grow</code>.</p>
 <h2 id="max_gas_burnt"><a class="header" href="#max_gas_burnt">max_gas_burnt</a></h2>
 <p>`type: Gas</p>
 <p>Max amount of gas that can be used, excluding gas attached to promises.</p>
@@ -6953,10 +6938,10 @@ In the JSON view they are nested under the <code>limit_config</code> key of <cod
 <p>How tall the stack is allowed to grow?</p>
 <h2 id="initial_memory_pages"><a class="header" href="#initial_memory_pages">initial_memory_pages</a></h2>
 <p>`type: u32</p>
+<p>The initial number of memory pages.</p>
 <h2 id="max_memory_pages"><a class="header" href="#max_memory_pages">max_memory_pages</a></h2>
 <p>`type: u32</p>
-<p>The initial number of memory pages.
-What is the maximal memory pages amount is allowed to have for
+<p>What is the maximal memory pages amount is allowed to have for
 a contract.</p>
 <h2 id="registers_memory_limit"><a class="header" href="#registers_memory_limit">registers_memory_limit</a></h2>
 <p>`type: u64</p>
@@ -7016,21 +7001,37 @@ The value is 16384.</p>
 <p><code>type: AccountId</code></p>
 <p>The account ID of the access key owner.</p>
 <h3 id="public_key"><a class="header" href="#public_key">public_key</a></h3>
-<p><code>type: PublicKey</code></p>
-<p>The public key for the access key in JSON-friendly string format. E.g. <code>ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT</code></p>
+<p><code>type: PublicKeyHandle</code></p>
+<p>The public key for the access key in JSON-friendly string format. E.g. <code>ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT</code>.
+An ML-DSA-65 key is stored as a hash of the key (SHA3-256 with a domain tag): <code>ml-dsa-65-hash:</code> followed by the hash in base58.</p>
 <h3 id="access_key"><a class="header" href="#access_key">access_key</a></h3>
 <p><code>type:</code> <a href="GenesisConfig/../DataStructures/AccessKey.html">AccessKey</a></p>
 <p>The access key serialized in JSON format.</p>
+<h2 id="gaskeynonce"><a class="header" href="#gaskeynonce">GasKeyNonce</a></h2>
+<p><code>type: Unnamed struct</code></p>
+<p>Record that contains the nonce of one nonce index of a gas key. See <a href="GenesisConfig/../DataStructures/AccessKey.html#gas-key-nonces">Gas Key Nonces</a>.</p>
+<h3 id="account_id-4"><a class="header" href="#account_id-4">account_id</a></h3>
+<p><code>type: AccountId</code></p>
+<p>The account ID of the gas key owner.</p>
+<h3 id="public_key-1"><a class="header" href="#public_key-1">public_key</a></h3>
+<p><code>type: PublicKeyHandle</code></p>
+<p>The public key of the gas key, in the same format as for <a href="GenesisConfig/StateRecord.html#accesskey">AccessKey</a>.</p>
+<h3 id="index"><a class="header" href="#index">index</a></h3>
+<p><code>type: u16</code></p>
+<p>The nonce index.</p>
+<h3 id="nonce"><a class="header" href="#nonce">nonce</a></h3>
+<p><code>type: u64</code></p>
+<p>The nonce for this nonce index.</p>
 <h2 id="postponedreceipt"><a class="header" href="#postponedreceipt">PostponedReceipt</a></h2>
 <p><code>type: Box&lt;Receipt&gt;</code> <a href="GenesisConfig/../RuntimeSpec/Receipts.html">Receipt</a></p>
 <p>Record that contains a receipt that was postponed on a shard (e.g. it's waiting for incoming data).
-The receipt is in JSON-friendly format. The receipt can only be an <code>ActionReceipt</code>.</p>
+The receipt is in JSON-friendly format. The receipt can only be an action receipt (<code>Action</code> or <code>ActionV2</code>).</p>
 <p>NOTE: Box is used to decrease fixed size of the entire enum.</p>
 <h2 id="receiveddata"><a class="header" href="#receiveddata">ReceivedData</a></h2>
 <p><code>type: Unnamed struct</code></p>
 <p>Record that contains information about received data for some action receipt, that is not yet received or processed for a given account ID.
 The data is received using <code>DataReceipt</code> before. See <a href="GenesisConfig/../RuntimeSpec/Receipts.html">Receipts</a> for details.</p>
-<h3 id="account_id-4"><a class="header" href="#account_id-4">account_id</a></h3>
+<h3 id="account_id-5"><a class="header" href="#account_id-5">account_id</a></h3>
 <p><code>type: AccountId</code></p>
 <p>The account ID of the receiver of the data.</p>
 <h3 id="data_id-1"><a class="header" href="#data_id-1">data_id</a></h3>
@@ -7040,10 +7041,9 @@ The data is received using <code>DataReceipt</code> before. See <a href="Genesis
 <p><code>type: Option&lt;Vec&lt;u8&gt;&gt;</code></p>
 <p>Optional data encoded as base64 format or null in JSON.</p>
 <h2 id="delayedreceipt"><a class="header" href="#delayedreceipt">DelayedReceipt</a></h2>
-<p><code>type: Box&lt;Receipt&gt;</code> <a href="GenesisConfig/../RuntimeSpec/Receipts.html">Receipt</a></p>
+<p><code>type: DelayedReceipt</code>, serialized as the receipt <a href="GenesisConfig/../RuntimeSpec/Receipts.html">Receipt</a></p>
 <p>Record that contains a receipt that was delayed on a shard. It means the shard was overwhelmed with receipts and it processes receipts from backlog.
 The receipt is in JSON-friendly format.  See <a href="GenesisConfig/../RuntimeSpec/Components/RuntimeCrate.html#delayed-receipts">Delayed Receipts</a> for details.</p>
-<p>NOTE: Box is used to decrease fixed size of the entire enum.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="runtimeconfig"><a class="header" href="#runtimeconfig">RuntimeConfig</a></h1>
 <p>The structure that holds the parameters of the runtime, mostly economics.
@@ -7083,7 +7083,14 @@ of actions.</p>
 <p>Describes how the storage that an account uses is counted for storage staking.</p>
 <h2 id="burnt_gas_reward"><a class="header" href="#burnt_gas_reward">burnt_gas_reward</a></h2>
 <p><code>type:</code> <a href="GenesisConfig/RuntimeFeeConfig/Fraction.html">Fraction</a></p>
-<p>Fraction of the burnt gas to reward to the contract account for execution.</p>
+<p>Fraction of the burnt gas to reward to the contract account for execution.
+It is <code>0</code> since protocol version 87.</p>
+<h2 id="pessimistic_gas_price_inflation_ratio"><a class="header" href="#pessimistic_gas_price_inflation_ratio">pessimistic_gas_price_inflation_ratio</a></h2>
+<p><code>type:</code> <a href="GenesisConfig/RuntimeFeeConfig/Fraction.html">Fraction</a></p>
+<p>Not used by the runtime. It is <code>1/1</code>.</p>
+<h2 id="ml_dsa_65_verification_cost"><a class="header" href="#ml_dsa_65_verification_cost">ml_dsa_65_verification_cost</a></h2>
+<p><code>type: Gas</code></p>
+<p>The extra gas to verify an ML-DSA-65 signature, above the cost of an ED25519 or SECP256K1 signature. The signer pays it as burnt gas when the transaction is converted to a receipt, once for the transaction signature and once for each <code>Delegate</code> action signed with ML-DSA-65. The value is <code>100_000_000_000</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="accesskeycreationconfig"><a class="header" href="#accesskeycreationconfig">AccessKeyCreationConfig</a></h1>
 <p>Describes the cost of creating an access key.</p>
@@ -7132,6 +7139,9 @@ Base cost of adding a key.</p>
 <h2 id="delete_account_cost"><a class="header" href="#delete_account_cost">delete_account_cost</a></h2>
 <p><code>type: Fee</code></p>
 <p>Base cost of deleting an account.</p>
+<h2 id="delegate_cost"><a class="header" href="#delegate_cost">delegate_cost</a></h2>
+<p><code>type: Fee</code></p>
+<p>Base cost of processing a delegate action. It is charged on top of the costs of the actions inside the delegate action.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="datareceiptcreationconfig"><a class="header" href="#datareceiptcreationconfig">DataReceiptCreationConfig</a></h1>
 <p>Describes the cost of creating a data receipt, <code>DataReceipt</code>.</p>
@@ -7168,7 +7178,7 @@ The value is 100.</p>
 Number of bytes counted for each key/value record, such as a contract data entry or an access key, in addition to the bytes of its key and value.
 The value is 40.</p>
 <p>The balance that an account must hold for each byte of storage is <code>storage_amount_per_byte</code> in <a href="GenesisConfig/RuntimeFeeConfig/../RuntimeConfig.html">RuntimeConfig</a>.
-It is not part of this struct.</p>
+It is not part of this config in the RPC view.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="overview-3"><a class="header" href="#overview-3">Overview</a></h1>
 <p>This document describes the high-level architecture of nearcore. The focus here

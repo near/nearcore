@@ -181,6 +181,11 @@ processing.</p>
 <li><code>WithdrawFromGasKey</code></li>
 </ul>
 <p>If they are not equal, the action fails with <code>ActorNoPermission</code>.</p>
+<p>All actions except <code>CreateAccount</code>, <code>Transfer</code>, <code>DeterministicStateInit</code> and <code>UniversalStateInit</code> fail with
+<code>AccountDoesNotExist</code> if the receiver account does not exist, and with <code>AccountNotInitialized</code> if the receiver is a
+universal account that was created by a <code>Transfer</code> and has no state yet.</p>
+<p>A receipt may contain at most <code>max_deploy_actions_per_receipt</code> (10) <code>DeployContract</code> and <code>DeployGlobalContract</code> actions
+in total. A new receipt with more fails validation with <code>TotalNumberOfDeployActionsExceeded</code>.</p>
 <p>NOTE: if the first action in the action list is <code>CreateAccount</code>, <code>predecessor_id</code> becomes <code>receiver_id</code>
 for the rest of the actions until <code>DeleteAccount</code>. This gives permission by another account to act on the newly created account.</p>
 <h2 id="createaccountaction"><a class="header" href="#createaccountaction">CreateAccountAction</a></h2>
@@ -202,10 +207,18 @@ refund. That <code>Transfer</code> may be batched with other actions.</li>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>creates an account with <code>id</code> = <code>receiver_id</code></li>
-<li>sets Account <code>storage_usage</code> to <code>account_cost</code> (genesis config)</li>
+<li>sets Account <code>storage_usage</code> to <code>num_bytes_account</code> (runtime config)</li>
 </ul>
 <h3 id="errors"><a class="header" href="#errors">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
+<ul>
+<li>If the account already exists, the following error will be returned</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>AccountAlreadyExists { account_id: AccountId },
+<span class="boring">}
+</span></code></pre></pre>
 <ul>
 <li>If <code>predecessor_id</code> is not <code>registrar_account_id</code> (currently <code>registrar</code>), and the action tries to create a top level
 account whose ID is shorter than <code>min_allowed_top_level_account_length</code> (currently 65), the following error will be
@@ -255,7 +268,7 @@ CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
 <h3 id="errors-1"><a class="header" href="#errors-1">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
-<li>if the length of <code>code</code> exceeds <code>max_contract_size</code>, which is a genesis parameter, the following error will be returned:</li>
+<li>if the length of <code>code</code> exceeds <code>max_contract_size</code>, which is a runtime config parameter, the following error will be returned:</li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -299,6 +312,9 @@ ContractSizeExceeded { size: u64, limit: u64 },
 <h3 id="errors-2"><a class="header" href="#errors-2">Errors</a></h3>
 <p><strong>Execution Error</strong>:</p>
 <ul>
+<li>If the receiver account does not exist and the <code>Transfer</code> can not create it, <code>AccountDoesNotExist</code> will be returned.
+A <code>Transfer</code> creates a missing NEAR-implicit, ETH-implicit or deterministic account only if it is the only action of
+a receipt that is not a refund, and a missing universal account only if the receipt is not a refund.</li>
 <li>If the deposit amount plus the existing amount on the receiver account exceeds <code>u128::MAX</code>,
 a <code>StorageInconsistentState(&quot;Account balance integer overflow&quot;)</code> error will be returned.</li>
 </ul>
@@ -380,6 +396,8 @@ value is 10.</p>
 <p><strong>Outcome</strong>:</p>
 <ul>
 <li>Adds a new <a href="/DataStructures/AccessKey.html">AccessKey</a> to the receiver's account and associates it with a <code>public_key</code> provided.</li>
+<li>For a regular key, the <code>nonce</code> field of the provided <code>AccessKey</code> is ignored. The nonce is set to <code>block_height * 1_000_000 - 1</code>
+(<code>(block_height - 1) * 1_000_000</code> before protocol version 89).</li>
 <li>If the permission is <code>GasKeyFullAccess</code> or <code>GasKeyFunctionCall</code>, the new key is a <a href="/DataStructures/AccessKey.html#gas-keys">gas key</a> with a balance of 0.
 The <code>nonce</code> field of the key is set to 0. The runtime also creates <code>num_nonces</code> nonce records for the key, each set to <code>block_height * 1_000_000 - 1</code> (<code>(block_height - 1) * 1_000_000</code> before protocol version 89).
 These records add to the storage usage of the account, see <a href="/DataStructures/AccessKey.html#gas-key-nonces">Gas Key Nonces</a>.</li>
@@ -397,7 +415,7 @@ InvalidAccountId { account_id: AccountId },
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the length of some method name exceed <code>max_length_method_name</code>, which is a genesis parameter (current value is 256),
+<li>If the length of some method name exceed <code>max_length_method_name</code>, which is a runtime config parameter (current value is 256),
 the following error will be returned </li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -407,7 +425,7 @@ AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the sum of length of method names (with 1 extra character for every method name) exceeds <code>max_number_bytes_method_names</code>, which is a genesis parameter (current value is 2000),
+<li>If the sum of length of method names (with 1 extra character for every method name) exceeds <code>max_number_bytes_method_names</code>, which is a runtime config parameter (current value is 2000),
 the following error will be returned</li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -534,6 +552,7 @@ InvalidAccountId { account_id: AccountId },
 DeleteActionMustBeFinal
 <span class="boring">}
 </span></code></pre></pre>
+<p><strong>Execution Error</strong>:</p>
 <ul>
 <li>If the account still has locked balance due to staking, the following error will be returned</li>
 </ul>
@@ -543,7 +562,6 @@ DeleteActionMustBeFinal
 DeleteAccountStaking { account_id: AccountId }
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Execution Error</strong>:</p>
 <ul>
 <li>If the storage usage of the account is more than 10,000 bytes, the following error is returned and nothing is deleted.
 The storage of the contract code or of the global contract reference does not count.
@@ -789,7 +807,7 @@ DelegateActionSenderDoesNotMatchTxReceiver
 <span class="boring">}
 </span></code></pre></pre>
 <ul>
-<li>If the current block is equal or greater than <code>max_block_height</code></li>
+<li>If the current block is greater than <code>max_block_height</code></li>
 </ul>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -833,6 +851,11 @@ DelegateActionInvalidNonce
 DelegateActionNonceTooLarge
 <span class="boring">}
 </span></code></pre></pre>
+<ul>
+<li>If the <code>public_key</code> is a function call access key, the inner actions must be exactly one <code>FunctionCall</code> with zero
+deposit, to the receiver and one of the methods that the key allows. Otherwise <code>DelegateActionAccessKeyError</code> is
+returned with <code>RequiresFullAccess</code>, <code>DepositWithFunctionCall</code>, <code>ReceiverMismatch</code> or <code>MethodNameMismatch</code>.</li>
+</ul>
 <h2 id="deployglobalcontractaction"><a class="header" href="#deployglobalcontractaction">DeployGlobalContractAction</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -883,6 +906,12 @@ cover the account's storage staking.</li>
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Outcome</strong>:</p>
+<ul>
+<li>removes the current contract code of the account, and its storage usage</li>
+<li>sets the account contract to the referenced global contract</li>
+<li>adds the length of the identifier to the account <code>storage_usage</code>: 32 bytes for a code hash, or the length of the
+account id</li>
+</ul>
 <h3 id="errors-11"><a class="header" href="#errors-11">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
 <ul>
@@ -906,18 +935,14 @@ take a while for it to propagate to all shards.)</li>
 </span></code></pre></pre>
 <p><strong>Outcome</strong>:</p>
 <ul>
-<li>if the account was already created before:
+<li>if the account does not exist, creates an account with deterministic account id</li>
+<li>if the account has no contract (it does not exist, or it was created by a transfer):
 <ul>
-<li>do nothing</li>
-</ul>
-</li>
-<li>if the account was not created before:
-<ul>
-<li>creates an account with deterministic account id</li>
 <li>sets the contract code to the specified global contract</li>
 <li>stores the initial data into the contract storage</li>
 </ul>
 </li>
+<li>uses as much of <code>deposit</code> as the account needs for storage staking, and refunds the rest</li>
 </ul>
 <h3 id="errors-12"><a class="header" href="#errors-12">Errors</a></h3>
 <p><strong>Validation Error</strong>:</p>
@@ -933,6 +958,7 @@ action count too. The runtime checks this when the receipt is created.</li>
 <ul>
 <li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
 take a while for it to propagate to all shards.)</li>
+<li><code>LackBalanceForState</code> if <code>deposit</code> does not cover the balance that the account lacks for storage staking</li>
 </ul>
 
                     </main>

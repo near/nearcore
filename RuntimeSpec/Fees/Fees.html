@@ -316,6 +316,9 @@ This is the length of the key as stored in the trie: 33 bytes for ED25519 and ML
 <li>the <code>execution</code> part of the fee per byte <code>action_gas_key_byte</code>, for the trie key and value of the gas key.
 To compute the number of bytes use <code>receiver_id.len() + action.public_key.trie_id_len() + 2 + AccessKey::min_gas_key_borsh_len()</code>.
 <code>AccessKey::min_gas_key_borsh_len()</code> is the Borsh length of the smallest gas key record.</li>
+<li>For an action that a contract creates, the host function uses the encoded key length (1953 bytes for ML-DSA-65)
+instead of <code>trie_id_len()</code> for the <code>send</code> part, and also for the <code>execution</code> part unless <code>fix_ml_dsa_cost_charging</code>
+is enabled.</li>
 </ul>
 </li>
 <li>
@@ -381,7 +384,9 @@ Unused gas and the price difference for burned gas are refunded, see <a href="..
 <li><code>ActionResult</code> with charged base execution fees is created there;</li>
 <li>if action execution creates new <code>ActionReceipt</code>s, their fees are added to the <code>ActionResult</code>. For example, when a function call creates a promise, it pays:
 <ul>
-<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions</li>
+<li><code>gas_burnt</code>: the <strong>send</strong> fees for the new <code>ActionReceipt</code> and its actions, plus the base <strong>send</strong> and <strong>exec</strong>
+fees of one <code>DataReceipt</code> for each promise that the new <code>ActionReceipt</code> waits on. The per-byte <code>DataReceipt</code>
+fees are burnt later, by the <code>value_return</code> call of the function that produces the data</li>
 <li><code>gas_used</code>: <code>gas_burnt</code> + the <strong>exec</strong> fees for the new <code>ActionReceipt</code> and its actions + the gas attached to the function calls in the new <code>ActionReceipt</code></li>
 </ul>
 </li>

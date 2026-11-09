@@ -144,7 +144,8 @@
 <h1 id="extcostsconfig"><a class="header" href="#extcostsconfig">ExtCostsConfig</a></h1>
 <h2 id="base"><a class="header" href="#base">base</a></h2>
 <p><code>type: Gas</code></p>
-<p>Base cost for calling a host function.</p>
+<p>Base cost for calling a host function. Not all host functions charge it; for example, the hash and signature
+verification functions charge only their own base costs.</p>
 <h2 id="read_memory_base"><a class="header" href="#read_memory_base">read_memory_base</a></h2>
 <p><code>type: Gas</code></p>
 <p>Base cost for guest memory read</p>
@@ -244,28 +245,28 @@
 <p>Storage trie check for key existence per key byte</p>
 <h3 id="storage_iter_create_prefix_base"><a class="header" href="#storage_iter_create_prefix_base">storage_iter_create_prefix_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie prefix iterator cost base</p>
+<p>Create trie prefix iterator cost base. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_prefix_byte"><a class="header" href="#storage_iter_create_prefix_byte">storage_iter_create_prefix_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie prefix iterator cost per byte.</p>
+<p>Create trie prefix iterator cost per byte. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_range_base"><a class="header" href="#storage_iter_create_range_base">storage_iter_create_range_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost base</p>
+<p>Create trie range iterator cost base. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_from_byte"><a class="header" href="#storage_iter_create_from_byte">storage_iter_create_from_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost per byte of from key.</p>
+<p>Create trie range iterator cost per byte of from key. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_create_to_byte"><a class="header" href="#storage_iter_create_to_byte">storage_iter_create_to_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Create trie range iterator cost per byte of to key.</p>
+<p>Create trie range iterator cost per byte of to key. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_base"><a class="header" href="#storage_iter_next_base">storage_iter_next_base</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator per key base cost</p>
+<p>Trie iterator per key base cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_key_byte"><a class="header" href="#storage_iter_next_key_byte">storage_iter_next_key_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator next key byte cost</p>
+<p>Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="storage_iter_next_value_byte"><a class="header" href="#storage_iter_next_value_byte">storage_iter_next_value_byte</a></h3>
 <p><code>type: Gas</code></p>
-<p>Trie iterator next key byte cost</p>
+<p>Trie iterator next key byte cost. Not charged: the storage iterator host functions are deprecated.</p>
 <h3 id="touching_trie_node"><a class="header" href="#touching_trie_node">touching_trie_node</a></h3>
 <p><code>type: Gas</code></p>
 <p>Cost per touched trie node</p>
@@ -275,7 +276,7 @@
 <p>Cost for calling promise_and</p>
 <h3 id="promise_and_per_promise"><a class="header" href="#promise_and_per_promise">promise_and_per_promise</a></h3>
 <p><code>type: Gas</code></p>
-<p>Cost for calling promise_and for each promise</p>
+<p>Cost for calling promise_and for each byte of the promise index array (8 bytes per promise)</p>
 <h3 id="promise_return"><a class="header" href="#promise_return">promise_return</a></h3>
 <p><code>type: Gas</code></p>
 <p>Cost for calling promise_return</p>

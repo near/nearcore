@@ -142,7 +142,7 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="account-receipt-storage"><a class="header" href="#account-receipt-storage">Account Receipt Storage</a></h1>
-<p>There is a definition of all the keys and values we store in the Account Storage</p>
+<p>These are the keys and values that the runtime stores for receipts of an account</p>
 <h2 id="received-data"><a class="header" href="#received-data">Received data</a></h2>
 <p><em>key = <code>receiver_id: String</code>,<code>data_id: CryptoHash</code></em>
 <em>value = <code>Option&lt;Vec&lt;u8&gt;&gt;</code></em></p>
@@ -152,6 +152,28 @@
 <p><em>key = <code>receiver_id</code>,<code>data_id</code></em>
 <em>value = <code>receipt_id</code></em></p>
 <p>Runtime saves incoming <a href="Receipts.html#actionreceipt">ActionReceipt</a> until all required <code>DataReceipt</code> items for the same <code>receiver_id</code> have been received and matched, so that the postponed <code>receipt_id</code> receipt can be executed once its data dependencies are fully satisfied. See the <a href="Receipts.html#case-1-call-to-multiple-contracts-and-await-responses">Receipt Case</a> for more details.</p>
+<p>The postponed receipt itself is stored under</p>
+<p><em>key = <code>receiver_id</code>,<code>receipt_id</code></em>
+<em>value = <code>Receipt</code></em></p>
+<h2 id="pending-data-count"><a class="header" href="#pending-data-count">Pending data count</a></h2>
+<p><em>key = <code>receiver_id</code>,<code>receipt_id</code></em>
+<em>value = <code>u32</code></em></p>
+<p>The number of input data items that the postponed receipt <code>receipt_id</code> still waits for. When it reaches zero, the
+runtime executes the receipt and removes it.</p>
+<h2 id="yielded-receipts"><a class="header" href="#yielded-receipts">Yielded receipts</a></h2>
+<p>A receipt created by <code>promise_yield_create</code> waits for data from <code>promise_yield_resume</code> or for a timeout. The runtime
+stores:</p>
+<ul>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>Receipt</code></em>: the yielded receipt.</li>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>PromiseYieldStatus</code></em>: <code>Yielded</code>, or <code>ResumeInitiated</code> after the first
+<code>promise_yield_resume</code>.</li>
+</ul>
+<p>For a receipt created by <code>promise_yield_create_with_id</code>, the runtime also stores the mapping between the yield id that
+the contract chose and the <code>data_id</code>:</p>
+<ul>
+<li><em>key = <code>receiver_id</code>,<code>yield_id</code></em>, <em>value = <code>data_id</code></em></li>
+<li><em>key = <code>receiver_id</code>,<code>data_id</code></em>, <em>value = <code>yield_id</code></em></li>
+</ul>
 
                     </main>
 

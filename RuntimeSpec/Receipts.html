@@ -246,7 +246,7 @@ Refund receipts have a gas price of 0.</p>
 <p><code>input_data_ids</code> are the receipt data dependencies. <code>input_data_ids</code> correspond to <code>DataReceipt.data_id</code>.</p>
 <h4 id="actions"><a class="header" href="#actions">actions</a></h4>
 <ul>
-<li><strong><code>type</code></strong>: <a href="Actions.html#functioncallaction"><code>FunctionCall</code></a> | <a href="Actions.html#transferaction"><code>TransferAction</code></a> | <a href="Actions.html#stakeaction"><code>StakeAction</code></a> | <a href="Actions.html#addkeyaction"><code>AddKeyAction</code></a> | <a href="Actions.html#deletekeyaction"><code>DeleteKeyAction</code></a> | <a href="Actions.html#createaccountaction"><code>CreateAccountAction</code></a> | <a href="Actions.html#deleteaccountaction"><code>DeleteAccountAction</code></a></li>
+<li><strong><code>type</code></strong>: <code>Vec&lt;Action&gt;</code>. See <a href="Actions.html">Actions</a> for the action kinds.</li>
 </ul>
 <h2 id="datareceipt"><a class="header" href="#datareceipt">DataReceipt</a></h2>
 <p><code>DataReceipt</code> represents a final result of some contract execution.</p>
@@ -347,13 +347,9 @@ Receipt {
     }
 }
 </code></pre>
-<pre><code class="language-python">data_receipts[&quot;alice,e5fa44&quot;] = borsh_serialize(Receipt{
-    receiver_id: &quot;alice&quot;,
-    receipt: DataReceipt {
-        data_id: &quot;e5fa44&quot;,
-        data: &quot;some data for alice&quot;,
-    }
-};
+<pre><code class="language-python">data_receipts[&quot;alice,e5fa44&quot;] = borsh_serialize(ReceivedData{
+    data: &quot;some data for alice&quot;,
+});
 pending_data_receipt_count[&quot;alice,5e73d4&quot;] = 1`
 del pending_data_receipt_store[&quot;alice,e5fa44&quot;]
 </code></pre>
@@ -367,14 +363,10 @@ Receipt{
     }
 }
 </code></pre>
-<pre><code class="language-python">data_receipts[&quot;alice,7448d8&quot;] = borsh_serialize(Receipt{
-    receiver_id: &quot;alice&quot;,
-    receipt: DataReceipt {
-        data_id: &quot;7448d8&quot;,
-        data: &quot;some more data for alice&quot;,
-    }
-};
-postponed_receipt_id = pending_data_receipt_store[&quot;alice,5e73d4&quot;]
+<pre><code class="language-python">data_receipts[&quot;alice,7448d8&quot;] = borsh_serialize(ReceivedData{
+    data: &quot;some more data for alice&quot;,
+});
+postponed_receipt_id = pending_data_receipt_store[&quot;alice,7448d8&quot;]
 postponed_receipt = postponed_receipts[postponed_receipt_id]
 del postponed_receipts[postponed_receipt_id]
 del pending_data_receipt_count[&quot;alice,5e73d4&quot;]
@@ -396,7 +388,17 @@ mainly two types of errors:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// The `receiver_id` of a Receipt is not valid.
-InvalidReceiverId { account_id: AccountId },
+InvalidReceiverId { account_id: String },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+<ul>
+<li>refund receiver is invalid. If the <code>refund_to</code> of the receipt is set and is not a valid account id, a</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The `refund_to` of an ActionReceipt is not valid.
+InvalidRefundTo { account_id: String },
 <span class="boring">}
 </span></code></pre></pre>
 <p>error is returned.</p>

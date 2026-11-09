@@ -153,25 +153,22 @@ of the runtime, and describing the functions that the runtime performs.</p>
 <h2 id="components"><a class="header" href="#components">Components</a></h2>
 <p>The components of the runtime can be described through the crates:</p>
 <ul>
-<li><code>near-vm-logic</code> -- describes the interface that smart contract uses to interact with the blockchain.
+<li>the <code>logic</code> module of <code>near-vm-runner</code> -- describes the interface that smart contract uses to interact with the blockchain.
 Encapsulates the behavior of the blockchain visible to the smart contract, e.g. fee rules, storage access rules, promise rules;</li>
-<li><code>near-vm-runner</code> crate -- a wrapper around Wasmer that does the actual execution of the smart contract code. It exposes the
-interface provided by <code>near-vm-logic</code> to the smart contract;</li>
-<li><code>runtime</code> crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
+<li><code>near-vm-runner</code> crate -- a wrapper around Wasmtime that does the actual execution of the smart contract code. It exposes the
+interface provided by its <code>logic</code> module to the smart contract;</li>
+<li><code>near-runtime</code> crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
 a smart contract call within a transaction or a receipt it calls <code>near-vm-runner</code>, for all other actions, like account
 creation, it processes them in-place.</li>
 </ul>
 <p>The utility crates are:</p>
 <ul>
-<li><code>near-runtime-fees</code> -- a convenience crate that encapsulates configuration of fees. We might get rid ot it later;</li>
-<li><code>near-vm-errors</code> -- contains the hierarchy of errors that can be occurred during transaction or receipt processing;</li>
-<li><code>near-vm-runner-standalone</code> -- a runnable tool that allows running the runtime without the blockchain, e.g. for
-integration testing of L2 projects;</li>
+<li><code>near-parameters</code> -- encapsulates the configuration of fees and limits;</li>
 <li><code>runtime-params-estimator</code> -- benchmarks the runtime and generates the config with the fees.</li>
 </ul>
 <p>Separately, from the components we describe <a href="Components/BindingsSpec/BindingsSpec.html">the Bindings Specification</a> which is an
 important part of the runtime that specifies the functions that the smart contract can call from its host -- the runtime.
-The specification is defined in <code>near-vm-logic</code>, but it is exposed to the smart contract in <code>near-vm-runner</code>.</p>
+The specification is defined in the <code>logic</code> module of <code>near-vm-runner</code>, and it is exposed to the smart contract in <code>near-vm-runner</code>.</p>
 <h2 id="functions"><a class="header" href="#functions">Functions</a></h2>
 <ul>
 <li>Receipt consumption and production</li>

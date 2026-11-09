@@ -162,7 +162,7 @@ She then composes the following transaction that calls the <code>travel_agency</
             method_name: &quot;reserve_trip&quot;,
             args: &quot;{\&quot;city\&quot;: \&quot;Venice\&quot;, \&quot;date\&quot;: 20191201}&quot;,
             gas: 1000000,
-            tokens: 100,
+            deposit: 100,
         })
     ],
 }
@@ -174,8 +174,8 @@ the contract should be called. The <code>receiver_id</code> field in <code>Trans
 it is up to the contract developer what serialization format they choose for their arguments. In this example, the contract
 developer has chosen to use JSON and so the tool that Alice uses to compose this transaction is expected to use JSON too
 to pass the arguments. <code>gas</code> declares how much gas <code>alice_near</code> has prepaid for dynamically calculated fees of the smart
-contract executions and other actions that this transaction may spawn. The <code>tokens</code> is the amount of <code>alice_near</code> attaches
-to be deposited to whatever smart contract that it is calling to. Notice, <code>gas</code> and <code>tokens</code> are in different units of
+contract executions and other actions that this transaction may spawn. The <code>deposit</code> is the amount that <code>alice_near</code> attaches
+to be deposited to whatever smart contract that it is calling to. Notice, <code>gas</code> and <code>deposit</code> are in different units of
 measurement.</p>
 <p>Now, consider a slightly more complex scenario. In this scenario Alice uses a restricted access key to call the function.
 That is the permission of the access key is not <code>AccessKeyPermission::FullAccess</code> but is instead: <code>AccessKeyPermission::FunctionCall(FunctionCallPermission)</code>
@@ -191,7 +191,7 @@ creating an access key that can be used strictly for trip management.
 This access key allows up to 0.25 NEAR (<code>250000000000000000000000</code> yoctoNEAR) to be spent on gas. It cannot be used to
 transfer tokens or to attach a deposit. It can be only used to call <code>travel_agency</code> and it can be only used with the
 <code>reserve_trip</code> and <code>cancel_trip</code> methods. A transaction signed with this key must have exactly one <code>FunctionCall</code> action
-with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>tokens: 100</code>), so with this key it would be rejected
+with zero deposit. The transaction above attaches 100 yoctoNEAR (<code>deposit: 100</code>), so with this key it would be rejected
 with <code>DepositWithFunctionCall</code>.
 The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
 that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
@@ -226,15 +226,14 @@ call the storage API. Specifically <code>&quot;{\&quot;city\&quot;: \&quot;Venic
 <li>Calls <code>near_vm_runner::run</code> which does the following:
 <ul>
 <li>Inject gas, stack, and other kinds of metering;</li>
-<li>Verify that Wasm code does not use floats;</li>
-<li>Checks that bindings API functions that the smart contract is trying to call are actually those provided by <code>near_vm_logic</code>;</li>
+<li>Checks that bindings API functions that the smart contract is trying to call are actually those provided by the <code>logic</code> module of <code>near-vm-runner</code>;</li>
 <li>Compiles Wasm code into the native binary;</li>
 <li>Calls <code>reserve_trip</code> on the smart contract.
 <ul>
 <li>During the execution of the smart contract it will at some point call <code>promise_create</code> and <code>promise_then</code>, which will
 call method on <code>RuntimeExt</code> that will record that two promises were created and that the second one should
-wait on the first one. Specifically, <code>promise_create</code> will call <code>RuntimeExt::create_receipt(vec![], &quot;hotel_near&quot;)</code>
-returning <code>0</code> and then <code>RuntimeExt::create_receipt(vec![0], &quot;travel_agency&quot;)</code>;</li>
+wait on the first one. Specifically, <code>promise_create</code> will call <code>RuntimeExt::create_action_receipt(vec![], &quot;hotel_near&quot;)</code>
+returning <code>0</code> and then <code>RuntimeExt::create_action_receipt(vec![0], &quot;travel_agency&quot;)</code>;</li>
 </ul>
 </li>
 </ul>

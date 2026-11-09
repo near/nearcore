@@ -173,13 +173,8 @@ execution of the contract stops. For mocks of the host that would only cause a n
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 <li>If the value is longer than <code>max_length_storage_value</code> (4,194,304 bytes) it panics with <code>ValueLengthExceeded</code>;</li>
 <li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
-</ul>
-<h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
-<ul>
-<li><code>External::storage_set</code> trait can return an error which is then converted to a generic non-descriptive
-<code>StorageUpdateError</code>, <a href="https://github.com/nearprotocol/nearcore/blob/942bd7bdbba5fb3403e5c2f1ee3c08963947d0c6/runtime/wasm/src/runtime.rs#L210">here</a>
-however the actual implementation does not return error at all, <a href="https://github.com/nearprotocol/nearcore/blob/4773873b3cd680936bf206cebd56bdc3701ddca9/runtime/runtime/src/ext.rs#L95">see</a>;</li>
-<li>Does not return into the registers.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_read"><a class="header" href="#storage_read">storage_read</a></h4>
@@ -205,10 +200,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
-</ul>
-<h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
-<ul>
-<li>This function currently does not exist.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_remove"><a class="header" href="#storage_remove">storage_remove</a></h4>
@@ -237,10 +230,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
 <li>If called in a view call it panics with <code>ProhibitedInView</code>;</li>
-</ul>
-<h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
-<ul>
-<li>Does not return into the registers.</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_has_key"><a class="header" href="#storage_has_key">storage_has_key</a></h4>
@@ -260,6 +251,8 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If <code>key_len</code> is <code>u64::MAX</code> and <code>key_ptr</code> is an unused register it panics with <code>InvalidRegisterId</code>;</li>
 <li>If the key is longer than <code>max_length_storage_key</code> (2,048 bytes) it panics with <code>KeyLengthExceeded</code>;</li>
+<li>If the storage proof recorded for this receipt exceeds <code>per_receipt_storage_proof_size_limit</code> it panics with
+<code>RecordedStorageExceeded</code>;</li>
 </ul>
 <hr />
 <h4 id="storage_iter_prefix"><a class="header" href="#storage_iter_prefix">storage_iter_prefix</a></h4>
@@ -268,19 +261,7 @@ however the actual implementation does not return error at all, <a href="https:/
 </span>storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Creates an iterator object inside the host.
-Returns the identifier that uniquely differentiates the given iterator from other iterators that can be simultaneously
-created.</p>
-<h6 id="normal-operation-4"><a class="header" href="#normal-operation-4">Normal operation</a></h6>
-<ul>
-<li>It iterates over the keys that have the provided prefix. The order of iteration is defined by the lexicographic
-order of the bytes in the keys. If there are no keys, it creates an empty iterator, see below on empty iterators;</li>
-</ul>
-<h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
-<ul>
-<li>If <code>prefix_len + prefix_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 <hr />
 <h4 id="storage_iter_range"><a class="header" href="#storage_iter_range">storage_iter_range</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -288,17 +269,7 @@ order of the bytes in the keys. If there are no keys, it creates an empty iterat
 </span>storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Similarly to <code>storage_iter_prefix</code>
-creates an iterator object inside the host.</p>
-<h6 id="normal-operation-5"><a class="header" href="#normal-operation-5">Normal operation</a></h6>
-<p>Unless lexicographically <code>start &lt; end</code>, it creates an empty iterator.
-Iterates over all key-values such that keys are between <code>start</code> and <code>end</code>, where <code>start</code> is inclusive and <code>end</code> is exclusive.</p>
-<p>Note, this definition allows for <code>start</code> or <code>end</code> keys to not actually exist on the given trie.</p>
-<h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
-<ul>
-<li>If <code>start_len + start_ptr</code> or <code>end_len + end_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 <hr />
 <h4 id="storage_iter_next"><a class="header" href="#storage_iter_next">storage_iter_next</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -306,27 +277,7 @@ Iterates over all key-values such that keys are between <code>start</code> and <
 </span>storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
-Advances iterator and saves the next key and value in the register.</p>
-<h6 id="normal-operation-6"><a class="header" href="#normal-operation-6">Normal operation</a></h6>
-<ul>
-<li>If iterator is not empty (after calling next it points to a key-value), copies the key into <code>key_register_id</code> and value into <code>value_register_id</code> and returns <code>1</code>;</li>
-<li>If iterator is empty returns <code>0</code>.</li>
-</ul>
-<p>This allows us to iterate over the keys that have zero bytes stored in values.</p>
-<h6 id="panics-6"><a class="header" href="#panics-6">Panics</a></h6>
-<ul>
-<li>If <code>key_register_id == value_register_id</code> panics with <code>MemoryAccessViolation</code>;</li>
-<li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-<li>If <code>iterator_id</code> does not correspond to an existing iterator panics with <code>InvalidIteratorId</code></li>
-<li>If between the creation of the iterator and calling <code>storage_iter_next</code> any modification to storage was done through
-<code>storage_write</code> or <code>storage_remove</code> the iterator is invalidated and the error message is <code>IteratorWasInvalidated</code>.</li>
-</ul>
-<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
-<ul>
-<li>Not implemented, currently we have <code>storage_iter_next</code> and <code>data_read</code> + <code>DATA_TYPE_STORAGE_ITER</code> that together fulfill
-the purpose, but have unspecified behavior.</li>
-</ul>
+<p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error. It charges no gas.</p>
 
                     </main>
 

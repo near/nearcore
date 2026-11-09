@@ -158,7 +158,14 @@ of actions.</p>
 <p>Describes how the storage that an account uses is counted for storage staking.</p>
 <h2 id="burnt_gas_reward"><a class="header" href="#burnt_gas_reward">burnt_gas_reward</a></h2>
 <p><code>type:</code> <a href="RuntimeFeeConfig/Fraction.html">Fraction</a></p>
-<p>Fraction of the burnt gas to reward to the contract account for execution.</p>
+<p>Fraction of the burnt gas to reward to the contract account for execution.
+It is <code>0</code> since protocol version 87.</p>
+<h2 id="pessimistic_gas_price_inflation_ratio"><a class="header" href="#pessimistic_gas_price_inflation_ratio">pessimistic_gas_price_inflation_ratio</a></h2>
+<p><code>type:</code> <a href="RuntimeFeeConfig/Fraction.html">Fraction</a></p>
+<p>Not used by the runtime. It is <code>1/1</code>.</p>
+<h2 id="ml_dsa_65_verification_cost"><a class="header" href="#ml_dsa_65_verification_cost">ml_dsa_65_verification_cost</a></h2>
+<p><code>type: Gas</code></p>
+<p>The extra gas to verify an ML-DSA-65 signature, above the cost of an ED25519 or SECP256K1 signature. The signer pays it as burnt gas when the transaction is converted to a receipt, once for the transaction signature and once for each <code>Delegate</code> action signed with ML-DSA-65. The value is <code>100_000_000_000</code>.</p>
 
                     </main>
 

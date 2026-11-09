@@ -206,11 +206,10 @@ handling, are rejected;</li>
 <li><code>1_024</code> types (signatures), set by the <code>max_types_per_contract</code> runtime parameter from protocol
 version 84;</li>
 <li><code>1_000_000</code> function imports and local function definitions;</li>
-<li><code>100_000</code> imports;</li>
-<li><code>100_000</code> exports;</li>
+<li><code>1_000_000</code> imports;</li>
+<li><code>1_000_000</code> exports;</li>
 <li><code>1_000_000</code> global imports and module-local global definitions;</li>
 <li><code>100_000</code> data segments;</li>
-<li><code>1</code> table;</li>
 <li><code>1</code> memory;</li>
 </ul>
 </li>
@@ -222,6 +221,7 @@ bytes each;</li>
 <li>All imports must be function imports from the <code>env</code> module. A module that imports a table, a
 global or a memory is rejected. The runtime provides the contract memory itself, as described in
 <a href="#memory-normalization">Memory normalization</a>;</li>
+<li>The wasm module may contain no more than <code>max_tables_per_contract</code> (<code>1</code>) tables;</li>
 <li>Tables may not specify an initial size of more than <code>10_000</code> entries (the
 <code>max_elements_per_contract_table</code> runtime parameter, from protocol version 82);</li>
 <li>The wasm module may contain no more function imports and local function definitions than the
@@ -289,8 +289,11 @@ construction and are accounted for much like other instructions not mentioned in
 also means that calling the <code>used_gas</code> host function at different points of the same metered block
 would return the same value if the <code>base</code> cost was <code>0</code>.</p>
 <p>All the instructions covered by a metered block are assigned a fee based on the <code>regular_op_cost</code>
-runtime parameter. Pseudo-instructions do not cause any fee to be charged. A sum of these fees is
-then charged by instrumentation inserted at the beginning of each metered block.</p>
+runtime parameter. The <code>block</code>, <code>else</code> and <code>end</code> instructions do not cause any fee to be charged. A
+sum of these fees is then charged by instrumentation inserted at the beginning of each metered block.</p>
+<p>The <code>memory.grow</code>, <code>memory.init</code>, <code>memory.copy</code>, <code>memory.fill</code>, <code>table.grow</code>, <code>table.init</code>,
+<code>table.copy</code> and <code>table.fill</code> instructions are not part of this sum. Each of them is charged just
+before it runs: <code>linear_op_base_cost</code> plus <code>linear_op_unit_cost</code> for each unit of its count operand.</p>
 <h3 id="examples"><a class="header" href="#examples">Examples</a></h3>
 <p><strong>This section is not normative.</strong></p>
 <p>In this section some examples of the instrumentation are presented as an understanding aid to the
@@ -299,7 +302,7 @@ a specific point of the program. The programs presented here are not intended to
 to produce meaningful behavior.</p>
 <h4 id="block-instruction-does-not-terminate-a-metered-block"><a class="header" href="#block-instruction-does-not-terminate-a-metered-block"><code>block</code> instruction does not terminate a metered block</a></h4>
 <pre><code class="language-wat">(func
-  (; charge_gas(6 regular_op_cost) ;)
+  (; charge_gas(5 regular_op_cost) ;)
   nop
   block
     nop
@@ -309,8 +312,8 @@ to produce meaningful behavior.</p>
   nop)
 </code></pre>
 <p>This function has just 1 metered block, covering both the <code>block..end</code> block as well as the 2 <code>nop</code>
-instructions outside of it. As a result the gas fee for all 6 instructions will be charged at the
-beginning of the function (even if we can see <code>unreachable</code> would be executed after 4 instructions,
+instructions outside of it. As a result the gas fee for all 6 instructions (5 <code>regular_op_cost</code>, as <code>block</code> is free) will
+be charged at the beginning of the function (even if we can see <code>unreachable</code> would be executed after 4 instructions,
 terminating the execution).</p>
 <h4 id="branching-instructions-pop-a-metered-block"><a class="header" href="#branching-instructions-pop-a-metered-block">Branching instructions pop a metered block</a></h4>
 <p>Introducing a conditional branch to the example from the previous section would split the metered

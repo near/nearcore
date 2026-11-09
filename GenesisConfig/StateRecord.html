@@ -182,21 +182,37 @@
 <p><code>type: AccountId</code></p>
 <p>The account ID of the access key owner.</p>
 <h3 id="public_key"><a class="header" href="#public_key">public_key</a></h3>
-<p><code>type: PublicKey</code></p>
-<p>The public key for the access key in JSON-friendly string format. E.g. <code>ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT</code></p>
+<p><code>type: PublicKeyHandle</code></p>
+<p>The public key for the access key in JSON-friendly string format. E.g. <code>ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT</code>.
+An ML-DSA-65 key is stored as a hash of the key (SHA3-256 with a domain tag): <code>ml-dsa-65-hash:</code> followed by the hash in base58.</p>
 <h3 id="access_key"><a class="header" href="#access_key">access_key</a></h3>
 <p><code>type:</code> <a href="../DataStructures/AccessKey.html">AccessKey</a></p>
 <p>The access key serialized in JSON format.</p>
+<h2 id="gaskeynonce"><a class="header" href="#gaskeynonce">GasKeyNonce</a></h2>
+<p><code>type: Unnamed struct</code></p>
+<p>Record that contains the nonce of one nonce index of a gas key. See <a href="../DataStructures/AccessKey.html#gas-key-nonces">Gas Key Nonces</a>.</p>
+<h3 id="account_id-4"><a class="header" href="#account_id-4">account_id</a></h3>
+<p><code>type: AccountId</code></p>
+<p>The account ID of the gas key owner.</p>
+<h3 id="public_key-1"><a class="header" href="#public_key-1">public_key</a></h3>
+<p><code>type: PublicKeyHandle</code></p>
+<p>The public key of the gas key, in the same format as for <a href="#accesskey">AccessKey</a>.</p>
+<h3 id="index"><a class="header" href="#index">index</a></h3>
+<p><code>type: u16</code></p>
+<p>The nonce index.</p>
+<h3 id="nonce"><a class="header" href="#nonce">nonce</a></h3>
+<p><code>type: u64</code></p>
+<p>The nonce for this nonce index.</p>
 <h2 id="postponedreceipt"><a class="header" href="#postponedreceipt">PostponedReceipt</a></h2>
 <p><code>type: Box&lt;Receipt&gt;</code> <a href="../RuntimeSpec/Receipts.html">Receipt</a></p>
 <p>Record that contains a receipt that was postponed on a shard (e.g. it's waiting for incoming data).
-The receipt is in JSON-friendly format. The receipt can only be an <code>ActionReceipt</code>.</p>
+The receipt is in JSON-friendly format. The receipt can only be an action receipt (<code>Action</code> or <code>ActionV2</code>).</p>
 <p>NOTE: Box is used to decrease fixed size of the entire enum.</p>
 <h2 id="receiveddata"><a class="header" href="#receiveddata">ReceivedData</a></h2>
 <p><code>type: Unnamed struct</code></p>
 <p>Record that contains information about received data for some action receipt, that is not yet received or processed for a given account ID.
 The data is received using <code>DataReceipt</code> before. See <a href="../RuntimeSpec/Receipts.html">Receipts</a> for details.</p>
-<h3 id="account_id-4"><a class="header" href="#account_id-4">account_id</a></h3>
+<h3 id="account_id-5"><a class="header" href="#account_id-5">account_id</a></h3>
 <p><code>type: AccountId</code></p>
 <p>The account ID of the receiver of the data.</p>
 <h3 id="data_id"><a class="header" href="#data_id">data_id</a></h3>
@@ -206,10 +222,9 @@ The data is received using <code>DataReceipt</code> before. See <a href="../Runt
 <p><code>type: Option&lt;Vec&lt;u8&gt;&gt;</code></p>
 <p>Optional data encoded as base64 format or null in JSON.</p>
 <h2 id="delayedreceipt"><a class="header" href="#delayedreceipt">DelayedReceipt</a></h2>
-<p><code>type: Box&lt;Receipt&gt;</code> <a href="../RuntimeSpec/Receipts.html">Receipt</a></p>
+<p><code>type: DelayedReceipt</code>, serialized as the receipt <a href="../RuntimeSpec/Receipts.html">Receipt</a></p>
 <p>Record that contains a receipt that was delayed on a shard. It means the shard was overwhelmed with receipts and it processes receipts from backlog.
 The receipt is in JSON-friendly format.  See <a href="../RuntimeSpec/Components/RuntimeCrate.html#delayed-receipts">Delayed Receipts</a> for details.</p>
-<p>NOTE: Box is used to decrease fixed size of the entire enum.</p>
 
                     </main>
 

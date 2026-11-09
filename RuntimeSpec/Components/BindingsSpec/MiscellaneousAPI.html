@@ -150,8 +150,11 @@
 <p>Sets the blob of data as the return value of the contract.</p>
 <h6 id="panics"><a class="header" href="#panics">Panics</a></h6>
 <ul>
-<li>If <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>value_len + value_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>value_len == u64::MAX</code> and <code>value_ptr</code> points to an unused register it panics with <code>InvalidRegisterId</code>;</li>
+<li>If the value is longer than <code>max_length_returned_data</code> (4 MiB) it panics with <code>ReturnedValueLengthExceeded</code>.</li>
 </ul>
+<p>If <code>value_return</code> or <code>promise_return</code> is called more than once, the last call sets the return value.</p>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -201,13 +204,17 @@ larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>Tota
 </span>log_utf16(len: u64, ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
-<p>Logs the UTF-16 encoded string. <code>len</code> is the number of bytes in the string.
+<p>Logs the UTF-16 little-endian encoded string. <code>len</code> is the number of bytes in the string.
 See https://stackoverflow.com/a/5923961 that explains that null termination is not defined through encoding.</p>
 <h6 id="normal-behavior-2"><a class="header" href="#normal-behavior-2">Normal behavior</a></h6>
 <p>If <code>len == u64::MAX</code> then treats the string as null-terminated with two-byte sequence of <code>0x00 0x00</code>.</p>
 <h6 id="panics-3"><a class="header" href="#panics-3">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
+<li>If <code>len</code> is odd and not <code>u64::MAX</code>, or the string is not UTF-16, returns <code>BadUTF16</code>;</li>
+<li>If the UTF-16 length of the string, or the UTF-8 length of the decoded string, plus the bytes already logged in
+this function call is larger than <code>max_total_log_length</code> (16,384 bytes), returns <code>TotalLogLengthExceeded</code>;</li>
+<li>If this function call already has <code>max_number_logs</code> (100) logs, returns <code>NumberOfLogsExceeded</code>.</li>
 </ul>
 <hr />
 <h4 id="abort"><a class="header" href="#abort">abort</a></h4>

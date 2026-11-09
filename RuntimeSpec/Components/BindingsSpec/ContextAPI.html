@@ -145,18 +145,6 @@
 <p>Context API mostly provides read-only functions that access current information about the blockchain, the accounts
 (that originally initiated the chain of cross-contract calls, the immediate contract that called the current one, the account of the current contract),
 other important information like storage usage.</p>
-<p>Many of the below functions are currently implemented through <code>data_read</code> which allows to read generic context data.
-However, there is no reason to have <code>data_read</code> instead of the specific functions:</p>
-<ul>
-<li><code>data_read</code> does not solve forward compatibility. If later we want to add another context function, e.g. <code>executed_operations</code>
-we can just declare it as a new function, instead of encoding it as <code>DATA_TYPE_EXECUTED_OPERATIONS = 42</code> which is passed
-as the first argument to <code>data_read</code>;</li>
-<li><code>data_read</code> does not help with renaming. If later we decide to rename <code>signer_account_id</code> to <code>originator_id</code> then one could
-argue that contracts that rely on <code>data_read</code> would not break, while contracts relying on <code>signer_account_id()</code> would. However
-the name change often means the change of the semantics, which means the contracts using this function are no longer safe to
-execute anyway.</li>
-</ul>
-<p>However there is one reason to not have <code>data_read</code> -- it makes <code>API</code> more human-like which is a general direction Wasm APIs, like WASI are moving towards to.</p>
 <p>Some of the functions below behave differently depending on how the contract execution was initiated:</p>
 <ul>
 <li>
@@ -197,7 +185,8 @@ the chunk is applied. An external call can't read the random seed (see <a href="
 <span class="boring">}
 </span></code></pre></pre>
 <p>All contract calls are a result of some transaction that was signed by some account using
-some access key and submitted into a memory pool (either through the wallet using RPC or by a node itself). This function returns the id of that account.</p>
+some access key and submitted into a memory pool (either through the wallet using RPC or by a node itself). This function returns the id of that account.
+For a receipt created from a delegate action (meta transaction), this is the relayer that signed the outer transaction.</p>
 <h6 id="normal-operation"><a class="header" href="#normal-operation">Normal operation</a></h6>
 <ul>
 <li>Saves the bytes of the signer account id into the register.</li>
@@ -209,10 +198,6 @@ for the call itself.</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs"><a class="header" href="#current-bugs">Current bugs</a></h6>
-<ul>
-<li>Currently we conflate <code>originator_id</code> and <code>sender_id</code> in our code base.</li>
-</ul>
 <hr />
 <h4 id="signer_account_pk"><a class="header" href="#signer_account_pk">signer_account_pk</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -222,16 +207,14 @@ for the call itself.</li>
 </span></code></pre></pre>
 <p>Saves the public key fo the access key that was used by the signer into the register.
 In rare situations smart contract might want to know the exact access key that was used to send the original transaction,
-e.g. to increase the allowance or manipulate with the public key.</p>
+e.g. to increase the allowance or manipulate with the public key.
+The key is borsh-encoded: one key type byte (0 ed25519, 1 secp256k1, 2 ML-DSA-65), then the key bytes.
+For a receipt created from a delegate action, this is the relayer's key.</p>
 <h6 id="panics-2"><a class="header" href="#panics-2">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
 <li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
-</ul>
-<h6 id="current-bugs-1"><a class="header" href="#current-bugs-1">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
 </ul>
 <hr />
 <h4 id="predecessor_account_id"><a class="header" href="#predecessor_account_id">predecessor_account_id</a></h4>
@@ -252,10 +235,6 @@ that does function invocation on the contract or another contract as a result of
 <li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
 <li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
-<h6 id="current-bugs-2"><a class="header" href="#current-bugs-2">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
-</ul>
 <hr />
 <h4 id="refund_to_account_id"><a class="header" href="#refund_to_account_id">refund_to_account_id</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -275,10 +254,6 @@ can set this to another account id when sending the receipt.</p>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
-<ul>
-<li>Not implemented.</li>
-</ul>
 <hr />
 <h4 id="input"><a class="header" href="#input">input</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -290,21 +265,11 @@ can set this to another account id when sending the receipt.</p>
 <h6 id="normal-operation-3"><a class="header" href="#normal-operation-3">Normal operation</a></h6>
 <ul>
 <li>If input is provided saves the bytes (potentially zero) of input into register.</li>
-<li>If input is not provided does not modify the register.</li>
-</ul>
-<h6 id="returns"><a class="header" href="#returns">Returns</a></h6>
-<ul>
-<li>If input was not provided returns <code>0</code>;</li>
-<li>If input was provided returns <code>1</code>; If input is zero bytes returns <code>1</code>, too.</li>
+<li>If input is not provided writes 0 bytes into the register.</li>
 </ul>
 <h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
-</ul>
-<h6 id="current-bugs-4"><a class="header" href="#current-bugs-4">Current bugs</a></h6>
-<ul>
-<li>Implemented as part of <code>data_read</code>. However there is no reason to have one unified function, like <code>data_read</code> that can
-be used to read all</li>
 </ul>
 <hr />
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -341,7 +306,7 @@ one less than the height of the block the chunk is in.</p>
 invocation. This includes:</p>
 <ul>
 <li>The data written with <code>storage_*</code> functions during current and previous execution;</li>
-<li>The bytes needed to store the account protobuf and the access keys of the given account.</li>
+<li>The bytes needed to store the account and the access keys of the given account.</li>
 </ul>
 
                     </main>

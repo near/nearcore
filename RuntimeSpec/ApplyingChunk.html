@@ -161,9 +161,7 @@
 <h2 id="processing-order"><a class="header" href="#processing-order">Processing order</a></h2>
 <ul>
 <li>If this is first block of an epoch, dispense <a href="../Economics/Economics.html#validator-rewards-calculation">epoch rewards</a> to validators (in order of <em>validator_accounts_update.stake_info</em>)</li>
-<li>Slash locked balance for malicious behavior (in order of <em>validator_accounts_update.slashing_info</em>)</li>
 <li>If <a href="../Economics/Economics.html#protocol-treasury">treasury account</a> was not one of validators and this is first block of an epoch, dispense treasury account reward</li>
-<li>If this is first block of new version or first block with chunk of new version, apply corresponding migrations</li>
 <li>If this block do not have chunk for this shard, end process early</li>
 <li>Process <a href="Transactions.html">transactions</a> (in order of <em>transactions</em>)</li>
 <li>Process local <a href="Receipts.html">receipts</a> (in order of <em>transactions</em> that generated them)</li>
