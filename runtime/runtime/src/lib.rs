@@ -6,12 +6,13 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    EccCost, ecc_cost, exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance,
-    total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
+    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
+    total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-pub use crate::external_call::ExternalCallsInChunk;
-use crate::external_call::run_external_call;
+pub use crate::external_call::{
+    ExternalCallsInChunk, ProcessedExternalCall, process_external_call,
+};
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
@@ -29,7 +30,6 @@ use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
-use dashmap::DashMap;
 use global_contracts::{
     action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
@@ -46,8 +46,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, EpochError, FunctionCallError,
-    IntegerOverflowError, InvalidAccessKeyError, InvalidTxError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -60,9 +60,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope,
-    TransferAction,
+    Action, ECC_METHOD_NAME, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
+    ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -72,7 +71,7 @@ use near_primitives::types::{
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
-    create_action_hash_from_receipt_id, create_ecc_outcome_id, create_receipt_id_from_receipt_id,
+    create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -2132,13 +2131,16 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    process_external_call(
-                        processing_state,
+                    let processed = process_external_call(
+                        &mut processing_state.state_update,
+                        processing_state.apply_state,
+                        processing_state.epoch_info_provider,
                         &mut external_calls,
                         &accounts,
                         ecc,
                         maybe_validation_error,
                     )?;
+                    record_external_call(processing_state, processed)?;
                     continue;
                 }
             };
@@ -3027,177 +3029,23 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
         .collect()
 }
 
-/// Runs an external contract call and records its outcome.
-///
-/// A call that failed validation is refused without anything read for it, and so is a call that
-/// finds the chunk's ECCs past one of their shares (`external_calls`). Otherwise the contract
-/// account is read, and a call that fails `verify_ecc`, or whose contract account has no contract,
-/// is refused without running. Otherwise the contract's reserved method runs. If the contract
-/// accepts the call, the run's writes are committed and the contract's account (both in the
-/// chunk's working copy `accounts` and in the trie) is charged, and the fees and the run count
-/// toward the chunk's gas and compute.
-///
-/// If the call is refused, before or after the run, any writes are rolled back and nobody pays.
-/// The validators' work on it still counts toward the chunk's compute, so it stays bounded, but
-/// not toward the chunk's gas: since nobody pays for it, it shouldn't move the next gas price.
-/// The exception is a call refused past a share, which counts no compute: see below. Every call
-/// that passes the check of the shares counts toward them, whatever comes of it.
-fn process_external_call<'a>(
+/// Records the outcome of an external contract call that `process_external_call` processed, and
+/// counts what it reports toward the chunk's gas, compute and burnt tokens.
+fn record_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
-    external_calls: &mut ExternalCallsInChunk,
-    accounts: &DashMap<&'a AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
-    ecc: &'a EccTransaction,
-    validation_error: Option<InvalidTxError>,
+    processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let apply_state = processing_state.apply_state;
-    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
-    let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
-        Ok(cost) => cost,
-        // Without fees there is nothing to count toward the chunk's limits.
-        Err(err) => {
-            let err = validation_error.unwrap_or_else(|| err.into());
-            return refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), 0);
-        }
-    };
-    if let Some(err) = validation_error {
-        let compute = cost.compute_burnt;
-        return refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), compute);
+    let ProcessedExternalCall { outcome, accepted } = processed;
+    let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
+    processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
+    let stats = &mut processing_state.stats.balance;
+    stats.tx_burnt_amount = safe_add_balance(stats.tx_burnt_amount, outcome.outcome.tokens_burnt)?;
+    if accepted {
+        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+    } else {
+        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
-    // The check comes before anything is read for the call, so that a call past a share adds
-    // nothing to the storage proof.
-    //
-    // Such a call counts no compute toward the chunk either, on purpose. Refusing it takes far
-    // less work than its fees' compute stands for, less than reading an account. If it counted
-    // that compute, a chunk producer could fill its chunk's compute limit with calls it knows
-    // are past the shares, so that the chunk processes no receipts, at no cost to anyone and
-    // with the chunk still produced. `max_external_calls_per_chunk` bounds the work they take.
-    if let Err(err) = external_calls.fits() {
-        return refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), 0);
-    }
-    // Everything recorded from here on, the read of the contract account included, counts toward
-    // the share of the chunk's storage proof.
-    let recorded_before = processing_state.state_update.trie.recorded_storage_size_upper_bound();
-    let compute =
-        process_admitted_external_call(processing_state, accounts, ecc, outcome_id, &cost)?;
-    let recorded_after = processing_state.state_update.trie.recorded_storage_size_upper_bound();
-    let recorded =
-        u64::try_from(recorded_after.saturating_sub(recorded_before)).unwrap_or(u64::MAX);
-    external_calls.add(compute, recorded);
-    Ok(())
-}
-
-/// Runs an external contract call that passed the check of the chunk's shares for ECCs, and
-/// records its outcome, as `process_external_call` describes. Returns the compute that counted
-/// toward the chunk.
-fn process_admitted_external_call<'a>(
-    processing_state: &mut ApplyProcessingReceiptState,
-    accounts: &DashMap<&'a AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
-    ecc: &'a EccTransaction,
-    outcome_id: CryptoHash,
-    cost: &EccCost,
-) -> Result<Compute, RuntimeError> {
-    let apply_state = processing_state.apply_state;
-    // Read and update the contract's account through the chunk's working copy, which signed
-    // transactions later in the chunk start from. Otherwise a later transaction from the
-    // contract would overwrite the charge and the storage usage of an accepted call. A signed
-    // transaction from the contract in the chunk has read the account already.
-    let contract_id = ecc.contract_id();
-    if !accounts.contains_key(contract_id) {
-        let account = get_account(&processing_state.state_update, contract_id);
-        accounts.insert(contract_id, account);
-    }
-    match verify_ecc(accounts, ecc, cost) {
-        Ok(()) => {}
-        Err(RuntimeError::InvalidTxError(err)) => {
-            let compute = cost.compute_burnt;
-            refuse_ecc_before_run(processing_state, outcome_id, ecc, err.into(), compute)?;
-            return Ok(compute);
-        }
-        Err(err) => return Err(err),
-    }
-    let mut entry = accounts.get_mut(contract_id).expect("the contract account was read above");
-    let account = entry
-        .as_mut()
-        .ok()
-        .and_then(Option::as_mut)
-        .expect("verify_ecc checked that the contract account exists");
-    // The contract is both the sender and the receiver of the call, so an account with no
-    // contract is refused like a missing account, without loading anything.
-    if matches!(account.contract().as_ref(), AccountContract::None) {
-        let account_id = contract_id.clone();
-        let error =
-            FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id });
-        let kind = ActionErrorKind::FunctionCallError(error);
-        let error = ActionError { index: Some(0), kind }.into();
-        let compute = cost.compute_burnt;
-        refuse_ecc_before_run(processing_state, outcome_id, ecc, error, compute)?;
-        return Ok(compute);
-    }
-
-    // The state update may hold changes staged before the call, such as the outgoing buffer pops
-    // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
-    let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
-    processing_state.state_update.commit(cause.clone());
-    let run = run_external_call(
-        &mut processing_state.state_update,
-        apply_state,
-        processing_state.epoch_info_provider,
-        account,
-        ecc,
-        &outcome_id,
-        cost,
-    )?;
-    let compute = run.compute_usage;
-    match run.verdict {
-        Ok(charge) => {
-            processing_state.total.add(run.gas_burnt.as_gas(), run.compute_usage)?;
-            set_account(&mut processing_state.state_update, contract_id.clone(), account);
-            processing_state.state_update.commit(cause);
-            processing_state.stats.balance.tx_burnt_amount =
-                safe_add_balance(processing_state.stats.balance.tx_burnt_amount, charge)?;
-            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        }
-        Err(_) => {
-            processing_state.total.add(0, run.compute_usage)?;
-            processing_state.state_update.rollback();
-            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-        }
-    }
-    let outcome = run.into_outcome(outcome_id, ecc, account);
     processing_state.outcomes.push(outcome);
-    Ok(compute)
-}
-
-/// Records the outcome of an external contract call refused before its method runs, and counts
-/// `compute_usage` toward the chunk's compute: the compute of its fees, or none for a call
-/// refused past the chunk's shares for ECCs.
-fn refuse_ecc_before_run(
-    processing_state: &mut ApplyProcessingReceiptState,
-    outcome_id: CryptoHash,
-    ecc: &EccTransaction,
-    error: TxExecutionError,
-    compute_usage: Compute,
-) -> Result<(), RuntimeError> {
-    processing_state.total.add(0, compute_usage)?;
-    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-    let outcome = ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute_usage);
-    processing_state.outcomes.push(outcome);
-    Ok(())
-}
-
-/// Checks an external contract call before it runs: its contract exists and can pay for the
-/// fees of the call, `cost`. The contract account must be in `accounts`.
-///
-/// `RuntimeError::InvalidTxError` rejects the call. Any other error, such as a storage error
-/// while reading the contract account, stops applying the chunk.
-fn verify_ecc(
-    accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
-    ecc: &EccTransaction,
-    cost: &EccCost,
-) -> Result<(), RuntimeError> {
-    let contract = accounts.get(ecc.contract_id()).expect("the contract account was read");
-    let contract = contract.value().as_ref().map_err(Clone::clone)?;
-    verify_ecc_ephemeral(contract.as_ref(), ecc, cost)?;
     Ok(())
 }
 

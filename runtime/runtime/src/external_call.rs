@@ -5,11 +5,13 @@
 //! contract pays for the call's fees and the gas the run used. Any failure refuses the call:
 //! the caller rolls the run's writes back and nobody pays.
 //!
-//! The run and the verdict don't depend on the chunk's processing state, so the chunk producer
-//! can reuse them to run a call before packing it.
+//! `process_external_call` takes a call through all its steps, from the check of the chunk's
+//! shares for ECCs to counting what it used toward them. It doesn't depend on the chunk's
+//! processing state, so the chunk producer can call it to run a call before packing it, and
+//! make the same decision as apply.
 
 use crate::ApplyState;
-use crate::config::{EccCost, safe_add_balance, safe_add_compute, safe_gas_to_balance};
+use crate::config::{EccCost, ecc_cost, safe_add_balance, safe_add_compute, safe_gas_to_balance};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
 };
@@ -17,12 +19,14 @@ use crate::conversions::Convert;
 use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, record_contract_call};
 use crate::receipt_manager::ReceiptManager;
-use crate::verifier::{StorageStakingError, check_storage_stake};
+use crate::verifier::{StorageStakingError, check_storage_stake, verify_ecc_ephemeral};
+use ahash::RandomState as AHashRandomState;
+use dashmap::DashMap;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::Account;
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ExternalCallChunkLimit, InvalidTxError, RuntimeError,
-    StorageError, TxExecutionError,
+    ActionError, ActionErrorKind, CompilationError, ExternalCallChunkLimit, FunctionCallError,
+    InvalidTxError, RuntimeError, StorageError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile_data_v3::ProfileDataV3;
@@ -30,20 +34,24 @@ use near_primitives::transaction::{
     ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
     ExecutionOutcomeWithId, ExecutionStatus,
 };
-use near_primitives::types::{AccountId, Balance, Compute, EpochInfoProvider, Gas};
-use near_store::TrieUpdate;
+use near_primitives::types::{
+    AccountId, Balance, Compute, EpochInfoProvider, Gas, StateChangeCause,
+};
+use near_primitives::utils::create_ecc_outcome_id;
 use near_store::trie::AccessOptions;
+use near_store::{TrieUpdate, get_account, set_account};
 use near_vm_runner::CompilePriority;
 use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
 
 /// What the external calls of a chunk used so far, against their shares of the chunk's compute
-/// and storage proof, which apply checks before each call. Apply uses it, and the chunk producer
-/// will too, so both admit the same calls.
+/// and storage proof, which `process_external_call` checks before each call and adds to after
+/// it. Only that function checks and adds, so apply and the chunk producer admit the same calls.
 ///
-/// The other rules on a chunk's external calls, one call per contract and a share of the chunk's
-/// transaction bytes, make a chunk invalid, and are checked before apply.
+/// The other rules on a chunk's external calls, one call per contract, a limit on their number
+/// and a share of the chunk's transaction bytes, make a chunk invalid, and are checked before
+/// apply.
 #[derive(Debug)]
 pub struct ExternalCallsInChunk {
     compute: Compute,
@@ -71,7 +79,7 @@ impl ExternalCallsInChunk {
 
     /// Whether the chunk has room left in every share. What a call uses is known only once it
     /// ran, so a chunk can pass each share by at most one call.
-    pub fn fits(&self) -> Result<(), InvalidTxError> {
+    fn fits(&self) -> Result<(), InvalidTxError> {
         let (used, limit) = (self.compute, self.compute_share);
         if used >= limit {
             let limit = ExternalCallChunkLimit::Compute { used, limit };
@@ -87,10 +95,162 @@ impl ExternalCallsInChunk {
 
     /// Counts a call that passed `fits`, whatever came of it: the compute it used and the
     /// storage proof it recorded, the read of its contract account included.
-    pub fn add(&mut self, compute: Compute, recorded_size: u64) {
+    fn add(&mut self, compute: Compute, recorded_size: u64) {
         self.compute = self.compute.saturating_add(compute);
         self.recorded_size = self.recorded_size.saturating_add(recorded_size);
     }
+}
+
+/// What came of an external contract call, for the caller to record.
+pub struct ProcessedExternalCall {
+    /// The call's outcome. The gas, compute and tokens burnt it reports are what the call counts
+    /// toward the chunk: gas and tokens only if the call is accepted, and compute in any case
+    /// except a call refused past the chunk's shares for ECCs.
+    pub outcome: ExecutionOutcomeWithId,
+    /// Whether the contract accepted and paid for the call.
+    pub accepted: bool,
+}
+
+/// Processes an external contract call of a chunk: checks the chunk's shares for ECCs, reads
+/// the contract account, runs the call, and counts what it used toward the shares. Apply calls
+/// it for each call in the chunk, in order, and so is to the chunk producer, so that both make
+/// the same decision. It records nothing about the chunk: the caller records the outcome and
+/// counts it toward the chunk's gas, compute and burnt tokens.
+///
+/// A call that failed validation (`validation_error`) is refused without anything read for it,
+/// and so is a call that finds the chunk's ECCs past one of their shares (`external_calls`).
+/// Otherwise the contract account is read into `accounts`, the chunk's working copy of accounts,
+/// unless it is there already. A call whose contract can't pay its fees, or whose account has no
+/// contract, is refused without running. Otherwise the contract's reserved method runs. If the
+/// contract accepts the call, the run's writes are committed and the contract's account (both in
+/// `accounts` and in `state_update`) is charged. Otherwise the run's writes are rolled back.
+/// Changes staged in `state_update` before the call are committed either way.
+///
+/// If the call is refused, before or after the run, nobody pays. The validators' work on it
+/// still counts toward the chunk's compute, so it stays bounded, but not toward the chunk's gas:
+/// since nobody pays for it, it shouldn't move the next gas price. The exception is a call
+/// refused past a share, which counts no compute: see below. Every call that passes the check of
+/// the shares counts toward them, whatever comes of it.
+///
+/// A `RuntimeError`, such as a storage error, stops applying the chunk.
+pub fn process_external_call<'a>(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    accounts: &DashMap<&'a AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
+    ecc: &'a EccTransaction,
+    validation_error: Option<InvalidTxError>,
+) -> Result<ProcessedExternalCall, RuntimeError> {
+    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    let refuse = |error: TxExecutionError, compute: Compute| ProcessedExternalCall {
+        outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
+        accepted: false,
+    };
+    let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
+        Ok(cost) => cost,
+        // Without fees there is nothing to count toward the chunk's limits.
+        Err(err) => {
+            let err = validation_error.unwrap_or_else(|| err.into());
+            return Ok(refuse(err.into(), 0));
+        }
+    };
+    if let Some(err) = validation_error {
+        return Ok(refuse(err.into(), cost.compute_burnt));
+    }
+    // The check comes before anything is read for the call, so that a call past a share adds
+    // nothing to the storage proof.
+    //
+    // Such a call counts no compute toward the chunk either, on purpose. Refusing it takes far
+    // less work than its fees' compute stands for, less than reading an account. If it counted
+    // that compute, a chunk producer could fill its chunk's compute limit with calls it knows
+    // are past the shares, so that the chunk processes no receipts, at no cost to anyone and
+    // with the chunk still produced. `max_external_calls_per_chunk` bounds the work they take.
+    if let Err(err) = external_calls.fits() {
+        return Ok(refuse(err.into(), 0));
+    }
+    // Everything recorded from here on, the read of the contract account included, counts toward
+    // the share of the chunk's storage proof.
+    let recorded_before = state_update.trie.recorded_storage_size_upper_bound();
+    let processed = process_admitted_external_call(
+        state_update,
+        apply_state,
+        epoch_info_provider,
+        accounts,
+        ecc,
+        outcome_id,
+        &cost,
+    )?;
+    let recorded_after = state_update.trie.recorded_storage_size_upper_bound();
+    let recorded =
+        u64::try_from(recorded_after.saturating_sub(recorded_before)).unwrap_or(u64::MAX);
+    let compute =
+        processed.outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
+    external_calls.add(compute, recorded);
+    Ok(processed)
+}
+
+/// Processes an external contract call that passed the check of the chunk's shares for ECCs,
+/// as `process_external_call` describes.
+fn process_admitted_external_call<'a>(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    accounts: &DashMap<&'a AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
+    ecc: &'a EccTransaction,
+    outcome_id: CryptoHash,
+    cost: &EccCost,
+) -> Result<ProcessedExternalCall, RuntimeError> {
+    let refuse = |error: TxExecutionError| ProcessedExternalCall {
+        outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, cost.compute_burnt),
+        accepted: false,
+    };
+    // Read and update the contract's account through the chunk's working copy, which signed
+    // transactions later in the chunk start from. Otherwise a later transaction from the
+    // contract would overwrite the charge and the storage usage of an accepted call. A signed
+    // transaction from the contract in the chunk has read the account already.
+    let contract_id = ecc.contract_id();
+    if !accounts.contains_key(contract_id) {
+        accounts.insert(contract_id, get_account(state_update, contract_id));
+    }
+    let mut entry = accounts.get_mut(contract_id).expect("the contract account was read above");
+    let contract = entry.value_mut().as_mut().map_err(|err| err.clone())?;
+    let account = match verify_ecc_ephemeral(contract.as_mut(), ecc, cost) {
+        Ok(account) => account,
+        Err(err) => return Ok(refuse(err.into())),
+    };
+    // The contract is both the sender and the receiver of the call, so an account with no
+    // contract is refused like a missing account, without loading anything.
+    if matches!(account.contract().as_ref(), AccountContract::None) {
+        let account_id = contract_id.clone();
+        let error =
+            FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id });
+        let kind = ActionErrorKind::FunctionCallError(error);
+        return Ok(refuse(ActionError { index: Some(0), kind }.into()));
+    }
+
+    // The state update may hold changes staged before the call, such as the outgoing buffer pops
+    // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
+    let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
+    state_update.commit(cause.clone());
+    let run = run_external_call(
+        state_update,
+        apply_state,
+        epoch_info_provider,
+        account,
+        ecc,
+        &outcome_id,
+        cost,
+    )?;
+    let accepted = run.verdict.is_ok();
+    if accepted {
+        set_account(state_update, contract_id.clone(), account);
+        state_update.commit(cause);
+    } else {
+        state_update.rollback();
+    }
+    let outcome = run.into_outcome(outcome_id, ecc, account);
+    Ok(ProcessedExternalCall { outcome, accepted })
 }
 
 /// What an external call did, and whether the contract accepts and pays for it.
