@@ -304,7 +304,8 @@ impl ChunkExecutorActor {
         }
         let final_execution_head = self.chain_store.spice_final_execution_head()?;
         if final_execution_head.height <= sync_header.height() {
-            // Every block after the sync block is after the final execution head too.
+            // Here the final execution head is at or below the sync block, so every block after the
+            // sync block is above it and is parked by normal processing or startup.
             return Ok(());
         }
 
