@@ -31,7 +31,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-machete \
                 check-cargo-clippy \
                 check-non-default \
-                check-nearcore-without-rpc \
+                check-nearcore-no-default-features \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
@@ -81,7 +81,7 @@ check-non-default:
         && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
 
 # check that nearcore builds without the JSON-RPC and Rosetta RPC servers
-check-nearcore-without-rpc:
+check-nearcore-no-default-features:
     RUSTFLAGS="-D warnings" \
     cargo check -p nearcore --no-default-features
 
