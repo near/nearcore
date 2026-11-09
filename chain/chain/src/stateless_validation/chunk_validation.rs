@@ -350,7 +350,11 @@ pub fn pre_validate_chunk_state_witness(
         }
     }
     // TODO(spice): check the same rules on a chunk's external calls under Spice, in
-    // `validate_chunk_proofs` and `verify_proof_of_invalid_chunk`.
+    // `validate_chunk_proofs` and `verify_proof_of_invalid_chunk`, before external calls are
+    // enabled under Spice. Apply relies on them: a call refused because the chunk's calls reached
+    // a share counts no compute, so only `max_calls_per_chunk` bounds the work on such calls.
+    // Until then a malicious Spice chunk producer can include as many external calls as fit in
+    // the chunk's transaction bytes.
     if let Err(err) =
         check_external_calls_in_chunk(runtime_config, state_witness.new_transactions())
     {
