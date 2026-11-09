@@ -645,28 +645,37 @@ pub enum InvalidExternalCalls {
     ContractCalledTwice { contract_id: AccountId },
     #[error("external calls take {size} bytes, past their share of {limit} bytes")]
     SizeShareExceeded { size: u64, limit: u64 },
+    #[error("the chunk has {count} external calls, more than the limit of {limit}")]
+    TooManyCalls { count: u64, limit: u64 },
 }
 
 /// Checks the rules on a chunk's external calls taken together: at most one call per contract,
-/// and no more than their share of the chunk's transaction bytes. A chunk that fails this is
-/// invalid.
+/// no more than `max_calls_per_chunk` calls, and no more than their share of the chunk's
+/// transaction bytes. A chunk that fails this is invalid.
 ///
-/// Before external calls a chunk holds none, as each fails its own validity check, so both rules
+/// Before external calls a chunk holds none, as each fails its own validity check, so the rules
 /// pass without looking at the protocol version.
 pub fn check_external_calls_in_chunk<'a>(
     config: &RuntimeConfig,
     transactions: impl IntoIterator<Item = &'a TransactionEnvelope>,
 ) -> Result<(), InvalidExternalCalls> {
+    let calls_config = &config.external_calls_config;
     let mut contracts = HashSet::new();
+    let mut count: u64 = 0;
     let mut size: u64 = 0;
     for ecc in transactions.into_iter().filter_map(TransactionEnvelope::as_unsigned) {
         if !contracts.insert(ecc.contract_id()) {
             let contract_id = ecc.contract_id().clone();
             return Err(InvalidExternalCalls::ContractCalledTwice { contract_id });
         }
+        count = count.saturating_add(1);
         size = size.saturating_add(ecc.get_size());
     }
-    let limit = config.external_calls_config.transactions_size_share(&config.witness_config);
+    let limit = calls_config.max_calls_per_chunk;
+    if count > limit {
+        return Err(InvalidExternalCalls::TooManyCalls { count, limit });
+    }
+    let limit = calls_config.transactions_size_share(&config.witness_config);
     if size > limit {
         return Err(InvalidExternalCalls::SizeShareExceeded { size, limit });
     }
@@ -1712,6 +1721,33 @@ mod tests {
         );
         let txs = [TransactionEnvelope::from(transfer), first.into(), other.into()];
         assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_max_calls() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let limit = config.external_calls_config.max_calls_per_chunk;
+        // Small calls to different contracts, far within the size share.
+        let calls = |count: u64| -> Vec<TransactionEnvelope> {
+            (0..count)
+                .map(|i| EccTransaction::new(format!("c{i}.near").parse().unwrap(), vec![1]))
+                .map(TransactionEnvelope::from)
+                .collect()
+        };
+
+        // Signed transactions don't count toward the limit.
+        let at_limit: Vec<TransactionEnvelope> = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain(calls(limit))
+            .collect();
+        assert_eq!(check_external_calls_in_chunk(&config, &at_limit), Ok(()));
+
+        assert_eq!(
+            check_external_calls_in_chunk(&config, &calls(limit + 1)),
+            Err(InvalidExternalCalls::TooManyCalls { count: limit + 1, limit })
+        );
     }
 
     #[test]

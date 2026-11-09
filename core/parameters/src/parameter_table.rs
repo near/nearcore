@@ -487,6 +487,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::ExternalCallsChunkStorageProofShare)?,
                 chunk_transactions_size_share: params
                     .get(Parameter::ExternalCallsChunkTransactionsSizeShare)?,
+                max_calls_per_chunk: params.get(Parameter::MaxExternalCallsPerChunk)?,
             },
             bandwidth_scheduler_config: BandwidthSchedulerConfig {
                 max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,

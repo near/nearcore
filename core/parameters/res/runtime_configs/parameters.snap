@@ -17,6 +17,7 @@ max_external_call_recorded_size                            0
 external_calls_chunk_compute_share      0 / 1
 external_calls_chunk_storage_proof_share0 / 1
 external_calls_chunk_transactions_size_share0 / 1
+max_external_calls_per_chunk                               0
 min_allowed_top_level_account_length                      65
 registrar_account_id                    registrar
 storage_amount_per_byte                 10000000000000000000 yN

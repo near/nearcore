@@ -298,7 +298,8 @@ expression: config_view
     "chunk_transactions_size_share": [
       1,
       40
-    ]
+    ],
+    "max_calls_per_chunk": 100
   },
   "min_gas_purchase_price": "1000000000",
   "account_creation_charge": "7000000000000000000000"

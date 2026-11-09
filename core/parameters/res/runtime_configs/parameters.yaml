@@ -41,6 +41,7 @@ external_calls_chunk_transactions_size_share: {
   numerator: 0,
   denominator: 1,
 }
+max_external_calls_per_chunk: 0
 
 # Account creation config
 min_allowed_top_level_account_length: 65

@@ -788,6 +788,8 @@ pub struct ExternalCallsConfigView {
     /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub chunk_transactions_size_share: Rational32,
+    /// Max number of external calls in a chunk.
+    pub max_calls_per_chunk: u64,
 }
 
 /// No external calls: what a node reports before it knows of them.
@@ -799,6 +801,7 @@ impl Default for ExternalCallsConfigView {
             chunk_compute_share: Rational32::from_integer(0),
             chunk_storage_proof_share: Rational32::from_integer(0),
             chunk_transactions_size_share: Rational32::from_integer(0),
+            max_calls_per_chunk: 0,
         }
     }
 }
@@ -811,6 +814,7 @@ impl From<ExternalCallsConfig> for ExternalCallsConfigView {
             chunk_compute_share: config.chunk_compute_share,
             chunk_storage_proof_share: config.chunk_storage_proof_share,
             chunk_transactions_size_share: config.chunk_transactions_size_share,
+            max_calls_per_chunk: config.max_calls_per_chunk,
         }
     }
 }

@@ -24,3 +24,5 @@ external_calls_chunk_transactions_size_share:
     old: { numerator: 0, denominator: 1 },
     new: { numerator: 1, denominator: 40 },
   }
+# At most 100 external calls in a chunk, however small they are.
+max_external_calls_per_chunk: { old: 0, new: 100 }

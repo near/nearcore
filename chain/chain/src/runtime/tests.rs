@@ -2092,6 +2092,42 @@ fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
     assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 
+/// Once the chunk holds `max_calls_per_chunk` ECCs, the rest stay in the pool, and the next chunk
+/// takes them.
+#[test]
+fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.max_calls_per_chunk = 2;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+    let gas_limit = env.runtime.genesis_config.gas_limit;
+
+    let (prepared, _) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts, gas_limit);
+
+    let first_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(first_chunk.len(), 2);
+    // The ones left go into the next chunk.
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
+        &contracts,
+        gas_limit,
+    );
+    let next_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(next_chunk.len(), 2);
+    assert!(next_chunk.iter().all(|ecc| !first_chunk.contains(ecc)));
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
 /// The ECCs of a chunk take no more than their share of its transaction bytes, or the chunk
 /// would be invalid. The ones past the share wait in the pool, and signed transactions still go
 /// into the chunk.

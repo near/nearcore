@@ -953,13 +953,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
             && !ProtocolFeature::Spice.enabled(protocol_version);
         let mut num_eccs_packed = 0;
-        // ECCs may take only their share of the chunk's transaction bytes. A chunk whose ECCs
-        // take more is invalid.
-        let mut ecc_size_left = if eccs_allowed {
-            let ecc_config = &runtime_config.external_calls_config;
-            ecc_config.transactions_size_share(&runtime_config.witness_config)
+        // ECCs may take only their share of the chunk's transaction bytes, and only so many may
+        // go into one chunk. A chunk whose ECCs pass either limit is invalid.
+        let ecc_config = &runtime_config.external_calls_config;
+        let (mut ecc_size_left, mut num_eccs_left) = if eccs_allowed {
+            let size_share = ecc_config.transactions_size_share(&runtime_config.witness_config);
+            (size_share, ecc_config.max_calls_per_chunk)
         } else {
-            0
+            (0, 0)
         };
         // The contracts that have their ECC in the chunk. The groups come round after round, and
         // a contract gets one ECC per chunk: a chunk with two ECCs to one contract is invalid.
@@ -974,7 +975,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(ecc_size_left > 0) {
+        'add_txs_loop: while let Some(group) =
+            transaction_groups.next_filtered(ecc_size_left > 0 && num_eccs_left > 0)
+        {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -1031,6 +1034,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         contracts_in_chunk.insert(ecc.contract_id().clone());
                         total_size += ecc.get_size();
                         ecc_size_left = ecc_size_left.saturating_sub(ecc.get_size());
+                        num_eccs_left -= 1;
                         prepared_transactions.transactions.push(ecc.into());
                         num_eccs_packed += 1;
                     }
@@ -1206,7 +1210,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, ecc_size_left, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, ecc_size_left, num_eccs_left, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])

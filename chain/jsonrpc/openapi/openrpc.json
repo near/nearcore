@@ -5028,6 +5028,12 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "max_calls_per_chunk": {
+            "description": "Max number of external calls in a chunk.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -5035,7 +5041,8 @@
           "max_call_recorded_size",
           "chunk_compute_share",
           "chunk_storage_proof_share",
-          "chunk_transactions_size_share"
+          "chunk_transactions_size_share",
+          "max_calls_per_chunk"
         ],
         "title": "ExternalCallsConfigView",
         "type": "object"
@@ -11551,7 +11558,8 @@
                 1
               ],
               "max_call_recorded_size": 0,
-              "max_call_size": 0
+              "max_call_size": 0,
+              "max_calls_per_chunk": 0
             },
             "description": "Limits on external contract calls, per call and per chunk."
           },

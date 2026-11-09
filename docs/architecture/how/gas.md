@@ -261,8 +261,10 @@ Each share fits five calls that use as much of it as a call can.
 
 The size share is a validity rule, checked along with the size of each call: a
 chunk whose external calls take more is invalid. So is a chunk with two
-external calls to the same contract. The chunk producer packs calls only up to
-the size share.
+external calls to the same contract, and a chunk with more than
+`max_external_calls_per_chunk` external calls, 100, however small they are.
+The chunk producer packs calls only up to the size share and the number of
+calls.
 
 The compute and storage proof shares are checked at apply, before each call.
 What a call uses is known only once it ran, so a call is admitted as long as

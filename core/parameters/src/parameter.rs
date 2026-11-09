@@ -55,6 +55,8 @@ pub enum Parameter {
     ExternalCallsChunkStorageProofShare,
     /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
     ExternalCallsChunkTransactionsSizeShare,
+    /// Max number of external contract calls in a chunk.
+    MaxExternalCallsPerChunk,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,

@@ -398,12 +398,14 @@ mod tests {
         assert_eq!(after.chunk_compute_share, Rational32::new(2, 5));
         assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 20));
         assert_eq!(after.chunk_transactions_size_share, Rational32::new(1, 40));
+        assert_eq!(after.max_calls_per_chunk, 100);
         let before = limits(version - 1);
         assert_eq!(before.max_call_size, 0);
         assert_eq!(before.max_call_recorded_size, 0);
         assert_eq!(before.chunk_compute_share, Rational32::from_integer(0));
         assert_eq!(before.chunk_storage_proof_share, Rational32::from_integer(0));
         assert_eq!(before.chunk_transactions_size_share, Rational32::from_integer(0));
+        assert_eq!(before.max_calls_per_chunk, 0);
     }
 
     /// Same pairing for the canonical universal state init: the flag and the fees it comes

@@ -308,6 +308,8 @@ pub struct ExternalCallsConfig {
     /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
     /// A chunk whose external calls take more is invalid.
     pub chunk_transactions_size_share: Rational32,
+    /// Max number of external calls in a chunk. A chunk with more is invalid.
+    pub max_calls_per_chunk: u64,
 }
 
 impl ExternalCallsConfig {
@@ -391,7 +393,8 @@ mod tests {
     }
 
     /// Each share of a chunk's limits that its external calls get fits five calls that use as much
-    /// of it as a call can, at every protocol version with external calls. Five worst-case calls
+    /// of it as a call can, and so does the limit on their number, at every protocol version with
+    /// external calls. Five worst-case calls
     /// are about as many full runs as a chunk producer makes in its time for external calls.
     #[test]
     fn test_external_calls_shares_fit_five_worst_case_calls() {
@@ -426,6 +429,12 @@ mod tests {
             assert!(
                 NUM_CALLS * size <= size_share,
                 "{NUM_CALLS} calls of {size} bytes don't fit in {size_share} at protocol version {version}"
+            );
+
+            let max_calls = calls.max_calls_per_chunk;
+            assert!(
+                NUM_CALLS <= max_calls,
+                "{NUM_CALLS} calls don't fit in the limit of {max_calls} at protocol version {version}"
             );
         }
     }
