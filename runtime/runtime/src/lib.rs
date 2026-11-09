@@ -2155,6 +2155,7 @@ impl Runtime {
                 TransactionEnvelope::Unsigned(ecc) => {
                     process_external_call(
                         processing_state,
+                        receipt_sink,
                         &accounts,
                         ecc,
                         maybe_validation_error,
@@ -3055,6 +3056,7 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>)
 /// not toward the chunk's gas: since nobody pays for it, it shouldn't move the next gas price.
 fn process_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
     accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
     ecc: &EccTransaction,
     validation_error: Option<InvalidTxError>,
@@ -3108,7 +3110,7 @@ fn process_external_call(
     // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
     let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
     processing_state.state_update.commit(cause.clone());
-    let run = run_external_call(
+    let mut run = run_external_call(
         &mut processing_state.state_update,
         apply_state,
         processing_state.epoch_info_provider,
@@ -3117,22 +3119,27 @@ fn process_external_call(
         &outcome_id,
         &cost,
     )?;
-    match run.verdict {
-        Ok(charge) => {
+    let receipt_ids = match run.verdict {
+        Ok(burnt) => {
             processing_state.total.add(run.gas_burnt.as_gas(), run.compute_usage)?;
             set_account(&mut processing_state.state_update, contract_id.clone(), account);
+            let receipts = std::mem::take(&mut run.new_receipts);
+            let receipt_ids =
+                send_ecc_receipts(processing_state, receipt_sink, &outcome_id, ecc, receipts)?;
             processing_state.state_update.commit(cause);
             processing_state.stats.balance.tx_burnt_amount =
-                safe_add_balance(processing_state.stats.balance.tx_burnt_amount, charge)?;
+                safe_add_balance(processing_state.stats.balance.tx_burnt_amount, burnt)?;
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+            receipt_ids
         }
         Err(_) => {
             processing_state.total.add(0, run.compute_usage)?;
             processing_state.state_update.rollback();
             metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+            vec![]
         }
-    }
-    let outcome = run.into_outcome(outcome_id, ecc, account);
+    };
+    let outcome = run.into_outcome(outcome_id, apply_state.block_height, ecc, account, receipt_ids);
     processing_state.outcomes.push(outcome);
     Ok(())
 }
@@ -3169,6 +3176,35 @@ fn send_transaction_receipt(
         )?;
     }
     Ok(())
+}
+
+/// Gives the receipts of an accepted external call their ids and sends them out, the way a signed
+/// transaction sends its receipt. Returns the ids of the action receipts.
+fn send_ecc_receipts(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    outcome_id: &CryptoHash,
+    ecc: &EccTransaction,
+    receipts: Vec<Receipt>,
+) -> Result<Vec<CryptoHash>, RuntimeError> {
+    let apply_state = processing_state.apply_state;
+    let contract_id = ecc.contract_id();
+    let mut receipt_ids = vec![];
+    for (receipt_index, mut receipt) in receipts.into_iter().enumerate() {
+        let receipt_id = apply_state.create_receipt_id(outcome_id, receipt_index);
+        receipt.set_receipt_id(receipt_id);
+        if matches!(receipt.versioned_receipt(), VersionedReceiptEnum::Action(_)) {
+            receipt_ids.push(receipt_id);
+        }
+        send_transaction_receipt(
+            processing_state,
+            receipt_sink,
+            receipt,
+            *outcome_id,
+            contract_id,
+        )?;
+    }
+    Ok(receipt_ids)
 }
 
 /// Records the outcome of an external contract call refused before its method runs, and counts
