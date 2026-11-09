@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.39"
+    "version": "1.3.40"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -13829,6 +13829,42 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "error": {
+                    "$ref": "#/components/schemas/ActionsValidationError"
+                  }
+                },
+                "required": [
+                  "error",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_STATE_INIT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "contract_account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   }
@@ -13843,6 +13879,42 @@
               "name": {
                 "enum": [
                   "NO_CONTRACT_CODE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "identifier": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifier"
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_GLOBAL_CONTRACT_CODE"
                 ],
                 "type": "string"
               }
@@ -13962,6 +14034,20 @@
           },
           "method_name": {
             "type": "string"
+          },
+          "state_init": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateInitView"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Runs the call as if this were installed, unless the account already has its state."
           }
         },
         "required": [
@@ -16297,6 +16383,42 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "error": {
+                    "$ref": "#/components/schemas/ActionsValidationError"
+                  }
+                },
+                "required": [
+                  "error",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_STATE_INIT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "contract_account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   }
@@ -16863,6 +16985,20 @@
                       "call_function"
                     ],
                     "type": "string"
+                  },
+                  "state_init": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StateInitView"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Runs the call as if this were installed, unless the account already has its state."
                   }
                 },
                 "required": [
@@ -17230,6 +17366,20 @@
                       "call_function"
                     ],
                     "type": "string"
+                  },
+                  "state_init": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StateInitView"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Runs the call as if this were installed, unless the account already has its state."
                   }
                 },
                 "required": [
@@ -17597,6 +17747,20 @@
                       "call_function"
                     ],
                     "type": "string"
+                  },
+                  "state_init": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StateInitView"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Runs the call as if this were installed, unless the account already has its state."
                   }
                 },
                 "required": [
@@ -22312,6 +22476,50 @@
           "cause"
         ],
         "type": "object"
+      },
+      "StateInitView": {
+        "description": "The initial state of a `0s` or `0u` account, as its state-init action carries it.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "deterministic": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "deterministic"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "universal": {
+                "$ref": "#/components/schemas/RawStateInit"
+              }
+            },
+            "required": [
+              "universal"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "StateItem": {
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",

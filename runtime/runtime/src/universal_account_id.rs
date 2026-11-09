@@ -126,7 +126,7 @@ pub(crate) fn action_universal_state_init(
 ///
 /// Every installed key is seeded with `access_key_nonce`; see the caller for why
 /// that has to clear the nonce the bootstrap consumed.
-fn install_universal_account(
+pub(crate) fn install_universal_account(
     state_update: &mut TrieUpdate,
     account: &mut Account,
     account_id: &AccountId,

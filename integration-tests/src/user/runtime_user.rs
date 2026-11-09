@@ -369,6 +369,7 @@ impl User for RuntimeUser {
                 account_id,
                 method_name,
                 args,
+                None,
                 &mut result.logs,
                 &self.epoch_info_provider,
             )

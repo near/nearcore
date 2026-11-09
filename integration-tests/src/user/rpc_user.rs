@@ -123,6 +123,7 @@ impl User for RpcUser {
             account_id: account_id.clone(),
             method_name: method_name.to_string(),
             args: args.to_vec().into(),
+            state_init: None,
         };
         match self.query(query)?.kind {
             QueryResponseKind::CallResult(call_result) => Ok(call_result),

@@ -28,6 +28,7 @@ use crate::utils::account::create_account_ids;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
+use near_client_primitives::types::QueryError;
 use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
@@ -51,8 +52,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-use near_primitives::views::{AccountView, ExecutionStatusView};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::views::{
+    AccountView, ExecutionStatusView, QueryRequest, QueryResponseKind, StateInitView,
+};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
@@ -902,6 +905,63 @@ fn test_sharded_contract_spread_funded() {
     env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
 }
 
+/// A `0s` state init applies while the account has no contract.
+#[test]
+fn test_view_call_with_deterministic_state_init() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let key = 7u64.to_le_bytes().to_vec();
+    let value = 42u64.to_le_bytes().to_vec();
+    let (state_init, account) =
+        env.new_deterministic_account_with_data(BTreeMap::from([(key.clone(), value.clone())]));
+    let with_init = Some(StateInitView::Deterministic {
+        code: state_init.code().clone().into(),
+        data: state_init.data().clone(),
+    });
+
+    // Missing, then funded without a contract.
+    assert_eq!(env.view_read_value(&account, &key, with_init.clone()).unwrap(), value);
+    env.fund_with_near_balance(account.clone(), Balance::from_near(3));
+    assert_eq!(env.get_account_state(account.clone()).code_hash, CryptoHash::default());
+    assert_eq!(env.view_read_value(&account, &key, with_init).unwrap(), value);
+}
+
+/// Views cap `0s` state init entries at the newest limit, even at older blocks.
+#[test]
+fn test_view_call_with_too_many_state_init_entries() {
+    let config_store = RuntimeConfigStore::new();
+    let entries_limit =
+        |version| config_store.get_config(version).wasm_config.limit_config.max_state_init_entries;
+    let limit = entries_limit(PROTOCOL_VERSION);
+    // Views clamp older blocks to this version.
+    let version = MIN_SUPPORTED_PROTOCOL_VERSION;
+    assert!(entries_limit(version) > limit, "{version} already caps state init entries");
+    let env = TestEnv::setup_with_version(Balance::from_near(100), version);
+
+    let code = GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(b"missing"));
+    let data: BTreeMap<_, _> = (0..=limit).map(|i| (i.to_le_bytes().to_vec(), vec![])).collect();
+    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+        code: code.clone(),
+        data: data.clone(),
+    });
+    let genesis_hash = *env.env.rpc_node().client().chain.genesis().hash();
+    let result = env.env.rpc_node().runtime_query_at(
+        genesis_hash,
+        QueryRequest::CallFunction {
+            account_id: derive_near_deterministic_account_id(&state_init),
+            method_name: "read_value".to_owned(),
+            args: vec![].into(),
+            state_init: Some(StateInitView::Deterministic { code: code.into(), data }),
+        },
+    );
+    assert_matches!(
+        result,
+        Err(QueryError::InvalidStateInit { error, .. })
+            if matches!(*error, ActionsValidationError::TotalNumberOfStateInitEntriesExceeded { .. })
+    );
+}
+
 struct TestEnv {
     env: TestLoopEnv,
     runtime_config_store: RuntimeConfigStore,
@@ -1341,6 +1401,26 @@ impl TestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         self.env.rpc_node().view_account_query(account).unwrap()
+    }
+
+    /// `read_value` of `key` on `account`, run on top of `state_init` if given.
+    fn view_read_value(
+        &mut self,
+        account: &AccountId,
+        key: &[u8],
+        state_init: Option<StateInitView>,
+    ) -> Result<Vec<u8>, QueryError> {
+        self.env.test_loop.run_for(Duration::seconds(2));
+        let response = self.env.rpc_node().runtime_query(QueryRequest::CallFunction {
+            account_id: account.clone(),
+            method_name: "read_value".to_owned(),
+            args: key.to_vec().into(),
+            state_init,
+        })?;
+        let QueryResponseKind::CallResult(call) = response.kind else {
+            panic!("unexpected query response type: {:?}", response.kind);
+        };
+        Ok(call.result)
     }
 
     fn next_nonce_for(&self, account: &AccountId) -> u64 {

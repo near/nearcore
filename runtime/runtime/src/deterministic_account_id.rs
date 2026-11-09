@@ -139,7 +139,7 @@ pub(crate) fn create_deterministic_account(
 /// overwritten existing values into account.
 /// (It would be possible to read value refs first and subtract their length but
 /// that is unnecessary work since the pre-condition above holds at the moment.)
-fn deploy_deterministic_account(
+pub(crate) fn deploy_deterministic_account(
     state_update: &mut TrieUpdate,
     account: &mut Account,
     account_id: &AccountId,
