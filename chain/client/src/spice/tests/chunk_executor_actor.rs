@@ -2175,8 +2175,10 @@ fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
         epoch_blocks.push(next);
     };
     const FINAL_EXECUTION_HEAD_INDEX: usize = 2;
-    let sync_block = &epoch_blocks[0];
-    let final_execution_head = &epoch_blocks[FINAL_EXECUTION_HEAD_INDEX];
+    let (sync_block, blocks_after_sync_block) = epoch_blocks.split_first().unwrap();
+    let (blocks_up_to_head, blocks_after_head) =
+        blocks_after_sync_block.split_at(FINAL_EXECUTION_HEAD_INDEX);
+    let final_execution_head = blocks_up_to_head.last().unwrap();
     // State sync landed the shard and its catchup finished, while the final execution head, which
     // does not wait on the shard, passed blocks the shard has not applied.
     let mut store_update = actor.chain.chain_store.store().store_update();
@@ -2195,10 +2197,10 @@ fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
         .handle_with_internal_events(ProcessedBlock { block_hash: *next_epoch_first_block.hash() });
 
     let parked = actor.actor.parked_blocks(shard_id);
-    for block in &epoch_blocks[1..=FINAL_EXECUTION_HEAD_INDEX] {
+    for block in blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
     }
-    for block in &epoch_blocks[FINAL_EXECUTION_HEAD_INDEX + 1..] {
+    for block in blocks_after_head {
         assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
     }
 }
