@@ -2469,6 +2469,31 @@
         "title": "AddKeyAction",
         "type": "object"
       },
+      "AuthorizationContext": {
+        "description": "What authorized a chain of receipts: an access key that signed a transaction, or an\nexternal call its contract accepted.",
+        "oneOf": [
+          {
+            "enum": [
+              "ExternalContractCall"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AccessKey": {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            },
+            "required": [
+              "AccessKey"
+            ],
+            "title": "AccessKey",
+            "type": "object"
+          }
+        ],
+        "title": "AuthorizationContext"
+      },
       "BandwidthRequest": {
         "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\nWhen a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\nfor a bandwidth grant from the bandwidth scheduler.",
         "properties": {
@@ -8197,6 +8222,9 @@
                     },
                     "type": "array"
                   },
+                  "authorization_context": {
+                    "$ref": "#/components/schemas/AuthorizationContext"
+                  },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
                   },
@@ -8228,14 +8256,11 @@
                   },
                   "signer_id": {
                     "$ref": "#/components/schemas/AccountId"
-                  },
-                  "signer_public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
                   }
                 },
                 "required": [
                   "signer_id",
-                  "signer_public_key",
+                  "authorization_context",
                   "gas_price",
                   "output_data_receivers",
                   "input_data_ids",

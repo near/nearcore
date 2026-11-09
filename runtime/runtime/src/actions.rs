@@ -483,7 +483,11 @@ pub(crate) fn apply_delegate_action(
 
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
+            // A delegate action comes only in a signed transaction's receipts.
+            signer_public_key: action_receipt
+                .signer_public_key()
+                .expect("a receipt with a delegate action carries a key")
+                .clone(),
             gas_price: action_receipt.gas_price(),
             output_data_receivers: vec![],
             input_data_ids: vec![],

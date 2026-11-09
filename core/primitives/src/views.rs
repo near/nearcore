@@ -24,8 +24,9 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext, DataReceipt,
+    DataReceiver, GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptV0,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
@@ -2411,7 +2412,7 @@ pub struct DataReceiverView {
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
-        signer_public_key: PublicKey,
+        authorization_context: AuthorizationContext,
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -2494,7 +2495,12 @@ impl ReceiptEnumView {
     ) -> ReceiptEnumView {
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
+            authorization_context: match action_receipt.signer_public_key() {
+                Some(signer_public_key) => {
+                    AuthorizationContext::AccessKey(signer_public_key.clone())
+                }
+                None => AuthorizationContext::ExternalContractCall,
+            },
             gas_price: action_receipt.gas_price(),
             output_data_receivers: action_receipt
                 .output_data_receivers()
@@ -2529,7 +2535,7 @@ impl TryFrom<ReceiptView> for Receipt {
             receipt: match receipt_view.receipt {
                 ReceiptEnumView::Action {
                     signer_id,
-                    signer_public_key,
+                    authorization_context,
                     gas_price,
                     output_data_receivers,
                     input_data_ids,
@@ -2554,34 +2560,55 @@ impl TryFrom<ReceiptView> for Receipt {
                     // created by the runtime - there we always create ActionReceiptV2.
                     // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
                     // through views. This will be fixed with #14709.
-                    if refund_to.is_some() {
-                        let action_receipt = ActionReceiptV2 {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                            refund_to,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYieldV2(action_receipt)
-                        } else {
-                            ReceiptEnum::ActionV2(action_receipt)
+                    match authorization_context {
+                        AuthorizationContext::AccessKey(signer_public_key)
+                            if refund_to.is_some() =>
+                        {
+                            let action_receipt = ActionReceiptV2 {
+                                signer_id,
+                                signer_public_key,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                                refund_to,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYieldV2(action_receipt)
+                            } else {
+                                ReceiptEnum::ActionV2(action_receipt)
+                            }
                         }
-                    } else {
-                        let action_receipt = ActionReceipt {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYield(action_receipt)
-                        } else {
-                            ReceiptEnum::Action(action_receipt)
+                        AuthorizationContext::AccessKey(signer_public_key) => {
+                            let action_receipt = ActionReceipt {
+                                signer_id,
+                                signer_public_key,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYield(action_receipt)
+                            } else {
+                                ReceiptEnum::Action(action_receipt)
+                            }
+                        }
+                        AuthorizationContext::ExternalContractCall => {
+                            let action_receipt = ActionReceiptV3 {
+                                signer_id,
+                                refund_to,
+                                authorization_context: AuthorizationContext::ExternalContractCall,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYieldV3(action_receipt)
+                            } else {
+                                ReceiptEnum::ActionV3(action_receipt)
+                            }
                         }
                     }
                 }

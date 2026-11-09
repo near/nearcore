@@ -321,6 +321,8 @@ impl Receipt {
             | ReceiptEnum::GlobalContractDistribution(_) => &None,
             ReceiptEnum::ActionV2(action_receipt_v2)
             | ReceiptEnum::PromiseYieldV2(action_receipt_v2) => &action_receipt_v2.refund_to,
+            ReceiptEnum::ActionV3(action_receipt_v3)
+            | ReceiptEnum::PromiseYieldV3(action_receipt_v3) => &action_receipt_v3.refund_to,
         }
     }
 
@@ -340,6 +342,8 @@ impl Receipt {
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseYield(_)
             | ReceiptEnum::PromiseYieldV2(_)
+            | ReceiptEnum::ActionV3(_)
+            | ReceiptEnum::PromiseYieldV3(_)
             | ReceiptEnum::PromiseResume(_) => {
                 shard_layout.account_id_to_shard_id(self.receiver_id())
             }
@@ -470,6 +474,8 @@ pub enum ReceiptEnum {
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -539,12 +545,67 @@ pub struct ActionReceiptV2 {
     pub actions: Vec<Action>,
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ActionReceiptV3 {
+    /// A signer of the original transaction, or the contract that accepted an external call
+    pub signer_id: AccountId,
+    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    pub refund_to: Option<AccountId>,
+    /// What authorized the chain of receipts this receipt belongs to
+    pub authorization_context: AuthorizationContext,
+    /// A gas_price which has been used to buy gas in the original transaction or external call
+    pub gas_price: Balance,
+    /// If present, where to route the output data
+    pub output_data_receivers: Vec<DataReceiver>,
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
+    pub input_data_ids: Vec<CryptoHash>,
+    /// A list of actions to process when all input_data_ids are filled
+    pub actions: Vec<Action>,
+}
+
+/// What authorized a chain of receipts: an access key that signed a transaction, or an
+/// external call its contract accepted.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum AuthorizationContext {
+    AccessKey(PublicKey) = 0,
+    ExternalContractCall = 1,
+}
+
 /// Convenience wrapper for common logic accessing fields on action receipts of
 /// different versions.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum VersionedActionReceipt<'a> {
     V1(Cow<'a, ActionReceipt>),
     V2(Cow<'a, ActionReceiptV2>),
+    V3(Cow<'a, ActionReceiptV3>),
 }
 
 impl VersionedActionReceipt<'_> {
@@ -553,6 +614,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_id,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_id,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.signer_id,
         }
     }
 
@@ -561,14 +623,22 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(_) => &None,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.refund_to,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.refund_to,
         }
     }
 
-    /// An access key which was used to sign the original transaction
-    pub fn signer_public_key(&self) -> &PublicKey {
+    /// An access key which was used to sign the original transaction, absent in the chain of an
+    /// external call
+    pub fn signer_public_key(&self) -> Option<&PublicKey> {
         match self {
-            VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_public_key,
-            VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_public_key,
+            VersionedActionReceipt::V1(action_receipt) => Some(&action_receipt.signer_public_key),
+            VersionedActionReceipt::V2(action_receipt) => Some(&action_receipt.signer_public_key),
+            VersionedActionReceipt::V3(action_receipt) => {
+                match &action_receipt.authorization_context {
+                    AuthorizationContext::AccessKey(public_key) => Some(public_key),
+                    AuthorizationContext::ExternalContractCall => None,
+                }
+            }
         }
     }
 
@@ -577,6 +647,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,
             VersionedActionReceipt::V2(action_receipt) => action_receipt.gas_price,
+            VersionedActionReceipt::V3(action_receipt) => action_receipt.gas_price,
         }
     }
 
@@ -585,6 +656,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.output_data_receivers,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.output_data_receivers,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.output_data_receivers,
         }
     }
 
@@ -597,6 +669,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.input_data_ids,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.input_data_ids,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.input_data_ids,
         }
     }
 
@@ -605,6 +678,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.actions,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.actions,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.actions,
         }
     }
 }
@@ -630,6 +704,18 @@ impl<'a> From<&'a ActionReceiptV2> for VersionedActionReceipt<'a> {
 impl From<ActionReceiptV2> for VersionedActionReceipt<'_> {
     fn from(other: ActionReceiptV2) -> Self {
         VersionedActionReceipt::V2(Cow::Owned(other))
+    }
+}
+
+impl<'a> From<&'a ActionReceiptV3> for VersionedActionReceipt<'a> {
+    fn from(other: &'a ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Borrowed(other))
+    }
+}
+
+impl From<ActionReceiptV3> for VersionedActionReceipt<'_> {
+    fn from(other: ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Owned(other))
     }
 }
 
@@ -676,6 +762,12 @@ impl<'a> From<&'a ReceiptEnum> for VersionedReceiptEnum<'a> {
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
         }
     }
 }
@@ -702,6 +794,12 @@ impl<'a> From<ReceiptEnum> for VersionedReceiptEnum<'a> {
                 VersionedReceiptEnum::Action(action_receipt.into())
             }
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
         }

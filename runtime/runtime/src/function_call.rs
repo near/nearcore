@@ -13,7 +13,8 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    ActionReceiptV2, ActionReceiptV3, AuthorizationContext, DataReceipt, Receipt, ReceiptEnum,
+    ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -36,7 +37,7 @@ use std::sync::Arc;
 /// Who signs and pays for the receipts a contract run creates.
 pub(crate) struct NewReceiptSigner<'a> {
     pub signer_id: &'a AccountId,
-    pub signer_public_key: &'a PublicKey,
+    pub signer_public_key: Option<&'a PublicKey>,
     pub gas_price: Balance,
 }
 
@@ -69,19 +70,39 @@ pub(crate) fn new_receipts(
                 );
             }
 
-            let new_action_receipt = ActionReceiptV2 {
-                signer_id: signer.signer_id.clone(),
-                signer_public_key: signer.signer_public_key.clone(),
-                refund_to: receipt.refund_to,
-                gas_price: signer.gas_price,
-                output_data_receivers: receipt.output_data_receivers,
-                input_data_ids: receipt.input_data_ids,
-                actions: receipt.actions,
-            };
-            let new_receipt = if receipt.is_promise_yield {
-                ReceiptEnum::PromiseYieldV2(new_action_receipt)
-            } else {
-                ReceiptEnum::ActionV2(new_action_receipt)
+            let new_receipt = match signer.signer_public_key {
+                Some(signer_public_key) => {
+                    let new_action_receipt = ActionReceiptV2 {
+                        signer_id: signer.signer_id.clone(),
+                        signer_public_key: signer_public_key.clone(),
+                        refund_to: receipt.refund_to,
+                        gas_price: signer.gas_price,
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV2(new_action_receipt)
+                    }
+                }
+                None => {
+                    let new_action_receipt = ActionReceiptV3 {
+                        signer_id: signer.signer_id.clone(),
+                        refund_to: receipt.refund_to,
+                        authorization_context: AuthorizationContext::ExternalContractCall,
+                        gas_price: signer.gas_price,
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYieldV3(new_action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV3(new_action_receipt)
+                    }
+                }
             };
 
             Receipt::V0(ReceiptV0 {
@@ -316,9 +337,9 @@ pub(crate) fn function_call_context(
     VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id().clone(),
-        signer_account_pk: Some(
-            borsh::to_vec(&action_receipt.signer_public_key()).expect("Failed to serialize"),
-        ),
+        signer_account_pk: action_receipt.signer_public_key().map(|signer_public_key| {
+            borsh::to_vec(signer_public_key).expect("Failed to serialize")
+        }),
         predecessor_account_id: predecessor_id.clone(),
         refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
         input: Rc::from(function_call.args.clone()),

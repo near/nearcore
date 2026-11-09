@@ -1194,6 +1194,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -1245,6 +1249,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 if new_receipt.is_instant_receipt() {
@@ -1417,11 +1423,19 @@ impl Runtime {
         if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
-            result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id(),
-                gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
-            ));
+            let refund = match action_receipt.signer_public_key() {
+                Some(signer_public_key) => Receipt::new_gas_refund(
+                    &action_receipt.signer_id(),
+                    gas_balance_refund,
+                    signer_public_key.clone(),
+                ),
+                // A chain an external call started has no access key or gas key to credit, so the
+                // refund is a plain transfer to its signer, the contract.
+                None => {
+                    Receipt::new_balance_refund(&action_receipt.signer_id(), gas_balance_refund)
+                }
+            };
+            result.new_receipts.push(refund);
         }
 
         Ok(gas_refund_result)
@@ -3205,26 +3219,22 @@ fn action_transfer_or_implicit_account_creation(
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
+        let gas_refund_key = action_receipt.signer_public_key().filter(|_| is_gas_refund);
         // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
         // the refund goes to the gas key balance and we skip crediting the account balance.
-        if is_gas_refund
+        if let Some(signer_public_key) = gas_refund_key
             && try_refund_gas_key_balance(
                 state_update,
                 receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
+                signer_public_key,
                 deposit,
             )?
         {
             return Ok(());
         }
         action_transfer(account, deposit)?;
-        if is_gas_refund {
-            try_refund_allowance(
-                state_update,
-                receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
-                deposit,
-            )?;
+        if let Some(signer_public_key) = gas_refund_key {
+            try_refund_allowance(state_update, receipt.receiver_id(), signer_public_key, deposit)?;
         }
     } else {
         debug_assert!(!is_refund);
@@ -3584,7 +3594,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

@@ -113,9 +113,8 @@ impl TriePrefetcher {
             if self.prefetch_api.enable_receipt_prefetching {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
-                if is_refund {
-                    let trie_key =
-                        TrieKey::access_key(account_id.clone(), action_receipt.signer_public_key());
+                if is_refund && let Some(signer_public_key) = action_receipt.signer_public_key() {
+                    let trie_key = TrieKey::access_key(account_id.clone(), signer_public_key);
                     self.prefetch_trie_key(trie_key)?;
                 }
                 for action in action_receipt.actions() {
