@@ -189,9 +189,11 @@ env.network_rule(1, |request| matches!(request, NetworkRequests::Approval { .. }
 
 - Rules run in the order they were added. A delayed or held request skips the rules after
   the one that delayed it; `observe_messages_from` sees requests before any rule does.
-- A block that is dropped, held or replaced is *kept*: `BlockRequest`s for it, and header
-  requests to its keeper, are swallowed, even before observers see them. `Action::Lose`
-  drops a request without keeping its block.
+- A block that is dropped, held or replaced before any node sent it is *kept*:
+  `BlockRequest`s for it, and header requests to its keeper, are swallowed, even before
+  observers see them, and also when a delayed request goes out. Dropping a block a node
+  only rebroadcasts does not keep it. `Action::Lose` drops a request without keeping its
+  block.
 - `chunk_parts_rule` matches every message that carries a chunk's parts.
 - To withhold a block from one recipient only, use `withhold_block_delivery` /
   `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.

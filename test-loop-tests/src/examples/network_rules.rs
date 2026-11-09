@@ -99,7 +99,7 @@ fn test_lose_messages_from_node() {
     env.node_runner(1).run_for_number_of_blocks(10);
     assert!(lost.matched() > 0, "node 0 broadcast no block to lose");
     let kept = env.shared_state.network_rules.kept_blocks();
-    assert!(kept.hashes.is_empty(), "a lost block was kept from the network");
+    assert!(kept.is_empty(), "a lost block was kept from the network");
 }
 
 /// Node 0 delays its approvals, and an observer added after the delay still sees every one

@@ -747,18 +747,16 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
     }
 }
 
-/// A request a rule let go later than it was sent: it goes to the handlers directly, past the
-/// rules after the one that let it go and past the swallowing of requests for kept blocks. It
-/// still counts as sent now, for the release of held requests.
+/// A request a rule let go later than it was sent, see [`NetworkRules::apply_deferred`].
 #[derive(Debug)]
 pub struct DeferredNetworkRequest(pub NetworkRequests);
 
 impl Handler<DeferredNetworkRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: DeferredNetworkRequest) {
-        for request in self.rules.note_deferred(&self.account_id, &msg.0) {
+        let Applied { released, requests } = self.rules.apply_deferred(&self.account_id, msg.0);
+        for request in released.into_iter().chain(requests) {
             self.dispatch(request);
         }
-        self.dispatch(msg.0);
     }
 }
 
