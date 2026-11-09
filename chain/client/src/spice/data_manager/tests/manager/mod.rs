@@ -26,6 +26,7 @@ mod lifecycle;
 mod orphans;
 mod recovery;
 mod retries;
+mod witnesses;
 
 /// A block on `prev` whose core statements certify `chunk_ids`. Not validated or processed.
 fn certifying_block(prev: &Block, chunk_ids: &[SpiceChunkId]) -> Arc<Block> {
@@ -92,13 +93,16 @@ fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTr
 
 /// A manager whose node applies one shard, shard 1 unless built with `applying`: it needs
 /// the proof from every other shard into that one, unless that proof is on disk. On the
-/// two-shard chain that is `(0 -> 1)` only. Nothing is certified until
-/// `certify_up_to` says so, and nothing is finally executed until
-/// `set_final_execution_head` says so. Time stands still until `clock` is advanced.
+/// two-shard chain that is `(0 -> 1)` only. The node has no account, so it needs no witness,
+/// unless built with `as_validator`. Nothing is certified until `certify_up_to` says so,
+/// and the cut-off stays at genesis until `set_cutoff` moves it. Time stands still until
+/// `clock` is advanced.
 struct TestManager {
     manager: SpiceDataManager,
     clock: FakeClock,
     store: Store,
+    /// The node's account, if it has one.
+    me: Option<AccountId>,
     /// The highest height `certify_up_to` certified.
     certified_height: BlockHeight,
     shard_ids: Vec<ShardId>,
@@ -125,6 +129,7 @@ impl TestManager {
             ),
             clock: FakeClock::default(),
             store,
+            me: None,
             certified_height: 0,
             shard_ids: shard_layout.shard_ids().collect(),
         }
@@ -141,12 +146,19 @@ impl TestManager {
             })
             .collect();
         let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
-        self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids)).unwrap();
+        self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids), None).unwrap();
         self.certified_height = self.certified_height.max(height);
     }
 
-    fn set_final_execution_head(&self, block: &Block) {
-        set_final_execution_head(&self.store, block);
+    /// A node with `me`'s account that applies `shard`.
+    fn as_validator(chain: &Chain, shard: u64, me: AccountId) -> Self {
+        Self { me: Some(me), ..Self::applying(chain, shard) }
+    }
+
+    /// Moves the cut-off to `block` and expires what it passes. The chain would show it at
+    /// the next trigger once both execution and certification are final up to `block`.
+    fn set_cutoff(&mut self, block: &Block) {
+        self.manager.on_cutoff(block.header().height());
     }
 
     /// Writes `block` to the store as the consensus final head.
@@ -157,7 +169,7 @@ impl TestManager {
     }
 
     fn track_block(&mut self, block: &Block) {
-        self.manager.track_block(block).unwrap();
+        self.manager.track_block(block, self.me.as_ref()).unwrap();
     }
 
     fn is_tracking(&self, id: &DataId) -> bool {
@@ -197,7 +209,9 @@ impl TestManager {
             block.header().height(),
             self.certified_height
         );
-        self.manager.on_block_processed(block.hash(), self.clock.now()).pull_requests
+        self.manager
+            .on_block_processed(block.hash(), self.clock.now(), self.me.as_ref())
+            .pull_requests
     }
 
     /// Delivers `parts` and asserts the item keeps collecting.
@@ -217,7 +231,7 @@ impl TestManager {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
         let result = self.manager.receive_from(sender, id, &commitment, parts).unwrap();
-        assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
+        assert_matches!(result, PartsOutcome::Decoded(decoded) if decoded == decoded_data(id, data.clone()));
     }
 
     fn item(&self, id: &DataId) -> &FetchItem {

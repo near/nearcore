@@ -102,3 +102,38 @@ fn an_items_ask_larger_than_one_request_spans_requests() {
     }
     assert_eq!(asked, gaps);
 }
+
+#[test]
+fn a_request_holds_at_most_the_witness_limit_of_witnesses() {
+    let witnesses: Vec<DataId> = (0..MAX_REQUESTED_WITNESSES as u64 + 1)
+        .map(|index| {
+            DataId::Witness(SpiceChunkId {
+                block_hash: hash(&index.to_le_bytes()),
+                shard_id: ShardId::new(0),
+            })
+        })
+        .collect();
+    let items: HashMap<DataId, FetchItem> =
+        witnesses.iter().map(|id| (id.clone(), item_with_producers(TOTAL_PARTS))).collect();
+    let mut pulls = Pulls::new(PullConfig::default());
+    for id in &witnesses {
+        pulls.mark_pullable(id.clone(), 1);
+    }
+
+    let requests: Vec<PullRequest> = pulls
+        .to_issue(Clock::real().now(), &items)
+        .into_iter()
+        .filter(|request| request.producer == producer(0))
+        .collect();
+
+    assert_eq!(requests.len(), 2, "three witnesses over a cap of two: {requests:?}");
+    for request in &requests {
+        assert!(
+            request.wants.len() <= MAX_REQUESTED_WITNESSES,
+            "request over the cap: {request:?}"
+        );
+    }
+    let asked: BTreeSet<&DataId> =
+        requests.iter().flat_map(|request| request.wants.keys()).collect();
+    assert_eq!(asked, witnesses.iter().collect());
+}

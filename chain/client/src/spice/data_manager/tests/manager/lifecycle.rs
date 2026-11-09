@@ -1,4 +1,6 @@
 use super::*;
+use near_primitives::types::SpiceUncertifiedChunkInfo;
+use near_store::DBCol;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -53,8 +55,8 @@ fn track_block_tracks_exactly_the_needed_items_once() {
     let block = &blocks[4];
     let mut manager = TestManager::new(&chain).manager;
 
-    manager.track_block(&block).unwrap();
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block, None).unwrap();
+    manager.track_block(&block, None).unwrap();
 
     assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
     // Proofs from the shard we apply are produced locally; proofs into the shard we
@@ -75,7 +77,7 @@ fn track_block_skips_items_already_on_disk() {
     save_proof(&chain, block, &receipt_data(0, 1));
     let mut manager = TestManager::new(&chain).manager;
 
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block, None).unwrap();
 
     assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
     assert!(manager.items_by_height.is_empty());
@@ -83,12 +85,12 @@ fn track_block_skips_items_already_on_disk() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
+fn blocks_at_or_below_the_cutoff_are_not_tracked() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_cutoff(&blocks[0]);
 
-    // Height 1 is finally executed: neither the processed block nor a later track adds it.
+    // Height 1 is at the cut-off: neither the processed block nor a later track adds it.
     let requests = manager.on_block_processed(&blocks[0]);
     manager.track_block(&blocks[0]);
     manager.track_block(&blocks[1]);
@@ -111,7 +113,7 @@ fn a_processed_block_tracks_its_items() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
+fn a_processed_block_expires_the_items_at_or_below_the_cutoff() {
     let (chain, all_blocks) = chain_with_blocks(4);
     // Heights 2, 3, 4.
     let blocks = &all_blocks[1..];
@@ -120,7 +122,7 @@ fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
         manager.track_block(&block);
     }
 
-    manager.set_final_execution_head(&blocks[1]);
+    manager.set_cutoff(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
@@ -134,7 +136,7 @@ fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_fork_item_expires_by_height_with_the_final_execution_head() {
+fn a_fork_item_expires_by_height_with_the_cutoff() {
     let (mut chain, blocks) = chain_with_blocks(2);
     let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
@@ -146,13 +148,13 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     }
     let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
 
-    manager.set_final_execution_head(&blocks[1]);
+    manager.set_cutoff(&blocks[1]);
     manager.on_block_processed(&canonical_at_4);
     for id in &fork_ids {
         assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
     }
 
-    manager.set_final_execution_head(&canonical_at_4);
+    manager.set_cutoff(&canonical_at_4);
     manager.on_block_processed(&canonical_at_4);
     for id in &fork_ids {
         assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
@@ -278,7 +280,7 @@ fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
     let certifier = certifying_block(&blocks[0], &chunk_ids);
 
     let made_pullable: HashSet<DataId> =
-        manager.manager.made_pullable_by(&certifier).unwrap().into_iter().collect();
+        manager.manager.made_pullable_by(&certifier, None).unwrap().into_iter().collect();
     assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
 }
 
@@ -293,7 +295,7 @@ fn expiry_drops_the_expired_items_from_every_index() {
     manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
     manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_cutoff(&blocks[0]);
     manager.on_block_processed(&blocks[2]);
 
     manager.assert_forgotten(&expired);
@@ -383,7 +385,7 @@ fn a_late_part_for_a_done_item_is_already_settled() {
     assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
 
     // Once its block is executed and final, the item is gone.
-    manager.set_final_execution_head(block);
+    manager.set_cutoff(block);
     manager.on_block_processed(block);
     let result = manager.manager.receive_from(&producers[4], &id, &commitment, late);
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
@@ -485,7 +487,10 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
         &honest_commitment,
         parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
     );
-    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
+    assert_matches!(
+        result,
+        Ok(PartsOutcome::Decoded(data)) if data == decoded_data(&id, honest_data.clone())
+    );
     assert!(manager.is_tracking(&id));
 
     // Saved: the next block stops pulling it.
@@ -523,7 +528,10 @@ fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pullin
     save_proof(&chain, &blocks[1], &receipt_data(0, 1));
 
     let requests = by_producer(
-        manager.manager.on_block_processed(&hash(b"unknown"), manager.clock.now()).pull_requests,
+        manager
+            .manager
+            .on_block_processed(&hash(b"unknown"), manager.clock.now(), None)
+            .pull_requests,
     );
 
     for (ordinal, producer) in producers().iter().enumerate() {
@@ -531,4 +539,67 @@ fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pullin
         assert!(!requests[producer].contains_key(&done));
     }
     assert!(!manager.is_pullable(&done));
+}
+
+/// Adds a block on `head` as the final head, with only the chunks of `oldest_uncertified`
+/// uncertified as of it, so the last certified block as of the final head is
+/// `oldest_uncertified`'s parent.
+fn set_final_head_certified_below(
+    chain: &mut Chain,
+    manager: &TestManager,
+    head: &Block,
+    oldest_uncertified: &Block,
+) {
+    let final_head = certifying_block(head, &[]);
+    save_and_record_block(chain, &final_head);
+    manager.set_final_head(&final_head);
+    let row: Vec<SpiceUncertifiedChunkInfo> = vec![SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId {
+            block_hash: *oldest_uncertified.hash(),
+            shard_id: ShardId::new(0),
+        },
+        missing_endorsements: Vec::new(),
+        present_endorsements: Vec::new(),
+        present_fallback_endorsements: Vec::new(),
+        certifiable_since_height: None,
+    }];
+    let mut store_update = manager.store.store_update();
+    store_update.insert_ser(DBCol::uncertified_chunks(), final_head.hash().as_ref(), &row);
+    store_update.commit();
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_cutoff_is_the_lower_of_the_final_execution_head_and_the_last_certified_block() {
+    let (mut chain, blocks) = chain_with_blocks(4);
+    let manager = TestManager::new(&chain);
+    set_final_head_certified_below(&mut chain, &manager, &blocks[3], &blocks[2]);
+
+    // Execution is past certification, as on a node that applies no shard.
+    set_final_execution_head(&manager.store, &blocks[3]);
+    assert_eq!(manager.manager.cutoff_height().unwrap(), blocks[1].header().height());
+    assert_eq!(manager.manager.cutoff().unwrap().last_block_hash, *blocks[1].hash());
+
+    // Certification is past execution.
+    set_final_execution_head(&manager.store, &blocks[0]);
+    assert_eq!(manager.manager.cutoff_height().unwrap(), blocks[0].header().height());
+    assert_eq!(manager.manager.cutoff().unwrap().last_block_hash, *blocks[0].hash());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_processed_block_expires_the_items_at_or_below_the_cutoff_read_from_the_chain() {
+    let (mut chain, blocks) = chain_with_blocks(4);
+    let mut manager = TestManager::new(&chain);
+    for block in &blocks[..3] {
+        manager.track_block(block);
+    }
+    set_final_head_certified_below(&mut chain, &manager, &blocks[3], &blocks[2]);
+    set_final_execution_head(&manager.store, &blocks[3]);
+
+    manager.on_block_processed(&blocks[3]);
+
+    assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
 }

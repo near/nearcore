@@ -949,7 +949,9 @@ pub(crate) fn get_execution_result_from_store(
     chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
 }
 
-fn get_uncertified_chunks(
+/// The uncertified chunks as of `block_hash`. Empty for genesis and for pre-spice blocks other
+/// than the last pre-spice block, whose seeded row is returned.
+pub fn get_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {

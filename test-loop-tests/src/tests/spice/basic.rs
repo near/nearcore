@@ -1052,3 +1052,21 @@ fn test_spice_chunk_certifying_block_index() {
         assert_eq!(chain_store.get_chunk_certifying_block(chunk_id), expected);
     }
 }
+
+/// Endorsements of blocks processed before the handler was installed are already overdue, so
+/// installing the delay on a running chain does not hold them forever.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_delay_endorsements_propagation_installed_on_a_running_chain_keeps_certifying() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(4, 2).build();
+
+    env.delay_endorsements_propagation(4);
+    let certified = env.node(0).last_certified_block_header().height();
+
+    env.node_runner(0).run_for_number_of_blocks(12);
+
+    let certified_after = env.node(0).last_certified_block_header().height();
+    assert!(certified_after >= certified + 4, "certification stalled at {certified_after}");
+}
