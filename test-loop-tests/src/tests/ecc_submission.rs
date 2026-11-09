@@ -410,3 +410,87 @@ fn test_chunks_hold_as_many_eccs_as_apply_takes() {
     assert_eq!(eccs_per_chunk.iter().sum::<usize>(), 4, "{eccs_per_chunk:?}");
     assert!(eccs_per_chunk.iter().all(|num_eccs| *num_eccs <= 2), "{eccs_per_chunk:?}");
 }
+
+/// What the contract from `ecc_transfer_contract` sends to its receiver on every ECC.
+const ECC_TRANSFER_AMOUNT: Balance = Balance::from_near(1);
+
+/// A contract whose ECC method transfers `ECC_TRANSFER_AMOUNT` to `receiver_id`.
+fn ecc_transfer_contract(receiver_id: &AccountId) -> Vec<u8> {
+    const RECEIVER_OFFSET: usize = 0;
+    const AMOUNT_OFFSET: usize = 256;
+    let receiver = receiver_id.as_str();
+    let receiver_len = receiver.len();
+    // WAT data strings take raw bytes as `\xx` escapes; the amount is a little-endian u128.
+    let amount_bytes = ECC_TRANSFER_AMOUNT.as_yoctonear().to_le_bytes();
+    let amount: String = amount_bytes.iter().map(|byte| format!("\\{byte:02x}")).collect();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "promise_batch_create" (func $promise_batch_create (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_transfer"
+    (func $promise_batch_action_transfer (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const {RECEIVER_OFFSET}) "{receiver}")
+  (data (i32.const {AMOUNT_OFFSET}) "{amount}")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $promise_batch_action_transfer
+      (call $promise_batch_create (i64.const {receiver_len}) (i64.const {RECEIVER_OFFSET}))
+      (i64.const {AMOUNT_OFFSET})))
+)"#
+    ))
+}
+
+/// An accepted ECC's promise becomes a receipt that runs on another shard: the receiver gets the
+/// transfer, paid from the contract's balance.
+#[test]
+fn test_ecc_promise_transfers_to_another_shard() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    // Enough blocks for the receipts of a transaction, refunds included, to finish.
+    const BLOCKS_TO_SETTLE: usize = 3;
+    const OUTCOME_TIMEOUT: Duration = Duration::seconds(10);
+    let contract_id = create_account_id("a-contract");
+    let receiver_id = create_account_id("receiver");
+    let mut env = setup_two_shards(&[&contract_id, &receiver_id], true);
+    let head = env.rpc_node().head();
+    let shard_layout =
+        env.rpc_node().client().epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+    assert_ne!(
+        shard_layout.account_id_to_shard_id(&contract_id),
+        shard_layout.account_id_to_shard_id(&receiver_id),
+        "the contract and the receiver share a shard"
+    );
+    let deploy_tx =
+        env.rpc_node().tx_deploy_contract(&contract_id, ecc_transfer_contract(&receiver_id));
+    env.rpc_runner().run_tx(deploy_tx, OUTCOME_TIMEOUT);
+    env.rpc_runner().run_for_number_of_blocks(BLOCKS_TO_SETTLE);
+    let receiver_before = env.rpc_node().query_balance(&receiver_id);
+    let contract_before = env.rpc_node().query_balance(&contract_id);
+
+    let ecc = ecc(&contract_id);
+    let ecc_hash = ecc.get_hash();
+    assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+    let included_at = env.rpc_runner().run_until_included(&[ecc_hash]);
+    let outcome_id = create_ecc_outcome_id(&ecc_hash, included_at);
+    let outcome = env.rpc_runner().run_until_outcome_available(outcome_id, OUTCOME_TIMEOUT);
+    let outcome = outcome.outcome_with_id.outcome;
+    let [receipt_id] = outcome.receipt_ids.as_slice() else {
+        panic!("expected one receipt, got {outcome:?}");
+    };
+    let receipt_outcome =
+        env.rpc_runner().run_until_outcome_available(*receipt_id, OUTCOME_TIMEOUT);
+    let receipt_status = receipt_outcome.outcome_with_id.outcome.status;
+    assert_matches!(receipt_status, ExecutionStatus::SuccessValue(_));
+    env.rpc_runner().run_for_number_of_blocks(BLOCKS_TO_SETTLE);
+
+    let receiver_after = env.rpc_node().query_balance(&receiver_id);
+    assert_eq!(receiver_after, receiver_before.checked_add(ECC_TRANSFER_AMOUNT).unwrap());
+    // The test chain's gas price is 0, so gas costs nothing and the transfer is a lower bound.
+    let contract_after = env.rpc_node().query_balance(&contract_id);
+    assert!(contract_after <= contract_before.checked_sub(ECC_TRANSFER_AMOUNT).unwrap());
+}
