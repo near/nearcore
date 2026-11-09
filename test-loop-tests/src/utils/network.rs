@@ -84,6 +84,17 @@ pub fn spice_designated_endorsement_dropper(
     }
 }
 
+/// Handler to drop every request for contract code, so a chunk validator can only validate with
+/// code it already holds.
+pub fn contract_code_request_dropper() -> impl Fn(NetworkRequests) -> HandlerResult {
+    move |request| match &request {
+        NetworkRequests::ContractCodeRequest(..) => {
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        _ => HandlerResult::Unhandled(request),
+    }
+}
+
 /// Handler to drop every request for spice data, leaving only pushed data to arrive.
 pub fn spice_data_request_dropper() -> impl Fn(NetworkRequests) -> HandlerResult {
     move |request| match &request {

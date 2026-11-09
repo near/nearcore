@@ -69,11 +69,39 @@ pub(crate) fn assert_all_chunk_endorsements_received(
     }
 }
 
+/// Runs the network until all the nodes hold the given code hash in their contract code cache.
+pub(crate) fn run_until_code_caches_contain_contract(
+    env: &mut TestLoopEnv,
+    code_hash: &CryptoHash,
+) {
+    env.test_loop.run_until(
+        |test_loop_data: &mut TestLoopData| -> bool {
+            (0..env.node_datas.len()).all(|i| {
+                let client_handle = env.node_datas[i].client_sender.actor_handle();
+                let client = &test_loop_data.get(&client_handle).client;
+                client.runtime_adapter.contract_code_cache().has(code_hash)
+            })
+        },
+        Duration::seconds(5),
+    );
+}
+
 /// Clears the compiled contract caches for all the clients.
 pub(crate) fn clear_compiled_contract_caches(env: &TestLoopEnv) {
     #[cfg(feature = "test_features")]
     for i in 0..env.node_datas.len() {
         env.node(i).client().runtime_adapter.compiled_contract_cache().test_only_clear().unwrap();
+    }
+    #[cfg(not(feature = "test_features"))]
+    let _ignore = env;
+}
+
+/// Clears the contract code caches for all the clients, so a cleared compiled cache cannot be
+/// refilled locally and the code has to come from chunk producers again.
+pub(crate) fn clear_contract_code_caches(env: &TestLoopEnv) {
+    #[cfg(feature = "test_features")]
+    for i in 0..env.node_datas.len() {
+        env.node(i).client().runtime_adapter.contract_code_cache().test_only_clear();
     }
     #[cfg(not(feature = "test_features"))]
     let _ignore = env;
