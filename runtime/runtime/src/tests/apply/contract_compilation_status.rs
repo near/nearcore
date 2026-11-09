@@ -6,6 +6,7 @@ use crate::contract_compilation_status::{
     try_admit_contract_compilation, update_contract_compilation_status,
 };
 use crate::{ApplyProcessingReceiptState, ApplyProcessingState, ProcessingResult};
+use near_primitives::receipt::VersionedReceiptEnum;
 use near_primitives::types::ContractCompilationStatus;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{TrieUpdate, get};
@@ -17,23 +18,39 @@ struct Fixture {
     runtime: Runtime,
     tries: ShardTries,
     root: CryptoHash,
+    shard_uid: ShardUId,
     state: ApplyState,
     signers: Vec<Arc<Signer>>,
     epochs: MockEpochInfoProvider,
 }
 
 fn setup() -> Fixture {
-    let (runtime, tries, root, mut state, signers, epochs) = setup_runtime(
-        vec![alice_account(), bob_account()],
+    setup_with_shard_layout(ShardLayout::single_shard())
+}
+
+fn setup_with_shard_layout(shard_layout: ShardLayout) -> Fixture {
+    let shard_uid = shard_layout.account_id_to_shard_uid(&alice_account());
+    let accounts = [alice_account(), bob_account()]
+        .into_iter()
+        .map(|account_id| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account_id));
+            (account_id, vec![signer])
+        })
+        .collect();
+    let (runtime, tries, root, mut state, signers) = setup_runtime_for_shard(
+        accounts,
         Balance::from_near(1_000_000),
         Balance::ZERO,
         Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
     );
+    let epochs = MockEpochInfoProvider::new(shard_layout);
     state.current_protocol_version = ProtocolFeature::ContractCompilationStatus.protocol_version();
     let configs = RuntimeConfigStore::new();
     state.config = configs.get_config(state.current_protocol_version).clone();
     state.vm_generation = configs.vm_generation(state.current_protocol_version);
-    Fixture { runtime, tries, root, state, signers, epochs }
+    Fixture { runtime, tries, root, shard_uid, state, signers, epochs }
 }
 
 impl Fixture {
@@ -47,13 +64,23 @@ impl Fixture {
     }
 
     fn apply_with_eccs(&mut self, receipts: &[Receipt], eccs: Vec<EccTransaction>) -> ApplyResult {
-        let valid = vec![true; eccs.len()];
-        let transactions = eccs.into_iter().map(TransactionEnvelope::from).collect();
+        self.apply_with_transactions(
+            receipts,
+            eccs.into_iter().map(TransactionEnvelope::from).collect(),
+        )
+    }
+
+    fn apply_with_transactions(
+        &mut self,
+        receipts: &[Receipt],
+        transactions: Vec<TransactionEnvelope>,
+    ) -> ApplyResult {
+        let valid = vec![true; transactions.len()];
         let result = self
             .runtime
             .apply(
                 self.tries
-                    .get_trie_for_shard(ShardUId::single_shard(), self.root)
+                    .get_trie_for_shard(self.shard_uid, self.root)
                     .recording_reads_new_recorder(),
                 &None,
                 &self.state,
@@ -64,8 +91,7 @@ impl Fixture {
             )
             .unwrap();
         let mut update = self.tries.store_update();
-        self.root =
-            self.tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut update);
+        self.root = self.tries.apply_all(&result.trie_changes, self.shard_uid, &mut update);
         update.commit();
         if let Some(info) = &result.congestion_info {
             self.state
@@ -80,7 +106,7 @@ impl Fixture {
         &self,
         receipt: &Receipt,
     ) -> (ProcessingResult<()>, ApplyProcessingReceiptState<'_>) {
-        let trie = self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root);
+        let trie = self.tries.get_trie_for_shard(self.shard_uid, self.root);
         let mut processing = ApplyProcessingState::new(&self.state, trie, &self.epochs);
         let delayed = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing.state_update).unwrap(),
@@ -113,7 +139,7 @@ impl Fixture {
     }
 
     fn compilation_status(&self, code: &[u8]) -> Option<ContractCompilationStatus> {
-        let state = self.tries.new_trie_update(ShardUId::single_shard(), self.root);
+        let state = self.tries.new_trie_update(self.shard_uid, self.root);
         get(&state, &TrieKey::ContractCompilationStatus { code_hash: hash(code) }).unwrap()
     }
 
@@ -590,6 +616,45 @@ fn multi_contract_receipt_compiles_across_chunks_and_preserves_fifo() {
 }
 
 #[test]
+fn local_receipt_defers_after_transaction_acceptance_and_executes_on_retry() {
+    let mut f = setup();
+    let code = &budget_contracts()[0];
+    f.install_cold(&[f.receipt(0, vec![deploy(code)])]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    let tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        alice_account(),
+        f.signers[0].as_ref(),
+        vec![call("main")],
+        CryptoHash::default(),
+    );
+    let tx_hash = tx.get_hash();
+    let result = f.apply_with_transactions(&[], vec![tx.into()]);
+    assert_eq!(result.outcomes.len(), 1, "only the transaction should have an outcome");
+    assert_eq!(result.outcomes[0].id, tx_hash);
+    let receipt_id = assert_matches!(
+        result.outcomes[0].outcome.status,
+        ExecutionStatus::SuccessReceiptId(receipt_id) => receipt_id
+    );
+    assert_eq!(result.outcomes[0].outcome.receipt_ids, vec![receipt_id]);
+    assert_eq!(result.delayed_receipts_count, 1);
+    assert_eq!(result.cold_contract_bytes, 0);
+    assert!(result.outgoing_receipts.is_empty());
+    assert!(!result.processed_receipts.iter().any(|r| *r.receipt.receipt_id() == receipt_id));
+    assert_eq!(f.compilation_status(code), None);
+
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = code.len() as u64;
+    let retry = f.apply(&[]);
+    assert_eq!(retry.outcomes.len(), 1);
+    assert_eq!(retry.outcomes[0].id, receipt_id);
+    assert_matches!(retry.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(retry.delayed_receipts_count, 0);
+    assert_eq!(retry.cold_contract_bytes, code.len() as u64);
+    f.assert_cached(code);
+}
+
+#[test]
 fn preflight_defers_without_executing_actions_or_charging_loading_compute() {
     let mut f = setup();
     let codes = budget_contracts();
@@ -746,20 +811,98 @@ fn missing_global_remains_an_action_error() {
 
 #[test]
 fn global_distribution_obeys_compilation_budget() {
-    let mut f = setup();
-    let codes = budget_contracts();
-    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = codes[1].len() as u64;
-    let ids = codes.each_ref().map(|code| GlobalContractIdentifier::CodeHash(hash(code)));
-    let first =
-        f.apply(&[distribute(ids[0].clone(), &codes[0]), distribute(ids[1].clone(), &codes[1])]);
-    assert_eq!(first.cold_contract_bytes, codes[0].len() as u64);
-    assert_eq!(first.delayed_receipts_count, 1);
-    f.assert_cached(&codes[0]);
-    assert_eq!(f.compilation_status(&codes[1]), None);
-    let second = f.apply(&[]);
-    assert_eq!(second.cold_contract_bytes, codes[1].len() as u64);
-    assert_eq!(second.delayed_receipts_count, 0);
-    f.assert_cached(&codes[1]);
+    // Both fixture accounts live in one shard. Distribution must also forward to the other.
+    let mut f =
+        setup_with_shard_layout(ShardLayout::multi_shard_custom(vec!["zoo".parse().unwrap()], 3));
+    let local_shard = f.state.shard_id;
+    let other_shard = f.epochs.shard_layout.shard_ids().find(|id| *id != local_shard).unwrap();
+    let [old, new, _] = budget_contracts();
+    let id = GlobalContractIdentifier::AccountId(alice_account());
+    let distribution = |code: &[u8], nonce| {
+        Receipt::new_global_contract_distribution(
+            alice_account(),
+            GlobalContractDistributionReceipt::new(
+                id.clone(),
+                local_shard,
+                vec![],
+                code.to_vec().into(),
+                nonce,
+            ),
+        )
+    };
+    f.install_cold(&[distribution(&old, 1)]);
+    let code_key = TrieKey::GlobalContractCode { identifier: id.clone().into() };
+    let nonce_key = TrieKey::GlobalContractNonce { identifier: id.clone().into() };
+
+    for deferred in [true, false] {
+        Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk =
+            if deferred { 0 } else { new.len() as u64 };
+        let incoming = if deferred { vec![distribution(&new, 2)] } else { vec![] };
+        let pre_root = f.root;
+        let pre_congestion = f.state.congestion_info.clone();
+        let result = f.apply(&incoming);
+        let state = f.tries.new_trie_update(f.shard_uid, f.root);
+        if deferred {
+            assert_eq!(result.cold_contract_bytes, 0);
+            assert_eq!(result.delayed_receipts_count, 1);
+            assert!(result.outgoing_receipts.is_empty());
+            assert_eq!(state.get(&code_key, AccessOptions::DEFAULT).unwrap(), Some(old.clone()));
+            assert_eq!(
+                state.get(&nonce_key, AccessOptions::DEFAULT).unwrap(),
+                Some(1u64.to_le_bytes().to_vec())
+            );
+            assert_eq!(f.compilation_status(&new), None);
+            assert_eq!(
+                ShardsOutgoingReceiptBuffer::load(&state)
+                    .unwrap()
+                    .buffer_len(other_shard)
+                    .unwrap_or(0),
+                0,
+                "deferred distribution must not buffer a forwarded receipt",
+            );
+        } else {
+            assert_eq!(result.cold_contract_bytes, new.len() as u64);
+            assert_eq!(result.delayed_receipts_count, 0);
+            assert_eq!(state.get(&code_key, AccessOptions::DEFAULT).unwrap(), Some(new.clone()));
+            assert_eq!(
+                state.get(&nonce_key, AccessOptions::DEFAULT).unwrap(),
+                Some(2u64.to_le_bytes().to_vec())
+            );
+            f.assert_cached(&new);
+            assert_eq!(result.outgoing_receipts.len(), 1);
+            let forwarded = assert_matches!(
+                result.outgoing_receipts[0].versioned_receipt(),
+                VersionedReceiptEnum::GlobalContractDistribution(data) => data
+            );
+            assert_eq!(forwarded.id(), &id);
+            assert_eq!(forwarded.nonce(), 2);
+            assert_eq!(forwarded.code().as_ref(), new.as_slice());
+            assert_eq!(forwarded.target_shard(), other_shard);
+            assert_eq!(forwarded.already_delivered_shards(), &[local_shard]);
+        }
+
+        // Both rollback and successful forwarding must replay from the recorded witness.
+        f.state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+        let next_congestion = replace(&mut f.state.congestion_info, pre_congestion);
+        let replay = f
+            .runtime
+            .apply(
+                Trie::from_recorded_storage(result.proof.unwrap(), pre_root, false),
+                &None,
+                &f.state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &f.epochs,
+                Default::default(),
+            )
+            .unwrap();
+        assert_eq!(replay.state_root, result.state_root);
+        assert_eq!(replay.cold_contract_bytes, result.cold_contract_bytes);
+        assert_eq!(replay.outgoing_receipts, result.outgoing_receipts);
+        assert_eq!(replay.delayed_receipts_count, result.delayed_receipts_count);
+        f.state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
+        f.state.congestion_info = next_congestion;
+    }
 }
 
 #[test]
@@ -868,6 +1011,58 @@ fn preflight_loading_affordability_controls_admission() {
             }
         }
     }
+}
+
+#[test]
+fn receipt_compilation_budget_and_unconditional_deployment_charge_are_protocol_gated() {
+    let mut f = setup();
+    f.state.current_protocol_version -= 1;
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    let [first, second, later] = budget_contracts();
+
+    // Before activation, even a zero budget must not defer cold deployments or calls.
+    let installs = [f.receipt(0, vec![deploy(&first)]), f.receipt(1, vec![deploy(&second)])];
+    let result = f.apply(&installs);
+    assert_eq!(result.outcomes.len(), 2);
+    assert_eq!(result.delayed_receipts_count, 0);
+    assert_eq!(result.cold_contract_bytes, 0);
+    assert!(
+        result
+            .outcomes
+            .iter()
+            .all(|o| matches!(o.outcome.status, ExecutionStatus::SuccessValue(_)))
+    );
+    let calls = [f.receipt(0, vec![call("main")]), f.receipt(1, vec![call("main")])];
+    let result = f.apply(&calls);
+    assert_eq!(result.outcomes.len(), 2);
+    assert_eq!(result.delayed_receipts_count, 0);
+    assert_eq!(result.cold_contract_bytes, 0);
+    assert!(
+        result
+            .outcomes
+            .iter()
+            .all(|o| matches!(o.outcome.status, ExecutionStatus::SuccessValue(_)))
+    );
+
+    // A deployment after a failed action retains the old behavior: no execution charge.
+    let baseline = f.receipt(0, vec![call("missing_method")]);
+    let with_deployment = f.receipt(0, vec![call("missing_method"), deploy(&later)]);
+    let result = f.apply(&[baseline, with_deployment]);
+    assert_eq!(result.outcomes.len(), 2);
+    assert_eq!(result.delayed_receipts_count, 0);
+    assert_eq!(result.cold_contract_bytes, 0);
+    assert!(
+        result.outcomes.iter().all(|o| matches!(o.outcome.status, ExecutionStatus::Failure(_)))
+    );
+    assert_eq!(result.outcomes[0].outcome.gas_burnt, result.outcomes[1].outcome.gas_burnt);
+    for code in [&first, &second, &later] {
+        assert_eq!(f.compilation_status(code), None);
+    }
+    let state = f.tries.new_trie_update(ShardUId::single_shard(), f.root);
+    assert_eq!(
+        get_account(&state, &alice_account()).unwrap().unwrap().local_contract_hash(),
+        Some(hash(&first)),
+    );
 }
 
 #[test]
