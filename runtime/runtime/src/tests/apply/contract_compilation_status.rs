@@ -5,6 +5,7 @@ use crate::congestion_control::{DelayedReceiptQueueWrapper, ReceiptSink};
 use crate::contract_compilation_status::{
     try_admit_contract_compilation, update_contract_compilation_status,
 };
+use crate::pipelining::PreparationSubmission;
 use crate::{ApplyProcessingReceiptState, ApplyProcessingState, ProcessingResult};
 use near_primitives::receipt::VersionedReceiptEnum;
 use near_primitives::types::ContractCompilationStatus;
@@ -501,8 +502,14 @@ fn pipeline_submission_limit_falls_back_to_demand_preparation() {
         ReceiptSink::new(&processing.state_update.trie, &f.state, congestion, bandwidth, &f.epochs)
             .unwrap();
 
-    assert!(processing.pipeline_manager.submit(&receipts[0], &processing.state_update));
-    assert!(!processing.pipeline_manager.submit(&receipts[1], &processing.state_update));
+    assert_eq!(
+        processing.pipeline_manager.submit(&receipts[0], &processing.state_update),
+        PreparationSubmission::Submitted
+    );
+    assert_eq!(
+        processing.pipeline_manager.submit(&receipts[1], &processing.state_update),
+        PreparationSubmission::BudgetBlocked
+    );
     for receipt in &receipts {
         assert_matches!(
             f.runtime.process_receipt_with_metrics(

@@ -93,19 +93,33 @@ pub(crate) struct ReceiptPreparationPipeline {
     current_protocol_version: ProtocolVersion,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PreparationSubmission {
+    Skipped,
+    Submitted,
+    BudgetBlocked,
+}
+
 #[derive(Default)]
 struct PipelineSubmissionBudget {
     submitted_hashes: HashSet<CryptoHash>,
     submitted_bytes: u64,
     submission_limit: u64,
+    // Stop on the first rejection, even if a later, smaller contract might fit.
+    // This bounds budget-induced lookahead across all receipt queues in an apply.
+    lookahead_stopped: bool,
 }
 
 impl PipelineSubmissionBudget {
     fn try_submit(&mut self, hash: CryptoHash, code_len: u64) -> bool {
+        if self.lookahead_stopped {
+            return false;
+        }
         if self.submitted_hashes.contains(&hash) {
             return true;
         }
         if code_len > self.submission_limit.saturating_sub(self.submitted_bytes) {
+            self.lookahead_stopped = true;
             return false;
         }
         self.submitted_hashes.insert(hash);
@@ -190,25 +204,33 @@ impl ReceiptPreparationPipeline {
     /// applying a chunk ran out of gas or compute cost,) this work would eventually get lost, so
     /// for the most part it is best to submit work with limited look-ahead.
     ///
-    /// Returns `true` if the receipt is interesting and that pipelining has acted on it in some
-    /// way. Currently `true` is returned for any receipts containing `Action::DeployContract` (in
-    /// which case no further processing for the receiver account will be done), and
-    /// `Action::FunctionCall` (provided the account has not been blocked.)
+    /// Returns `Submitted` if pipelining acted on the receipt, including blocking an account
+    /// whose code identity may change. `Skipped` allows lookahead to continue. `BudgetBlocked`
+    /// stops all further speculative lookahead for this apply. Demand preparation is unaffected.
     ///
     /// This uses non-view gas accounting. View calls bypass this pipeline entirely.
-    pub(crate) fn submit(&mut self, receipt: &Receipt, state_update: &TrieUpdate) -> bool {
+    pub(crate) fn submit(
+        &mut self,
+        receipt: &Receipt,
+        state_update: &TrieUpdate,
+    ) -> PreparationSubmission {
+        if self.lookahead_stopped() {
+            return PreparationSubmission::BudgetBlocked;
+        }
         let account_id = receipt.receiver_id();
         if self.block_accounts.contains(account_id) {
-            return false;
+            return PreparationSubmission::Skipped;
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
             ReceiptEnum::ActionV2(a) | ReceiptEnum::PromiseYieldV2(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
                 self.block_global_contracts.insert(global_contract_data.id().clone());
-                return false;
+                return PreparationSubmission::Skipped;
             }
-            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => return false,
+            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                return PreparationSubmission::Skipped;
+            }
         };
         let mut any_function_calls = false;
         let mut account = None;
@@ -230,7 +252,8 @@ impl ReceiptPreparationPipeline {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // code-identity-changing actions into here, so that the necessary data
                     // dependencies can be established.
-                    return self.block_accounts.insert(account_id);
+                    self.block_accounts.insert(account_id);
+                    return PreparationSubmission::Submitted;
                 }
                 Action::FunctionCall(function_call) => {
                     let account = if let Some(account) = &account {
@@ -300,7 +323,7 @@ impl ReceiptPreparationPipeline {
                         .pipeline_submission_budget
                         .try_submit(code_ext.identifier.hash(), code_len.unwrap_or(0))
                     {
-                        continue;
+                        return PreparationSubmission::BudgetBlocked;
                     }
                     // Reuse successfully prepared metadata for optional next-epoch warming.
                     // Loading-gas affordability filters scheduling, warming itself is not
@@ -370,7 +393,15 @@ impl ReceiptPreparationPipeline {
                 | Action::WithdrawFromGasKey(_) => {}
             }
         }
-        return any_function_calls;
+        if any_function_calls {
+            PreparationSubmission::Submitted
+        } else {
+            PreparationSubmission::Skipped
+        }
+    }
+
+    pub(crate) fn lookahead_stopped(&self) -> bool {
+        self.pipeline_submission_budget.lookahead_stopped
     }
 
     /// Prepare contract metadata using this pipeline's configuration and storage.
@@ -529,13 +560,11 @@ mod tests {
         assert!(!budget.try_submit(second, 5), "breached budget must be rejected");
         assert_eq!(budget.submitted_bytes, 6);
         assert!(!budget.submitted_hashes.contains(&second));
-        assert!(budget.try_submit(third, 4), "exactly filled 10/10 budget must be admitted");
-        assert_eq!(budget.submitted_bytes, 10);
-        assert!(budget.try_submit(first, 6), "duplicate admission should not be rejected");
-        assert!(
-            !budget.try_submit(second, 5),
-            "previously rejected contract must still be rejected"
-        );
+        assert!(!budget.try_submit(third, 4), "lookahead must remain stopped after rejection");
+        assert_eq!(budget.submitted_bytes, 6);
+        assert!(!budget.try_submit(first, 6), "duplicates after rejection must be denied");
+        assert!(!budget.try_submit(second, 5), "later submissions must remain rejected");
+        assert!(budget.lookahead_stopped);
     }
 
     #[test]
@@ -544,7 +573,7 @@ mod tests {
         let second = CryptoHash([2; 32]);
         let mut budget = PipelineSubmissionBudget::default();
         assert!(!budget.try_submit(first, 1));
-        assert!(budget.try_submit(second, 0));
+        assert!(!budget.try_submit(second, 0));
 
         let mut budget =
             PipelineSubmissionBudget { submission_limit: u64::MAX, ..Default::default() };
