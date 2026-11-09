@@ -103,8 +103,8 @@ pub(crate) struct PerShardChunkExecutor {
 enum ApplyOutcome {
     /// Dispatched to the apply spawner (or already in flight).
     Scheduled,
-    /// Block is no longer relevant for this shard (off the final execution chain, not in this
-    /// shard's layout, or already applied on disk).
+    /// Block is no longer relevant for this shard (neither canonical nor a descendant of the final
+    /// execution head, not in this shard's layout, or already applied on disk).
     Dropped,
     /// Cannot be applied yet: inputs not yet on disk (prev chunk execution result, prev chunk
     /// extra, or receipts missing), or the shard's catchup not finished. Re-driven by a later
@@ -267,7 +267,7 @@ impl PerShardChunkExecutor {
         let shard_uid = self.shard_uid;
         let shard_id = shard_uid.shard_id();
         let block = self.chain_store.get_block(block_hash)?;
-        if !is_on_final_execution_chain(&self.chain_store, block.header()) {
+        if !is_canonical_or_descends_from_final_execution_head(&self.chain_store, block.header()) {
             return Ok(ApplyOutcome::Dropped);
         }
         // Resharding: this shard may be absent from `block`'s layout (split/merged
@@ -450,7 +450,7 @@ impl PerShardChunkExecutor {
         result: ShardUpdateResult,
     ) -> Result<Vec<ReceiptProof>, Error> {
         let block = self.chain_store.get_block(&block_hash)?;
-        if !is_on_final_execution_chain(&self.chain_store, block.header()) {
+        if !is_canonical_or_descends_from_final_execution_head(&self.chain_store, block.header()) {
             tracing::warn!(
                 target: "chunk_executor",
                 ?block_hash,
@@ -820,7 +820,10 @@ fn new_execution_result(
 
 /// Whether `header` is the final execution head, a block before it on the canonical chain, or a
 /// descendant of it.
-fn is_on_final_execution_chain(chain_store: &ChainStoreAdapter, header: &BlockHeader) -> bool {
+fn is_canonical_or_descends_from_final_execution_head(
+    chain_store: &ChainStoreAdapter,
+    header: &BlockHeader,
+) -> bool {
     let final_execution_head = chain_store
         .spice_final_execution_head()
         .expect("spice final execution head is seeded at genesis or at spice activation");
