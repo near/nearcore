@@ -387,7 +387,7 @@ jobs:
       - run: just check-non-default
 
   check_nearcore_no_default_features:
-    name: "nearcore No Default Features Build"
+    name: "Non-default Configuration Builds (nearcore crate)"
     runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
