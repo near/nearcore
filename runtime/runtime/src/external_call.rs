@@ -223,7 +223,7 @@ fn external_call_context(
         // host functions either return the current account instead or fail, so these fields
         // are never read.
         signer_account_id: contract_id.clone(),
-        signer_account_pk: vec![],
+        signer_account_pk: None,
         predecessor_account_id: contract_id.clone(),
         refund_to_account_id: contract_id.clone(),
         input: Rc::from(ecc.payload()),

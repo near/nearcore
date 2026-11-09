@@ -72,7 +72,7 @@ fn get_context() -> VMContext {
     VMContext {
         current_account_id: "alice.near".parse().unwrap(),
         signer_account_id: "bob.near".parse().unwrap(),
-        signer_account_pk: vec![0, 1, 2, 3, 4],
+        signer_account_pk: Some(vec![0, 1, 2, 3, 4]),
         predecessor_account_id: "carol.near".parse().unwrap(),
         refund_to_account_id: "david.near".parse().unwrap(),
         input: std::rc::Rc::new([0, 1, 2, 3, 4]),

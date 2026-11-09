@@ -65,7 +65,12 @@ decl_test_bytes!(
     ctx,
     ctx.predecessor_account_id.as_bytes()
 );
-decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
+decl_test_bytes!(
+    test_signer_account_pk,
+    signer_account_pk,
+    ctx,
+    ctx.signer_account_pk.as_ref().expect("the test context carries a key")
+);
 decl_test_bytes!(
     test_refund_to_account_id,
     refund_to_account_id,

@@ -316,8 +316,9 @@ pub(crate) fn function_call_context(
     VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id().clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
-            .expect("Failed to serialize"),
+        signer_account_pk: Some(
+            borsh::to_vec(&action_receipt.signer_public_key()).expect("Failed to serialize"),
+        ),
         predecessor_account_id: predecessor_id.clone(),
         refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
         input: Rc::from(function_call.args.clone()),
