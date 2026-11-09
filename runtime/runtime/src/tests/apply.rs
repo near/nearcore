@@ -1941,15 +1941,28 @@ fn tiny_share(amount: u64) -> Rational32 {
     Rational32::new(1, denominator)
 }
 
+/// A chunk of ECCs applied by `apply_eccs_under_shares`, and what it was applied with.
+struct EccChunkUnderShares<E> {
+    runtime: Runtime,
+    tries: ShardTries,
+    /// The apply state the chunk was applied with, as `change_apply_state` left it.
+    apply_state: ApplyState,
+    /// The state root before the chunk.
+    root_before: CryptoHash,
+    /// The state root after the chunk, which is committed to `tries`.
+    root_after: CryptoHash,
+    apply_result: ApplyResult,
+    epoch_info_provider: E,
+}
+
 /// Sets up `contracts`, lets `change_apply_state` change the apply state, and applies a chunk
-/// with an ECC to each of `callees`, in order, on a trie that records its reads. Returns the
-/// apply state, the state root before the chunk and the result.
+/// with an ECC to each of `callees`, in order, on a trie that records its reads.
 fn apply_eccs_under_shares(
     contracts: Vec<EccContractSetup>,
     data: Vec<(AccountId, Vec<(Vec<u8>, Vec<u8>)>)>,
     callees: &[AccountId],
     change_apply_state: impl FnOnce(&mut ApplyState),
-) -> (Runtime, ShardTries, ApplyState, CryptoHash, ApplyResult, impl EpochInfoProvider) {
+) -> EccChunkUnderShares<impl EpochInfoProvider> {
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_contracts(contracts);
     for (account_id, data) in data {
@@ -1963,7 +1976,7 @@ fn apply_eccs_under_shares(
         .iter()
         .map(|account_id| EccTransaction::new(account_id.clone(), ECC_PAYLOAD.to_vec()).into())
         .collect();
-    let (_, apply_result) = apply_envelopes_and_commit(
+    let (root_after, apply_result) = apply_envelopes_and_commit(
         &runtime,
         &tries,
         root,
@@ -1972,7 +1985,15 @@ fn apply_eccs_under_shares(
         &epoch_info_provider,
     );
     assert_eq!(apply_result.outcomes.len(), callees.len());
-    (runtime, tries, apply_state, root, apply_result, epoch_info_provider)
+    EccChunkUnderShares {
+        runtime,
+        tries,
+        apply_state,
+        root_before: root,
+        root_after,
+        apply_result,
+        epoch_info_provider,
+    }
 }
 
 /// What the chunk's earlier ECCs used and the share, from the status of an ECC refused for being
@@ -2000,7 +2021,7 @@ fn test_apply_ecc_refused_past_compute_share() {
         funded_ecc_contract(&bob_account(), ecc_accepting_contract()),
     ];
     let callees = [panicking, bob_account()];
-    let (_, tries, apply_state, root, apply_result, _) =
+    let EccChunkUnderShares { tries, apply_state, root_before, root_after, apply_result, .. } =
         apply_eccs_under_shares(contracts, vec![], &callees, |apply_state| {
             let gas_limit = apply_state.gas_limit.unwrap().as_gas();
             let config = Arc::make_mut(&mut apply_state.config);
@@ -2020,9 +2041,12 @@ fn test_apply_ecc_refused_past_compute_share() {
         refused_past_share(&second.outcome.status),
         ExternalCallChunkLimit::Compute { used, limit: share }
     );
-    // The second call didn't run: bob's account and data are as they were. Not even the compute
-    // of its fees counts toward the chunk.
-    let (_, value) = bob_ecc_state(&tries, root);
+    // The second call didn't run: after the chunk, bob's account and data are as they were
+    // before it. Had it run, bob's contract would have written the payload and paid for it. Not
+    // even the compute of its fees counts toward the chunk.
+    let (bob_before, _) = bob_ecc_state(&tries, root_before);
+    let (bob_after, value) = bob_ecc_state(&tries, root_after);
+    assert_eq!(bob_after, bob_before);
     assert_eq!(value, None);
     assert_eq!(second.outcome.compute_usage, Some(0));
     assert_eq!(second.outcome.gas_burnt, Gas::ZERO);
@@ -2049,12 +2073,19 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
     ];
     let data = vec![(reader.clone(), many_values(&config))];
     let callees = [reader, bob_account()];
-    let (runtime, tries, mut apply_state, root, apply_result, epoch_info_provider) =
-        apply_eccs_under_shares(contracts, data, &callees, |apply_state| {
-            let config = Arc::make_mut(&mut apply_state.config);
-            let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
-            config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
-        });
+    let EccChunkUnderShares {
+        runtime,
+        tries,
+        mut apply_state,
+        root_before: root,
+        apply_result,
+        epoch_info_provider,
+        ..
+    } = apply_eccs_under_shares(contracts, data, &callees, |apply_state| {
+        let config = Arc::make_mut(&mut apply_state.config);
+        let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
+        config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
+    });
 
     let [first, second] = &apply_result.outcomes[..] else { unreachable!() };
     assert_eq!(
@@ -2117,7 +2148,7 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
     let missing: AccountId = "missing.near".parse().unwrap();
     let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
     let callees = [missing, bob_account()];
-    let (_, _, _, _, apply_result, _) =
+    let EccChunkUnderShares { apply_result, .. } =
         apply_eccs_under_shares(contracts, vec![], &callees, |apply_state| {
             let config = Arc::make_mut(&mut apply_state.config);
             let soft_limit = config.witness_config.main_storage_proof_size_soft_limit;
@@ -2155,7 +2186,7 @@ fn test_apply_eccs_without_gas_limit() {
     };
     let callees = [panicking.clone(), bob_account()];
 
-    let (_, _, _, _, apply_result, _) =
+    let EccChunkUnderShares { apply_result, .. } =
         apply_eccs_under_shares(contracts(), vec![], &callees, |apply_state| {
             let gas_limit = apply_state.gas_limit.unwrap().as_gas();
             apply_state.gas_limit = None;
@@ -2164,7 +2195,7 @@ fn test_apply_eccs_without_gas_limit() {
         });
     assert_matches!(apply_result.outcomes[1].outcome.status, ExecutionStatus::SuccessValue(_));
 
-    let (_, _, _, _, apply_result, _) =
+    let EccChunkUnderShares { apply_result, .. } =
         apply_eccs_under_shares(contracts(), vec![], &callees, |apply_state| {
             apply_state.gas_limit = None;
             let config = Arc::make_mut(&mut apply_state.config);

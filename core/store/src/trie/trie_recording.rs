@@ -973,6 +973,31 @@ mod trie_recording_tests {
         assert!(stopped_before_value, "no budget stopped a read before its value");
     }
 
+    /// Reads that record exactly the budget fit in it, and with one byte less the last thing they
+    /// record doesn't: a trie node, for the small keys, and a value checked before it is fetched,
+    /// for the large key. On every storage.
+    #[test]
+    fn test_recording_budget_boundary() {
+        const NO_BUDGET: usize = 1 << 30;
+        let budget_trie = BudgetTrie::new();
+        for keys in [budget_trie.small_keys(), vec![LARGE_KEY.to_vec()]] {
+            for storage in ALL_STORAGES {
+                let read = |limit| {
+                    let trie = budget_trie.recording_trie(storage);
+                    read_with_budget(&trie, &budget_trie.data, &keys, limit)
+                };
+                let unbudgeted = read(NO_BUDGET);
+                assert_eq!(unbudgeted.failure, None, "{storage:?}");
+                let size = unbudgeted.recorded_size;
+
+                assert_eq!(read(size), unbudgeted, "{storage:?}: the exact budget should fit");
+                let short = read(size - 1);
+                let expected = StorageError::RecordingBudgetExceeded { limit: (size - 1) as u64 };
+                assert_eq!(short.failure, Some((keys.len() - 1, expected)), "{storage:?}");
+            }
+        }
+    }
+
     /// A budget crossed partway along the path to a key stops the read at the node that crosses
     /// it, before the rest of the path: here the root, on every storage and in a replay.
     #[test]

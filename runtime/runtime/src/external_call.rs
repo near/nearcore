@@ -561,20 +561,39 @@ mod tests {
 
     #[test]
     fn test_external_calls_in_chunk_shares() {
-        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        let calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
         assert_eq!(calls.compute_share, 400);
         assert_eq!(calls.recorded_size_share, 200_000);
         assert_eq!(calls.fits(), Ok(()));
+    }
 
-        // Room is left until a share is reached, so the call that reaches it is admitted.
-        calls.add(399, 199_999);
+    /// Room is left while the chunk's ECCs used less than the compute share, so the call that
+    /// reaches it is admitted. Once they used exactly the share, the next call is refused.
+    #[test]
+    fn test_external_calls_in_chunk_compute_share_boundary() {
+        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        calls.add(399, 0);
         assert_eq!(calls.fits(), Ok(()));
         calls.add(1, 0);
         assert_eq!(calls.fits(), compute_exceeded(400, 400));
     }
 
+    /// Room is left while the chunk's ECCs recorded less than the storage proof share, so the
+    /// call that reaches it is admitted. Once they recorded exactly the share, the next call is
+    /// refused.
     #[test]
-    fn test_external_calls_in_chunk_storage_proof_share() {
+    fn test_external_calls_in_chunk_storage_proof_share_boundary() {
+        let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
+        calls.add(0, 199_999);
+        assert_eq!(calls.fits(), Ok(()));
+        calls.add(0, 1);
+        assert_eq!(calls.fits(), storage_proof_exceeded(200_000, 200_000));
+    }
+
+    /// A call can pass a share, as what it uses is known only once it ran. The refusal of the
+    /// next call reports all that was used.
+    #[test]
+    fn test_external_calls_in_chunk_past_share() {
         let mut calls = ExternalCallsInChunk::new(&config(), Some(Gas::from_gas(1000)));
         calls.add(0, 250_000);
         assert_eq!(calls.fits(), storage_proof_exceeded(250_000, 200_000));
