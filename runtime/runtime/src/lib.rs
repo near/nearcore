@@ -102,7 +102,7 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
-use pipelining::ReceiptPreparationPipeline;
+use pipelining::{PreparationSubmission, ReceiptPreparationPipeline};
 use rayon::prelude::*;
 use receipt_runtime_configs::ReceiptRuntimeConfigs;
 use std::cmp::max;
@@ -3915,12 +3915,15 @@ const MAX_RECEIPTS_SCANNED_FOR_PREPARATION: usize = 1024;
 /// Schedule a one receipt for contract preparation.
 ///
 /// The caller should call this method again after the returned number of receipts from `iterator`
-/// are processed.
+/// are processed. Budget rejection disables lookahead for the rest of this apply.
 fn schedule_contract_preparation<R: MaybeRefReceipt>(
     pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
     state_update: &TrieUpdate,
     iterator: &mut impl Iterator<Item = IteratedReceipt<R>>,
 ) -> Option<usize> {
+    if pipeline_manager.lookahead_stopped() {
+        return None;
+    }
     // We need to inspect each receipt recursively in case these are data receipts, thus a
     // function.
     fn handle_receipt(
@@ -3936,10 +3939,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
             | ReceiptEnum::PromiseYieldV2(_)
             | ReceiptEnum::ActionV3(_)
             | ReceiptEnum::PromiseYieldV3(_) => {
-                // This returns `true` if work may have been scheduled (thus we currently
-                // prepare actions in at most 2 "interesting" receipts in parallel due to
-                // staggering.)
-                mgr.submit(receipt, state_update)
+                // Stop at either scheduled work or budget rejection. The latter disables
+                // further lookahead below, including when another receipt queue is scanned.
+                mgr.submit(receipt, state_update) != PreparationSubmission::Skipped
             }
             ReceiptEnum::Data(dr) => {
                 let key = TrieKey::PostponedReceiptId {
@@ -3985,6 +3987,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
         receipts_iterated += 1;
         let peek = peek.as_ref();
         if handle_receipt(pipeline_manager, state_update, peek.receiver_id(), peek) {
+            if pipeline_manager.lookahead_stopped() {
+                return None;
+            }
             return Some(receipts_iterated);
         }
     }
