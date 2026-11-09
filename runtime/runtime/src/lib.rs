@@ -2288,28 +2288,13 @@ impl Runtime {
                             metadata: ExecutionMetadata::V1,
                         },
                     };
-                    if processing_state.apply_state.save_receipt_to_tx {
-                        processing_state.receipt_to_tx.push((
-                            receipt_id,
-                            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                                    tx_hash: *tx_hash,
-                                    sender_account_id: signer_id.clone(),
-                                }),
-                                receiver_account_id: tx.transaction.receiver_id().clone(),
-                                shard_id: processing_state.apply_state.shard_id,
-                            }),
-                        ));
-                    }
-                    if receipt.receiver_id() == signer_id {
-                        processing_state.local_receipts.push_back(receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            receipt,
-                            &processing_state.apply_state,
-                            &mut processing_state.state_update,
-                        )?;
-                    }
+                    send_transaction_receipt(
+                        processing_state,
+                        receipt_sink,
+                        receipt,
+                        *tx_hash,
+                        signer_id,
+                    )?;
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     (outcome, result)
                 }
@@ -3135,6 +3120,40 @@ fn process_external_call(
     }
     let outcome = run.into_outcome(outcome_id, ecc, account);
     processing_state.outcomes.push(outcome);
+    Ok(())
+}
+
+/// Records that `receipt` comes from the transaction `tx_hash` of `sender_id`, and sends it: to the
+/// chunk's local receipts if the sender receives it, otherwise out through `receipt_sink`.
+fn send_transaction_receipt(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    receipt: Receipt,
+    tx_hash: CryptoHash,
+    sender_id: &AccountId,
+) -> Result<(), RuntimeError> {
+    if processing_state.apply_state.save_receipt_to_tx {
+        processing_state.receipt_to_tx.push((
+            *receipt.receipt_id(),
+            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                    tx_hash,
+                    sender_account_id: sender_id.clone(),
+                }),
+                receiver_account_id: receipt.receiver_id().clone(),
+                shard_id: processing_state.apply_state.shard_id,
+            }),
+        ));
+    }
+    if receipt.receiver_id() == sender_id {
+        processing_state.local_receipts.push_back(receipt);
+    } else {
+        receipt_sink.forward_or_buffer_receipt(
+            receipt,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
+        )?;
+    }
     Ok(())
 }
 
