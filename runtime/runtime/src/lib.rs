@@ -10,9 +10,11 @@ use crate::config::{
     total_deposit, total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::contract_compilation_status::contract_compilation_is_admitted;
 use crate::external_call::run_external_call;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
+use crate::receipt_compilation::preflight_receipt_contracts;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_envelope,
@@ -48,7 +50,7 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, EpochError, FunctionCallError,
     IntegerOverflowError, InvalidAccessKeyError, InvalidTxError, RuntimeError, TxExecutionError,
 };
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptSource, ReceiptToTxInfo,
@@ -80,10 +82,10 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
-    get_promise_yield_status, get_pure, get_received_data, get_received_data_size,
-    get_yield_id_for_data_id, has_received_data, remove_postponed_receipt,
+    ContractCompilationAdmission, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges,
+    TrieUpdate, get, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
+    get_promise_yield_receipt, get_promise_yield_status, get_pure, get_received_data,
+    get_received_data_size, get_yield_id_for_data_id, has_received_data, remove_postponed_receipt,
     remove_promise_yield_receipt, remove_promise_yield_status, remove_yield_id_mappings, set,
     set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
     set_postponed_receipt, set_promise_yield_receipt, set_received_data,
@@ -95,7 +97,7 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
-use pipelining::ReceiptPreparationPipeline;
+use pipelining::{PreparationSubmission, ReceiptPreparationPipeline};
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -127,6 +129,7 @@ mod global_contracts;
 pub mod metrics;
 mod pipelining;
 mod prefetch;
+mod receipt_compilation;
 pub mod receipt_manager;
 pub mod state_viewer;
 #[cfg(test)]
@@ -582,6 +585,22 @@ pub struct GasRefundResult {
     create_account_charge: Balance,
 }
 
+#[derive(Debug)]
+pub(crate) enum ProcessingResult<T> {
+    Processed(T),
+    /// The receipt was deferred before execution and its state changes were rolled back.
+    Deferred,
+}
+
+impl<T> ProcessingResult<T> {
+    fn map<U>(self, f: impl FnOnce(T) -> U) -> ProcessingResult<U> {
+        match self {
+            Self::Processed(value) => ProcessingResult::Processed(f(value)),
+            Self::Deferred => ProcessingResult::Deferred,
+        }
+    }
+}
+
 pub struct Runtime {}
 
 impl Runtime {
@@ -613,11 +632,17 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
-        result.gas_used = exec_fees.gas;
-        result.gas_burnt = exec_fees.gas;
-        result.compute_usage = exec_fees.compute;
+        // Deployment execution fees are charged during receipt preflight because
+        // compilation happens there even when an earlier action later fails.
+        if !ProtocolFeature::ContractCompilationStatus.enabled(apply_state.current_protocol_version)
+            || !matches!(action, Action::DeployContract(_))
+        {
+            let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+            result.gas_used = exec_fees.gas;
+            result.gas_burnt = exec_fees.gas;
+            result.compute_usage = exec_fees.compute;
+        }
         result.current_contract =
             account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
         let account_id = receipt.receiver_id();
@@ -651,6 +676,20 @@ impl Runtime {
             }
             Action::DeployContract(deploy_contract) => {
                 metrics::ACTION_CALLED_COUNT.deploy_contract.inc();
+                if ProtocolFeature::ContractCompilationStatus
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    // Action-receipt preflight made the admission decision.
+                    // Execution only verifies that it was admitted or cached.
+                    assert!(
+                        contract_compilation_is_admitted(
+                            state_update,
+                            apply_state,
+                            hash(&deploy_contract.code),
+                        )?,
+                        "receipt preflight missed a deployment"
+                    );
+                }
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -660,17 +699,6 @@ impl Runtime {
                     apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                 )?;
-                if ProtocolFeature::ContractCompilationStatus
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    let code_hash = account.as_ref().unwrap().local_contract_hash().unwrap();
-                    contract_compilation_status::record_contract_compilation(
-                        state_update,
-                        apply_state,
-                        code_hash,
-                        deploy_contract.code.len() as u64,
-                    )?;
-                }
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
@@ -881,7 +909,7 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
-    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+    ) -> Result<ProcessingResult<ExecutionOutcomeWithId>, RuntimeError> {
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
             | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
@@ -902,6 +930,32 @@ impl Runtime {
             }
         }
         let input_size_exceeded = enforce_input_size_limit && total_input_size > input_size_limit;
+
+        let storage_proof_size_before_receipt = if ProtocolFeature::ContractCompilationStatus
+            .enabled(apply_state.current_protocol_version)
+        {
+            Some(state_update.trie.recorded_storage_size_upper_bound())
+        } else {
+            None
+        };
+
+        // Gate the whole receipt before consuming inputs or executing any action.
+        // Roll back upstream Data/PromiseResume bookkeeping too on deferral so
+        // the triggering receipt remains retryable; compilation progress survives.
+        if !input_size_exceeded
+            && ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+            && preflight_receipt_contracts(
+                state_update,
+                apply_state,
+                account_id,
+                action_receipt.actions(),
+                &epoch_info_provider.chain_id(),
+            )? == ContractCompilationAdmission::Deferred
+        {
+            state_update.rollback();
+            return Ok(ProcessingResult::Deferred);
+        }
 
         // Collecting input data and removing it from the state.
         let promise_results = if input_size_exceeded {
@@ -958,6 +1012,24 @@ impl Runtime {
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
 
+        if !input_size_exceeded
+            && ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+        {
+            // Preflight has admitted every deployment in the receipt and may
+            // already have compiled its code. Charge that work even if an
+            // earlier action fails and the deployment itself is never executed.
+            for action in action_receipt.actions() {
+                if matches!(action, Action::DeployContract(_)) {
+                    let deploy_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+                    result.gas_used = result.gas_used.checked_add_result(deploy_fees.gas)?;
+                    result.gas_burnt = result.gas_burnt.checked_add_result(deploy_fees.gas)?;
+                    result.compute_usage =
+                        safe_add_compute(result.compute_usage, deploy_fees.compute)?;
+                }
+            }
+        }
+
         if input_size_exceeded {
             result.set_error(
                 ActionErrorKind::TotalPromiseInputSizeExceeded {
@@ -971,7 +1043,11 @@ impl Runtime {
                 if ProtocolFeature::EnforcePerReceiptStorageProofLimit
                     .enabled(apply_state.current_protocol_version)
                 {
-                    Some(state_update.trie.recorded_storage_size_upper_bound())
+                    Some(
+                        storage_proof_size_before_receipt.unwrap_or_else(|| {
+                            state_update.trie.recorded_storage_size_upper_bound()
+                        }),
+                    )
                 } else {
                     None
                 };
@@ -1281,7 +1357,7 @@ impl Runtime {
         contracts.resize(action_receipt.actions().len(), AccountContract::None);
         let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }));
 
-        Ok(ExecutionOutcomeWithId {
+        Ok(ProcessingResult::Processed(ExecutionOutcomeWithId {
             id: *receipt.receipt_id(),
             outcome: ExecutionOutcome {
                 status,
@@ -1293,7 +1369,7 @@ impl Runtime {
                 executor_id: account_id.clone(),
                 metadata,
             },
-        })
+        }))
     }
 
     /// How we handle refunds since NEP-536.
@@ -1433,7 +1509,20 @@ impl Runtime {
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+    ) -> Result<ProcessingResult<Option<ExecutionOutcomeWithId>>, RuntimeError> {
+        // Preserve queue changes and earlier receipts if this receipt is deferred.
+        // Changes made while processing this receipt remain prospective until
+        // compilation admission is complete.
+        if ProtocolFeature::ContractCompilationStatus
+            .enabled(processing_state.apply_state.current_protocol_version)
+        {
+            processing_state.state_update.commit(
+                StateChangeCause::ActionReceiptProcessingStarted {
+                    receipt_hash: receipt.get_hash(),
+                },
+            );
+        }
+
         let ApplyProcessingReceiptState {
             ref mut state_update,
             apply_state,
@@ -1515,7 +1604,7 @@ impl Runtime {
                                 epoch_info_provider,
                                 receipt_to_tx,
                             )
-                            .map(Some);
+                            .map(|result| result.map(Some));
                     } else {
                         // There is still some pending data for the receipt, so we update the
                         // pending data count in the state.
@@ -1551,8 +1640,15 @@ impl Runtime {
                     receipt_to_tx,
                 )?;
 
-                if executed.is_some() {
-                    return Ok(executed);
+                // handle receipts that need to wait for contract compilation
+                match executed {
+                    ProcessingResult::Processed(Some(outcome)) => {
+                        return Ok(ProcessingResult::Processed(Some(outcome)));
+                    }
+                    ProcessingResult::Processed(None) => {}
+                    ProcessingResult::Deferred => {
+                        return Ok(ProcessingResult::Deferred);
+                    }
                 }
             }
             VersionedReceiptEnum::PromiseYield(_) => {
@@ -1567,7 +1663,7 @@ impl Runtime {
                         get_promise_yield_status(state_update, account_id, data_receipt.data_id)?;
                     if status == Some(PromiseYieldStatus::ResumeInitiated) {
                         // A non-timeout resume receipt has been sent, cancel the timeout.
-                        return Ok(None);
+                        return Ok(ProcessingResult::Processed(None));
                     }
                 }
 
@@ -1618,12 +1714,12 @@ impl Runtime {
                             epoch_info_provider,
                             receipt_to_tx,
                         )
-                        .map(Some);
+                        .map(|result| result.map(Some));
                 } else {
                     // If the user happens to call `promise_yield_resume` multiple times, it may so
                     // happen that multiple PromiseResume receipts are delivered. We can safely
                     // ignore all but the first.
-                    return Ok(None);
+                    return Ok(ProcessingResult::Processed(None));
                 }
             }
             VersionedReceiptEnum::GlobalContractDistribution(_) => {
@@ -1635,14 +1731,20 @@ impl Runtime {
                     receipt_sink,
                     receipt_to_tx,
                 )?;
+                let compute = match compute {
+                    ProcessingResult::Processed(compute) => compute,
+                    ProcessingResult::Deferred => {
+                        return Ok(ProcessingResult::Deferred);
+                    }
+                };
                 processing_state.total.add(0, compute)?;
-                return Ok(None);
+                return Ok(ProcessingResult::Processed(None));
             }
         };
         // We didn't trigger execution, so we need to commit the state.
         state_update
             .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
-        Ok(None)
+        Ok(ProcessingResult::Processed(None))
     }
 
     /// Received a new action receipt. We'll first check how many input data items
@@ -1663,7 +1765,7 @@ impl Runtime {
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
-    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+    ) -> Result<ProcessingResult<Option<ExecutionOutcomeWithId>>, RuntimeError> {
         let mut pending_data_count: u32 = 0;
         for data_id in action_receipt.input_data_ids() {
             if !has_received_data(state_update, account_id, *data_id)? {
@@ -1697,7 +1799,7 @@ impl Runtime {
                     epoch_info_provider,
                     receipt_to_tx,
                 )
-                .map(Some);
+                .map(|result| result.map(Some));
         } else {
             // Not all input data is available now.
             // Save the counter for the number of pending input data items into the state.
@@ -1713,7 +1815,7 @@ impl Runtime {
             set_postponed_receipt(state_update, receipt);
         }
 
-        Ok(None)
+        Ok(ProcessingResult::Processed(None))
     }
 
     /// Iterates over the validators in the current shard and updates their accounts to return stake
@@ -2036,7 +2138,7 @@ impl Runtime {
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         // Decided before anything is read from the state, so that nothing is read for them.
         let skipped = find_skipped_transactions(maybe_expired_txs, max_eccs);
-        let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
+        let mut num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
@@ -2139,12 +2241,15 @@ impl Runtime {
             let tx = match envelope {
                 TransactionEnvelope::Signed(tx) => tx,
                 TransactionEnvelope::Unsigned(ecc) => {
-                    process_external_call(
+                    let processing_result = process_external_call(
                         processing_state,
                         &accounts,
                         ecc,
                         maybe_validation_error,
                     )?;
+                    if matches!(processing_result, ProcessingResult::Deferred) {
+                        num_skipped_txs += 1;
+                    }
                     continue;
                 }
             };
@@ -2400,7 +2505,7 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState,
         mut receipt_sink: &mut ReceiptSink,
         mut validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<ProcessingResult<()>, RuntimeError> {
         let span = tracing::debug_span!(
             target: "runtime",
             "process_receipt",
@@ -2447,20 +2552,26 @@ impl Runtime {
                 .observe(recorded_storage_proof_ratio);
         }
 
-        if let Some(outcome_with_id) = result? {
-            let gas_burnt = outcome_with_id.outcome.gas_burnt;
-            let compute_usage = outcome_with_id
-                .outcome
-                .compute_usage
-                .expect("`process_receipt` must populate compute usage");
-            let total = &mut processing_state.total;
-            total.add(gas_burnt.as_gas(), compute_usage)?;
-            span.record("gas_burnt", gas_burnt.as_gas());
-            span.record("compute_usage", compute_usage);
+        match result? {
+            ProcessingResult::Processed(Some(outcome_with_id)) => {
+                let gas_burnt = outcome_with_id.outcome.gas_burnt;
+                let compute_usage = outcome_with_id
+                    .outcome
+                    .compute_usage
+                    .expect("`process_receipt` must populate compute usage");
+                let total = &mut processing_state.total;
+                total.add(gas_burnt.as_gas(), compute_usage)?;
+                span.record("gas_burnt", gas_burnt.as_gas());
+                span.record("compute_usage", compute_usage);
 
-            processing_state.outcomes.push(outcome_with_id);
+                processing_state.outcomes.push(outcome_with_id);
+            }
+            ProcessingResult::Processed(None) => {}
+            ProcessingResult::Deferred => {
+                return Ok(ProcessingResult::Deferred);
+            }
         }
-        Ok(())
+        Ok(ProcessingResult::Processed(()))
     }
 
     #[instrument(target = "runtime", level = "debug", "process_local_receipts", skip_all, fields(
@@ -2498,6 +2609,7 @@ impl Runtime {
         for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.contract_compilation_limit_reached()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -2520,16 +2632,26 @@ impl Runtime {
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                self.process_receipt_and_instant_receipts(
-                    &receipt,
-                    &mut processing_state,
-                    receipt_sink,
-                    validator_proposals,
-                )?;
-                processing_state.processed_receipts.push(ProcessedReceipt {
-                    receipt: receipt.clone(),
-                    source: ReceiptSource::Local,
-                });
+                if matches!(
+                    self.process_receipt_and_instant_receipts(
+                        receipt,
+                        &mut processing_state,
+                        receipt_sink,
+                        validator_proposals,
+                    )?,
+                    ProcessingResult::Processed(())
+                ) {
+                    processing_state.processed_receipts.push(ProcessedReceipt {
+                        receipt: receipt.clone(),
+                        source: ReceiptSource::Local,
+                    });
+                } else {
+                    processing_state.delayed_receipts.push(
+                        &mut processing_state.state_update,
+                        receipt,
+                        &processing_state.apply_state,
+                    )?;
+                }
             }
         }
 
@@ -2576,6 +2698,7 @@ impl Runtime {
         loop {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.contract_compilation_limit_reached()
             {
                 break;
             }
@@ -2586,7 +2709,8 @@ impl Runtime {
             let Some(receipt) = receipt else {
                 break;
             };
-            let receipt = receipt.into_receipt();
+            let stored_receipt = receipt;
+            let receipt = stored_receipt.get_receipt();
 
             // TODO(resharding): Add metric for tracking number of
             delayed_receipt_count += 1;
@@ -2622,15 +2746,24 @@ impl Runtime {
                 ))
             })?;
 
-            self.process_receipt_and_instant_receipts(
-                &receipt,
-                &mut processing_state,
-                receipt_sink,
-                validator_proposals,
-            )?;
-            processing_state
-                .processed_receipts
-                .push(ProcessedReceipt { receipt, source: ReceiptSource::Delayed });
+            if matches!(
+                self.process_receipt_and_instant_receipts(
+                    &receipt,
+                    &mut processing_state,
+                    receipt_sink,
+                    validator_proposals,
+                )?,
+                ProcessingResult::Deferred
+            ) {
+                processing_state
+                    .delayed_receipts
+                    .restore_front(&mut processing_state.state_update, &stored_receipt)?;
+                break;
+            }
+            processing_state.processed_receipts.push(ProcessedReceipt {
+                receipt: stored_receipt.into_receipt(),
+                source: ReceiptSource::Delayed,
+            });
         }
         let span = tracing::Span::current();
         span.record("gas_burnt", processing_state.total.gas);
@@ -2686,6 +2819,7 @@ impl Runtime {
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.contract_compilation_limit_reached()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -2707,12 +2841,21 @@ impl Runtime {
                     }
                 }
 
-                self.process_receipt_and_instant_receipts(
-                    &receipt,
-                    &mut processing_state,
-                    receipt_sink,
-                    validator_proposals,
-                )?;
+                if matches!(
+                    self.process_receipt_and_instant_receipts(
+                        receipt,
+                        &mut processing_state,
+                        receipt_sink,
+                        validator_proposals,
+                    )?,
+                    ProcessingResult::Deferred
+                ) {
+                    processing_state.delayed_receipts.push(
+                        &mut processing_state.state_update,
+                        receipt,
+                        &processing_state.apply_state,
+                    )?;
+                }
             }
         }
         let span = tracing::Span::current();
@@ -2734,14 +2877,20 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<(), RuntimeError> {
-        self.process_receipt_with_metrics(
+    ) -> Result<ProcessingResult<()>, RuntimeError> {
+        let result = self.process_receipt_with_metrics(
             receipt,
             processing_state,
             receipt_sink,
             validator_proposals,
         )?;
 
+        if let ProcessingResult::Deferred = result {
+            return Ok(ProcessingResult::Deferred);
+        }
+
+        // Instant receipts only store yields or delete accounts.
+        // They cannot require compilation and therefore cannot be deferred.
         while let Some(instant_receipt) = processing_state.instant_receipts.pop_front() {
             self.process_receipt_with_metrics(
                 &instant_receipt,
@@ -2755,7 +2904,7 @@ impl Runtime {
             });
         }
 
-        Ok(())
+        Ok(ProcessingResult::Processed(()))
     }
 
     /// Processes all receipts (local, delayed and incoming).
@@ -2811,6 +2960,10 @@ impl Runtime {
         if processing_state.total.compute >= compute_limit {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
+                .inc();
+        } else if processing_state.state_update.contract_compilation_limit_reached() {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "contract_compilation_limit"])
                 .inc();
         } else if processing_state.state_update.trie.check_proof_size_limit_exceed() {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
@@ -3051,6 +3204,9 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope], max_eccs: Option<u64>)
 /// `accounts` and in the trie) is charged, and the fees and the run count toward the chunk's gas
 /// and compute.
 ///
+/// Calls whose cold code exceeds the chunk's compilation budget are skipped without an outcome,
+/// like calls beyond the chunk's ECC count limit.
+///
 /// If the call is refused, before or after the run, any writes are rolled back and nobody pays.
 /// The validators' work on it still counts toward the chunk's compute, so it stays bounded, but
 /// not toward the chunk's gas: since nobody pays for it, it shouldn't move the next gas price.
@@ -3059,7 +3215,7 @@ fn process_external_call(
     accounts: &DashMap<&AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
     ecc: &EccTransaction,
     validation_error: Option<InvalidTxError>,
-) -> Result<(), RuntimeError> {
+) -> Result<ProcessingResult<()>, RuntimeError> {
     let apply_state = processing_state.apply_state;
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
@@ -3118,6 +3274,13 @@ fn process_external_call(
         &outcome_id,
         &cost,
     )?;
+    let run = match run {
+        ProcessingResult::Processed(run) => run,
+        ProcessingResult::Deferred => {
+            processing_state.state_update.rollback();
+            return Ok(ProcessingResult::Deferred);
+        }
+    };
     match run.verdict {
         Ok(charge) => {
             processing_state.total.add(run.gas_burnt.as_gas(), run.compute_usage)?;
@@ -3135,7 +3298,7 @@ fn process_external_call(
     }
     let outcome = run.into_outcome(outcome_id, ecc, account);
     processing_state.outcomes.push(outcome);
-    Ok(())
+    Ok(ProcessingResult::Processed(()))
 }
 
 /// Records the outcome of an external contract call refused before its method runs, and counts
@@ -3146,12 +3309,12 @@ fn refuse_ecc_before_run(
     ecc: &EccTransaction,
     error: TxExecutionError,
     compute_usage: Compute,
-) -> Result<(), RuntimeError> {
+) -> Result<ProcessingResult<()>, RuntimeError> {
     processing_state.total.add(0, compute_usage)?;
     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     let outcome = ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute_usage);
     processing_state.outcomes.push(outcome);
-    Ok(())
+    Ok(ProcessingResult::Processed(()))
 }
 
 /// Checks an external contract call before it runs: it passed validation, and its contract
@@ -3290,7 +3453,10 @@ fn resolve_promise_yield_timeouts(
     let mut processed_yield_timeouts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-        if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
+        if total.compute >= compute_limit
+            || state_update.trie.check_proof_size_limit_exceed()
+            || state_update.contract_compilation_limit_reached()
+        {
             break;
         }
 
@@ -3544,12 +3710,15 @@ impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
 /// Schedule a one receipt for contract preparation.
 ///
 /// The caller should call this method again after the returned number of receipts from `iterator`
-/// are processed.
+/// are processed. Budget rejection disables lookahead for the rest of this apply.
 fn schedule_contract_preparation<R: MaybeRefReceipt>(
     pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
     state_update: &TrieUpdate,
     mut iterator: impl Iterator<Item = R>,
 ) -> Option<usize> {
+    if pipeline_manager.lookahead_stopped() {
+        return None;
+    }
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
@@ -3566,10 +3735,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
                 | ReceiptEnum::PromiseYieldV2(_) => {
-                    // This returns `true` if work may have been scheduled (thus we currently
-                    // prepare actions in at most 2 "interesting" receipts in parallel due to
-                    // staggering.)
-                    mgr.submit(receipt, state_update)
+                    // Stop at either scheduled work or budget rejection. The latter disables
+                    // further lookahead below, including when another receipt queue is scanned.
+                    mgr.submit(receipt, state_update) != PreparationSubmission::Skipped
                 }
                 ReceiptEnum::Data(dr) => {
                     let key = TrieKey::PostponedReceiptId {
@@ -3613,19 +3781,22 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
         }
         handle_receipt(pipeline_manager, state_update, account_id, peek)
     })?;
-    Some(scheduled_receipt_offset.saturating_add(1))
+    if pipeline_manager.lookahead_stopped() {
+        None
+    } else {
+        Some(scheduled_receipt_offset.saturating_add(1))
+    }
 }
 
 #[cfg(feature = "estimator")]
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
-    use crate::ApplyState;
-    use crate::BandwidthSchedulerOutput;
     use crate::congestion_control::ReceiptSinkV2;
     use crate::congestion_control::ReceiptSinkV2Info;
     use crate::congestion_control::ReceiptSinkV2WithInfo;
     use crate::pipelining::ReceiptPreparationPipeline;
+    use crate::{ApplyState, BandwidthSchedulerOutput, ProcessingResult};
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
@@ -3709,6 +3880,10 @@ pub mod estimator {
         let new_outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
         outgoing_receipts.extend(new_outgoing_receipts.into_iter());
-        apply_result
+        apply_result.map(|result| match result {
+            ProcessingResult::Processed(outcome) => outcome,
+            // The estimator doesn't need to handle deferred receipts for now.
+            ProcessingResult::Deferred => panic!("receipt exceeded compilation budget"),
+        })
     }
 }

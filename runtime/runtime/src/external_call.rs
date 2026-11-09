@@ -8,8 +8,8 @@
 //! The run and the verdict don't depend on the chunk's processing state, so the chunk producer
 //! can reuse them to run a call before packing it.
 
-use crate::ApplyState;
 use crate::config::{EccCost, safe_add_balance, safe_add_compute, safe_gas_to_balance};
+use crate::contract_compilation_status::try_admit_contract_compilation;
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
 };
@@ -18,6 +18,7 @@ use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, record_contract_call};
 use crate::receipt_manager::ReceiptManager;
 use crate::verifier::{StorageStakingError, check_storage_stake};
+use crate::{ApplyState, ProcessingResult};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::errors::{
@@ -30,8 +31,9 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionStatus,
 };
 use near_primitives::types::{AccountId, Balance, Compute, EpochInfoProvider, Gas};
-use near_store::TrieUpdate;
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
+use near_store::{ContractCompilationAdmission, TrieUpdate};
 use near_vm_runner::CompilePriority;
 use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
 use std::rc::Rc;
@@ -107,6 +109,10 @@ impl ExternalCallRun {
 /// is accepted and rolls them back otherwise. `account` is updated with the contract's new
 /// balance and storage usage only if the call is accepted.
 ///
+/// Returns `Deferred` without executing the call when its cold code does not fit the chunk's
+/// compilation budget. Unlike receipts, external calls are skipped rather than queued for retry.
+/// Admission survives a refused call's rollback because compilation work has already been done.
+///
 /// A `RuntimeError`, such as a storage error, stops applying the chunk.
 pub(crate) fn run_external_call(
     state_update: &mut TrieUpdate,
@@ -116,7 +122,7 @@ pub(crate) fn run_external_call(
     ecc: &EccTransaction,
     outcome_id: &CryptoHash,
     cost: &EccCost,
-) -> Result<ExternalCallRun, RuntimeError> {
+) -> Result<ProcessingResult<ExternalCallRun>, RuntimeError> {
     let config = &apply_state.config;
     let contract_id = ecc.contract_id();
     let execution_mode = ExecutionMode::External { fee_gas: cost.gas_burnt };
@@ -158,6 +164,26 @@ pub(crate) fn run_external_call(
     let outcome = match preparation {
         ContractPreparation::Ready { contract: code_ext, gas_counter } => {
             let contract_identifier = code_ext.identifier.clone();
+            if ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+            {
+                if let Some(code_len) = contract_identifier.resolve_code_len(
+                    runtime_ext.trie_update,
+                    AccessOptions::DEFAULT,
+                    &epoch_info_provider.chain_id(),
+                    apply_state.current_protocol_version,
+                )? {
+                    if try_admit_contract_compilation(
+                        runtime_ext.trie_update,
+                        apply_state,
+                        contract_identifier.hash(),
+                        code_len,
+                    )? == ContractCompilationAdmission::Deferred
+                    {
+                        return Ok(ProcessingResult::Deferred);
+                    }
+                }
+            }
             record_contract_call(
                 runtime_ext.trie_update,
                 &contract_identifier,
@@ -200,12 +226,12 @@ pub(crate) fn run_external_call(
         &receipt_manager,
         cost,
     )?;
-    Ok(ExternalCallRun {
+    Ok(ProcessingResult::Processed(ExternalCallRun {
         gas_burnt: cost.gas_burnt.checked_add_result(outcome.burnt_gas)?,
         compute_usage: safe_add_compute(cost.compute_burnt, outcome.compute_usage)?,
         verdict,
         outcome,
-    })
+    }))
 }
 
 /// The context of the run of an external call. The run sees the chunk's parent block, which the
