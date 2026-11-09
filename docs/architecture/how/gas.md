@@ -199,10 +199,12 @@ contract pays for the gas, so there is no `attached_gas` and the
 - The gas burnt plus the gas attached to outgoing promises can be at most
   `max_total_prepaid_gas`.
 
-The contract pays for all the gas the call uses from its balance, at the gas
-price of the block, the price signed transactions in the chunk pay: the gas it
-burns, the gas attached to function calls, and the execution fees of all
-actions and receipts. As in other calls, the VM only counts the gas against
+The contract pays for all the gas the call uses from its balance. The gas it
+burns costs the gas price of the block, the price signed transactions in the
+chunk pay. The gas attached to function calls and the execution fees of all
+actions and receipts cost the price a signed transaction buys that gas at, the
+block's gas price or `min_gas_purchase_price` if that is higher, which the
+receipts carry. As in other calls, the VM only counts the gas against
 the fixed limits above; the runtime charges the contract after the call, and
 rejects the call if the balance can't pay. A rejected call pays nothing, so
 the VM doesn't need to stop a call as soon as the balance runs out: the call
@@ -236,8 +238,14 @@ runs each call before including it and leaves out the ones that would be
 rejected. An accepted call's fees and gas are burnt, and count toward the
 chunk's gas like any other.
 
-For now, a call that creates a promise or resumes a yielded one is rejected:
-external calls can't create receipts yet. This will be resolved in future work on this feature.
+An accepted call's promises become receipts, as a function call's do. Every
+receipt in the chain they start has the contract as its signer and names the
+external call as what authorized it, so gas refunds go to the contract's
+balance and `signer_account_pk` fails. Only the fees and the gas the call burnt
+count as burnt; the gas attached to the receipts travels with them. A call that
+creates a yielded promise is rejected, since the yield's id would differ
+between the chunk producer's run and apply; a call that resumes a yield is
+accepted.
 
 ### Contract Reward
 
