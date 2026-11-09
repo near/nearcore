@@ -1,7 +1,7 @@
 use super::encode::{EncodedData, encode};
 use super::{
-    DATA_PARTS_RATIO, DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, ServePolicies,
-    SpiceData, producers_in_epoch,
+    DATA_PARTS_RATIO, DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MAX_REQUESTED_WITNESSES,
+    ServePolicies, SpiceData, producers_in_epoch,
 };
 use itertools::Itertools as _;
 use near_chain::Error;
@@ -44,6 +44,8 @@ pub enum MalformedDataRequest {
     NoEntries,
     #[error("too many entries")]
     TooManyEntries,
+    #[error("too many witness entries")]
+    TooManyWitnesses,
     #[error("entry without ordinals")]
     EntryWithoutOrdinals,
     #[error("too many ordinals")]
@@ -63,8 +65,8 @@ impl MalformedDataRequest {
 }
 
 /// A data request within what every server accepts: it has items, at most
-/// [`MAX_REQUESTED_DATA_IDS`], each asks for at least one ordinal, and at most
-/// [`MAX_REQUESTED_PARTS`] in total.
+/// [`MAX_REQUESTED_DATA_IDS`] and at most [`MAX_REQUESTED_WITNESSES`] of them witnesses, each
+/// asks for at least one ordinal, and at most [`MAX_REQUESTED_PARTS`] in total.
 #[derive(Debug)]
 pub(crate) struct CheckedDataRequest {
     items: Vec<RequestedItem>,
@@ -87,6 +89,11 @@ impl CheckedDataRequest {
         }
         if wants.len() > MAX_REQUESTED_DATA_IDS {
             return Err(MalformedDataRequest::TooManyEntries);
+        }
+        let witnesses =
+            wants.keys().filter(|id| matches!(id, SpiceDataIdentifier::Witness { .. })).count();
+        if witnesses > MAX_REQUESTED_WITNESSES {
+            return Err(MalformedDataRequest::TooManyWitnesses);
         }
         if wants.values().any(BTreeSet::is_empty) {
             return Err(MalformedDataRequest::EntryWithoutOrdinals);

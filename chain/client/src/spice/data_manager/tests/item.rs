@@ -163,7 +163,7 @@ fn decode_settles_the_commitment_and_refuses_later_parts_under_it() {
 
     let data = decode(&mut item, &encoder, parts, backers.clone());
 
-    assert_matches!(data, SpiceData::ReceiptProof(_));
+    assert_matches!(data, Decoded::ReceiptProof(..));
     assert_matches!(item.commitments[&commitment], CommitmentState::Settled);
     assert!(tracked_commitments(&item).is_empty());
     assert_eq!(item.contributors(&commitment).len(), DATA_PARTS);
@@ -193,8 +193,8 @@ fn second_commitment_decodes_after_the_first_settled() {
     let first_decoded = decode(&mut item, &encoder, first_parts, first_backers);
     let second_decoded = decode(&mut item, &encoder, second_parts, second_backers);
 
-    assert_eq!(first_decoded, first_data);
-    assert_eq!(second_decoded, second_data);
+    assert_eq!(first_decoded, decoded_data(&item_id(), first_data));
+    assert_eq!(second_decoded, decoded_data(&item_id(), second_data));
     assert_matches!(item.commitments[&first], CommitmentState::Settled);
     assert_matches!(item.commitments[&second], CommitmentState::Settled);
 }
@@ -304,4 +304,38 @@ fn garbage_backer_stays_bound_to_the_settled_commitment() {
     // An uninvolved sender still may.
     let result = item.insert_part(&encoder, &item_id(), fresh, second_garbage_parts.remove(0));
     assert_matches!(result, PartInsertResult::Accepted);
+}
+
+#[test]
+fn a_decoded_witness_is_paired_with_its_chunk() {
+    let chunk_id = SpiceChunkId { block_hash: CryptoHash::default(), shard_id: ShardId::new(0) };
+    let data = witness_data_for(chunk_id.clone());
+
+    let decoded = DataId::Witness(chunk_id.clone()).verify_data(data);
+
+    assert_matches!(
+        decoded,
+        Ok(Decoded::Witness { chunk_id: decoded_chunk_id, .. }) if decoded_chunk_id == chunk_id
+    );
+}
+
+#[test]
+fn a_decoded_witness_of_another_chunk_is_garbage() {
+    let chunk_id = SpiceChunkId { block_hash: CryptoHash::default(), shard_id: ShardId::new(0) };
+    let other_chunk_id = SpiceChunkId { shard_id: ShardId::new(1), ..chunk_id };
+
+    let decoded = DataId::Witness(chunk_id).verify_data(witness_data_for(other_chunk_id));
+
+    assert_matches!(decoded, Err(AssembledDataError::InvalidWitnessChunkId));
+}
+
+#[test]
+fn decoded_data_of_another_kind_than_its_id_is_garbage() {
+    let chunk_id = SpiceChunkId { block_hash: CryptoHash::default(), shard_id: ShardId::new(0) };
+
+    let witness_as_proof = item_id().verify_data(witness_data_for(chunk_id.clone()));
+    let proof_as_witness = DataId::Witness(chunk_id).verify_data(receipt_data(0, 1));
+
+    assert_matches!(witness_as_proof, Err(AssembledDataError::IdAndDataMismatch));
+    assert_matches!(proof_as_witness, Err(AssembledDataError::IdAndDataMismatch));
 }

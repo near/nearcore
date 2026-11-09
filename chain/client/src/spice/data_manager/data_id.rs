@@ -1,6 +1,8 @@
 use super::item::{AssembledDataError, SpiceData};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataIdentifier;
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::types::{ShardId, SpiceChunkId};
 use std::iter;
 
@@ -22,6 +24,13 @@ pub struct ReceiptProofId {
     pub source: SpiceChunkId,
     /// The destination shard of the receipts.
     pub to_shard: ShardId,
+}
+
+/// Decoded data with the id it was checked against.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Decoded {
+    ReceiptProof(ReceiptProofId, ReceiptProof),
+    Witness { chunk_id: SpiceChunkId, witness: Box<SpiceChunkStateWitness> },
 }
 
 impl ReceiptProofId {
@@ -61,21 +70,29 @@ impl DataId {
         iter::once(self.producing_chunk().shard_id).chain(to_shard)
     }
 
-    /// Checks that decoded data is the data this id names.
-    pub(crate) fn verify_data(&self, data: &SpiceData) -> Result<(), AssembledDataError> {
-        let DataId::ReceiptProof(ReceiptProofId { source, to_shard }) = self else {
-            unreachable!("only receipt proofs are decoded by the data manager");
-        };
-        let SpiceData::ReceiptProof(proof) = data else {
-            return Err(AssembledDataError::IdAndDataMismatch);
-        };
-        if &proof.1.to_shard_id != to_shard {
-            return Err(AssembledDataError::InvalidToShardId);
+    /// Pairs decoded `data` with this id, if it is the data the id names.
+    pub(crate) fn verify_data(&self, data: SpiceData) -> Result<Decoded, AssembledDataError> {
+        match (self, data) {
+            (DataId::ReceiptProof(id), SpiceData::ReceiptProof(proof)) => {
+                if proof.1.to_shard_id != id.to_shard {
+                    return Err(AssembledDataError::InvalidToShardId);
+                }
+                if proof.1.from_shard_id != id.source.shard_id {
+                    return Err(AssembledDataError::InvalidFromShardId);
+                }
+                Ok(Decoded::ReceiptProof(id.clone(), proof))
+            }
+            (DataId::Witness(chunk_id), SpiceData::StateWitness(witness)) => {
+                if witness.chunk_id() != chunk_id {
+                    return Err(AssembledDataError::InvalidWitnessChunkId);
+                }
+                Ok(Decoded::Witness { chunk_id: chunk_id.clone(), witness })
+            }
+            (DataId::ReceiptProof(_), SpiceData::StateWitness(_))
+            | (DataId::Witness(_), SpiceData::ReceiptProof(_)) => {
+                Err(AssembledDataError::IdAndDataMismatch)
+            }
         }
-        if proof.1.from_shard_id != source.shard_id {
-            return Err(AssembledDataError::InvalidFromShardId);
-        }
-        Ok(())
     }
 }
 

@@ -370,3 +370,33 @@ fn a_request_with_more_ordinals_than_the_limit_is_refused() {
 
     assert_matches!(request, Err(MalformedDataRequest::TooManyOrdinals));
 }
+
+/// A request for `ordinals` of each of `count` distinct witnesses.
+fn witness_wants(count: u64, ordinals: &[u64]) -> BTreeMap<SpiceDataIdentifier, BTreeSet<u64>> {
+    (0..count)
+        .map(|shard| {
+            let id = DataId::Witness(SpiceChunkId {
+                block_hash: CryptoHash::default(),
+                shard_id: ShardId::new(shard),
+            });
+            (SpiceDataIdentifier::from(&id), self::ordinals(ordinals))
+        })
+        .collect()
+}
+
+#[test]
+fn a_request_at_the_witness_limit_is_accepted_with_every_item() {
+    let mut wants = witness_wants(MAX_REQUESTED_WITNESSES as u64, &[0]);
+    wants.extend(self::wants(MAX_REQUESTED_DATA_IDS as u64 - MAX_REQUESTED_WITNESSES as u64, &[0]));
+
+    let request = CheckedDataRequest::new(wants).unwrap();
+
+    assert_eq!(request.into_items().len(), MAX_REQUESTED_DATA_IDS);
+}
+
+#[test]
+fn a_request_with_more_witnesses_than_the_limit_is_refused() {
+    let request = CheckedDataRequest::new(witness_wants(MAX_REQUESTED_WITNESSES as u64 + 1, &[0]));
+
+    assert_matches!(request, Err(MalformedDataRequest::TooManyWitnesses));
+}
