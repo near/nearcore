@@ -21,7 +21,8 @@ use near_primitives::action::delegate::{
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV3, AuthorizationContext, Receipt, ReceiptEnum, ReceiptV0,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction, TransactionNonce,
@@ -481,18 +482,26 @@ pub(crate) fn apply_delegate_action(
         receiver_id: delegate_action.receiver_id().clone(),
         receipt_id: CryptoHash::default(),
 
-        receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id().clone(),
-            // A delegate action comes only in a signed transaction's receipts.
-            signer_public_key: action_receipt
-                .signer_public_key()
-                .expect("a receipt with a delegate action carries a key")
-                .clone(),
-            gas_price: action_receipt.gas_price(),
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
-        }),
+        receipt: match action_receipt.signer_public_key() {
+            Some(signer_public_key) => ReceiptEnum::Action(ActionReceipt {
+                signer_id: action_receipt.signer_id().clone(),
+                signer_public_key: signer_public_key.clone(),
+                gas_price: action_receipt.gas_price(),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: delegate_action.get_actions(),
+            }),
+            // The new receipt stays in the chain of the external call that started it.
+            None => ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: action_receipt.signer_id().clone(),
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: action_receipt.gas_price(),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: delegate_action.get_actions(),
+            }),
+        },
     });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.

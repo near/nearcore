@@ -3193,9 +3193,14 @@ fn send_ecc_receipts(
     for (receipt_index, mut receipt) in receipts.into_iter().enumerate() {
         let receipt_id = apply_state.create_receipt_id(outcome_id, receipt_index);
         receipt.set_receipt_id(receipt_id);
-        if matches!(receipt.versioned_receipt(), VersionedReceiptEnum::Action(_)) {
+        if matches!(
+            receipt.versioned_receipt(),
+            VersionedReceiptEnum::Action(_) | VersionedReceiptEnum::PromiseYield(_)
+        ) {
             receipt_ids.push(receipt_id);
         }
+        // TODO(ecc): map the call's unique id to the call, so `EXPERIMENTAL_receipt_to_tx` can
+        // resolve the `tx_hash` this records.
         send_transaction_receipt(
             processing_state,
             receipt_sink,

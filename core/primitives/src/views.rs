@@ -2412,7 +2412,9 @@ pub struct DataReceiverView {
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
-        authorization_context: AuthorizationContext,
+        /// The key of the transaction that started the chain, absent in an external call's chain
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signer_public_key: Option<PublicKey>,
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -2421,6 +2423,9 @@ pub enum ReceiptEnumView {
         is_promise_yield: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         refund_to: Option<AccountId>,
+        /// What authorized the chain, absent in views written before external calls
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization_context: Option<AuthorizationContext>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2495,12 +2500,7 @@ impl ReceiptEnumView {
     ) -> ReceiptEnumView {
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
-            authorization_context: match action_receipt.signer_public_key() {
-                Some(signer_public_key) => {
-                    AuthorizationContext::AccessKey(signer_public_key.clone())
-                }
-                None => AuthorizationContext::ExternalContractCall,
-            },
+            signer_public_key: action_receipt.signer_public_key().cloned(),
             gas_price: action_receipt.gas_price(),
             output_data_receivers: action_receipt
                 .output_data_receivers()
@@ -2520,6 +2520,12 @@ impl ReceiptEnumView {
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
+            authorization_context: Some(match action_receipt.signer_public_key() {
+                Some(signer_public_key) => {
+                    AuthorizationContext::AccessKey(signer_public_key.clone())
+                }
+                None => AuthorizationContext::ExternalContractCall,
+            }),
         }
     }
 }
@@ -2535,14 +2541,26 @@ impl TryFrom<ReceiptView> for Receipt {
             receipt: match receipt_view.receipt {
                 ReceiptEnumView::Action {
                     signer_id,
-                    authorization_context,
+                    signer_public_key,
                     gas_price,
                     output_data_receivers,
                     input_data_ids,
                     actions,
                     is_promise_yield,
                     refund_to,
+                    authorization_context,
                 } => {
+                    let authorization_context = match (authorization_context, signer_public_key) {
+                        (Some(authorization_context), _) => authorization_context,
+                        (None, Some(signer_public_key)) => {
+                            AuthorizationContext::AccessKey(signer_public_key)
+                        }
+                        (None, None) => {
+                            return Err("an action receipt view names no signer key and no \
+                                        authorization context"
+                                .into());
+                        }
+                    };
                     let output_data_receivers: Vec<_> = output_data_receivers
                         .into_iter()
                         .map(|data_receiver_view| DataReceiver {
@@ -3373,8 +3391,8 @@ mod tests {
         }
     }
 
-    /// The receipts of a signed transaction keep their version through the view, which names the
-    /// key that signed it.
+    /// The receipts of a signed transaction keep their version through the view, which shows the key
+    /// that signed it as `signer_public_key` and as `authorization_context`.
     #[test]
     fn test_signed_receipt_view_round_trip() {
         let signer_public_key = PublicKey::empty(KeyType::ED25519);
@@ -3396,18 +3414,24 @@ mod tests {
             actions: vec![],
         });
         for receipt in [v1, v2] {
-            let json = assert_receipt_view_round_trip(action_receipt_with(receipt));
-            let view = &json["receipt"]["Action"];
+            let receipt = action_receipt_with(receipt);
+            let mut json = assert_receipt_view_round_trip(receipt.clone());
+            let view = &mut json["receipt"]["Action"];
+            assert_eq!(view["signer_public_key"], json!(signer_public_key));
             assert_eq!(view["authorization_context"], json!({"AccessKey": signer_public_key}));
+
+            // A view written before `authorization_context` existed reads back the same.
+            view.as_object_mut().unwrap().remove("authorization_context");
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert_eq!(Receipt::try_from(view).unwrap(), receipt);
         }
     }
 
     #[test]
     fn test_deserialize_execution_outcome_with_receipt() {
-        // Real JSON-RPC response for 'EXPERIMENTAL_tx_status' method, with its receipt in the
-        // receipt view's `authorization_context` shape.
+        // Real JSON-RPC response for 'EXPERIMENTAL_tx_status' method
         // cspell:ignore mainchain
-        let json = r#"{"final_execution_status":"FINAL","receipts":[{"predecessor_id":"system","priority":0,"receipt":{"Action":{"actions":[{"Transfer":{"deposit":"17930928991009412192152"}}],"gas_price":"0","input_data_ids":[],"is_promise_yield":false,"output_data_receivers":[],"signer_id":"btc-client.testnet","authorization_context":{"AccessKey":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA"}}},"receipt_id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","receiver_id":"btc-client.testnet"}],"receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
+        let json = r#"{"final_execution_status":"FINAL","receipts":[{"predecessor_id":"system","priority":0,"receipt":{"Action":{"actions":[{"Transfer":{"deposit":"17930928991009412192152"}}],"gas_price":"0","input_data_ids":[],"is_promise_yield":false,"output_data_receivers":[],"signer_id":"btc-client.testnet","signer_public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA"}},"receipt_id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","receiver_id":"btc-client.testnet"}],"receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
         let view: FinalExecutionOutcomeViewEnum = serde_json::from_str(json).unwrap();
         assert!(matches!(view, FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(_)));
     }

@@ -8223,7 +8223,15 @@
                     "type": "array"
                   },
                   "authorization_context": {
-                    "$ref": "#/components/schemas/AuthorizationContext"
+                    "description": "What authorized the chain, absent in views written before external calls",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/AuthorizationContext"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
@@ -8256,11 +8264,21 @@
                   },
                   "signer_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "signer_public_key": {
+                    "description": "The key of the transaction that started the chain, absent in an external call's chain",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "signer_id",
-                  "authorization_context",
                   "gas_price",
                   "output_data_receivers",
                   "input_data_ids",

@@ -527,7 +527,7 @@ pub struct ActionReceipt {
 pub struct ActionReceiptV2 {
     /// A signer of the original transaction
     pub signer_id: AccountId,
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub refund_to: Option<AccountId>,
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
@@ -560,7 +560,7 @@ pub struct ActionReceiptV2 {
 pub struct ActionReceiptV3 {
     /// A signer of the original transaction, or the contract that accepted an external call
     pub signer_id: AccountId,
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub refund_to: Option<AccountId>,
     /// What authorized the chain of receipts this receipt belongs to
     pub authorization_context: AuthorizationContext,
@@ -618,7 +618,7 @@ impl VersionedActionReceipt<'_> {
         }
     }
 
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub fn refund_to(&self) -> &Option<AccountId> {
         match self {
             VersionedActionReceipt::V1(_) => &None,
