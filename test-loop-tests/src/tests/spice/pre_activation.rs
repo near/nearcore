@@ -317,13 +317,9 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
 
     // SpiceChunkStateWitnessMessage is internal, so it goes to the validator directly
     // rather than through the distributor.
-    node_data.spice_chunk_validator_sender.send(
-        SpiceChunkStateWitnessMessage {
-            witness: new_test_witness(chunk_id),
-            witness_hash: CryptoHash::default(),
-        }
-        .span_wrap(),
-    );
+    node_data
+        .spice_chunk_validator_sender
+        .send(SpiceChunkStateWitnessMessage { witness: new_test_witness(chunk_id) }.span_wrap());
 
     // A message naming a block we do not have falls back to the head, which is
     // pre-spice, so it is dropped too. This is the branch a peer reaches by naming a

@@ -21,9 +21,7 @@ use near_chain::{
 };
 use near_chain_configs::INITIAL_GAS_LIMIT;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{
-    Genesis, MutableConfigValue, MutableValidatorSigner, TrackedShardsConfig,
-};
+use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -49,7 +47,8 @@ use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, MAX_CONTRACTS_PER_REQUEST, SpiceContractCodeResponse,
+    CodeBytes, MAX_CONTRACTS_PER_REQUEST, MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE,
+    MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE, SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::{
     ChunkProductionKey,
@@ -344,7 +343,6 @@ struct TestActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     core_reader: SpiceCoreReader,
     core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
-    validator_signer: MutableValidatorSigner,
 }
 
 impl<M> Handler<M> for TestActor
@@ -428,7 +426,7 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
             runtime.clone(),
             epoch_manager.clone(),
             network_adapter,
-            validator_signer.clone(),
+            validator_signer,
             core_writer_sender.clone(),
             ApplyChunksSpawner::Custom(Arc::new(spawner)),
         ),
@@ -438,7 +436,6 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
         epoch_manager,
         core_reader,
         core_writer_sender,
-        validator_signer,
         chain,
     };
 
@@ -614,8 +611,7 @@ fn test_witness_message(
         contract_accesses,
         None,
     );
-    let witness_hash = hash(&borsh::to_vec(&witness).unwrap());
-    SpiceChunkStateWitnessMessage { witness, witness_hash }
+    SpiceChunkStateWitnessMessage { witness }
 }
 
 fn valid_witness_message(
@@ -897,7 +893,7 @@ fn drain_endorsements(
 /// A later accesses message starts no fetch, so a wrong one arriving second changes nothing.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_correct_accesses_first_then_malicious() {
+fn later_accesses_message_starts_no_fetch() {
     let mut actor = setup_two_validators();
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
@@ -919,6 +915,7 @@ fn test_correct_accesses_first_then_malicious() {
     let malicious_accesses =
         make_contract_accesses_with_signer(&block, HashSet::from([bogus_hash]), "test-validator-2");
     actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
 
     // Send witness — should finalize using the correct (first) accesses.
     // Endorsement is sent over the network (core needs >1 endorsement with 2 validators).
@@ -998,10 +995,11 @@ fn honest_witness_is_endorsed_whatever_order_a_fake_arrives_in() {
     }
 }
 
-/// Two witnesses that wait for different code are both validated once the code arrives.
+/// A witness is validated once its own code arrives, while another witness of the chunk still
+/// waits for different code.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn witnesses_waiting_for_different_code_are_each_validated() {
+fn witness_is_validated_once_its_own_code_arrives_while_another_waits() {
     let mut actor = setup_two_validators();
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
@@ -1009,9 +1007,26 @@ fn witnesses_waiting_for_different_code_are_each_validated() {
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
 
+    let epoch_id = actor.epoch_manager.get_epoch_id(block.hash()).unwrap();
+    let producers = actor
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(&epoch_id, block.chunks()[0].shard_id())
+        .unwrap();
+    let [first_producer, accesses_sender] = producers.as_slice() else {
+        panic!("expected two producers, got {producers:?}");
+    };
+
     let (hash_a, code_a) = test_contract(b"contract_a");
     let (hash_b, code_b) = test_contract(b"contract_b");
-    for code_hash in [hash_a, hash_b] {
+    // Code B is asked from the accesses sender, so the witness needing A is the only one asking
+    // the first producer: each producer gets one request and answers it.
+    let accesses = make_contract_accesses_with_signer(
+        &block,
+        HashSet::from([hash_b.clone()]),
+        accesses_sender.as_str(),
+    );
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    for code_hash in [hash_a.clone(), hash_b.clone()] {
         let witness_message = valid_witness_message_with_accesses(
             &actor,
             &block,
@@ -1021,59 +1036,76 @@ fn witnesses_waiting_for_different_code_are_each_validated() {
         );
         actor.handle(witness_message.span_wrap());
     }
-    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    let mut requests = Vec::new();
+    while let Ok(msg) = actor.network_rc.try_recv() {
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SpiceContractCodeRequest(producer, request),
+        ) = msg
+        {
+            requests.push((producer, request.contracts().iter().cloned().collect::<HashSet<_>>()));
+        }
+    }
+    assert_eq!(
+        requests,
+        vec![
+            (accesses_sender.clone(), HashSet::from([hash_b])),
+            (first_producer.clone(), HashSet::from([hash_a])),
+        ]
+    );
 
-    send_contract_code(&mut actor, &block, vec![code_a, code_b]);
-    assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 2);
+    send_contract_code(&mut actor, &block, vec![code_a]);
+    assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 1);
+    // Our endorsement exists now, so the witness waiting for B is dropped once B arrives.
+    send_contract_code(&mut actor, &block, vec![code_b]);
+    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
 }
 
-/// Once our endorsement exists, a new witness for the chunk is not validated, and finding the
-/// endorsement drops everything held for the chunk.
+/// No witness starts validating once our endorsement exists: neither one held before the
+/// endorsement nor one arriving after it.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn no_witness_is_validated_once_our_endorsement_exists() {
+fn no_witness_starts_validating_once_our_endorsement_exists() {
     let mut actor = setup_two_validators();
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
     let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
-    let chunk_id =
-        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
 
-    // A witness waiting for code that never arrives keeps the chunk pending.
-    let (code_hash, _) = test_contract(b"contract_a");
-    let waiting = invalid_witness_message_with_accesses(
+    let (held_hash, held_code) = test_contract(b"contract_a");
+    let held = valid_witness_message_with_accesses(
         &actor,
         &block,
         &prev_block,
         &starting_state_root,
-        &HashSet::from([code_hash]),
+        &HashSet::from([held_hash]),
     );
-    actor.handle(waiting.span_wrap());
-    let honest = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
-    actor.handle(honest.span_wrap());
+    actor.handle(held.span_wrap());
+    drain_contract_requests(&mut actor.network_rc);
+    let endorsed = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+    actor.handle(endorsed.span_wrap());
     assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 1);
-    assert!(actor.actor.is_chunk_pending(&chunk_id));
+    send_contract_code(&mut actor, &block, vec![held_code]);
+    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
 
-    let (other_hash, _) = test_contract(b"contract_b");
+    let (late_hash, late_code) = test_contract(b"contract_b");
     let late = valid_witness_message_with_accesses(
         &actor,
         &block,
         &prev_block,
         &starting_state_root,
-        &HashSet::from([other_hash]),
+        &HashSet::from([late_hash]),
     );
     actor.handle(late.span_wrap());
     assert_no_contract_requests(&mut actor.network_rc);
+    send_contract_code(&mut actor, &block, vec![late_code]);
     assert!(drain_endorsements(&mut actor.network_rc).is_empty());
-    assert!(!actor.actor.is_chunk_pending(&chunk_id));
 }
 
-/// The same witness arriving twice is validated once.
+/// An accesses message arriving once our endorsement exists requests no code.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn duplicate_witness_is_validated_once() {
+fn accesses_message_after_our_endorsement_requests_no_code() {
     let mut actor = setup_two_validators();
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
@@ -1081,60 +1113,22 @@ fn duplicate_witness_is_validated_once() {
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
 
-    let (code_hash, code) = test_contract(b"contract_a");
-    let contracts = HashSet::from([code_hash]);
-    for _ in 0..2 {
-        let witness_message = valid_witness_message_with_accesses(
-            &actor,
-            &block,
-            &prev_block,
-            &starting_state_root,
-            &contracts,
-        );
-        actor.handle(witness_message.span_wrap());
-    }
-
-    send_contract_code(&mut actor, &block, vec![code]);
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+    actor.handle(witness_message.span_wrap());
     assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 1);
-}
-
-/// An accesses message that fails before its request is sent leaves its code unrequested, so a
-/// witness needing that code still asks for it.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn accesses_message_failing_before_its_request_leaves_the_code_unrequested() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
-    let starting_state_root = test_starting_state_root(&actor);
-    record_execution_results(&actor, &prev_block, starting_state_root);
 
     let (code_hash, _) = test_contract(b"contract_a");
-    let contracts = HashSet::from([code_hash]);
-    let signer = actor.validator_signer.get();
-    actor.validator_signer.update(None);
-    let accesses = make_contract_accesses(&block, contracts.clone());
+    let accesses =
+        make_contract_accesses_with_signer(&block, HashSet::from([code_hash]), "test-validator-1");
     actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
     assert_no_contract_requests(&mut actor.network_rc);
-
-    actor.validator_signer.update(signer);
-    let witness_message = valid_witness_message_with_accesses(
-        &actor,
-        &block,
-        &prev_block,
-        &starting_state_root,
-        &contracts,
-    );
-    actor.handle(witness_message.span_wrap());
-    assert_eq!(drain_contract_requests(&mut actor.network_rc), vec![contracts]);
 }
 
-/// A candidate that is not ready when its code arrives waits for its block again, and is
+/// A candidate witness that is not ready when its code arrives waits for its block again, and is
 /// validated once the block is ready.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn candidate_not_ready_when_its_code_arrives_is_validated_later() {
+fn candidate_witness_not_ready_when_its_code_arrives_is_validated_later() {
     let mut actor = setup_two_validators();
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
@@ -1165,6 +1159,50 @@ fn candidate_not_ready_when_its_code_arrives_is_validated_later() {
     record_execution_results(&actor, &prev_block, starting_state_root);
     actor.handle(ExecutionResultEndorsed { block_hash: *prev_block.hash() });
     assert_eq!(drain_endorsements(&mut actor.network_rc).len(), 1);
+}
+
+/// Code past what is left of its request's cap is not stored, so a witness needing it is not
+/// validated even once every response arrived.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_code_past_its_request_cap_is_not_stored() {
+    let mut actor = setup_two_validators();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    // Full responses that together stay just under the request cap, then one that passes it.
+    let full_responses = MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE
+        / MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE;
+    let full_size = (MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE - (1 << 20)) as usize;
+    let last_size = (full_responses << 20) as usize + 1;
+    let code_sizes = (0..full_responses).map(|_| full_size).chain([last_size]);
+    let make_code = |index: u8, size: usize| {
+        let mut bytes = vec![0u8; size];
+        bytes[0] = index;
+        CodeBytes(Arc::from(bytes))
+    };
+    let contracts: HashSet<CodeHash> = code_sizes
+        .clone()
+        .enumerate()
+        .map(|(index, size)| CodeHash(hash(&make_code(index as u8, size).0)))
+        .collect();
+    let witness_message = valid_witness_message_with_accesses(
+        &actor,
+        &block,
+        &prev_block,
+        &starting_state_root,
+        &contracts,
+    );
+    actor.handle(witness_message.span_wrap());
+    assert_eq!(drain_contract_requests(&mut actor.network_rc), vec![contracts]);
+
+    for (index, size) in code_sizes.enumerate() {
+        send_contract_code(&mut actor, &block, vec![make_code(index as u8, size)]);
+    }
+    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
 }
 
 /// Code received for a fake witness serves the honest one that follows: a producer answers one
@@ -1236,9 +1274,6 @@ fn witness_waiting_for_its_block_requests_no_code_once_our_endorsement_exists() 
     record_execution_results(&actor, &block, starting_state_root);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert_no_contract_requests(&mut actor.network_rc);
-    let chunk_id =
-        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
-    assert!(!actor.actor.is_chunk_pending(&chunk_id));
 }
 
 /// Contract accesses for a block we do not have are buffered only when signed by a chunk

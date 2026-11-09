@@ -28,7 +28,7 @@ use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
     MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse, total_code_size,
+    SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -46,15 +46,15 @@ use std::sync::Arc;
 
 mod boundary;
 
-// Each pending chunk stores the uncompressed witness plus uncompressed contracts.
-// In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
-// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), giving
-// ~320 MiB per chunk.  MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB worst-case memory budget.
+// Each pending chunk stores uncompressed witnesses plus uncompressed contracts. A witness is
+// bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB) and the contracts of each code request by
+// MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), so a chunk with one witness and one
+// request holds ~320 MiB.  MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB worst-case memory budget.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
 // TODO(spice): add test covering the relationship between constants.
-// TODO(spice-data-distribution): a pending chunk can hold several witnesses, so this bounds
-// chunks, not memory.
+// TODO(spice-data-distribution): a pending chunk can hold several witnesses and code requests, so
+// this bounds chunks, not memory.
 pub(crate) const MAX_PENDING_CHUNKS: usize = 24;
 
 /// How many blocks we have not received yet we hold contract accesses for. Honest accesses
@@ -91,23 +91,24 @@ pub struct SpiceChunkValidatorActor {
 struct PartialChunkData {
     /// Whether a contract accesses message arrived; only the first one starts a code request.
     accesses_received: bool,
-    /// Code hashes requested from a producer.
+    /// Code hashes requested from a producer, each with the index in `bytes_received` of the
+    /// request that asked for it.
     // TODO(spice-data-distribution): code is requested once and never again, so a request
     // that is never answered stalls every candidate needing that code until the chunk is evicted.
-    requested_code: HashSet<CodeHash>,
+    requested_code: HashMap<CodeHash, usize>,
+    /// Uncompressed code bytes stored for each request, at most
+    /// `MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE` each.
+    bytes_received: Vec<u64>,
     /// Requested code received so far.
     /// TODO(spice),TODO(pipelining): This is not strictly needed - we could send the contracts for compilation/caching as they arrive without waiting for all of them + witness to be present.
     code: HashMap<CodeHash, CodeBytes>,
     /// Candidates whose block is ready, waiting for contract code.
     candidates: Vec<WitnessCandidate>,
-    /// Hashes of the candidates submitted for validation.
-    submitted: HashSet<CryptoHash>,
 }
 
 /// A witness waiting for the contract code its own accesses list names.
 struct WitnessCandidate {
     witness: SpiceChunkStateWitness,
-    witness_hash: CryptoHash,
     /// Listed code neither cached nor received yet.
     missing: HashSet<CodeHash>,
 }
@@ -116,33 +117,57 @@ impl PartialChunkData {
     fn new() -> Self {
         Self {
             accesses_received: false,
-            requested_code: HashSet::new(),
+            requested_code: HashMap::new(),
+            bytes_received: Vec::new(),
             code: HashMap::new(),
             candidates: Vec::new(),
-            submitted: HashSet::new(),
         }
     }
 
-    /// Marks the code in `contracts` not requested yet as requested, and returns it.
+    /// Returns the hashes in `contracts` not requested yet, and marks them as requested by one
+    /// new request.
     fn take_unrequested(&mut self, contracts: HashSet<CodeHash>) -> HashSet<CodeHash> {
         let unrequested: HashSet<CodeHash> =
-            contracts.into_iter().filter(|hash| !self.requested_code.contains(hash)).collect();
-        self.requested_code.extend(unrequested.iter().cloned());
+            contracts.into_iter().filter(|hash| !self.requested_code.contains_key(hash)).collect();
+        if unrequested.is_empty() {
+            return unrequested;
+        }
+        let request = self.bytes_received.len();
+        self.bytes_received.push(0);
+        self.requested_code.extend(unrequested.iter().map(|hash| (hash.clone(), request)));
         unrequested
     }
 
-    /// Whether a witness with this hash is held or was submitted.
-    fn has_witness(&self, witness_hash: &CryptoHash) -> bool {
-        self.submitted.contains(witness_hash)
-            || self.candidates.iter().any(|candidate| &candidate.witness_hash == witness_hash)
+    /// Stores `bytes` if `hash` was requested, is not stored yet, and fits what is left of its
+    /// request's cap. Returns whether it was stored.
+    fn store_code(&mut self, hash: &CodeHash, bytes: &CodeBytes) -> bool {
+        let Some(&request) = self.requested_code.get(hash) else {
+            return false;
+        };
+        if self.code.contains_key(hash) {
+            return false;
+        }
+        let bytes_received = &mut self.bytes_received[request];
+        let Some(total) = bytes_received
+            .checked_add(bytes.0.len() as u64)
+            .filter(|total| *total <= MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE)
+        else {
+            tracing::debug!(
+                target: "spice_chunk_validator",
+                ?hash,
+                "contract code exceeds what is left of its request's cap; not storing it"
+            );
+            return false;
+        };
+        *bytes_received = total;
+        self.code.insert(hash.clone(), bytes.clone());
+        true
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SpiceChunkStateWitnessMessage {
     pub witness: SpiceChunkStateWitness,
-    /// Hash of the witness's committed encoding; equal witnesses have equal hashes.
-    pub witness_hash: CryptoHash,
 }
 
 impl near_async::messaging::Actor for SpiceChunkValidatorActor {}
@@ -192,12 +217,6 @@ impl SpiceChunkValidatorActor {
     #[cfg(test)]
     pub(crate) fn num_pending_contract_accesses(&self) -> usize {
         self.pending_contract_accesses.iter().map(|(_, by_sender)| by_sender.len()).sum()
-    }
-
-    /// Whether anything is held for the chunk: candidates, submitted hashes or code.
-    #[cfg(test)]
-    pub(crate) fn is_chunk_pending(&self, chunk_id: &SpiceChunkId) -> bool {
-        self.partial_chunk_data.contains(chunk_id)
     }
 }
 
@@ -449,14 +468,19 @@ impl SpiceChunkValidatorActor {
                     }
                 };
             }
+            let chunk_id = msg.witness.chunk_id().clone();
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
-                chunk_id = ?msg.witness.chunk_id(),
+                ?chunk_id,
                 "processing ready pending state witness");
             if let Err(err) = self.add_candidate(msg, signer.clone()) {
-                self.requeue_waiting_witnesses(&block_hash, unready_witnesses);
-                return Err(err);
+                tracing::error!(
+                    target: "spice_chunk_validator",
+                    ?chunk_id,
+                    ?err,
+                    "dropping witness: the node's database may be inconsistent"
+                );
             }
         }
 
@@ -593,6 +617,9 @@ impl SpiceChunkValidatorActor {
             .validator_signer
             .get()
             .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
+        if self.forget_if_endorsed(&chunk_id, signer.validator_id()) {
+            return Ok(());
+        }
         let uncached = self.uncached_contracts(&epoch_id, accesses.contracts())?;
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
@@ -682,17 +709,14 @@ impl SpiceChunkValidatorActor {
             .collect();
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
         for (chunk_id, entry) in &mut self.partial_chunk_data {
-            let PartialChunkData { requested_code, code, candidates, .. } = entry;
             let mut added = false;
             for (hash, bytes) in &received {
-                if requested_code.contains(hash) && !code.contains_key(hash) {
-                    code.insert(hash.clone(), bytes.clone());
-                    added = true;
-                }
+                added |= entry.store_code(hash, bytes);
             }
             if !added {
                 continue;
             }
+            let PartialChunkData { code, candidates, .. } = entry;
             for candidate in candidates {
                 candidate.missing.retain(|hash| !code.contains_key(hash));
             }
@@ -703,20 +727,20 @@ impl SpiceChunkValidatorActor {
             .get()
             .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
         for chunk_id in maybe_ready {
-            self.validate_ready_candidates(&chunk_id, signer.clone())?;
+            self.validate_ready_candidates(&chunk_id, signer.clone());
         }
         Ok(())
     }
 
     /// Adds a witness whose block is ready as a candidate of its chunk, unless our endorsement
-    /// exists or the same witness is held or was submitted. Requests the listed code nobody was
-    /// asked for yet, then submits the chunk's ready candidates.
+    /// exists. Requests the listed code nobody was asked for yet, then submits the chunk's ready
+    /// candidates.
     fn add_candidate(
         &mut self,
         msg: SpiceChunkStateWitnessMessage,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let SpiceChunkStateWitnessMessage { witness, witness_hash } = msg;
+        let SpiceChunkStateWitnessMessage { witness } = msg;
         let chunk_id = witness.chunk_id().clone();
         if self.forget_if_endorsed(&chunk_id, signer.validator_id()) {
             return Ok(());
@@ -745,77 +769,62 @@ impl SpiceChunkValidatorActor {
             .ok_or_else(|| Error::Other("chunk has no producers".to_owned()))?;
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
-        if entry.has_witness(&witness_hash) {
-            return Ok(());
-        }
         let missing: HashSet<CodeHash> =
             uncached.into_iter().filter(|hash| !entry.code.contains_key(hash)).collect();
         let to_request = entry.take_unrequested(missing.clone());
-        entry.candidates.push(WitnessCandidate { witness, witness_hash, missing });
+        entry.candidates.push(WitnessCandidate { witness, missing });
         if !to_request.is_empty() {
             self.request_code(&chunk_id, producer, to_request, &signer);
         }
-        self.validate_ready_candidates(&chunk_id, signer)
+        self.validate_ready_candidates(&chunk_id, signer);
+        Ok(())
     }
 
     /// Submits for validation each candidate of the chunk whose code is all here. Once our
     /// endorsement exists, drops the chunk instead.
-    fn validate_ready_candidates(
-        &mut self,
-        chunk_id: &SpiceChunkId,
-        signer: Arc<ValidatorSigner>,
-    ) -> Result<(), Error> {
+    fn validate_ready_candidates(&mut self, chunk_id: &SpiceChunkId, signer: Arc<ValidatorSigner>) {
         if self.forget_if_endorsed(chunk_id, signer.validator_id()) {
-            return Ok(());
+            return;
         }
         let Some(entry) = self.partial_chunk_data.get_mut(chunk_id) else {
-            return Ok(());
+            return;
         };
         let (ready, waiting): (Vec<_>, Vec<_>) =
             mem::take(&mut entry.candidates).into_iter().partition(|c| c.missing.is_empty());
         entry.candidates = waiting;
-        for WitnessCandidate { mut witness, witness_hash, .. } in ready {
+        let ready: Vec<(SpiceChunkStateWitness, Vec<CodeBytes>)> = ready
+            .into_iter()
+            .map(|WitnessCandidate { witness, .. }| {
+                let code = witness
+                    .contract_accesses()
+                    .iter()
+                    .filter_map(|hash| entry.code.get(hash).cloned())
+                    .collect();
+                (witness, code)
+            })
+            .collect();
+        for (mut witness, code) in ready {
             // A candidate whose block is not ready, or whose readiness cannot be read, waits for
             // the block again; it is not submitted and its code is not merged.
             let ctx = match self.witness_processing_readiness(&witness) {
                 Ok(WitnessProcessingReadiness::Ready(ctx)) => ctx,
                 readiness => {
                     if let Err(err) = readiness {
-                        tracing::error!(target: "spice_chunk_validator", ?err, ?chunk_id, ?witness_hash, "failed to check witness readiness");
+                        tracing::error!(target: "spice_chunk_validator", ?err, ?chunk_id, "failed to check witness readiness");
                     }
-                    let msg = SpiceChunkStateWitnessMessage { witness, witness_hash };
+                    let msg = SpiceChunkStateWitnessMessage { witness };
                     self.waiting_for_block.entry(chunk_id.block_hash).or_default().push(msg);
                     continue;
                 }
             };
-            let entry = self
-                .partial_chunk_data
-                .get_mut(chunk_id)
-                .expect("nothing removes the chunk while its candidates are submitted");
-            let code: Vec<CodeBytes> = witness
-                .contract_accesses()
-                .iter()
-                .filter_map(|hash| entry.code.get(hash).cloned())
-                .collect();
-            if total_code_size(&code) > MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE {
-                tracing::debug!(
-                    target: "spice_chunk_validator",
-                    ?chunk_id,
-                    ?witness_hash,
-                    "witness needs more contract code than one request covers; dropping it"
-                );
-                continue;
-            }
-            entry.submitted.insert(witness_hash);
             witness.merge_contracts(code);
             // A failed candidate must not keep the others from validation.
             if let Err(err) =
                 self.validate_state_witness_and_send_endorsements(&ctx, witness, signer.clone())
             {
-                tracing::debug!(target: "spice_chunk_validator", ?err, ?chunk_id, ?witness_hash, "witness candidate failed pre-validation");
+                tracing::debug!(target: "spice_chunk_validator", ?err, ?chunk_id, "witness candidate failed pre-validation");
             }
         }
-        Ok(())
     }
 
     /// Whether our endorsement of the chunk exists. If it does, drops every witness held for
