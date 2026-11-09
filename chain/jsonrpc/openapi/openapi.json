@@ -9976,22 +9976,27 @@
           },
           {
             "additionalProperties": false,
-            "description": "An external contract call didn't run because the chunk's external calls used up one of\ntheir shares of the chunk's limits.",
+            "description": "An external contract call didn't run because the chunk's external calls reached one of\ntheir shares of the chunk's limits.",
             "properties": {
-              "ExternalCallChunkLimitExceeded": {
+              "ExternalCallChunkShareReached": {
                 "properties": {
-                  "limit": {
-                    "$ref": "#/components/schemas/ExternalCallChunkLimit"
+                  "share": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ExternalCallChunkLimit"
+                      }
+                    ],
+                    "description": "The share that was reached: what the chunk's earlier external calls used, and the\nshare."
                   }
                 },
                 "required": [
-                  "limit"
+                  "share"
                 ],
                 "type": "object"
               }
             },
             "required": [
-              "ExternalCallChunkLimitExceeded"
+              "ExternalCallChunkShareReached"
             ],
             "type": "object"
           }
@@ -22673,7 +22678,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A read would record more of the trie than the recording budget set on it allows.\nSee `Trie::set_recording_budget`.",
+            "description": "A read would record more of the trie than the recording budget set on it allows.\nSee `TrieUpdate::with_recording_budget`.",
             "properties": {
               "RecordingBudgetExceeded": {
                 "properties": {

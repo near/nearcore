@@ -82,13 +82,13 @@ impl ExternalCallsInChunk {
     fn fits(&self) -> Result<(), InvalidTxError> {
         let (used, limit) = (self.compute, self.compute_share);
         if used >= limit {
-            let limit = ExternalCallChunkLimit::Compute { used, limit };
-            return Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit });
+            let share = ExternalCallChunkLimit::Compute { used, limit };
+            return Err(InvalidTxError::ExternalCallChunkShareReached { share });
         }
         let (used, limit) = (self.recorded_size, self.recorded_size_share);
         if used >= limit {
-            let limit = ExternalCallChunkLimit::StorageProof { used, limit };
-            return Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit });
+            let share = ExternalCallChunkLimit::StorageProof { used, limit };
+            return Err(InvalidTxError::ExternalCallChunkShareReached { share });
         }
         Ok(())
     }
@@ -550,13 +550,13 @@ mod tests {
     }
 
     fn compute_exceeded(used: Compute, limit: Compute) -> Result<(), InvalidTxError> {
-        let limit = ExternalCallChunkLimit::Compute { used, limit };
-        Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit })
+        let share = ExternalCallChunkLimit::Compute { used, limit };
+        Err(InvalidTxError::ExternalCallChunkShareReached { share })
     }
 
     fn storage_proof_exceeded(used: u64, limit: u64) -> Result<(), InvalidTxError> {
-        let limit = ExternalCallChunkLimit::StorageProof { used, limit };
-        Err(InvalidTxError::ExternalCallChunkLimitExceeded { limit })
+        let share = ExternalCallChunkLimit::StorageProof { used, limit };
+        Err(InvalidTxError::ExternalCallChunkShareReached { share })
     }
 
     #[test]

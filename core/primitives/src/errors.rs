@@ -353,10 +353,12 @@ pub enum InvalidTxError {
     ContractNotFound {
         contract_id: AccountId,
     } = 21,
-    /// An external contract call didn't run because the chunk's external calls used up one of
+    /// An external contract call didn't run because the chunk's external calls reached one of
     /// their shares of the chunk's limits.
-    ExternalCallChunkLimitExceeded {
-        limit: ExternalCallChunkLimit,
+    ExternalCallChunkShareReached {
+        /// The share that was reached: what the chunk's earlier external calls used, and the
+        /// share.
+        share: ExternalCallChunkLimit,
     } = 22,
 }
 
@@ -1129,20 +1131,20 @@ impl Display for InvalidTxError {
             InvalidTxError::ContractNotFound { contract_id } => {
                 write!(f, "account {:?} does not hold a contract", contract_id)
             }
-            InvalidTxError::ExternalCallChunkLimitExceeded {
-                limit: ExternalCallChunkLimit::Compute { used, limit },
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::Compute { used, limit },
             } => write!(
                 f,
-                "external calls in the chunk used {} of compute, past their share of {}",
+                "external calls in the chunk used {} of compute, reaching their share of {}",
                 Gas::from_gas(*used),
                 Gas::from_gas(*limit)
             ),
-            InvalidTxError::ExternalCallChunkLimitExceeded {
-                limit: ExternalCallChunkLimit::StorageProof { used, limit },
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::StorageProof { used, limit },
             } => write!(
                 f,
-                "external calls in the chunk recorded {} bytes of storage proof, past their share \
-                 of {} bytes",
+                "external calls in the chunk recorded {} bytes of storage proof, reaching their \
+                 share of {} bytes",
                 used, limit
             ),
         }

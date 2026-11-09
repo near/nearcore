@@ -1996,14 +1996,14 @@ fn apply_eccs_under_shares(
     }
 }
 
-/// What the chunk's earlier ECCs used and the share, from the status of an ECC refused for being
-/// past a share.
-fn refused_past_share(status: &ExecutionStatus) -> ExternalCallChunkLimit {
+/// What the chunk's earlier ECCs used and the share, from the status of an ECC refused because
+/// they reached a share.
+fn refused_at_share(status: &ExecutionStatus) -> ExternalCallChunkLimit {
     match status {
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::ExternalCallChunkLimitExceeded { limit },
-        )) => limit.clone(),
-        _ => panic!("expected the ECC to be refused past a share, got {status:?}"),
+            InvalidTxError::ExternalCallChunkShareReached { share },
+        )) => share.clone(),
+        _ => panic!("expected the ECC to be refused at a share, got {status:?}"),
     }
 }
 
@@ -2038,7 +2038,7 @@ fn test_apply_ecc_refused_past_compute_share() {
     let used = first.outcome.compute_usage.unwrap();
     assert!(used >= share);
     assert_eq!(
-        refused_past_share(&second.outcome.status),
+        refused_at_share(&second.outcome.status),
         ExternalCallChunkLimit::Compute { used, limit: share }
     );
     // The second call didn't run: after the chunk, bob's account and data are as they were
@@ -2095,7 +2095,7 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
     let calls_config = &apply_state.config.external_calls_config;
     let share = calls_config.storage_proof_share(&apply_state.config.witness_config);
     let ExternalCallChunkLimit::StorageProof { used, limit } =
-        refused_past_share(&second.outcome.status)
+        refused_at_share(&second.outcome.status)
     else {
         panic!("expected the storage proof share, got {:?}", second.outcome.status);
     };
@@ -2163,7 +2163,7 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
         ))
     );
     let ExternalCallChunkLimit::StorageProof { used, limit } =
-        refused_past_share(&second.outcome.status)
+        refused_at_share(&second.outcome.status)
     else {
         panic!("expected the storage proof share, got {:?}", second.outcome.status);
     };
@@ -2203,7 +2203,7 @@ fn test_apply_eccs_without_gas_limit() {
             config.external_calls_config.chunk_storage_proof_share = tiny_share(soft_limit);
         });
     assert_matches!(
-        refused_past_share(&apply_result.outcomes[1].outcome.status),
+        refused_at_share(&apply_result.outcomes[1].outcome.status),
         ExternalCallChunkLimit::StorageProof { .. }
     );
 }
