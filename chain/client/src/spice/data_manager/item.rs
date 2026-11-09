@@ -1,4 +1,4 @@
-use super::DataId;
+use super::{DataId, Decoded};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
@@ -193,16 +193,6 @@ impl VerifiedCodedPart {
         let ordinal = usize::try_from(ordinal).expect("verified ordinal fits in usize");
         Some(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
-
-    // TODO(spice-data-distribution): these accessors only feed the old witness ingress
-    // path; they go when witnesses move onto the engine (#16275).
-    pub(crate) fn ordinal(&self) -> usize {
-        self.ordinal
-    }
-
-    pub(crate) fn into_part(self) -> Box<[u8]> {
-        self.part
-    }
 }
 
 /// Accumulates parts toward decoding under one claimed commitment.
@@ -254,8 +244,7 @@ impl CodedTracker {
                         if hash(&borsh::to_vec(&data).unwrap()) != commitment.hash {
                             return Err(AssembledDataError::HashMismatch);
                         }
-                        id.verify_data(&data)?;
-                        Ok(data)
+                        id.verify_data(data)
                     });
                 match checked {
                     Ok(data) => PartInsertResult::Decoded(data),
@@ -274,7 +263,7 @@ pub(crate) enum PartInsertResult {
     /// The commitment was already settled, to data or to garbage; the part was not needed.
     AlreadySettled,
     /// The commitment decoded to this data, which matches the committed hash and the id.
-    Decoded(SpiceData),
+    Decoded(Decoded),
     /// The commitment settled without data.
     Garbage(AssembledDataError),
     /// The sender already sent parts under another commitment. Part ignored.
@@ -298,4 +287,6 @@ pub(crate) enum AssembledDataError {
     InvalidToShardId,
     #[error("decoded receipt proof from_shard_id is invalid")]
     InvalidFromShardId,
+    #[error("decoded witness is of another chunk")]
+    InvalidWitnessChunkId,
 }

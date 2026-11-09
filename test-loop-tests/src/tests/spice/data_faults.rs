@@ -11,18 +11,19 @@
 // the faster one does, which having endorsed cannot tell apart from recovering every chunk.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::spice_partial_data_faults::{
     SpiceDataKind, SpicePartialDataFaults, SpicePartialDataObserved,
 };
 use crate::setup::state::NodeExecutionData;
 use near_async::time::Duration;
-use near_client::spice::data_distributor_actor::DATA_REQUEST_INTERVAL;
 use near_client::spice::data_manager::DATA_PARTS_RATIO;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const NUM_PRODUCERS: usize = 4;
@@ -217,6 +218,34 @@ fn test_spice_partial_data_faults_with_a_single_honest_receipt_proof_producer() 
     assert_endorsed(&observed, &recipients);
 }
 
+/// The witness twin of the single honest receipt proof producer: three of the four producers
+/// corrupt every witness part they send, so a recipient holds one verified part, too few to
+/// decode, and completes the witness from the honest producer once the gate opens.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_partial_data_faults_with_a_single_honest_witness_producer() {
+    let Setup { mut env, producers, recipients, faults, observed } = setup();
+    let liars = &producers[1..];
+    assert!(
+        NUM_PRODUCERS - liars.len() < single_shard_decode_threshold(&env, &recipients[0]),
+        "the honest producer alone pushes enough parts to decode, so recovery never runs"
+    );
+    faults.lock().only_kind = Some(SpiceDataKind::Witness);
+    faults.lock().corrupt_from.extend(liars.iter().cloned());
+
+    run_past_certified_frontier(&mut env, &recipients[0], PULL_HEIGHTS);
+
+    let observed = observed.lock();
+    assert!(observed.corrupted > 0, "no witness part was corrupted");
+    for recipient in &recipients {
+        assert!(
+            observed.data_requests.contains_key(recipient),
+            "{recipient} never had to request the honest witness parts"
+        );
+    }
+    assert_endorsed(&observed, &recipients);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_with_delayed_pushes() {
@@ -228,7 +257,6 @@ fn test_spice_partial_data_faults_with_delayed_pushes() {
     );
     // A recipient has to start requesting before the pushes land.
     let delay = Duration::seconds(2);
-    assert!(delay > DATA_REQUEST_INTERVAL, "the delay has to outlast a request round");
     faults.lock().delay_from.extend(delayed.iter().cloned().map(|producer| (producer, delay)));
 
     run_past_certified_frontier(&mut env, &recipients[0], PULL_HEIGHTS);
@@ -238,7 +266,7 @@ fn test_spice_partial_data_faults_with_delayed_pushes() {
     for recipient in &recipients {
         assert!(
             observed.data_requests.contains_key(recipient),
-            "the delay never outlasted {recipient}'s request interval"
+            "the delay never outlasted {recipient}'s pull gate"
         );
     }
     assert_endorsed(&observed, &recipients);
@@ -396,4 +424,72 @@ fn test_spice_partial_data_faults_alongside_delayed_endorsements() {
     let observed = observed.lock();
     assert!(observed.corrupted > 0, "no part was corrupted");
     assert_endorsed(&observed, &recipients);
+}
+
+/// A skipped height grows the certification lag by one block. Every push still lands before the
+/// witness gate opens, so a healthy chain asks for nothing.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_partial_data_faults_none_armed_with_a_skipped_block() {
+    let Setup { env, recipients, observed, .. } = setup();
+    let skipped_height = env.node_for_account(&recipients[0]).head().height + 3;
+    let mut env = env.drop(DropCondition::BlocksByHeight(HashSet::from([skipped_height])));
+
+    // Past the skipped height, and then the usual push heights.
+    run_past_certified_frontier(&mut env, &recipients[0], 3 + PUSH_HEIGHTS);
+
+    let node = env.node_for_account(&recipients[0]);
+    assert!(
+        node.client().chain.chain_store().get_block_hash_by_height(skipped_height).is_err(),
+        "height {skipped_height} was not skipped"
+    );
+    let observed = observed.lock();
+    assert!(observed.data_requests.is_empty(), "a healthy chain requested data");
+    assert_endorsed(&observed, &recipients);
+}
+
+/// A validator that applies no shard advances its final execution head with consensus finality.
+/// With certification lagging, the chunks it missed while down are below that head when it
+/// restarts, and it still pulls their witnesses.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_partial_data_faults_restart_pulls_witnesses_below_the_final_execution_head() {
+    /// Blocks an endorsement is held back for, so certification lags finality.
+    const ENDORSEMENT_DELAY: BlockHeight = 4;
+    /// Blocks the validator is down for.
+    const DOWNTIME: usize = 6;
+
+    let Setup { mut env, producers, recipients, observed, .. } = setup();
+    env.delay_endorsements_propagation(ENDORSEMENT_DELAY);
+    let restarted = recipients[0].clone();
+    env.runner_for_account(&producers[0]).run_for_number_of_blocks(4);
+    assert!(
+        !observed.lock().data_requests.contains_key(&restarted),
+        "the validator pulled before it went down"
+    );
+
+    let identifier = env.get_node_data_by_account_id(&restarted).identifier.clone();
+    let killed_state = env.kill_node(&identifier);
+    env.runner_for_account(&producers[0]).run_for_number_of_blocks(DOWNTIME);
+    env.restart_node(&format!("{identifier}-restart"), killed_state);
+    env.install_spice_partial_data_faults();
+    env.delay_endorsements_propagation(ENDORSEMENT_DELAY);
+    {
+        let node = env.node_for_account(&restarted);
+        let final_execution_head =
+            node.client().chain.chain_store().spice_final_execution_head().unwrap();
+        assert!(
+            node.last_certified_block_header().height() < final_execution_head.height,
+            "certification does not lag the final execution head, so nothing is below it"
+        );
+    }
+
+    env.runner_for_account(&restarted).run_for_number_of_blocks(PULL_HEIGHTS as usize);
+
+    let observed = observed.lock();
+    assert!(
+        observed.data_requests.contains_key(&restarted),
+        "the restarted validator never pulled the witnesses it missed"
+    );
+    assert_endorsed(&observed, &[restarted]);
 }
