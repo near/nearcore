@@ -263,6 +263,9 @@ impl ChunkExecutorActor {
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
+        // TODO(spice): replay once when `run_catchup` finishes a catchup, and once at startup,
+        // instead of on every processed block: only a shard that lost its parked blocks, to a
+        // restart or an executor eviction, needs it.
         if let Err(err) = self.replay_caught_up_shards(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
         }
