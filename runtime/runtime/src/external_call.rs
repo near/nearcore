@@ -352,9 +352,15 @@ pub(crate) fn run_external_call(
     )?;
     let context = external_call_context(apply_state, account, ecc, execution_mode);
 
+    // A run may record only so much of the trie in the storage proof. A read past the cap fails
+    // the run, at the same trie node in the chunk producer's run and in a replay from the proof,
+    // and a value past it is never fetched. The cap is lifted when `budgeted` is dropped.
+    let mut budgeted = state_update
+        .with_recording_budget(config.external_calls_config.max_call_recorded_size)
+        .ok_or(RuntimeError::ExternalCallWithoutRecorder)?;
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
-        state_update,
+        &mut budgeted,
         &mut receipt_manager,
         contract_id.clone(),
         account.clone(),
@@ -388,27 +394,21 @@ pub(crate) fn run_external_call(
                 ECC_METHOD_NAME,
                 CompilePriority::Critical,
             );
-            // A run may record only so much of the trie in the storage proof. A read past the cap
-            // fails the run, at the same trie node in the chunk producer's run and in a replay
-            // from the proof, and a value past it is never fetched.
-            let trie = runtime_ext.trie_update.trie();
-            trie.set_recording_budget(config.external_calls_config.max_call_recorded_size);
-            let outcome = execute_function_call(
+            execute_function_call(
                 contract,
                 &contract_identifier,
                 apply_state,
                 &mut runtime_ext,
                 &context,
                 config,
-            );
-            runtime_ext.trie_update.trie().clear_recording_budget();
-            outcome?
+            )?
         }
         ContractPreparation::Aborted(abort) => {
             abort.into_outcome(&context, Arc::clone(&config.wasm_config))
         }
     };
     drop(runtime_ext);
+    drop(budgeted);
     // TODO(ecc): count external call runs and their failures in metrics, either in the
     // `FUNCTION_CALL_PROCESSED*` metrics that `action_function_call` reports or in metrics of
     // their own.

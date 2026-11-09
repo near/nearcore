@@ -71,6 +71,10 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// An external contract call was run on a trie that doesn't record the storage proof, so
+    /// what the call records can't be capped. A bug in the node: a chunk is always applied on a
+    /// trie that records, by its producer and by the validators that replay it.
+    ExternalCallWithoutRecorder,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -173,7 +177,7 @@ pub enum StorageError {
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String) = 5,
     /// A read would record more of the trie than the recording budget set on it allows.
-    /// See `Trie::set_recording_budget`.
+    /// See `TrieUpdate::with_recording_budget`.
     RecordingBudgetExceeded {
         /// The budget, in bytes of recorded storage proof.
         limit: u64,

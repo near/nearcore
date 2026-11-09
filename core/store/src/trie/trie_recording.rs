@@ -423,7 +423,9 @@ mod trie_recording_tests {
     };
     use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::trie::{AccessOptions, AccessTracker, TrieNodesCount};
-    use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, StorageError, Store, Trie};
+    use crate::{
+        DBCol, KeyLookupMode, PartialStorage, ShardTries, StorageError, Store, Trie, TrieUpdate,
+    };
     use borsh::BorshDeserialize;
     use itertools::Itertools;
     use near_primitives::hash::{CryptoHash, hash};
@@ -1112,6 +1114,29 @@ mod trie_recording_tests {
         trie.clear_recording_budget();
         read_all(&trie);
         assert_eq!(trie.check_recording_budget(), Ok(()));
+    }
+
+    /// The guard refuses a trie that doesn't record, as the budget would cap nothing, and lifts
+    /// the budget however its scope is left, an early return included.
+    #[test]
+    fn test_recording_budget_guard() {
+        let budget_trie = BudgetTrie::new();
+        let tries = TestTriesBuilder::new().with_store(budget_trie.store.clone()).build();
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), budget_trie.state_root);
+        let mut trie_update = TrieUpdate::new(trie);
+        assert!(trie_update.with_recording_budget(1).is_none());
+
+        let mut trie_update = TrieUpdate::new(budget_trie.recording_trie(Storage::Disk));
+        let read_large = |trie_update: &mut TrieUpdate| -> Result<_, StorageError> {
+            let budgeted = trie_update.with_recording_budget(1).expect("the trie records");
+            let value = budgeted.trie().get(LARGE_KEY, AccessOptions::DEFAULT)?;
+            Ok(value)
+        };
+        let expected = StorageError::RecordingBudgetExceeded { limit: 1 };
+        assert_eq!(read_large(&mut trie_update), Err(expected));
+        assert_eq!(trie_update.trie().check_recording_budget(), Ok(()));
+        let value = trie_update.trie().get(LARGE_KEY, AccessOptions::DEFAULT).unwrap();
+        assert_eq!(value.as_ref(), budget_trie.data.get(LARGE_KEY));
     }
 
     /// A removal grows the recorded upper bound without recording a node, so only an explicit

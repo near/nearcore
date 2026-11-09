@@ -1376,7 +1376,7 @@ fn apply_ecc_alone(code: Vec<u8>, ecc: EccTransaction) -> (ExecutionOutcome, u64
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[],
@@ -1390,6 +1390,30 @@ fn apply_ecc_alone(code: Vec<u8>, ecc: EccTransaction) -> (ExecutionOutcome, u64
     };
     let (gas, compute) = apply_result.metrics.unwrap().tx_gas_and_compute();
     (outcome.outcome.clone(), gas, compute)
+}
+
+/// An ECC is never run on a trie that doesn't record, as the cap on what it records would do
+/// nothing there. Applying the chunk fails instead.
+#[test]
+fn test_apply_ecc_without_recorder_fails() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let ecc = TransactionEnvelope::from(ecc_to_bob());
+    let err = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(vec![ecc], vec![true]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap_err();
+    assert_eq!(err, RuntimeError::ExternalCallWithoutRecorder);
 }
 
 /// A refused ECC's run counts toward the chunk's compute, but not its gas. Its outcome reports
@@ -1566,7 +1590,8 @@ fn test_apply_eccs_from_storage_proof() {
     // the first run's would count its trie reads as cached in the gas profiles.
     apply_state.trie_access_tracker_state = Default::default();
     let proof = apply_result.proof.clone().unwrap();
-    let replay_result = apply(Trie::from_recorded_storage(proof, root, false), &apply_state);
+    let trie = Trie::from_recorded_storage(proof, root, false).recording_reads_new_recorder();
+    let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
 }
@@ -2262,7 +2287,7 @@ fn test_refused_ecc_keeps_forwarded_buffer_pops() {
     let ecc = EccTransaction::new(alice_account(), ECC_PAYLOAD.to_vec());
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(shard_uid, root),
+            tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[],

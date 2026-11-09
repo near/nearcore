@@ -387,6 +387,9 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
+                RuntimeError::ExternalCallWithoutRecorder => {
+                    Error::Other("external call run on a trie that doesn't record".to_string())
+                }
             })?;
         let elapsed = instant.elapsed();
 

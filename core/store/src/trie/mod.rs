@@ -710,13 +710,16 @@ impl Trie {
     /// proof stops at the same node. A value whose length would pass the cap is not fetched, so
     /// it never enters the proof; a value already in the proof adds nothing, so it is always
     /// read. Does nothing without a recorder.
-    pub fn set_recording_budget(&self, limit: usize) {
+    ///
+    /// Set through `TrieUpdate::with_recording_budget`, which checks there is a recorder and
+    /// clears the budget when it goes out of scope.
+    pub(crate) fn set_recording_budget(&self, limit: usize) {
         if let Some(recorder) = &self.recorder {
             recorder.set_budget(limit);
         }
     }
 
-    pub fn clear_recording_budget(&self) {
+    pub(crate) fn clear_recording_budget(&self) {
         if let Some(recorder) = &self.recorder {
             recorder.clear_budget();
         }
