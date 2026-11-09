@@ -949,6 +949,7 @@ mod tests {
     use crate::test_utils::get_chain_with_genesis;
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+    use near_o11y::testonly::init_test_logger;
     use near_parameters::RuntimeConfig;
     use near_parameters::config::ExternalCallsConfig;
     use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
@@ -1005,6 +1006,7 @@ mod tests {
     fn eccs_enabled() -> bool {
         let enabled = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION);
         if !enabled {
+            init_test_logger();
             tracing::info!("skipping: external contract calls are not enabled in this build");
         }
         enabled

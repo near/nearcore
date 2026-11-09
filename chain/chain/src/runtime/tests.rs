@@ -1884,9 +1884,15 @@ fn prepare_transactions_extra_in_state(
 }
 
 /// Whether the producer packs ECCs in this build: not before the feature, and not under Spice yet.
+/// If not, logs that the test is skipped.
 fn eccs_are_packed() -> bool {
-    ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        && !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    let packed = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        && !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+    if !packed {
+        init_test_logger();
+        tracing::info!("skipping: ECCs are not packed in this build");
+    }
+    packed
 }
 
 fn ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
@@ -1999,7 +2005,6 @@ fn drain_eccs_from_pool(pool: &mut TransactionPool) -> Vec<(String, Vec<u8>)> {
 #[test]
 fn test_prepare_transactions_packs_one_ecc_per_contract() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2051,7 +2056,6 @@ fn get_test_env_with_room_for_two_kilobyte_eccs() -> (TestEnv, Chain, Transactio
 #[test]
 fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_room_for_two_kilobyte_eccs();
@@ -2081,7 +2085,6 @@ fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
 #[test]
 fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let mut runtime_config = RuntimeConfig::test();
@@ -2115,7 +2118,6 @@ fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
 #[test]
 fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, mut pool) = get_test_env_with_room_for_two_kilobyte_eccs();
@@ -2138,7 +2140,6 @@ fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
 #[test]
 fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let mut runtime_config = RuntimeConfig::test();
@@ -2161,7 +2162,6 @@ fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
 #[test]
 fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2257,7 +2257,6 @@ fn test_prepare_transactions_leaves_eccs_in_pool_when_there_is_no_room() {
 #[test]
 fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2276,7 +2275,6 @@ fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
 #[test]
 fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2305,7 +2303,6 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
 #[test]
 fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -2343,7 +2340,6 @@ fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
 #[test]
 fn test_prepare_transactions_drops_eccs_to_a_congested_shard() {
     if !eccs_are_packed() {
-        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
