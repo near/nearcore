@@ -13,25 +13,22 @@ of the runtime, and describing the functions that the runtime performs.
 
 The components of the runtime can be described through the crates:
 
-- `near-vm-logic` -- describes the interface that smart contract uses to interact with the blockchain.
+- the `logic` module of `near-vm-runner` -- describes the interface that smart contract uses to interact with the blockchain.
   Encapsulates the behavior of the blockchain visible to the smart contract, e.g. fee rules, storage access rules, promise rules;
-- `near-vm-runner` crate -- a wrapper around Wasmer that does the actual execution of the smart contract code. It exposes the
-  interface provided by `near-vm-logic` to the smart contract;
-- `runtime` crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
+- `near-vm-runner` crate -- a wrapper around Wasmtime that does the actual execution of the smart contract code. It exposes the
+  interface provided by its `logic` module to the smart contract;
+- `near-runtime` crate -- encapsulates the logic of how transactions and receipts should be handled. If it encounters
   a smart contract call within a transaction or a receipt it calls `near-vm-runner`, for all other actions, like account
   creation, it processes them in-place.
 
 The utility crates are:
 
-- `near-runtime-fees` -- a convenience crate that encapsulates configuration of fees. We might get rid ot it later;
-- `near-vm-errors` -- contains the hierarchy of errors that can be occurred during transaction or receipt processing;
-- `near-vm-runner-standalone` -- a runnable tool that allows running the runtime without the blockchain, e.g. for
-  integration testing of L2 projects;
+- `near-parameters` -- encapsulates the configuration of fees and limits;
 - `runtime-params-estimator` -- benchmarks the runtime and generates the config with the fees.
 
 Separately, from the components we describe [the Bindings Specification](Components/BindingsSpec/BindingsSpec.md) which is an
 important part of the runtime that specifies the functions that the smart contract can call from its host -- the runtime.
-The specification is defined in `near-vm-logic`, but it is exposed to the smart contract in `near-vm-runner`.
+The specification is defined in the `logic` module of `near-vm-runner`, and it is exposed to the smart contract in `near-vm-runner`.
 
 ## Functions
 
