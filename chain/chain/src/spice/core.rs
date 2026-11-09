@@ -1525,6 +1525,7 @@ pub(crate) fn new_uncertified_chunk_info(
 }
 
 /// The blocks whose bodies the uncertified chunks of a block are computed from, newest first.
+#[derive(Debug)]
 pub(crate) enum CertificationWindow {
     /// Every block of the window has its body in the store.
     Complete(Vec<CryptoHash>),
