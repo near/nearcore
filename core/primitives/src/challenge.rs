@@ -8,6 +8,7 @@ use near_crypto::Signature;
 use near_primitives_core::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+use std::io::{Error, ErrorKind, Read};
 
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
@@ -72,8 +73,23 @@ pub enum ChallengeBody {
     ChunkState(ChunkState) = 2,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
-#[borsh(init=init)]
+impl ChallengeBody {
+    /// Whether the body holds a chunk with an ECC. The previous release decodes the
+    /// transactions of a chunk in a challenge as `SignedTransaction`, which refuses an ECC.
+    fn holds_ecc(&self) -> bool {
+        let chunk = match self {
+            Self::BlockDoubleSign(_) => return false,
+            Self::ChunkProofs(proofs) => match proofs.chunk.as_ref() {
+                MaybeEncodedShardChunk::Decoded(chunk) => chunk,
+                MaybeEncodedShardChunk::Encoded(_) => return false,
+            },
+            Self::ChunkState(state) => &state.prev_chunk,
+        };
+        chunk.to_transactions().iter().any(|tx| tx.as_unsigned().is_some())
+    }
+}
+
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct Challenge {
     pub body: ChallengeBody,
     pub account_id: AccountId,
@@ -86,6 +102,23 @@ pub struct Challenge {
 impl Challenge {
     pub fn init(&mut self) {
         self.hash = CryptoHash::hash_borsh(&self.body);
+    }
+}
+
+/// Refuses a challenge whose chunk holds an ECC, so that a block with such a challenge fails to
+/// decode on both sides of the upgrade that brings ECCs. Signed transactions decode the same on
+/// both releases, so this needs no protocol version check.
+impl BorshDeserialize for Challenge {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let body = ChallengeBody::deserialize_reader(reader)?;
+        if body.holds_ecc() {
+            return Err(Error::new(ErrorKind::InvalidData, "challenge holds an ECC"));
+        }
+        let account_id = AccountId::deserialize_reader(reader)?;
+        let signature = Signature::deserialize_reader(reader)?;
+        let mut challenge = Self { body, account_id, signature, hash: CryptoHash::default() };
+        challenge.init();
+        Ok(challenge)
     }
 }
 
@@ -104,4 +137,104 @@ impl Challenge {
 pub struct SlashedValidator {
     pub account_id: AccountId,
     pub is_double_sign: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sharding::ShardChunkHeader;
+    use crate::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
+    use crate::version::PROTOCOL_VERSION;
+    use near_crypto::KeyType;
+    use near_primitives_core::types::ShardId;
+
+    fn chunk_with(transactions: Vec<TransactionEnvelope>) -> ShardChunk {
+        let hash = CryptoHash::default();
+        let header = ShardChunkHeader::new_dummy(1, ShardId::new(0), hash, PROTOCOL_VERSION);
+        ShardChunk::new(header, transactions, vec![])
+    }
+
+    fn signed_txs() -> Vec<TransactionEnvelope> {
+        vec![SignedTransaction::empty(CryptoHash::default()).into()]
+    }
+
+    fn ecc_txs() -> Vec<TransactionEnvelope> {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        // A signed transaction next to the ECC, so the check cannot look only at the first one.
+        signed_txs().into_iter().chain([ecc.into()]).collect()
+    }
+
+    fn challenge(body: ChallengeBody) -> Challenge {
+        let account_id = "alice.near".parse().unwrap();
+        let signature = Signature::empty(KeyType::ED25519);
+        let mut challenge = Challenge { body, account_id, signature, hash: CryptoHash::default() };
+        challenge.init();
+        challenge
+    }
+
+    fn chunk_proofs(chunk: ShardChunk) -> Challenge {
+        challenge(ChallengeBody::ChunkProofs(ChunkProofs {
+            block_header: vec![1],
+            merkle_proof: vec![],
+            chunk: Box::new(MaybeEncodedShardChunk::Decoded(chunk)),
+        }))
+    }
+
+    fn chunk_state(prev_chunk: ShardChunk) -> Challenge {
+        let chunk_header = ShardChunkHeader::new_dummy(
+            2,
+            ShardId::new(0),
+            CryptoHash::default(),
+            PROTOCOL_VERSION,
+        );
+        challenge(ChallengeBody::ChunkState(ChunkState {
+            prev_block_header: vec![1],
+            block_height: 2,
+            prev_merkle_proof: vec![],
+            prev_chunk,
+            merkle_proof: vec![],
+            chunk_header,
+            partial_state: PartialState::default(),
+        }))
+    }
+
+    fn assert_refused(challenge: &Challenge) {
+        let bytes = borsh::to_vec(challenge).unwrap();
+        let err = Challenge::try_from_slice(&bytes).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("challenge holds an ECC"), "{err}");
+    }
+
+    fn assert_decodes(challenge: &Challenge) {
+        let bytes = borsh::to_vec(challenge).unwrap();
+        let decoded = Challenge::try_from_slice(&bytes).unwrap();
+        assert_eq!(&decoded, challenge);
+        assert_eq!(decoded.hash, CryptoHash::hash_borsh(&challenge.body));
+    }
+
+    #[test]
+    fn test_chunk_proofs_with_ecc_refused() {
+        assert_refused(&chunk_proofs(chunk_with(ecc_txs())));
+    }
+
+    #[test]
+    fn test_chunk_state_with_ecc_refused() {
+        assert_refused(&chunk_state(chunk_with(ecc_txs())));
+    }
+
+    #[test]
+    fn test_chunk_proofs_with_signed_txs_decodes() {
+        assert_decodes(&chunk_proofs(chunk_with(signed_txs())));
+    }
+
+    #[test]
+    fn test_chunk_state_with_signed_txs_decodes() {
+        assert_decodes(&chunk_state(chunk_with(signed_txs())));
+    }
+
+    #[test]
+    fn test_block_double_sign_decodes() {
+        let body = BlockDoubleSign { left_block_header: vec![1], right_block_header: vec![2] };
+        assert_decodes(&challenge(ChallengeBody::BlockDoubleSign(body)));
+    }
 }
