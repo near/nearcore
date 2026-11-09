@@ -1,4 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
+use super::network_rules::NetworkRules;
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork, HandlerResult,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
@@ -83,6 +84,8 @@ pub struct SharedState {
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// The rules on what each node sends, see [`NetworkRules`].
+    pub network_rules: NetworkRules,
     /// Fault injection for spice data distribution, armed by tests.
     pub spice_partial_data_faults: SpicePartialDataFaultState,
 }
