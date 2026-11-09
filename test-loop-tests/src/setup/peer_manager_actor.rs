@@ -733,14 +733,14 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
             observer(&request);
         }
 
-        let Applied { released, requests } = self.rules.apply(&self.account_id, request);
-        for request in released {
+        let Applied { released_held, outgoing } = self.rules.apply(&self.account_id, request);
+        for request in released_held {
             self.dispatch(request);
         }
         // A request the rules dropped or held answers like one the handlers took in silence.
         let mut response =
             PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
-        for request in requests {
+        for request in outgoing {
             response = self.dispatch(request);
         }
         response
@@ -753,8 +753,9 @@ pub struct DeferredNetworkRequest(pub NetworkRequests);
 
 impl Handler<DeferredNetworkRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: DeferredNetworkRequest) {
-        let Applied { released, requests } = self.rules.apply_deferred(&self.account_id, msg.0);
-        for request in released.into_iter().chain(requests) {
+        let Applied { released_held, outgoing } =
+            self.rules.apply_deferred(&self.account_id, msg.0);
+        for request in released_held.into_iter().chain(outgoing) {
             self.dispatch(request);
         }
     }

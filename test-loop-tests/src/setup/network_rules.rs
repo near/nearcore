@@ -25,13 +25,15 @@ pub type Release = Box<dyn Fn(&NetworkRequests, BlockHeight) -> bool + Send + Sy
 
 /// What a rule does with a request it matches.
 pub enum Action {
-    /// The request never leaves the node. A block it carries that no node has sent before is
-    /// kept from the network for the rest of the test, lifting the rule included, see
-    /// [`NetworkRules::kept_blocks`]. A block another node sent, which this node only
-    /// rebroadcasts, is not kept: its peers may have it already.
+    /// The request never leaves the node. If it is a block broadcast of a block no node has
+    /// sent before, that block is kept from the network for the rest of the test, lifting
+    /// the rule included, see [`NetworkRules::kept_blocks`]. A block another node sent, which
+    /// this node only rebroadcasts, is not kept: its peers may have it already. Any other
+    /// request is just dropped.
     Drop,
-    /// The request is lost in transit: it never leaves the node, but a block it carries is
-    /// not kept from the network, so the node's peers can still fetch it by hash.
+    /// The request is lost in transit: it never leaves the node, but if it is a block
+    /// broadcast, the block is not kept from the network, so the node's peers can still
+    /// fetch it by hash.
     Lose,
     /// The request leaves the node this much later, in test-loop time.
     Delay(Duration),
@@ -39,9 +41,13 @@ pub enum Action {
     DelayBy(Box<dyn Fn(&NetworkRequests) -> Duration + Send + Sync>),
     /// The request is held until its release rule says so. The rule is asked again each time
     /// the node sends anything, with the latest block height the node has shown it knows.
+    /// If it is a block broadcast of a block no node has sent before, that block is kept from
+    /// the network while it is held, and becomes fetchable once released.
     Hold(Release),
     /// The request is replaced by what the function returns, sent in order. The sender gets
-    /// the answer to the last of them, or `NoResponse` if there are none.
+    /// the answer to the last of them, or `NoResponse` if there are none. If it is a block
+    /// broadcast of a block no node has sent before, and none of the replacements broadcasts
+    /// that same block, the original block is kept from the network for the rest of the test.
     Replace(Box<dyn Fn(NetworkRequests) -> Vec<NetworkRequests> + Send + Sync>),
     /// The request is reported to the function and goes out unchanged.
     Observe(Box<dyn Fn(&NetworkRequests) + Send + Sync>),
@@ -91,6 +97,15 @@ impl Rule {
     }
 }
 
+/// What the rules know of a block that left a node or that a rule kept.
+enum BlockState {
+    /// A rule keeps it from the network.
+    Kept(KeptBlock),
+    /// It left a node, or a node can be asked for it, so other nodes may have it and no rule
+    /// keeps it.
+    Fetchable,
+}
+
 /// A block a rule kept from the network.
 struct KeptBlock {
     height: BlockHeight,
@@ -106,9 +121,9 @@ pub struct NetworkRules(Arc<Mutex<Inner>>);
 
 #[derive(Default)]
 struct Inner {
+    /// The observers added by [`NetworkRules::observe_first`], which run before `rules`.
+    first_observers: Vec<Arc<Rule>>,
     rules: Vec<Arc<Rule>>,
-    /// How many of the rules, at the front, were added by [`NetworkRules::observe_first`].
-    first_observers: usize,
     /// Per account, the requests its hold rules keep, oldest first, each with the rule holding it.
     held: HashMap<AccountId, Vec<(Arc<Rule>, NetworkRequests)>>,
     /// Per account, the latest block height the node has shown it knows.
@@ -117,17 +132,17 @@ struct Inner {
     peer_managers: HashMap<AccountId, TestLoopSender<TestLoopPeerManagerActor>>,
     /// Per account, the peer id of its node, which header requests name their target by.
     peer_ids: HashMap<AccountId, PeerId>,
-    /// The blocks the rules kept from the network, by hash.
-    kept: HashMap<CryptoHash, KeptBlock>,
-    /// The blocks that left a node, or that a node can be asked for, so other nodes may have
-    /// them. No rule keeps them.
-    public: HashSet<CryptoHash>,
+    /// The blocks that left a node or that a rule kept, by hash.
+    blocks: HashMap<CryptoHash, BlockState>,
 }
 
-/// What is left of a request after the rules: what they released and what goes out now.
+/// The outcome of one send through the rules, in the order the peer manager dispatches it.
 pub(crate) struct Applied {
-    pub released: Vec<NetworkRequests>,
-    pub requests: Vec<NetworkRequests>,
+    /// Requests held by earlier sends that this send lets go.
+    pub released_held: Vec<NetworkRequests>,
+    /// What the rules left of the request being sent. The sender gets the answer
+    /// to the last one.
+    pub outgoing: Vec<NetworkRequests>,
 }
 
 impl NetworkRules {
@@ -171,10 +186,7 @@ impl NetworkRules {
             action: Action::Observe(Box::new(observe)),
             state: state.clone(),
         };
-        let mut inner = self.0.lock();
-        let index = inner.first_observers;
-        inner.rules.insert(index, Arc::new(rule));
-        inner.first_observers += 1;
+        self.0.lock().first_observers.push(Arc::new(rule));
         RuleHandle(state)
     }
 
@@ -233,7 +245,7 @@ impl NetworkRules {
 
     /// The hashes of the blocks a rule dropped or replaced, or still holds.
     pub fn kept_blocks(&self) -> HashSet<CryptoHash> {
-        self.0.lock().kept.keys().copied().collect()
+        self.0.lock().kept().map(|(hash, _)| *hash).collect()
     }
 
     /// Records where the requests of `account_id` go out from and the peer id of its node,
@@ -250,22 +262,30 @@ impl NetworkRules {
         inner.peer_managers.insert(account_id.clone(), sender);
         inner.peer_ids.insert(account_id.clone(), peer_id);
         inner.held.remove(account_id);
-        for kept in inner.kept.values_mut() {
-            if &kept.keeper == account_id {
-                kept.held = false;
+        for state in inner.blocks.values_mut() {
+            if let BlockState::Kept(kept) = state {
+                if &kept.keeper == account_id {
+                    kept.held = false;
+                }
             }
         }
     }
 
     /// Runs `request`, which `account_id` is sending, through the account's rules.
     pub(crate) fn apply(&self, account_id: &AccountId, request: NetworkRequests) -> Applied {
-        let released = self.note_sent(account_id, &request);
+        let released_held = self.note_sent(account_id, &request);
         let rules: Vec<Arc<Rule>> = {
             let inner = self.0.lock();
             if inner.swallows(&request) {
-                return Applied { released, requests: Vec::new() };
+                return Applied { released_held, outgoing: Vec::new() };
             }
-            inner.rules.iter().filter(|rule| &rule.account_id == account_id).cloned().collect()
+            inner
+                .first_observers
+                .iter()
+                .chain(&inner.rules)
+                .filter(|rule| &rule.account_id == account_id)
+                .cloned()
+                .collect()
         };
         let mut requests = vec![request];
         for rule in rules {
@@ -278,7 +298,11 @@ impl NetworkRules {
                 rule.state.matched.fetch_add(1, Ordering::Relaxed);
                 match &rule.action {
                     Action::Drop => self.0.lock().keep_block(account_id, &request, false),
-                    Action::Lose => self.0.lock().publish(&request),
+                    Action::Lose => {
+                        if let Some(block) = block_of(&request) {
+                            self.0.lock().mark_fetchable(*block.hash());
+                        }
+                    }
                     Action::Delay(delay) => self.defer(account_id, request, *delay),
                     Action::DelayBy(delay) => {
                         let delay = delay(&request);
@@ -309,14 +333,9 @@ impl NetworkRules {
                                     .iter()
                                     .find_map(block_of)
                                     .map_or(original_height, |b| b.header().height());
-                                let mut inner = self.0.lock();
-                                if !inner.public.contains(&hash) {
-                                    inner.kept.entry(hash).or_insert_with(|| KeptBlock {
-                                        height,
-                                        keeper: account_id.clone(),
-                                        held: false,
-                                    });
-                                }
+                                let keeper = account_id.clone();
+                                let kept = KeptBlock { height, keeper, held: false };
+                                self.0.lock().keep(hash, kept);
                             }
                         }
                         passed.extend(replaced);
@@ -330,10 +349,10 @@ impl NetworkRules {
             requests = passed;
         }
         let mut inner = self.0.lock();
-        for request in &requests {
-            inner.publish(request);
+        for block in requests.iter().filter_map(block_of) {
+            inner.mark_fetchable(*block.hash());
         }
-        Applied { released, requests }
+        Applied { released_held, outgoing: requests }
     }
 
     /// Runs `request`, which a rule let `account_id` send late, past the rules after the one
@@ -344,13 +363,15 @@ impl NetworkRules {
         account_id: &AccountId,
         request: NetworkRequests,
     ) -> Applied {
-        let released = self.note_sent(account_id, &request);
+        let released_held = self.note_sent(account_id, &request);
         let mut inner = self.0.lock();
         if inner.swallows(&request) {
-            return Applied { released, requests: Vec::new() };
+            return Applied { released_held, outgoing: Vec::new() };
         }
-        inner.publish(&request);
-        Applied { released, requests: vec![request] }
+        if let Some(block) = block_of(&request) {
+            inner.mark_fetchable(*block.hash());
+        }
+        Applied { released_held, outgoing: vec![request] }
     }
 
     /// Raises the height `account_id` has shown it knows to what `request` shows, and returns
@@ -383,8 +404,8 @@ impl NetworkRules {
         *held = still_held;
         let released: Vec<NetworkRequests> =
             released.into_iter().map(|(_, request)| request).collect();
-        for request in &released {
-            inner.publish(request);
+        for block in released.iter().filter_map(block_of) {
+            inner.mark_fetchable(*block.hash());
         }
         released
     }
@@ -409,36 +430,40 @@ impl Inner {
         let Some(block) = block_of(request) else {
             return;
         };
-        if self.public.contains(block.hash()) {
-            return;
-        }
-        self.kept.entry(*block.hash()).or_insert_with(|| KeptBlock {
-            height: block.header().height(),
-            keeper: account_id.clone(),
-            held,
-        });
+        let kept = KeptBlock { height: block.header().height(), keeper: account_id.clone(), held };
+        self.keep(*block.hash(), kept);
     }
 
-    /// Records the block `request` broadcasts, if it is one, as one other nodes may have.
-    fn publish(&mut self, request: &NetworkRequests) {
-        if let Some(block) = block_of(request) {
-            self.kept.remove(block.hash());
-            self.public.insert(*block.hash());
-        }
+    /// Records the block of `hash` as kept, unless it is fetchable or kept already.
+    fn keep(&mut self, hash: CryptoHash, kept: KeptBlock) {
+        self.blocks.entry(hash).or_insert(BlockState::Kept(kept));
+    }
+
+    /// Records the block of `hash` as one other nodes may have, which no rule keeps.
+    fn mark_fetchable(&mut self, hash: CryptoHash) {
+        self.blocks.insert(hash, BlockState::Fetchable);
+    }
+
+    /// The blocks a rule keeps from the network.
+    fn kept(&self) -> impl Iterator<Item = (&CryptoHash, &KeptBlock)> {
+        self.blocks.iter().filter_map(|(hash, state)| match state {
+            BlockState::Kept(kept) => Some((hash, kept)),
+            BlockState::Fetchable => None,
+        })
     }
 
     /// Whether `request` would fetch a kept block.
     fn swallows(&self, request: &NetworkRequests) -> bool {
         match request {
-            NetworkRequests::BlockRequest { hash, .. } => self.kept.contains_key(hash),
-            NetworkRequests::BlockHeadersRequest { peer_id, .. } => {
-                self.kept.values().any(|kept| {
-                    let live = kept.held
-                        || self.seen_heights.get(&kept.keeper).copied().unwrap_or_default()
-                            <= kept.height;
-                    live && self.peer_ids.get(&kept.keeper) == Some(peer_id)
-                })
+            NetworkRequests::BlockRequest { hash, .. } => {
+                matches!(self.blocks.get(hash), Some(BlockState::Kept(_)))
             }
+            NetworkRequests::BlockHeadersRequest { peer_id, .. } => self.kept().any(|(_, kept)| {
+                let live = kept.held
+                    || self.seen_heights.get(&kept.keeper).copied().unwrap_or_default()
+                        <= kept.height;
+                live && self.peer_ids.get(&kept.keeper) == Some(peer_id)
+            }),
             _ => false,
         }
     }
