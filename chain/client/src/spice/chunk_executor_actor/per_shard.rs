@@ -859,7 +859,8 @@ pub(crate) fn is_descendant_of_final_execution_head(
     height == final_execution_head.height
 }
 
-/// Whether `shard_id` is still being caught up for the next epoch in the epoch of `header`. Its
+/// Whether `shard_id`, a shard tracked from the epoch after `header`'s, is still being caught up
+/// during `header`'s epoch. Its
 /// catchup is finished only once `finish_catchup_blocks` deletes the state sync info of the epoch's
 /// first block: a restart before that syncs the shard again, which wipes any state applied on top.
 pub(crate) fn is_catching_up(
