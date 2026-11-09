@@ -473,6 +473,7 @@ impl ChunkExecutorActor {
         )?;
         // The final execution head may have advanced; drop receipts buffered against source
         // blocks at or below it.
+        // TODO(#16768): keep the receipts a shard being caught up still applies.
         for executor in self.per_shard_executors.values_mut() {
             executor.prune_unverified_receipts_below_final_head()?;
         }
