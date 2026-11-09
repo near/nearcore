@@ -241,6 +241,7 @@ impl SpiceDataManager {
         let block = block.header();
         let height = block.height();
         // The chain is past the block, so its data can never be applied.
+        // TODO(#16768): track the receipts a shard being caught up still applies.
         if self.heights.at_or_below_final_execution(height) {
             return Ok(());
         }
@@ -402,6 +403,7 @@ impl SpiceDataManager {
         let Some(next_height) = height.checked_add(1) else {
             return;
         };
+        // TODO(#16768): keep tracking the receipts a shard being caught up still applies.
         let live = self.items_by_height.split_off(&next_height);
         let expired = mem::replace(&mut self.items_by_height, live);
         self.pulls.forget_below(next_height);
