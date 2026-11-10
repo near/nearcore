@@ -3,6 +3,7 @@ use crate::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD;
 use crate::types::{RuntimeAdapter, Tip};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -26,7 +27,8 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 ///
 /// Both follow the final execution head only for the shards this node has applied up to it. The
 /// head waits only on the shards tracked this epoch, so any other shard, like one caught up for
-/// the next epoch, can lag behind it, and its state is left alone until it catches up.
+/// the next epoch, can lag behind it. Such a shard follows each final block it applies instead,
+/// see `apply_shard_postprocessing`.
 pub fn apply_block_postprocessing(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -52,6 +54,22 @@ pub fn apply_block_postprocessing(
         .collect();
     update_flat_storage_head(runtime_adapter, &shard_uids_applied_up_to_new_final, &new_final)?;
     gc_memtrie_roots(runtime_adapter, chain_store, &shard_uids_applied_up_to_new_final, &new_final);
+    Ok(())
+}
+
+/// Flat-storage advance and memtrie GC for `shard_uid` alone, which has just applied
+/// `final_block`, a block at or below the final execution head. The head passed that block without
+/// the shard, so `apply_block_postprocessing` left the shard alone, but the block is final: the
+/// shard follows it like a caught-up shard does without spice.
+pub fn apply_shard_postprocessing(
+    runtime_adapter: &dyn RuntimeAdapter,
+    chain_store: &ChainStoreAdapter,
+    shard_uid: ShardUId,
+    final_block: &BlockHeader,
+) -> Result<(), Error> {
+    let final_block = Tip::from_header(final_block);
+    update_flat_storage_head(runtime_adapter, &[shard_uid], &final_block)?;
+    gc_memtrie_roots(runtime_adapter, chain_store, &[shard_uid], &final_block);
     Ok(())
 }
 
