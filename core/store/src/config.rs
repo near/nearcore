@@ -605,6 +605,26 @@ mod tests {
         );
     }
 
+    /// Only here to show backwards compatibility, do not merge
+    #[test]
+    fn removed_contract_prefetch_fields_are_ignored() {
+        let json = r#"{
+            "sweat_prefetch_receivers": ["token.sweat"],
+            "sweat_prefetch_senders": ["oracle.sweat"],
+            "claim_sweat_prefetch_config": [{
+                "receiver": "claim.sweat",
+                "sender": "token.sweat",
+                "method_name": "record_batch_for_hold"
+            }],
+            "kaiching_prefetch_config": [{
+                "receiver": "earn.kaiching",
+                "sender": "wallet.kaiching",
+                "method_name": "ft_on_transfer"
+            }]
+        }"#;
+        let _: StoreConfig = serde_json::from_str(json).unwrap();
+    }
+
     #[test]
     fn cf_medium_override_fields() {
         let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12, "max_subcompactions": 3 } }"#;
