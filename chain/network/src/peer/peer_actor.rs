@@ -1644,7 +1644,7 @@ impl messaging::Handler<stream::Error> for PeerActor {
 }
 
 /// Checks that the parsed header of a received borsh-encoded message matches its decoded body.
-fn check_borsh_frames(
+fn check_header_matches_body(
     encoding: Encoding,
     header: Option<&PeerMessageHeader>,
     msg: &PeerMessage,
@@ -1694,7 +1694,7 @@ impl messaging::Handler<IncomingFrame> for PeerActor {
                     return;
                 }
             };
-            if let Err(err) = check_borsh_frames(msg.encoding, header.as_ref(), &peer_msg) {
+            if let Err(err) = check_header_matches_body(msg.encoding, header.as_ref(), &peer_msg) {
                 tracing::debug!(target: "network", peer_info = %this.peer_info, %err, "received invalid data");
                 this.stop(ClosingReason::StreamError);
                 return;
@@ -1847,10 +1847,10 @@ mod tests {
         let frames = msg.serialize_with_encoding(Encoding::Borsh);
         let (header, decoded) = PeerMessage::deserialize_frames(&frames).unwrap();
         assert_eq!(decoded, msg);
-        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded).is_ok());
+        assert!(check_header_matches_body(Encoding::Borsh, header.as_ref(), &decoded).is_ok());
 
         let other = PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false });
-        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &other).is_err());
+        assert!(check_header_matches_body(Encoding::Borsh, header.as_ref(), &other).is_err());
 
         // Make a bad message with PeersRequest header and Disconnect body.
         // A header and body of different kinds parse fine, but the check rejects them.
@@ -1859,7 +1859,7 @@ mod tests {
         let (header, decoded) = PeerMessage::deserialize_frames(&mismatched_frames).unwrap();
         assert_eq!(decoded, msg);
         assert!(matches!(
-            check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded),
+            check_header_matches_body(Encoding::Borsh, header.as_ref(), &decoded),
             Err(stream::NetworkProtocolViolation::KindMismatch { .. })
         ));
 
@@ -1867,12 +1867,12 @@ mod tests {
         frames_without_header.header = None;
         let (header, decoded) = PeerMessage::deserialize_frames(&frames_without_header).unwrap();
         assert!(header.is_none());
-        assert!(check_borsh_frames(Encoding::Borsh, header.as_ref(), &decoded).is_err());
+        assert!(check_header_matches_body(Encoding::Borsh, header.as_ref(), &decoded).is_err());
 
         // Protobuf messages have no header and are not checked.
         let proto = msg.serialize_with_encoding(Encoding::Proto);
         let (header, decoded) = PeerMessage::deserialize_frames(&proto).unwrap();
         assert!(header.is_none());
-        assert!(check_borsh_frames(Encoding::Proto, header.as_ref(), &decoded).is_ok());
+        assert!(check_header_matches_body(Encoding::Proto, header.as_ref(), &decoded).is_ok());
     }
 }
