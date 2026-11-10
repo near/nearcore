@@ -62,7 +62,10 @@ use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata}
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
+use near_store::{
+    FilesystemContractCodeCache, NodeStorage, PartialStorage, get_account, get_genesis_state_roots,
+    set_account,
+};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use num_rational::Ratio;
 use primitive_types::U256;
@@ -162,6 +165,7 @@ impl TestEnv {
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
+            Arc::new(FilesystemContractCodeCache::test().unwrap()),
             &genesis.config,
             epoch_manager.clone(),
             None,

@@ -1,4 +1,4 @@
-use crate::stateless_validation::contracts_cache_contains_contract;
+use crate::stateless_validation::contract_available_locally;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
@@ -637,11 +637,12 @@ impl SpiceChunkValidatorActor {
         // First accesses message — trust it and start requesting missing contracts.
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
-        let cache = self.runtime_adapter.compiled_contract_cache();
 
         let missing: HashSet<_> = all_contracts
             .iter()
-            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .filter(|h| {
+                !contract_available_locally(self.runtime_adapter.as_ref(), h, runtime_config)
+            })
             .cloned()
             .collect();
 
@@ -830,10 +831,11 @@ impl SpiceChunkValidatorActor {
             .ok_or_else(|| Error::Other("chunk has no producers".to_owned()))?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
-        let cache = self.runtime_adapter.compiled_contract_cache();
         let missing: HashSet<_> = all_contracts
             .iter()
-            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .filter(|h| {
+                !contract_available_locally(self.runtime_adapter.as_ref(), h, runtime_config)
+            })
             .cloned()
             .collect();
         if !missing.is_empty() {
@@ -942,11 +944,12 @@ impl SpiceChunkValidatorActor {
         let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
-        let cache = self.runtime_adapter.compiled_contract_cache();
 
         let missing: HashSet<_> = next_accesses
             .iter()
-            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .filter(|h| {
+                !contract_available_locally(self.runtime_adapter.as_ref(), h, runtime_config)
+            })
             .cloned()
             .collect();
 

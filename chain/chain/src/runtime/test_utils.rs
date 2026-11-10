@@ -6,7 +6,7 @@ use near_chain_configs::{
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::gas::Gas;
-use near_store::{StateSnapshotConfig, Store, TrieConfig};
+use near_store::{FilesystemContractCodeCache, StateSnapshotConfig, Store, TrieConfig};
 use near_vm_runner::{
     ContractRuntimeCache, FilesystemContractRuntimeCache, noop_background_spawner,
 };
@@ -25,6 +25,7 @@ impl NightshadeRuntime {
         Self::new(
             store,
             compiled_contract_cache,
+            Arc::new(FilesystemContractCodeCache::test().expect("contract code cache")),
             genesis_config,
             epoch_manager,
             None,
@@ -56,6 +57,7 @@ impl NightshadeRuntime {
         Self::new(
             store,
             compiled_contract_cache,
+            Arc::new(FilesystemContractCodeCache::test().expect("contract code cache")),
             genesis_config,
             epoch_manager,
             None,
@@ -113,6 +115,7 @@ impl NightshadeRuntime {
             )
             .expect("filesystem contract cache")
             .handle(),
+            Arc::new(FilesystemContractCodeCache::test().expect("contract code cache")),
             genesis_config,
             epoch_manager,
             None,

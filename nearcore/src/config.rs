@@ -59,7 +59,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
 use near_store::config::SplitStorageConfig;
-use near_store::{StateSnapshotConfig, Store, TrieConfig};
+use near_store::{
+    ContractCodeCache, FilesystemContractCodeCache, NoContractCodeCache, StateSnapshotConfig,
+    Store, TrieConfig,
+};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
@@ -412,6 +415,11 @@ pub struct Config {
     pub max_loaded_contracts: usize,
     /// Maximum allowed total size of the on-disk compiled-contract cache entries.
     pub contract_cache_max_size: ByteSize,
+    /// Maximum allowed total size of the contract code cache: the raw code of every contract
+    /// this node has executed, validated, synced or received, kept so the compiled-contract
+    /// cache can be rebuilt locally after a protocol or binary upgrade instead of fetching
+    /// code over the network. Zero disables the cache.
+    pub contract_code_cache_max_size: ByteSize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -443,6 +451,14 @@ pub struct Config {
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
 
+    /// Location of the contract code cache. Like the compiled-contract cache it can be emptied
+    /// at any time and need not be included in snapshots or dumps.
+    ///
+    /// Path is interpreted relative to `home_dir`.
+    ///
+    /// Use [`Self::contract_code_cache_path()`] to access this field.
+    pub(crate) contract_code_cache_path: Option<PathBuf>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
     /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
@@ -465,6 +481,13 @@ pub struct Config {
 fn is_false(value: &bool) -> bool {
     !*value
 }
+
+/// All of mainnet's contract code measured 1.6 to 1.8 GB in November 2026; this leaves room to
+/// grow while staying a small fraction of the compiled-contract cache.
+fn default_contract_code_cache_max_size() -> ByteSize {
+    ByteSize::gb(4)
+}
+
 impl Default for Config {
     fn default() -> Self {
         let store = near_store::StoreConfig::default();
@@ -529,8 +552,10 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
+            contract_code_cache_max_size: default_contract_code_cache_max_size(),
             enable_compiler_daemon: false,
             contract_cache_path: None,
+            contract_code_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
@@ -678,6 +703,15 @@ impl Config {
         } else {
             let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
             [store_path, "contract.cache".as_ref()].into_iter().collect()
+        }
+    }
+
+    pub fn contract_code_cache_path(&self) -> PathBuf {
+        if let Some(explicit) = &self.contract_code_cache_path {
+            explicit.clone()
+        } else {
+            let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
+            [store_path, "contract.code".as_ref()].into_iter().collect()
         }
     }
 
@@ -973,9 +1007,19 @@ impl NightshadeRuntime {
             config.config.contract_cache_max_size.as_u64(),
             Arc::new(|task| background_runtime_tasks().spawn_boxed(task)),
         )?;
+        let contract_code_cache: Arc<dyn ContractCodeCache> =
+            match config.config.contract_code_cache_max_size.as_u64() {
+                // Disabled by config: a cache that holds nothing.
+                0 => Arc::new(NoContractCodeCache),
+                max_bytes => {
+                    let path = home_dir.join(config.config.contract_code_cache_path());
+                    Arc::new(FilesystemContractCodeCache::new(&path, max_bytes)?)
+                }
+            };
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
+            contract_code_cache,
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,

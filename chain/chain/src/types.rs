@@ -49,7 +49,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 pub use near_store::trie::mem::memtries::MaybePinnedMemtrieRoot;
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_store::{ContractCodeCache, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use num_rational::Rational32;
@@ -719,6 +719,9 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
+
+    /// Node-local cache of raw contract code; a `NoContractCodeCache` when disabled.
+    fn contract_code_cache(&self) -> Arc<dyn ContractCodeCache>;
 
     /// Things to do on the protocol version change. Better be idempotent: the caller may invoke it
     /// repeatedly for the same `new_protocol_version`, across restarts for example.
