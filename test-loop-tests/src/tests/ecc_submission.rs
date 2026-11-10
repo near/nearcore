@@ -10,6 +10,9 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_client::ProcessTxResponse;
+use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest;
+use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptToTxRequest};
+use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -18,11 +21,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::{ECC_METHOD_NAME, EccTransaction, ExecutionStatus};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::transaction::{
+    ECC_METHOD_NAME, EccTransaction, ExecutionStatus, TransactionEnvelope,
+};
+use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
 use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::TxExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, TransactionEnvelopeView, TxExecutionStatus};
+use near_primitives_core::serialize::to_base64;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -318,6 +324,159 @@ fn ecc_outcome_id(node: &TestLoopNode, ecc_hash: CryptoHash, from_height: u64) -
         .expect("the ECC should be in a chunk")
         .height_included();
     create_ecc_outcome_id(&ecc_hash, height)
+}
+
+/// RPC finds an external call by its unique id: `send_tx` waits for the copy that lands and returns
+/// it, and `tx`, `light_client_proof` and `EXPERIMENTAL_receipt_to_tx` take that id.
+#[test]
+fn test_jsonrpc_finds_ecc_by_unique_id() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    const RPC_TIMEOUT: Duration = Duration::seconds(30);
+    // Enough blocks for the outcome's block to be final under the light client head.
+    const BLOCKS_TO_FINALITY: usize = 4;
+    let echo_id = create_account_id("echo");
+    let sender_id = create_account_id("sender");
+    let receiver_id = create_account_id("receiver");
+    let mut env = setup(PROTOCOL_VERSION, &[&echo_id, &sender_id, &receiver_id], &echo_id);
+    let deploy_tx = env.rpc_node().tx_deploy_contract(&echo_id, ecc_contract());
+    env.rpc_runner().run_tx(deploy_tx, RPC_TIMEOUT);
+    let deploy_tx =
+        env.rpc_node().tx_deploy_contract(&sender_id, ecc_transfer_contract(&receiver_id));
+    env.rpc_runner().run_tx(deploy_tx, RPC_TIMEOUT);
+
+    // `INCLUDED` answers with the copy that landed, under the unique id of its block's height.
+    let included = EccTransaction::new(echo_id.clone(), vec![1]);
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(included.clone(), TxExecutionStatus::Included),
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    assert_eq!(view.contract_id, echo_id);
+    let block_hash = outcome.transaction_outcome.block_hash;
+    let height = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap().height();
+    let transaction_id = create_ecc_outcome_id(&included.get_hash(), height);
+    assert_eq!(view.transaction_id, transaction_id);
+    assert_eq!(outcome.transaction_outcome.id, transaction_id);
+
+    // `FINAL` also answers with the return value.
+    let payload = vec![2, 3];
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| {
+                let call = EccTransaction::new(echo_id.clone(), payload.clone());
+                client.send_tx(call, TxExecutionStatus::Final)
+            },
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![2, 3]));
+
+    // `tx` and `light_client_proof` take the unique id, with the contract as sender.
+    let tx_status = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| {
+                client.tx(RpcTransactionStatusRequest {
+                    transaction_info: TransactionInfo::TransactionId {
+                        tx_hash: transaction_id,
+                        sender_account_id: echo_id.clone(),
+                    },
+                    wait_until: TxExecutionStatus::Final,
+                })
+            },
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    let found = tx_status.final_execution_outcome.unwrap().into_outcome();
+    assert_eq!(found.transaction_outcome.id, transaction_id);
+    assert_matches!(&found.transaction, TransactionEnvelopeView::Unsigned(found_view) if found_view == view);
+    env.rpc_runner().run_for_number_of_blocks(BLOCKS_TO_FINALITY);
+    // The proof is checked against a final block.
+    let head_header = env.rpc_node().client().chain.head_header().unwrap();
+    let light_client_head = *head_header.last_final_block();
+    let proof = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| {
+                client.light_client_proof(RpcLightClientExecutionProofRequest {
+                    id: TransactionOrReceiptId::Transaction {
+                        transaction_hash: transaction_id,
+                        sender_id: echo_id.clone(),
+                    },
+                    light_client_head,
+                })
+            },
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    assert_eq!(proof.outcome_proof.id, transaction_id);
+    // The proof names the block whose outcome root confirms the outcome, a later one.
+    assert!(proof.block_header_lite.inner_lite.height > height);
+
+    // `broadcast_tx_async` has no id to return, and `broadcast_tx_commit` returns the outcome.
+    let async_call = to_base64(
+        &borsh::to_vec(&TransactionEnvelope::from(EccTransaction::new(echo_id.clone(), vec![4])))
+            .unwrap(),
+    );
+    let hash = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(|client| client.broadcast_tx_async(async_call), RPC_TIMEOUT)
+        .unwrap();
+    assert_eq!(hash, None);
+    let commit_call = to_base64(
+        &borsh::to_vec(&TransactionEnvelope::from(EccTransaction::new(echo_id, vec![5]))).unwrap(),
+    );
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(|client| client.broadcast_tx_commit(commit_call), RPC_TIMEOUT)
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![5]));
+
+    // `EXPERIMENTAL_receipt_to_tx` maps a call's receipt to the call's unique id and contract.
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(ecc(&sender_id), TxExecutionStatus::Final),
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    let [receipt_id] = outcome.transaction_outcome.outcome.receipt_ids.as_slice() else {
+        panic!("expected one receipt, got {:?}", outcome.transaction_outcome);
+    };
+    let receipt_id = *receipt_id;
+    let origin = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| {
+                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                    receipt_reference: ReceiptReference { receipt_id },
+                    block_height: None,
+                    shard_id: None,
+                    window: None,
+                })
+            },
+            RPC_TIMEOUT,
+        )
+        .unwrap();
+    assert_eq!(origin.transaction_hash, outcome.transaction_outcome.id);
+    assert_eq!(origin.sender_account_id, sender_id);
 }
 
 /// An ECC sent to an RPC node that produces no chunks lands in a chunk of its contract's shard,

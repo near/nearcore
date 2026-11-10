@@ -142,6 +142,15 @@ impl ExecutionToReceipts {
         Self { receipts, transactions, ..Self::empty() }
     }
 
+    /// Adds external calls to an existing mapping. Useful for tests.
+    pub(crate) fn with_external_calls(
+        mut self,
+        external_calls: HashMap<CryptoHash, AccountId>,
+    ) -> Self {
+        self.external_calls = external_calls;
+        self
+    }
+
     /// Adds execution statuses to an existing mapping. Useful for tests.
     pub(crate) fn with_statuses(
         mut self,

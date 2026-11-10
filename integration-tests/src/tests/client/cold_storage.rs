@@ -11,7 +11,9 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, EccTransaction, SignedTransaction,
+};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::hash::CryptoHash;
@@ -99,7 +101,7 @@ fn create_tx_function_call(
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
-/// Also doing 5 send transactions every block.
+/// Also doing 5 send transactions and an external call every block.
 /// 4 epochs, because this test does not cover gc behavior.
 /// After every block updating a separate database with data from client's storage.
 /// After 4 epochs we check that everything, that exists in cold columns
@@ -151,6 +153,15 @@ fn test_storage_after_commit_of_cold_update() {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
                     env.rpc_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
+            }
+            // An external call to the contract deployed at height 1. Its copy gets an outcome and
+            // a row in the external calls' column, whether the contract accepts it or not.
+            if height >= 3 && ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+                let call = EccTransaction::new(test0(), height.to_le_bytes().to_vec());
+                assert_eq!(
+                    env.rpc_handlers[0].process_tx(call, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -218,8 +229,9 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
-                // Empty: this test sends no external calls.
-                || col == DBCol::ExternalCallTransactions
+                // Empty when the build has no external calls.
+                || (col == DBCol::ExternalCallTransactions
+                    && !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION))
                 // Empty until EarlyKickout activates.
                 || (col == DBCol::ChunkProducers
                     && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))
