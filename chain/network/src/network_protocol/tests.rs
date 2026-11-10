@@ -135,6 +135,29 @@ fn serialize_deserialize_borsh() {
 }
 
 #[test]
+fn trace_context_roundtrips_span_context() {
+    use super::trace_context::TraceContext;
+    use opentelemetry::Context;
+    use opentelemetry::trace::{
+        SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState,
+    };
+
+    let span_context = SpanContext::new(
+        TraceId::from_bytes([1; 16]),
+        SpanId::from_bytes([2; 8]),
+        TraceFlags::SAMPLED,
+        true,
+        TraceState::default(),
+    );
+    let cx = Context::new().with_remote_span_context(span_context);
+    let trace_context = TraceContext::from_context(&cx).unwrap();
+    let extracted = trace_context.span_context();
+    assert_eq!(extracted.trace_id(), TraceId::from_bytes([1; 16]));
+    assert_eq!(extracted.span_id(), SpanId::from_bytes([2; 8]));
+    assert!(extracted.is_sampled());
+}
+
+#[test]
 fn serialize_deserialize() -> anyhow::Result<()> {
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();

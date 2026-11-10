@@ -472,8 +472,7 @@ release.
 
 Every frame is a length (`u32`, little endian) followed by that many bytes. A
 protobuf-encoded message is a single frame. A borsh-encoded message is sent as
-two frames: the `PeerMessageHeader` (which identifies the type of the message)
-followed by the `PeerMessage` itself.
+two frames: the `PeerMessageHeader` followed by the `PeerMessage` itself.
 
 A node which supports both encodings sends its first handshake in both: first in
 borsh, then in protobuf. A node which supports only protobuf ignores the borsh

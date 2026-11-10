@@ -4,6 +4,7 @@ mod message_kind;
 mod peer;
 mod proto_conv;
 mod state_sync;
+mod trace_context;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use bytesize::{KIB, MIB};
@@ -45,6 +46,7 @@ mod _proto {
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::network_protocol::trace_context::TraceContext;
 use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
@@ -132,16 +134,23 @@ pub(crate) enum PeerMessageHeader {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PeerMessageHeaderV1 {
     kind: PeerMessageKind,
+    trace_context: Option<TraceContext>,
 }
 
 impl PeerMessageHeader {
-    fn new(kind: PeerMessageKind) -> Self {
-        Self::V1(PeerMessageHeaderV1 { kind })
+    fn new(kind: PeerMessageKind, trace_context: Option<TraceContext>) -> Self {
+        Self::V1(PeerMessageHeaderV1 { kind, trace_context })
     }
 
     pub(crate) fn kind(&self) -> PeerMessageKind {
         match self {
             Self::V1(header) => header.kind,
+        }
+    }
+
+    pub(crate) fn trace_context(&self) -> Option<&TraceContext> {
+        match self {
+            Self::V1(header) => header.trace_context.as_ref(),
         }
     }
 }
@@ -591,7 +600,8 @@ pub enum ParsePeerMessageError {
 
 impl PeerMessage {
     /// Serializes a message using `encoding`.
-    /// Protobuf-encoded messages carry the current Span's context.
+    /// Both encodings carry the current Span's context: protobuf messages in the message itself,
+    /// borsh messages in the header.
     pub(crate) fn serialize_with_encoding(&self, encoding: Encoding) -> PeerMessageFrames {
         match encoding {
             Encoding::Proto => {
@@ -601,7 +611,9 @@ impl PeerMessage {
                 PeerMessageFrames::proto(msg.write_to_bytes().unwrap())
             }
             Encoding::Borsh => {
-                let header = borsh::to_vec(&PeerMessageHeader::new(self.kind())).unwrap();
+                let trace_context = TraceContext::from_context(&Span::current().context());
+                let header =
+                    borsh::to_vec(&PeerMessageHeader::new(self.kind(), trace_context)).unwrap();
                 PeerMessageFrames {
                     encoding: Encoding::Borsh,
                     header: Some(header),
@@ -631,6 +643,9 @@ impl PeerMessage {
             Encoding::Borsh => {
                 let header =
                     frames.header.as_deref().map(PeerMessageHeader::try_from_slice).transpose()?;
+                if let Some(span_context) = header.as_ref().and_then(|h| h.trace_context()) {
+                    span.clone().or_current().add_link(span_context.span_context());
+                }
                 let msg = PeerMessage::try_from_slice(&frames.body)?;
                 Ok((header, msg))
             }
