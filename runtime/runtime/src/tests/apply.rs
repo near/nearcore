@@ -77,8 +77,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
-use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
+use near_store::trie::{AccessOptions, NewTrieNodes};
 use near_store::{
     KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
@@ -1383,8 +1383,25 @@ fn dry_run_ecc_to_bob_loaded(
     external_calls: &mut ExternalCallsInChunk,
     loaded_account: Option<Account>,
 ) -> (EccDryRun, Option<Vec<u8>>) {
-    // The trie records its reads, as the producer's does.
     let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    dry_run_ecc_to_bob_on_trie(
+        trie,
+        apply_state,
+        epoch_info_provider,
+        external_calls,
+        loaded_account,
+    )
+}
+
+/// Like `dry_run_ecc_to_bob_loaded`, on any `trie`, such as one over the nodes that a chunk added.
+fn dry_run_ecc_to_bob_on_trie(
+    trie: Trie,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    // The trie records its reads, as the producer's does.
     let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
     let context = EccDryRunContext {
         shard_id: apply_state.shard_id,
@@ -1719,6 +1736,87 @@ fn test_apply_sends_no_nodes_before_the_feature() {
 
     let PostState { new_nodes, .. } = post_state.lock().take().expect("apply calls the callback");
     assert_matches!(new_nodes.try_recv(), Err(TryRecvError::Disconnected));
+}
+
+/// Early preparation runs an ECC on a trie at the new state root of the parent chunk, served from
+/// the nodes that the parent's apply added, before the parent's changes are stored. The ECC reads
+/// what the parent wrote, which is where its dry run used to differ from the apply of the next
+/// chunk. The dry run ends as that apply does, with the same gas, compute and account, or with the
+/// same error for a read past the recording budget, and records the same as a dry run on the
+/// stored state. The ECC reads a value that the parent wrote, just under the budget and just over.
+#[test]
+fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let read_value = ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1);
+    let cases: [(&str, fn(&RuntimeConfig) -> (Vec<u8>, Vec<u8>)); 2] =
+        [("value under the cap", value_under_the_cap), ("value over the cap", large_value)];
+    let shard_uid = ShardUId::single_shard();
+    for (name, parent_value) in cases {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_ecc_contract(ecc_contract(&read_value), Balance::from_near(1_000), Balance::ZERO);
+        let new_ecc_calls =
+            || ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+
+        // The parent chunk writes the value. Its apply has finalized the changes, which are not
+        // stored yet.
+        let (key, value) = parent_value(&apply_state.config);
+        let mut parent = tries.new_trie_update(shard_uid, root);
+        parent.set(TrieKey::ContractData { account_id: bob_account(), key }, value);
+        parent.commit(StateChangeCause::InitialState);
+        let parent_changes = parent.finalize().unwrap().trie_changes;
+
+        // Early preparation dry-runs the ECC on a trie that has the parent's new nodes.
+        let new_nodes = NewTrieNodes::from_changes(&parent_changes);
+        let parent_trie =
+            tries.get_trie_with_new_nodes(shard_uid, parent_changes.new_root, new_nodes);
+        let mut early_calls = new_ecc_calls();
+        let (early, _) = dry_run_ecc_to_bob_on_trie(
+            parent_trie,
+            &apply_state,
+            &epoch_info_provider,
+            &mut early_calls,
+            None,
+        );
+
+        // The parent's changes are stored, and the producer's normal path dry-runs the ECC on them.
+        let mut store_update = tries.store_update();
+        let root_after_parent = tries.apply_all(&parent_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        let mut stored_calls = new_ecc_calls();
+        dry_run_ecc_to_bob_counting(
+            &tries,
+            root_after_parent,
+            &apply_state,
+            &epoch_info_provider,
+            &mut stored_calls,
+        );
+        assert_eq!(early_calls.recorded_size(), stored_calls.recorded_size(), "{name}");
+
+        // The next chunk applies the ECC.
+        let (root_after_ecc, apply_result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root_after_parent,
+            &apply_state,
+            vec![ecc_to_bob().into()],
+            &epoch_info_provider,
+        );
+        let outcome = &apply_result.outcomes[0].outcome;
+        match early {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+                assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
+                assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
+                assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
+                assert_eq!(bob_ecc_state(&tries, root_after_ecc).0, account, "{name}");
+            }
+            EccDryRun::Refused(error) => {
+                assert_eq!(error, recorded_storage_exceeded(&apply_state.config), "{name}");
+                assert_eq!(outcome.status, ExecutionStatus::Failure(error), "{name}");
+            }
+        }
+    }
 }
 
 /// The dry run refuses a call to an account with no contract with the error apply gives.
