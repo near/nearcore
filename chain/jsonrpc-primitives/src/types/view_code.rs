@@ -1,3 +1,7 @@
+use crate::types::query::RpcQueryError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockHeight};
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcViewCodeRequest {
@@ -34,6 +38,12 @@ pub enum RpcViewCodeError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
@@ -89,6 +99,11 @@ impl From<crate::types::query::RpcQueryError> for RpcViewCodeError {
                 block_height,
                 block_hash,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            RpcQueryError::UninitializedAccount {
+                requested_account_id,
+                block_height,
+                block_hash,
+            } => Self::UninitializedAccount { requested_account_id, block_height, block_hash },
             crate::types::query::RpcQueryError::GarbageCollectedBlock { block_height, .. } => {
                 Self::InternalError {
                     error_message: format!(

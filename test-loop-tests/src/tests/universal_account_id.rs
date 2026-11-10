@@ -28,7 +28,8 @@ use near_primitives::action::{
     UniversalStateInitAction,
 };
 use near_primitives::errors::{
-    ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+    ActionErrorKind, ActionsValidationError, CompilationError, FunctionCallError, InvalidTxError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -330,6 +331,26 @@ fn test_universal_state_init_key_only() {
         "installed key must be full access, got {:?}",
         access_key.permission
     );
+
+    // The account is initialized, just with no code or data, so views give the
+    // normal "no code" / empty-state answers rather than `UninitializedAccount`.
+    let node = env.env.rpc_node();
+    assert_matches!(
+        node.runtime_query(QueryRequest::ViewCode { account_id: account.clone() }),
+        Err(QueryError::NoContractCode { .. })
+    );
+    assert_matches!(
+        node.runtime_query(QueryRequest::CallFunction {
+            account_id: account.clone(),
+            method_name: "main".to_owned(),
+            args: vec![].into(),
+        }),
+        Err(QueryError::ContractExecutionError {
+            error: FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { .. }),
+            ..
+        })
+    );
+    assert!(env.view_state(&account).is_empty());
 }
 
 /// A universal account backed by a global contract is created and its contract
@@ -912,6 +933,95 @@ fn test_uninitialized_account_rejects_actions_needing_state() {
     let view = env.view_account(&account);
     assert_eq!(view.amount, Balance::from_near(3));
     assert_eq!(view.code_hash, CryptoHash::default());
+}
+
+/// Views that read installed state fail with `UninitializedAccount` until the
+/// state init runs, then see the state. `view_account` keeps answering.
+#[test]
+fn test_uninitialized_account_views() {
+    init_test_logger();
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    // `read_value` returns the 8-byte value stored under an 8-byte key.
+    let key = 7u64.to_le_bytes().to_vec();
+    let value = 42u64.to_le_bytes().to_vec();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-views").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::from([(key.clone(), value.clone())]),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
+
+    let queries = [
+        QueryRequest::CallFunction {
+            account_id: account.clone(),
+            method_name: "read_value".to_owned(),
+            args: key.clone().into(),
+        },
+        QueryRequest::ViewCode { account_id: account.clone() },
+        QueryRequest::ViewState {
+            account_id: account.clone(),
+            prefix: Vec::new().into(),
+            after_key: None,
+            limit: None,
+            include_proof: false,
+        },
+        QueryRequest::ViewAccessKey { account_id: account.clone(), public_key: public_key.clone() },
+        QueryRequest::ViewAccessKeyList {
+            account_id: account.clone(),
+            after_key: None,
+            limit: None,
+        },
+        QueryRequest::ViewGasKeyNonces {
+            account_id: account.clone(),
+            public_key: public_key.clone(),
+        },
+    ];
+
+    env.transfer(&account, Balance::from_near(3));
+    assert_eq!(env.view_account(&account).state, AccountState::Uninitialized);
+    for query in &queries {
+        let err = env.env.rpc_node().runtime_query(query.clone()).unwrap_err();
+        let QueryError::UninitializedAccount { requested_account_id, .. } = err else {
+            panic!("expected UninitializedAccount for {query:?}, got {err:?}");
+        };
+        assert_eq!(requested_account_id, account);
+    }
+
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
+    assert_eq!(env.view_account(&account).state, AccountState::Initialized);
+    for query in queries {
+        let result = env.env.rpc_node().runtime_query(query.clone());
+        // The installed key is not a gas key.
+        if let QueryRequest::ViewGasKeyNonces { .. } = query {
+            assert_matches!(result, Err(QueryError::UnknownGasKey { .. }));
+            continue;
+        }
+        match result.unwrap_or_else(|err| panic!("{query:?} failed: {err:?}")).kind {
+            QueryResponseKind::CallResult(call) => assert_eq!(call.result, value),
+            QueryResponseKind::ViewCode(code) => {
+                assert_eq!(code.hash, CryptoHash::hash_bytes(near_test_contracts::rs_contract()));
+            }
+            QueryResponseKind::ViewState(state) => {
+                let entries: Vec<(Vec<u8>, Vec<u8>)> = state
+                    .values
+                    .into_iter()
+                    .map(|item| (item.key.into(), item.value.into()))
+                    .collect();
+                assert_eq!(entries, [(key.clone(), value.clone())]);
+            }
+            QueryResponseKind::AccessKey(access_key) => {
+                assert_matches!(access_key.permission, AccessKeyPermissionView::FullAccess);
+            }
+            QueryResponseKind::AccessKeyList(list) => {
+                let keys: Vec<_> = list.keys.into_iter().map(|info| info.public_key).collect();
+                assert_eq!(keys, [PublicKeyHandle::from(public_key.clone())]);
+            }
+            other => panic!("unexpected response to {query:?}: {other:?}"),
+        }
+    }
 }
 
 /// The whole relayerless flow end to end: fund a `0u` id, read back the two

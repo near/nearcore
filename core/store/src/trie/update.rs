@@ -14,6 +14,7 @@ use near_primitives::types::{
 };
 use near_primitives_core::code::ContractCode;
 use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 mod iterator;
@@ -86,6 +87,33 @@ pub struct TrieUpdateResult {
     pub contract_updates: ContractUpdates,
 }
 
+/// A `TrieUpdate` whose trie has a recording budget set, from
+/// `TrieUpdate::with_recording_budget`. Clears the budget when dropped, however the scope is
+/// left.
+pub struct RecordingBudget<'a> {
+    trie_update: &'a mut TrieUpdate,
+}
+
+impl Deref for RecordingBudget<'_> {
+    type Target = TrieUpdate;
+
+    fn deref(&self) -> &TrieUpdate {
+        self.trie_update
+    }
+}
+
+impl DerefMut for RecordingBudget<'_> {
+    fn deref_mut(&mut self) -> &mut TrieUpdate {
+        self.trie_update
+    }
+}
+
+impl Drop for RecordingBudget<'_> {
+    fn drop(&mut self) {
+        self.trie_update.trie.clear_recording_budget();
+    }
+}
+
 impl TrieUpdate {
     /// Contract code read through this update comes from the trie alone. Use
     /// [`Self::new_with_contract_code_cache`] where contracts are executed.
@@ -135,6 +163,19 @@ impl TrieUpdate {
 
     pub fn trie(&self) -> &Trie {
         &self.trie
+    }
+
+    /// Caps what the trie may record at `limit` more bytes until the returned guard is dropped,
+    /// as `Trie::set_recording_budget` describes. Reads go through the guard, which derefs to
+    /// this update.
+    ///
+    /// Returns `None` if the trie doesn't record: the budget counts recorded bytes, so it would
+    /// cap nothing, and reads would go on uncapped.
+    #[must_use = "the budget is cleared when the guard is dropped"]
+    pub fn with_recording_budget(&mut self, limit: usize) -> Option<RecordingBudget<'_>> {
+        self.trie.recorder.as_ref()?;
+        self.trie.set_recording_budget(limit);
+        Some(RecordingBudget { trie_update: self })
     }
 
     pub fn contract_storage(&self) -> &ContractStorage {

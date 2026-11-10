@@ -8,7 +8,7 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{ApplyState, PrevBlockContext};
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountState};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -26,8 +26,8 @@ use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
 use near_store::{
-    NoContractCodeCache, Trie, TrieAccess as _, TrieUpdate, get_access_key,
-    get_access_key_by_handle, get_account, get_gas_key_nonce,
+    NoContractCodeCache, Trie, TrieAccess, TrieUpdate, get_access_key, get_access_key_by_handle,
+    get_account, get_gas_key_nonce,
 };
 use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
 use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
@@ -79,6 +79,24 @@ fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
 /// diverges. Used as the negation of the access-key iterator's prune condition.
 fn nibbles_within_prefix(prefix_nibbles: &[u8], key_nibbles: &[u8]) -> bool {
     prefix_nibbles.starts_with(key_nibbles) || key_nibbles.starts_with(prefix_nibbles)
+}
+
+/// Errors unless `account_id` exists and is initialized.
+fn ensure_initialized(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<(), errors::ViewAccessKeyError> {
+    match get_account(trie, account_id)?.map(|account| account.state()) {
+        None => Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+            requested_account_id: account_id.clone(),
+        }),
+        Some(AccountState::Uninitialized) => {
+            Err(errors::ViewAccessKeyError::UninitializedAccount {
+                requested_account_id: account_id.clone(),
+            })
+        }
+        Some(AccountState::Initialized) => Ok(()),
+    }
 }
 
 pub struct TrieViewer {
@@ -136,6 +154,11 @@ impl TrieViewer {
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         assert_supported_protocol_version(current_protocol_version);
         let account = self.view_account(state_update, account_id)?;
+        if !account.is_initialized() {
+            return Err(errors::ViewContractCodeError::UninitializedAccount {
+                requested_account_id: account_id.clone(),
+            });
+        }
         let contract_id = RuntimeContractIdentifier::resolve(
             account_id,
             account.contract().into_owned(),
@@ -180,11 +203,8 @@ impl TrieViewer {
         if let Some(access_key) = get_access_key(state_update, account_id, public_key)? {
             return Ok(access_key);
         }
-        if get_account(state_update, account_id)?.is_none() {
-            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
-                requested_account_id: account_id.clone(),
-            });
-        }
+        // Uninitialized accounts hold no keys, so they always miss.
+        ensure_initialized(state_update, account_id)?;
         Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() })
     }
 
@@ -279,10 +299,8 @@ impl TrieViewer {
                 }
             }
         }
-        if keys.is_empty() && get_account(trie, account_id)?.is_none() {
-            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
-                requested_account_id: account_id.clone(),
-            });
+        if keys.is_empty() {
+            ensure_initialized(trie, account_id)?;
         }
         Ok((keys, last_key))
     }
@@ -295,14 +313,22 @@ impl TrieViewer {
     ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
         let access_key = match get_access_key(state_update, account_id, public_key)? {
             Some(access_key) => access_key,
-            None if get_account(state_update, account_id)?.is_none() => {
-                return Err(errors::ViewGasKeyNoncesError::AccountDoesNotExist {
-                    requested_account_id: account_id.clone(),
-                });
-            }
             None => {
-                return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
-                    public_key: public_key.clone(),
+                let state = get_account(state_update, account_id)?.map(|account| account.state());
+                return Err(match state {
+                    None => errors::ViewGasKeyNoncesError::AccountDoesNotExist {
+                        requested_account_id: account_id.clone(),
+                    },
+                    Some(AccountState::Uninitialized) => {
+                        errors::ViewGasKeyNoncesError::UninitializedAccount {
+                            requested_account_id: account_id.clone(),
+                        }
+                    }
+                    Some(AccountState::Initialized) => {
+                        errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+                            public_key: public_key.clone(),
+                        }
+                    }
                 });
             }
         };
@@ -350,6 +376,11 @@ impl TrieViewer {
                 requested_account_id: account_id.clone(),
             });
         };
+        if !account.is_initialized() {
+            return Err(errors::ViewStateError::UninitializedAccount {
+                requested_account_id: account_id.clone(),
+            });
+        }
 
         // Legacy per-account gate — paginated callers opt out of it.
         if !paginated {
@@ -442,6 +473,11 @@ impl TrieViewer {
                 requested_account_id: contract_id.clone(),
             }
         })?;
+        if !account.is_initialized() {
+            return Err(errors::CallFunctionError::UninitializedAccount {
+                requested_account_id: contract_id.clone(),
+            });
+        }
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);

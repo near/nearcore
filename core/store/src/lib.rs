@@ -13,7 +13,9 @@ pub use crate::node_storage::opener::{
 };
 pub use crate::node_storage::{NodeStorage, Temperature};
 pub use crate::store::{Store, StoreUpdate};
-pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
+pub use crate::trie::update::{
+    RecordingBudget, TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr,
+};
 pub use crate::trie::{
     ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
     PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,

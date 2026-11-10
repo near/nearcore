@@ -22,6 +22,7 @@ use near_store::{
     StorageError, TrieAccess, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
+use std::borrow::Borrow;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -299,16 +300,19 @@ pub fn verify_and_charge_tx_ephemeral<E>(
 ///
 /// This performs no mutation. The fees are not charged here: the contract pays for them from
 /// the balance the call leaves, only if it accepts the call.
-pub fn verify_ecc_ephemeral(
-    contract: Option<&Account>,
+///
+/// Returns the contract's account as it was passed in, so a caller that passes `&mut Account`
+/// gets it back to update.
+pub fn verify_ecc_ephemeral<A: Borrow<Account>>(
+    contract: Option<A>,
     ecc: &EccTransaction,
     cost: &EccCost,
-) -> Result<(), InvalidTxError> {
+) -> Result<A, InvalidTxError> {
     let contract_id = ecc.contract_id();
     let Some(contract) = contract else {
         return Err(InvalidTxError::SignerDoesNotExist { signer_id: contract_id.clone() });
     };
-    let balance = contract.amount();
+    let balance = contract.borrow().amount();
     if balance < cost.burnt_amount {
         return Err(InvalidTxError::NotEnoughBalance {
             signer_id: contract_id.clone(),
@@ -316,7 +320,7 @@ pub fn verify_ecc_ephemeral(
             cost: cost.burnt_amount,
         });
     }
-    Ok(())
+    Ok(contract)
 }
 
 /// Resolve the signer's account and what authorizes the transaction against it:
@@ -3182,7 +3186,7 @@ mod tests {
     fn test_verify_ecc_missing_contract() {
         let (ecc, cost) = ecc_and_cost();
         assert_eq!(
-            verify_ecc_ephemeral(None, &ecc, &cost),
+            verify_ecc_ephemeral(None::<&Account>, &ecc, &cost),
             Err(InvalidTxError::SignerDoesNotExist { signer_id: ecc.contract_id().clone() })
         );
     }
@@ -3206,6 +3210,6 @@ mod tests {
     fn test_verify_ecc_exact_balance() {
         let (ecc, cost) = ecc_and_cost();
         let contract = account_new(cost.burnt_amount, CryptoHash::default());
-        assert_eq!(verify_ecc_ephemeral(Some(&contract), &ecc, &cost), Ok(()));
+        assert_eq!(verify_ecc_ephemeral(Some(&contract), &ecc, &cost), Ok(&contract));
     }
 }

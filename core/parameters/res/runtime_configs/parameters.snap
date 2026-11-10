@@ -12,6 +12,12 @@ main_storage_proof_size_soft_limit                 4_000_000
 per_receipt_storage_proof_size_limit               4_500_000
 new_transactions_validation_state_size_soft_limit             572_864
 combined_transactions_size_limit                   4_194_304
+max_external_call_size                                     0
+max_external_call_recorded_size                            0
+external_calls_chunk_compute_share      0 / 1
+external_calls_chunk_storage_proof_share0 / 1
+external_calls_chunk_transactions_size_share0 / 1
+max_external_calls_per_chunk                               0
 min_allowed_top_level_account_length                      65
 registrar_account_id                    registrar
 storage_amount_per_byte                 10000000000000000000 yN

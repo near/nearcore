@@ -704,6 +704,49 @@ impl Trie {
         self.recorder.as_ref().is_some_and(|recorder| recorder.check_proof_size_limit_exceed())
     }
 
+    /// Caps what this trie may record from now on at `limit` more bytes, counted as the recorded
+    /// upper bound. A read that records a trie node past the cap fails with
+    /// `StorageError::RecordingBudgetExceeded` after recording it, so that a replay from the
+    /// proof stops at the same node. A value whose length would pass the cap is not fetched, so
+    /// it never enters the proof; a value already in the proof adds nothing, so it is always
+    /// read. Does nothing without a recorder.
+    ///
+    /// Set through `TrieUpdate::with_recording_budget`, which checks there is a recorder and
+    /// clears the budget when it goes out of scope.
+    pub(crate) fn set_recording_budget(&self, limit: usize) {
+        if let Some(recorder) = &self.recorder {
+            recorder.set_budget(limit);
+        }
+    }
+
+    pub(crate) fn clear_recording_budget(&self) {
+        if let Some(recorder) = &self.recorder {
+            recorder.clear_budget();
+        }
+    }
+
+    /// Fails if what was recorded since the recording budget was set is past it. For changes that
+    /// grow the recorded upper bound without recording a node, such as removals.
+    pub fn check_recording_budget(&self) -> Result<(), StorageError> {
+        self.recorder.as_ref().map_or(Ok(()), |recorder| recorder.check_budget())
+    }
+
+    /// Fails if recording the value with `hash`, of `len` bytes, would pass the recording budget.
+    /// Only when the value would be recorded.
+    fn check_value_fits_recording_budget(
+        &self,
+        access_options: AccessOptions,
+        hash: &CryptoHash,
+        len: usize,
+    ) -> Result<(), StorageError> {
+        match &self.recorder {
+            Some(recorder) if access_options.enable_state_witness_recording => {
+                recorder.check_value_fits(hash, len)
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Constructs a Trie from the partial storage (i.e. state proof) that
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
@@ -797,6 +840,9 @@ impl Trie {
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
                 recorder.record(hash, result.clone());
+                // The node that crosses the budget stays recorded, so that a replay from the
+                // proof reaches it and stops there too.
+                recorder.check_budget()?;
             }
         }
         Ok(result)
@@ -1377,6 +1423,9 @@ impl Trie {
                 if access_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
                         recorder.record_with(&node_hash, get_serialized_node);
+                        // Stop at the node that crosses the budget, as a walk of the trie on disk
+                        // does, so that the same nodes are recorded and tracked.
+                        recorder.check_budget()?;
                     }
                 }
             }
@@ -1555,10 +1604,17 @@ impl Trie {
     ) -> Result<Vec<u8>, StorageError> {
         match optimized_value_ref {
             OptimizedValueRef::Ref(value_ref) => {
+                let len = value_ref.len();
+                self.check_value_fits_recording_budget(operation_options, &value_ref.hash, len)?;
                 self.retrieve_value(&value_ref.hash, operation_options)
             }
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
+                self.check_value_fits_recording_budget(
+                    operation_options,
+                    &value_hash,
+                    value.len(),
+                )?;
                 let arc_value: Arc<[u8]> = value.clone().into();
                 if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
                     operation_options
