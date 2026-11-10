@@ -91,50 +91,6 @@ fn handshake_tracked_shards_too_many() {
 }
 
 #[test]
-fn serialize_deserialize_protobuf_only() {
-    let mut rng = make_rng(39521947542);
-    let mut clock = time::FakeClock::default();
-    let chain = data::Chain::make(&mut clock, &mut rng, 12);
-    let msgs = [
-        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
-        PeerMessage::SyncAccountsData(SyncAccountsData {
-            accounts_data: (0..4)
-                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
-                .collect(),
-            incremental: true,
-            requesting_full_sync: true,
-        }),
-    ];
-    for m in msgs {
-        let frames = m.serialize_with_encoding(Encoding::Proto);
-        let (_, m2) =
-            PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string()).unwrap();
-        assert_eq!(m, m2);
-    }
-}
-
-#[test]
-fn serialize_deserialize_borsh() {
-    let mut rng = make_rng(39521947542);
-    let mut clock = time::FakeClock::default();
-    let chain = data::Chain::make(&mut clock, &mut rng, 12);
-    let msgs = [
-        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
-        PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None }),
-        PeerMessage::PeersResponse(PeersResponse { peers: vec![], direct_peers: vec![] }),
-        PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
-    ];
-    for m in msgs {
-        // Every borsh-encoded message has a header, including handshakes.
-        let frames = m.serialize_with_encoding(Encoding::Borsh);
-        assert!(frames.header.is_some(), "{m}");
-        let (_, m2) =
-            PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string()).unwrap();
-        assert_eq!(m, m2);
-    }
-}
-
-#[test]
 fn trace_context_roundtrips_span_context() {
     use super::trace_context::TraceContext;
     use opentelemetry::Context;
@@ -188,6 +144,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         .into(),
     ));
     let msgs = [
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
             data::make_peer_info(&mut rng),
@@ -217,14 +174,24 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             part_or_header: PartOrHeader::Part { part_idx: 7 },
             body: StateRequestAckBody::WillRespond,
         }),
+        PeerMessage::SyncAccountsData(SyncAccountsData {
+            accounts_data: (0..4)
+                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
+                .collect(),
+            incremental: true,
+            requesting_full_sync: true,
+        }),
     ];
 
     // Check that serialize;deserialize = 1
-    for m in &msgs {
-        let frames = m.serialize_with_encoding(Encoding::Proto);
-        let (_, m2) = PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string())?;
-        if *m != m2 {
-            bail!("deserialize(serialize({m}) = {m2}");
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        for m in &msgs {
+            let frames = m.serialize_with_encoding(encoding);
+            let (_, m2) =
+                PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string())?;
+            if *m != m2 {
+                bail!("deserialize(serialize({m}) = {m2}");
+            }
         }
     }
 
