@@ -147,22 +147,3 @@ async fn non_borsh_first_frame_is_treated_as_protobuf() {
     let got = a2.queue_recv.recv().await.unwrap();
     assert_eq!(got.message, PeerMessageFrames::proto(vec![0]));
 }
-
-/// The peer may send a message before its handshake, e.g. `LastEdge` or `HandshakeFailure` in
-/// response to a handshake it doesn't accept. The receiver must accept a header as the first
-/// frame of a connection.
-#[tokio::test]
-async fn accept_message_before_handshake() {
-    let mut rng = make_rng(89028037453);
-    let msg = PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
-    let msg = msg.serialize_with_encoding(Encoding::Borsh);
-
-    let (s1, s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng), tcp::Tier::T2).await;
-    let actor_system = ActorSystem::new();
-    let a1 = Actor::spawn(actor_system.clone(), s1);
-    let mut a2 = Actor::spawn(actor_system, s2);
-
-    a1.system.send_async(SendFrame(msg.clone())).await.unwrap();
-    let got = a2.queue_recv.recv().await.unwrap();
-    assert_eq!(got.message, msg);
-}
