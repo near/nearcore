@@ -218,6 +218,8 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
+                // Empty: this test sends no external calls.
+                || col == DBCol::ExternalCallTransactions
                 // Empty until EarlyKickout activates.
                 || (col == DBCol::ChunkProducers
                     && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))
@@ -368,6 +370,8 @@ fn test_cold_db_copy_with_height_skips() {
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
+                    // Empty: this test sends no external calls.
+                    || col == DBCol::ExternalCallTransactions
                     // Empty until EarlyKickout activates.
                     || (col == DBCol::ChunkProducers
                         && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))

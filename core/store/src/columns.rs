@@ -419,6 +419,11 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     ChunkProducers,
+    /// The hash of the external call a copy ran, by the copy's unique id and the block that
+    /// includes it, keyed like [`DBCol::TransactionResultForBlock`].
+    /// - *Rows*: OutcomeId (CryptoHash) || BlockHash (CryptoHash)
+    /// - *Content type*: [near_primitives::hash::CryptoHash], a key of [`DBCol::Transactions`]
+    ExternalCallTransactions,
 }
 
 /// Defines different logical parts of a db key.
@@ -499,6 +504,7 @@ impl DBCol {
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
@@ -589,6 +595,7 @@ impl DBCol {
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats
@@ -720,6 +727,7 @@ impl DBCol {
             | DBCol::StateSyncNewChunks
             | DBCol::StateTransitionData
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::TrieChanges => GcPolicy::Delete,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes
@@ -844,7 +852,9 @@ impl DBCol {
             DBCol::EpochValidatorInfo => &[DBKeyType::EpochId],
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
+            DBCol::TransactionResultForBlock | DBCol::ExternalCallTransactions => {
+                &[DBKeyType::OutcomeId, DBKeyType::BlockHash]
+            }
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
