@@ -138,8 +138,12 @@ macro_rules! bls12381_impl {
         ) -> Result<u64> {
             ctx.result_state.gas_counter.pay_base($bls12381_base)?;
 
-            let elements_count = value_len / $ITEM_SIZE;
-            ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            // Before `FixRegisterInputCharging`, the element count came from `value_len`, which
+            // is `u64::MAX` for register input.
+            if !ctx.config.fix_register_input_charging {
+                let elements_count = value_len / $ITEM_SIZE;
+                ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            }
 
             let data = get_memory_or_register(
                 &mut ctx.result_state.gas_counter,
@@ -148,6 +152,10 @@ macro_rules! bls12381_impl {
                 value_ptr,
                 value_len,
             )?;
+            if ctx.config.fix_register_input_charging {
+                let elements_count = data.len() / $ITEM_SIZE;
+                ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            }
             let version = if ctx.config.bls12381_not_in_group_fix {
                 crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
             } else {
@@ -4521,7 +4529,11 @@ pub fn promise_yield_resume(
         .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
-    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    // Before `FixRegisterInputCharging`, the byte count came from `payload_len`, which is
+    // `u64::MAX` for register input.
+    if !ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     let data_id = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -4537,6 +4549,9 @@ pub fn promise_yield_resume(
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
+    if ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     if payload_len > ctx.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,
@@ -4570,7 +4585,11 @@ pub fn promise_yield_resume_with_yield_id(
         .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
-    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    // Before `FixRegisterInputCharging`, the byte count came from `payload_len`, which is
+    // `u64::MAX` for register input.
+    if !ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     let yield_id = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -4586,6 +4605,9 @@ pub fn promise_yield_resume_with_yield_id(
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
+    if ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     if payload_len > ctx.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,
