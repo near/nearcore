@@ -11,7 +11,9 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::IntoSender as _;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
-use near_chain::spice::block_application::apply_block_postprocessing;
+use near_chain::spice::block_application::{
+    apply_block_postprocessing, apply_shard_postprocessing,
+};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
@@ -396,15 +398,22 @@ impl ChunkExecutorActor {
     pub(crate) fn coordinator_post_apply(
         &mut self,
         block_hash: &CryptoHash,
+        shard_uid: ShardUId,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
         self.try_progress_receiving_shards(block_hash, outgoing_proofs);
         // A shard caught up for the next epoch also applies blocks at or below the final
         // execution head. Those were postprocessed once this epoch's shards applied them, and
-        // postprocessing one again would move the execution head metric back.
+        // postprocessing one again would move the execution head metric back. Such a block is
+        // final, so the shard's own flat head and memtrie roots follow it.
         let header = self.chain_store.get_block_header(block_hash)?;
         if !is_descendant_of_final_execution_head(&self.chain_store, &header) {
-            return Ok(());
+            return apply_shard_postprocessing(
+                self.runtime_adapter.as_ref(),
+                &self.chain_store,
+                shard_uid,
+                &header,
+            );
         }
         // Each tracked shard's apply-done lands here; postprocess the block once all
         // of them are applied. `postprocess_block` is idempotent, so being driven here
@@ -734,8 +743,9 @@ impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
 impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
     fn handle(&mut self, msg: ExecutorApplyChunksDone) {
         let block_hash = msg.block_hash;
+        let shard_uid = msg.shard_uid;
         let outgoing_proofs = self.per_shard_apply_done(msg);
-        if let Err(err) = self.coordinator_post_apply(&block_hash, &outgoing_proofs) {
+        if let Err(err) = self.coordinator_post_apply(&block_hash, shard_uid, &outgoing_proofs) {
             tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
         }
     }
