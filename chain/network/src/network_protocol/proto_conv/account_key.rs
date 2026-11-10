@@ -3,8 +3,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
-    AccountData, AccountKeySignature, AccountKeySignedPayload, OwnedAccount, SignedAccountData,
-    SignedOwnedAccount, VersionedAccountData, from_unix_nanos, to_unix_nanos,
+    AccountData, AccountKeySignature, OwnedAccount, SignedAccountData, SignedOwnedAccount,
+    VersionedAccountData, from_unix_nanos, to_unix_nanos,
 };
 use protobuf::{Message as _, MessageField as MF};
 
@@ -169,7 +169,7 @@ pub enum ParseSignedOwnedAccountError {
 }
 
 impl OwnedAccount {
-    /// Parses the protobuf encoding of the owned account, which is signed in `SignedOwnedAccount`.
+    /// Parses the protobuf encoding of the owned account, see `AccountKeySignature::Proto`.
     pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedOwnedAccountError> {
         let owned_account = proto::AccountKeyPayload::parse_from_bytes(payload)
             .map_err(ParseSignedOwnedAccountError::Decode)?;
@@ -177,13 +177,11 @@ impl OwnedAccount {
     }
 }
 
-impl From<&SignedOwnedAccount> for proto::AccountKeySignedPayload {
-    fn from(x: &SignedOwnedAccount) -> Self {
-        Self {
-            payload: (&x.payload.payload).clone(),
-            signature: MF::some((&x.payload.signature).into()),
-            ..Self::default()
-        }
+impl SignedOwnedAccount {
+    /// Converts the owned account to protobuf. Returns `None` if it is signed over its borsh
+    /// encoding, which can't be expressed in protobuf.
+    pub(crate) fn to_proto(&self) -> Option<proto::AccountKeySignedPayload> {
+        signature_to_proto(&self.signature)
     }
 }
 
@@ -193,7 +191,7 @@ impl TryFrom<&proto::AccountKeySignedPayload> for SignedOwnedAccount {
         let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
             owned_account: OwnedAccount::from_proto_bytes(&x.payload)?,
-            payload: AccountKeySignedPayload { payload: x.payload.clone(), signature },
+            signature: AccountKeySignature::Proto { payload: x.payload.clone(), signature },
         })
     }
 }

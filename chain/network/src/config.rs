@@ -724,6 +724,19 @@ impl NetworkConfig {
             "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
         );
 
+        // A struct signed with borsh can't be expressed in protobuf. A handshake sent in protobuf
+        // would lack the OwnedAccount, and the peer wouldn't know that this node is a validator.
+        let signs_with_borsh = self.transition.signing_encoding() == Encoding::Borsh;
+        let may_send_protobuf = self.transition.connection_encodings().contains(&Encoding::Proto);
+        if signs_with_borsh && may_send_protobuf {
+            anyhow::bail!(
+                "signed_struct_format({:?}) signs structs with borsh, which requires \
+                 connection_encoding({:?}) to be BorshOnly",
+                self.transition.signed_struct_format,
+                self.transition.connection_encoding,
+            );
+        }
+
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }

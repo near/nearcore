@@ -103,7 +103,28 @@ impl From<&Handshake> for proto::Handshake {
             sender_listen_port: x.sender_listen_port.unwrap_or(0).into(),
             sender_chain_info: MF::some((&x.sender_chain_info).into()),
             partial_edge_info: MF::some((&x.partial_edge_info).into()),
-            owned_account: x.owned_account.as_ref().map(Into::into).into(),
+            owned_account: x
+                .owned_account
+                .as_ref()
+                .and_then(|a| {
+                    // An owned account signed over its borsh encoding can't be expressed in
+                    // protobuf. A node sends only its own owned account, and a node which signs
+                    // with borsh doesn't send protobuf (see `NetworkConfig::verify`), so this
+                    // is a bug.
+                    let owned_account = a.to_proto();
+                    debug_assert!(
+                        owned_account.is_some(),
+                        "borsh-signed owned account in a protobuf handshake"
+                    );
+                    if owned_account.is_none() {
+                        tracing::error!(
+                            target: "network",
+                            "dropping a borsh-signed owned account from a protobuf handshake"
+                        );
+                    }
+                    owned_account
+                })
+                .into(),
             ..Self::default()
         }
     }

@@ -114,6 +114,8 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
+    #[error("owned_account is signed in an encoding that is not accepted")]
+    OwnedAccountDisallowedEncoding,
     #[error("actor system shutting down")]
     ActorSystemShutdown,
 }
@@ -135,6 +137,7 @@ impl ClosingReason {
             ClosingReason::DisconnectMessage => false,  // graceful disconnect
             ClosingReason::TooLargeClockSkew => true,   // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
+            ClosingReason::OwnedAccountDisallowedEncoding => false, // peer may get upgraded
             ClosingReason::ActorSystemShutdown => false, // node shutting down
         }
     }
@@ -528,7 +531,7 @@ impl PeerActor {
                     peer_id: self.network_state.config.node_id(),
                     timestamp: to_unix_nanos(self.clock.now_utc()),
                 }
-                .sign(&signer)
+                .sign(&signer, self.network_state.config.transition.signing_encoding())
             }),
         };
         let msg = match spec.tier {
@@ -673,7 +676,14 @@ impl PeerActor {
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
-            if let Err(_) = owned_account.verify() {
+            let transition = &self.network_state.config.transition;
+            // The peer isn't banned for an encoding which is not accepted: it might be running
+            // another release. It has to be checked here, as `verify` rejects such an encoding.
+            if !transition.accepts_signed_encoding(owned_account.encoding()) {
+                self.stop(ClosingReason::OwnedAccountDisallowedEncoding);
+                return;
+            }
+            if let Err(_) = owned_account.verify(transition) {
                 self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
                 return;
             }
