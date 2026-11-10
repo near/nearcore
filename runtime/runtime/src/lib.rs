@@ -77,9 +77,9 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
-use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
+use near_store::trie::{AccessOptions, NewTrieNodes};
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
@@ -103,6 +103,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
 use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
@@ -141,6 +142,17 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 pub struct PostState {
     pub trie_update: TrieUpdate,
+    /// The nodes that the apply of the chunk added to the trie, which it sends once it has
+    /// finalized the changes in `trie_update`, later than it calls the callback with the post
+    /// state. The sender is dropped without sending if the apply fails.
+    pub new_nodes: Receiver<PostStateNodes>,
+}
+
+/// What the apply of a chunk added to the trie, with the state root it led to.
+#[derive(Debug)]
+pub struct PostStateNodes {
+    pub state_root: StateRoot,
+    pub nodes: NewTrieNodes,
 }
 
 impl Debug for PostState {
@@ -2953,13 +2965,25 @@ impl Runtime {
             .observe(chunk_recorded_size_upper_bound);
 
         // Call `on_post_state_ready` with a clone of the `state_update` if requested.
-        if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
-            let post_state = PostState { trie_update: state_update.clone_for_tx_preparation() };
-            let callback = &on_post_state_ready.callback;
-            callback(post_state);
-        }
+        let new_nodes_sender =
+            apply_state.on_post_state_ready.as_ref().map(|on_post_state_ready| {
+                let (sender, new_nodes) = mpsc::channel();
+                let trie_update = state_update.clone_for_tx_preparation();
+                let callback = &on_post_state_ready.callback;
+                callback(PostState { trie_update, new_nodes });
+                sender
+            });
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
             state_update.finalize()?;
+        // Only ECCs read the nodes, so there is no copy of them before there are ECCs. Without it
+        // the sender is dropped, as if apply failed, and nobody waits for them.
+        let ecc_enabled =
+            ProtocolFeature::ExternalContractCalls.enabled(apply_state.current_protocol_version);
+        if let Some(sender) = new_nodes_sender.filter(|_| ecc_enabled) {
+            let nodes = NewTrieNodes::from_changes(&trie_changes);
+            // Nobody receives them if the job that wanted them is gone.
+            let _ = sender.send(PostStateNodes { state_root: trie_changes.new_root, nodes });
+        }
 
         if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt

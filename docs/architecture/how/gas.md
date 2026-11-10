@@ -313,6 +313,21 @@ pool otherwise. `ecc_pool_size_share` (1/10 by default) is the
 share of the transaction pool that calls may fill. Setting either share to zero
 keeps calls out of chunks, or out of the pool.
 
+Early preparation of the next chunk starts before the changes of the parent
+chunk are in a trie, so the calls would read what the parent wrote from those
+pending changes, which records nothing, while apply reads it from the trie. The
+producer runs the calls on a trie at the parent's new state root instead. Its
+nodes are the ones that the parent's apply sends once it has finalized its
+changes, and the store has the rest, so the calls read and record what apply
+does. The first call waits for the nodes, until the end of the time limit for
+the whole preparation, or for the time of the calls if there is no such limit,
+and the time of the calls starts when the nodes are there. If they do not come
+in time, if the apply of the parent fails, or if the preparation is cancelled,
+no call goes into that chunk and the calls stay in the pool. The trie has no
+memtrie, so its reads come from the store and are slower. Signed transactions
+still read what the parent wrote from the pending changes, which records
+nothing.
+
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
 

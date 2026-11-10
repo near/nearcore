@@ -7,10 +7,11 @@ use crate::runtime::metrics::{
 };
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PrepareTransactionsTimeLimits,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
-    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ParentPostStateNodes,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    SkippedTransactions, StatePartValidationResult, StateRootNodeValidationResult,
+    StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::{
@@ -58,8 +59,8 @@ use near_runtime::config::{ecc_cost, tx_cost};
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
     ApplyState, EccDryRun, EccDryRunContext, ExternalCallsInChunk, PendingConstraints,
-    PrevBlockContext, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef, TxVerdict,
-    ValidatorAccountsUpdate, account_holds_contract, dry_run_external_call,
+    PostStateNodes, PrevBlockContext, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
+    TxVerdict, ValidatorAccountsUpdate, account_holds_contract, dry_run_external_call,
     get_signer_and_authorization, validate_envelope, verify_and_charge_tx_ephemeral,
     verify_ecc_ephemeral,
 };
@@ -81,7 +82,8 @@ use std::convert::Infallible;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
+use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
@@ -202,9 +204,10 @@ impl NightshadeRuntime {
 
     /// Runs the ECCs of the pool and packs the ones their contracts accept, one ECC per contract.
     ///
-    /// Each ECC runs on the thread for ECCs, on top of the chunk's state at its start. Its writes
-    /// are thrown away, and so are its reads unless the contract accepts it. An accepted ECC
-    /// charges the contract's account in `signer_overlay`. A refused one is dropped.
+    /// Each ECC runs on the thread for ECCs, on top of the state that apply of the chunk starts
+    /// from (see `first_ecc_run` for early preparation). An accepted ECC's writes go on to the
+    /// ECCs after it, as in apply, and a refused one's are thrown away, and so are its reads. An
+    /// accepted ECC charges the contract's account in `signer_overlay`. A refused one is dropped.
     ///
     /// ECCs get the time that the signed transactions left, up to `time_limit`, and a run that is
     /// not done by then is left out, and goes on in the background. The ECC stays in the pool
@@ -225,14 +228,11 @@ impl NightshadeRuntime {
             deadline,
             storage_proof_size_limit,
             time_limit,
+            mut parent_nodes,
             cancel,
         } = packing;
         let mut result = EccPackingResult::default();
-        let share_end = Instant::now() + time_limit;
-        let (ecc_deadline, full_eccs_share_available) = match deadline {
-            Some(deadline) if deadline < share_end => (deadline, false),
-            _ => (share_end, true),
-        };
+        let (mut ecc_deadline, mut full_eccs_share_available) = ecc_time(deadline, time_limit);
         let shard_label = shard_id.to_string();
         // The rules on the chunk's ECCs taken together, which a chunk that breaks is invalid, and
         // the chunk's shares of compute and storage proof that the runs count toward, as they do
@@ -311,9 +311,35 @@ impl NightshadeRuntime {
                 },
                 cache: Some(self.compiled_contract_cache.handle()),
             };
-            let state = run_state
-                .take()
-                .unwrap_or_else(|| state_update.trie_update.clone_for_tx_preparation());
+            if run_state.is_none() {
+                let first_run = self.first_ecc_run(
+                    state_update,
+                    parent_nodes.take(),
+                    deadline,
+                    ecc_deadline,
+                    time_limit,
+                    cancel,
+                );
+                match first_run {
+                    Ok(FirstRunState { state, restarted_time }) => {
+                        if let Some(time) = restarted_time {
+                            (ecc_deadline, full_eccs_share_available) = time;
+                        }
+                        run_state = Some(state);
+                    }
+                    Err(no_state) => {
+                        metrics::ECC_DRY_RUNS
+                            .with_label_values(&[shard_label.as_str(), no_state.label()])
+                            .inc();
+                        tracing::debug!(target: "runtime", ?no_state, "no state to run ECCs on, they stay in the pool");
+                        // The ECC goes back to the pool, ahead of the ones behind it.
+                        result.skipped.push(ecc);
+                        result.limited_by = no_state.limit();
+                        break;
+                    }
+                }
+            }
+            let state = run_state.take().expect("the state of the first run is made above");
             // The absolute maximum time a single run can get.
             let run_has_whole_time = full_eccs_share_available && num_runs == 0;
             num_runs += 1;
@@ -378,6 +404,45 @@ impl NightshadeRuntime {
             run_state = Some(state);
         }
         Ok(result)
+    }
+
+    /// The state that the first run of ECCs goes on top of.
+    ///
+    /// Without `parent_nodes`, the state of the preparation is the one that apply of the next chunk
+    /// starts from, so the runs go on a copy of it. With them, the state of the preparation is the
+    /// post state of the parent chunk before its changes are in a trie: its reads of the parent's
+    /// writes come from memory and record nothing, which apply's reads from the trie do. Then the
+    /// runs wait for the parent's apply to send the nodes it added, until `deadline`, the end of
+    /// the preparation, or `ecc_deadline` if the preparation has no end. They go on a trie at the
+    /// parent's new state root that has the nodes, so they read and record what apply does.
+    ///
+    /// The time that ECCs get starts when the nodes are there, so the result has the new end of it.
+    /// `None` of it means the state came at once, and the end is the one the preparation started
+    /// with.
+    fn first_ecc_run(
+        &self,
+        state_update: &TrieUpdateWitnessSizeWrapper,
+        parent_nodes: Option<ParentPostStateNodes>,
+        deadline: Option<Instant>,
+        ecc_deadline: Instant,
+        time_limit: Duration,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<FirstRunState, NoState> {
+        let Some(ParentPostStateNodes { shard_uid, receiver }) = parent_nodes else {
+            let state = state_update.trie_update.clone_for_tx_preparation();
+            return Ok(FirstRunState { state, restarted_time: None });
+        };
+        let wait_deadline = deadline.unwrap_or(ecc_deadline);
+        let PostStateNodes { state_root, nodes } =
+            wait_for_new_nodes(&receiver, wait_deadline, cancel)?;
+        let restarted_time = ecc_time(deadline, time_limit);
+        // A run that starts at the end of its time would only keep the thread for ECCs busy.
+        if Instant::now() >= restarted_time.0 {
+            return Err(NoState::TimedOut);
+        }
+        let trie = self.tries.get_trie_with_new_nodes(shard_uid, state_root, nodes);
+        let state = TrieUpdate::new(trie.recording_reads_new_recorder());
+        Ok(FirstRunState { state, restarted_time: Some(restarted_time) })
     }
 
     /// Runs `ecc` on the thread for ECCs until `deadline`, counting it toward `shares`.
@@ -1119,6 +1184,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             &mut PendingTxCheckResult::always_admit(),
             time_limits,
             None,
+            None,
         ) // skip_tx_hashes is empty, so only ECCs that did not run are skipped
     }
 
@@ -1150,6 +1216,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
         time_limits: PrepareTransactionsTimeLimits,
         cancel: Option<Arc<AtomicBool>>,
+        parent_nodes: Option<ParentPostStateNodes>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let span = tracing::Span::current();
         let start_time = std::time::Instant::now();
@@ -1408,6 +1475,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .witness_config
                     .new_transactions_validation_state_size_soft_limit,
                 time_limit: time_limits.ecc,
+                parent_nodes,
                 cancel: cancel.as_deref(),
             })?;
             num_eccs_packed = packing.packed.len();
@@ -2064,7 +2132,91 @@ struct EccPacking<'a> {
     storage_proof_size_limit: u64,
     /// The most time that ECCs may take.
     time_limit: Duration,
+    /// Set when the state of the preparation is the post state of the parent chunk before its
+    /// changes are in a trie, as in early preparation. The parent's apply sends the nodes it added
+    /// here, and ECCs run on a trie that has them.
+    parent_nodes: Option<ParentPostStateNodes>,
     cancel: Option<&'a AtomicBool>,
+}
+
+/// What the first run of ECCs goes on top of, see `NightshadeRuntime::first_ecc_run`. Without it
+/// no ECC runs, and the one that was about to run stays in the pool.
+struct FirstRunState {
+    state: TrieUpdate,
+    /// When the time for ECCs ends now, and whether they have the whole of it. Set if the
+    /// preparation waited for the state, as the time for ECCs starts when it is there.
+    restarted_time: Option<(Instant, bool)>,
+}
+
+/// Why there is no state for ECCs to run on.
+#[derive(Debug, Clone, Copy)]
+enum NoState {
+    /// The nodes of the parent chunk did not come in time.
+    TimedOut,
+    Cancelled,
+    /// The apply of the parent chunk ended without sending the nodes.
+    Lost,
+}
+
+impl NoState {
+    /// What stopped the preparation, if anything did: not the loss of the nodes, which leaves the
+    /// signed transactions as they are.
+    fn limit(self) -> Option<PrepareTransactionsLimit> {
+        match self {
+            Self::TimedOut => Some(PrepareTransactionsLimit::Time),
+            Self::Cancelled => Some(PrepareTransactionsLimit::Cancelled),
+            Self::Lost => None,
+        }
+    }
+
+    /// The `result` label of `ECC_DRY_RUNS`.
+    fn label(self) -> &'static str {
+        match self {
+            Self::TimedOut => "state_timed_out",
+            Self::Cancelled => "state_cancelled",
+            Self::Lost => "state_lost",
+        }
+    }
+}
+
+/// How often the wait for the nodes of the parent chunk looks at the deadline and at `cancel`.
+const NEW_NODES_POLL_INTERVAL: StdDuration = StdDuration::from_millis(5);
+
+/// Waits for the parent chunk's apply to send the nodes it added, until `deadline`.
+fn wait_for_new_nodes(
+    receiver: &Receiver<PostStateNodes>,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<PostStateNodes, NoState> {
+    loop {
+        if cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
+            return Err(NoState::Cancelled);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            // They may have come while the clock was read.
+            return match receiver.try_recv() {
+                Ok(nodes) => Ok(nodes),
+                Err(TryRecvError::Empty) => Err(NoState::TimedOut),
+                Err(TryRecvError::Disconnected) => Err(NoState::Lost),
+            };
+        }
+        match receiver.recv_timeout(left.min(NEW_NODES_POLL_INTERVAL)) {
+            Ok(nodes) => return Ok(nodes),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return Err(NoState::Lost),
+        }
+    }
+}
+
+/// When the time for ECCs ends, and whether they have the whole `time_limit`: they don't if the
+/// time limit of the whole preparation, `deadline`, comes first.
+fn ecc_time(deadline: Option<Instant>, time_limit: Duration) -> (Instant, bool) {
+    let share_end = Instant::now() + time_limit;
+    match deadline {
+        Some(deadline) if deadline < share_end => (deadline, false),
+        _ => (share_end, true),
+    }
 }
 
 /// What the run of an ECC on the thread for ECCs hands back.

@@ -374,7 +374,11 @@ impl Client {
             multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
-            Some(myself_sender.on_post_state_ready.clone()),
+            // Only early preparation uses the post state of a chunk, so without it the apply of a
+            // chunk need not copy anything for it.
+            config
+                .enable_early_prepare_transactions
+                .then(|| myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(

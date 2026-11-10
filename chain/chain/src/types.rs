@@ -44,8 +44,8 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 pub use near_runtime::PendingConstraints;
-use near_runtime::PostStateReadyCallback;
 use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::{PostStateNodes, PostStateReadyCallback};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
@@ -58,6 +58,7 @@ use std::cmp::{max, min};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Receiver;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -541,6 +542,14 @@ impl PrepareTransactionsBlockContext {
     }
 }
 
+/// The trie nodes that the apply of the parent chunk adds, which early preparation waits for before
+/// it runs ECCs. See `RuntimeAdapter::prepare_transactions_extra`.
+pub struct ParentPostStateNodes {
+    /// The shard of the parent chunk.
+    pub shard_uid: ShardUId,
+    pub receiver: Receiver<PostStateNodes>,
+}
+
 /// How long preparing the transactions of a chunk may take.
 ///
 /// The preparation as a whole may be unlimited in time, but ECCs never are. A run of a contract is
@@ -673,6 +682,10 @@ pub trait RuntimeAdapter: Send + Sync {
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
     ///   were removed from the pool.
+    /// * `parent_nodes` - set when `storage` is the post state of the parent chunk before its
+    ///   changes are in a trie, as in early preparation. The parent's apply sends the trie nodes it
+    ///   added there, and ECCs run on a trie that has them, since they would read less than apply
+    ///   does from `storage`. Signed transactions still use `storage`.
     fn prepare_transactions_extra(
         &self,
         storage: TrieUpdate,
@@ -685,6 +698,7 @@ pub trait RuntimeAdapter: Send + Sync {
         check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
         time_limits: PrepareTransactionsTimeLimits,
         cancel: Option<Arc<AtomicBool>>,
+        parent_nodes: Option<ParentPostStateNodes>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch

@@ -1434,6 +1434,7 @@ impl ClientActor {
             msg.key,
             msg.shard_uid,
             msg.post_state.trie_update,
+            msg.post_state.new_nodes,
             msg.prev_block_context,
             msg.prev_chunk_tx_hashes,
             tx_validity_period_check,

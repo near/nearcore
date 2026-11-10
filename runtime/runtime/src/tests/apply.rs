@@ -14,7 +14,10 @@ use crate::{
     ActionResult, ApplyResult, ApplyState, PrevBlockContext, Runtime, ValidatorAccountsUpdate,
     action_add_key,
 };
-use crate::{EccDryRun, EccDryRunContext, ExternalCallsInChunk, dry_run_external_call};
+use crate::{
+    EccDryRun, EccDryRunContext, ExternalCallsInChunk, PostState, PostStateNodes,
+    PostStateReadyCallback, dry_run_external_call,
+};
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use bytesize::ByteSize;
@@ -84,9 +87,11 @@ use near_store::{
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
+use std::sync::mpsc::TryRecvError;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod contract_compilation_status;
@@ -1630,6 +1635,90 @@ fn test_dry_run_ecc_counts_toward_the_shares() {
         })
     );
     assert_eq!(written, None);
+}
+
+/// Apply gives early preparation the nodes that it added right after it finalized its changes, and
+/// the state root they lead to. They are enough to read the chunk's state before the chunk's
+/// changes are stored: the chunk here is an ECC that writes to its contract, and its charge.
+#[test]
+fn test_apply_sends_the_nodes_it_added_after_finalizing() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let post_state = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&post_state);
+    apply_state.on_post_state_ready =
+        Some(PostStateReadyCallback::new(move |state| *captured.lock() = Some(state)));
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc_to_bob())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let PostState { trie_update, new_nodes } =
+        post_state.lock().take().expect("apply calls the callback");
+    // The post state has the chunk's changes pending, and the nodes come with the state root.
+    assert!(trie_update.committed_len() > 0);
+    let PostStateNodes { state_root, nodes } =
+        new_nodes.try_recv().expect("apply sends the nodes before it returns");
+    assert_eq!(state_root, apply_result.state_root);
+    // The changes are not stored: only a trie that has the nodes reads them.
+    let trie = tries.get_trie_with_new_nodes(ShardUId::single_shard(), state_root, nodes);
+    let state = TrieUpdate::new(trie.recording_reads_new_recorder());
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    let key = TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() };
+    assert_eq!(state.get(&key, AccessOptions::DEFAULT).unwrap().as_deref(), Some(ECC_PAYLOAD));
+    let mut store_update = tries.store_update();
+    let root_after =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    assert_eq!(root_after, state_root);
+    assert_eq!(bob_ecc_state(&tries, root_after).0, bob);
+}
+
+/// Apply sends no nodes before the ECC feature, and drops the sender, as when it fails, so
+/// nobody waits for them.
+#[test]
+fn test_apply_sends_no_nodes_before_the_feature() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::ExternalContractCalls.protocol_version() - 1;
+    let post_state = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&post_state);
+    apply_state.on_post_state_ready =
+        Some(PostStateReadyCallback::new(move |state| *captured.lock() = Some(state)));
+
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(Vec::<TransactionEnvelope>::new(), vec![]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let PostState { new_nodes, .. } = post_state.lock().take().expect("apply calls the callback");
+    assert_matches!(new_nodes.try_recv(), Err(TryRecvError::Disconnected));
 }
 
 /// The dry run refuses a call to an account with no contract with the error apply gives.

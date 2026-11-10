@@ -1,6 +1,6 @@
 use near_chain::types::{
-    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
-    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter,
+    ParentPostStateNodes, PendingTxCheckResult, PrepareTransactionsBlockContext,
+    PrepareTransactionsLimit, PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -20,6 +20,9 @@ use std::sync::atomic::AtomicBool;
 pub struct PrepareTransactionsJobInputs {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub state: TrieUpdate,
+    /// The trie nodes that the apply of the parent chunk adds, which ECCs run on. `state` is the
+    /// parent's post state before they are in a trie.
+    pub post_state_nodes: Option<ParentPostStateNodes>,
     pub shard_uid: ShardUId,
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -51,6 +54,7 @@ impl PrepareTransactionsJobInputs {
         Self {
             runtime_adapter: runtime,
             state,
+            post_state_nodes: None,
             shard_uid,
             prev_block_context,
             tx_pool,
@@ -148,6 +152,7 @@ impl PrepareTransactionsJob {
             &mut PendingTxCheckResult::always_admit(),
             inputs.time_limits,
             Some((&self).cancel.clone()),
+            inputs.post_state_nodes,
         );
         drop(iter);
         match result {
