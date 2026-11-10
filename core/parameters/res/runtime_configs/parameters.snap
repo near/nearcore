@@ -312,4 +312,4 @@ action_use_global_contract_per_identifier_byte
 - execution:              64_572_944
 ml_dsa_verify_host_fn                   true
 sha3_host_fns                           true
-bls12381_not_in_group_fix               false
+bls12381_not_in_group_fix               true
