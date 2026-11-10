@@ -1611,13 +1611,6 @@ impl messaging::Handler<stream::Error> for PeerActor {
     fn handle(&mut self, err: stream::Error) {
         self.delay_if_registering(move |this| {
             let expected = match &err {
-                // A frame larger than the maximum message size is abusive.
-                stream::Error::Recv(stream::RecvError::NetworkProtocolViolation(
-                    stream::NetworkProtocolViolation::MessageTooLarge { .. },
-                )) => {
-                    this.stop(ClosingReason::Ban(ReasonForBan::Abusive));
-                    true
-                }
                 // It is expected in a sense that the peer might be just slow.
                 stream::Error::Send(stream::SendError::QueueOverflow { .. }) => true,
                 // A peer might be malicious and send bad data, so a protocol violation is
