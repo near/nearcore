@@ -76,7 +76,6 @@ use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::mpsc;
-#[cfg(feature = "test_features")]
 use std::thread;
 use tempfile::TempDir;
 
