@@ -224,7 +224,7 @@ impl FramedStream {
     /// parses as a borsh header, all the messages are borsh-encoded (see `RecvLoop::run_borsh`),
     /// otherwise it is treated as a protobuf-encoded message (see `RecvLoop::run_proto`).
     ///
-    /// A node which doesn't accept borsh (e.g. 2.14, or a node with ConnectionEncoding::BorshOnly)
+    /// A node which doesn't accept borsh (e.g. 2.14, or a node with ConnectionEncoding::ProtobufOnly)
     /// interprets all messages as protobuf. Such nodes handle borsh messages as invalid unparsable
     /// ones and ignore them.
     async fn run_recv_loop(
