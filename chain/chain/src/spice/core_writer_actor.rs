@@ -567,6 +567,13 @@ impl SpiceCoreWriterActor {
                 continue;
             }
 
+            // Only nodes that received the endorsements directly hold the uncertified result.
+            // Other nodes certify the chunk from a block that carries its execution result.
+            let Some(execution_result) =
+                self.get_uncertified_execution_result(&chunk_execution_result_hash)
+            else {
+                continue;
+            };
             if self.endorsed_by_designated_or_fallback(
                 chunk_id,
                 &chunk_execution_result_hash,
@@ -574,16 +581,6 @@ impl SpiceCoreWriterActor {
                 block.header().prev_hash(),
                 endorsers,
             )? {
-                let Some(execution_result) =
-                    self.get_uncertified_execution_result(&chunk_execution_result_hash)
-                else {
-                    tracing::debug!(
-                        target: "spice_core_writer",
-                        ?chunk_id,
-                        "endorsements certify chunk across forks but its execution result was not received directly, waiting for a block carrying it"
-                    );
-                    continue;
-                };
                 store_update.merge(self.save_execution_result(
                     &chunk_id.block_hash,
                     chunk_id.shard_id,

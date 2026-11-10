@@ -465,7 +465,7 @@ fn test_handle_processed_block_with_endorsements_for_chunk_certified_on_another_
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_handle_processed_block_with_endorsements_certifying_only_across_forks() {
+fn cross_fork_certification_without_a_received_result_waits_for_the_carrying_block() {
     let (mut chain, core_writer_actor) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -474,6 +474,7 @@ fn test_handle_processed_block_with_endorsements_certifying_only_across_forks() 
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let all_validators = test_validators();
+    let execution_result = test_execution_result_for_chunk(&chunk_header);
     let endorsement = |validator: &str| {
         endorsement_into_core_statement(test_chunk_endorsement(validator, &block, chunk_header))
     };
@@ -481,11 +482,8 @@ fn test_handle_processed_block_with_endorsements_certifying_only_across_forks() 
 
     // Each fork carries sub-threshold endorsements and no execution result. Together they cross
     // the threshold, and the writer never received the endorsements directly.
-    let fork_a = build_block(
-        &mut chain,
-        &block,
-        fork_a_endorsers.iter().map(|v| endorsement(v)).collect_vec(),
-    );
+    let fork_a_endorsements = fork_a_endorsers.iter().map(|v| endorsement(v)).collect_vec();
+    let fork_a = build_block(&mut chain, &block, fork_a_endorsements.clone());
     process_block(&mut chain, fork_a.clone());
     core_writer_actor.handle_processed_block(*fork_a.hash()).unwrap();
 
@@ -500,6 +498,21 @@ fn test_handle_processed_block_with_endorsements_certifying_only_across_forks() 
     let execution_results =
         core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(execution_results.get(&chunk_header.shard_id()), None);
+
+    // A child of fork_b carries fork_a's endorsements and the execution result, which certifies
+    // the chunk on that fork.
+    let mut carrying_statements = fork_a_endorsements;
+    carrying_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
+        execution_result: execution_result.clone(),
+    });
+    let carrying_block = build_block(&mut chain, &fork_b, carrying_statements);
+    process_block(&mut chain, carrying_block.clone());
+    core_writer_actor.handle_processed_block(*carrying_block.hash()).unwrap();
+
+    let execution_results =
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
+    assert_eq!(execution_results.get(&chunk_header.shard_id()), Some(&Arc::new(execution_result)));
 }
 
 #[test]
