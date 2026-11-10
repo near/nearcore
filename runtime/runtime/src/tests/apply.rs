@@ -1163,6 +1163,19 @@ fn test_apply_ecc_accepted() {
     };
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome.id, outcome_id);
+    // The call's writes and its charge are recorded under the call's own cause.
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: outcome_id };
+    for trie_key in [
+        TrieKey::Account { account_id: bob_account() },
+        TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() },
+    ] {
+        let changes = apply_result
+            .state_changes
+            .iter()
+            .find(|changes| changes.trie_key == trie_key)
+            .expect("the call changes the contract's account and data");
+        assert!(changes.changes.iter().all(|change| change.cause == cause), "{changes:?}");
+    }
     let outcome = &outcome.outcome;
     let parent = &apply_state.prev_block;
     assert!(parent.height + 1 < apply_state.block_height);

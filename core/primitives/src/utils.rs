@@ -572,7 +572,24 @@ pub fn get_block_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{EccTransaction, SignedTransaction};
     use near_crypto::{KeyType, PublicKey};
+
+    /// A call repeated in a chunk gets its id once, under the one outcome apply gave it, a call with
+    /// no outcome gets none, and a signed transaction gets its hash.
+    #[test]
+    fn test_chunk_transaction_outcome_ids() {
+        let height = 7;
+        let call = EccTransaction::new("wallet.near".parse().unwrap(), vec![1]);
+        let skipped = EccTransaction::new("wallet.near".parse().unwrap(), vec![2]);
+        let signed = SignedTransaction::empty(CryptoHash::default());
+        let unique_id = create_ecc_outcome_id(call.hash(), height);
+        let transactions: Vec<TransactionEnvelope> =
+            vec![call.clone().into(), signed.clone().into(), call.into(), skipped.into()];
+
+        let ids = chunk_transaction_outcome_ids(&transactions, height, [unique_id]);
+        assert_eq!(ids, vec![Some(unique_id), Some(signed.get_hash()), None, None]);
+    }
 
     #[test]
     fn test_ecc_outcome_id() {

@@ -3349,20 +3349,19 @@ mod tests {
     };
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::{
-        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+        ECC_ESCAPE_BYTE, EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
     use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
+    use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::Balance;
     use serde_json::json;
 
-    /// Both kinds round-trip in JSON, and a signed transaction keeps its fields.
-    #[test]
-    fn test_transaction_envelope_view_json_roundtrip() {
+    fn signed_transaction_view() -> TransactionEnvelopeView {
         let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -3372,19 +3371,60 @@ mod tests {
             Balance::from_yoctonear(1),
             CryptoHash::default(),
         );
-        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::new(TransactionEnvelope::from(signed_tx), 1)
+    }
 
-        let signed_view = TransactionEnvelopeView::new(TransactionEnvelope::from(signed_tx), 1);
-        let ecc_view = TransactionEnvelopeView::new(TransactionEnvelope::from(ecc), 1);
+    fn external_call_view() -> TransactionEnvelopeView {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::new(TransactionEnvelope::from(ecc), 1)
+    }
+
+    /// Both kinds round-trip in JSON, and a signed transaction keeps its fields beside `kind`.
+    #[test]
+    fn test_transaction_envelope_view_json_roundtrip() {
+        let signed_view = signed_transaction_view();
+        let ecc_view = external_call_view();
         assert_matches!(signed_view, TransactionEnvelopeView::Signed(_));
         assert_matches!(ecc_view, TransactionEnvelopeView::Unsigned(_));
 
-        for view in [signed_view.clone(), ecc_view] {
+        for view in [signed_view.clone(), ecc_view.clone()] {
             let json = serde_json::to_value(&view).unwrap();
             assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
         }
         let signed_json = serde_json::to_value(&signed_view).unwrap();
+        assert_eq!(signed_json["kind"], "signed");
         assert_eq!(signed_json["signer_id"], "alice.near");
+        let ecc_json = serde_json::to_value(&ecc_view).unwrap();
+        assert_eq!(ecc_json["kind"], "external_call");
+        assert_eq!(ecc_json["transaction_id"], json!(ecc_view.id()));
+        assert_eq!(ecc_json["state_init"], serde_json::Value::Null);
+    }
+
+    /// JSON written before transaction views carried `kind` decodes as a signed transaction.
+    #[test]
+    fn test_transaction_envelope_view_json_without_kind() {
+        let signed_view = signed_transaction_view();
+        let mut json = serde_json::to_value(&signed_view).unwrap();
+        json.as_object_mut().unwrap().remove("kind");
+        assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), signed_view);
+    }
+
+    /// A signed transaction's view keeps the borsh bytes of its `SignedTransactionView`, and an
+    /// external call's view, which starts with the escape byte, round-trips.
+    #[test]
+    fn test_transaction_envelope_view_borsh() {
+        let signed_view = signed_transaction_view();
+        let TransactionEnvelopeView::Signed(signed_tx_view) = &signed_view else { unreachable!() };
+        let signed_bytes = borsh::to_vec(&signed_view).unwrap();
+        assert_eq!(signed_bytes, borsh::to_vec(signed_tx_view).unwrap());
+
+        let ecc_view = external_call_view();
+        let ecc_bytes = borsh::to_vec(&ecc_view).unwrap();
+        assert_eq!(ecc_bytes[0], ECC_ESCAPE_BYTE);
+
+        for (view, bytes) in [(signed_view, signed_bytes), (ecc_view, ecc_bytes)] {
+            assert_eq!(TransactionEnvelopeView::try_from_slice(&bytes).unwrap(), view);
+        }
     }
 
     #[test]
