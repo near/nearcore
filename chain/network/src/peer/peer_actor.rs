@@ -717,6 +717,11 @@ impl PeerActor {
         };
 
         let now = self.clock.now();
+        let peer_connections_metric = metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+            tier,
+            type_: self.peer_type,
+            encoding: self.encoding,
+        });
         let conn = Arc::new(connection::Connection {
             tier,
             handle: self.handle.clone(),
@@ -734,8 +739,7 @@ impl PeerActor {
                 && self.peer_type == PeerType::Inbound
                 && !self.network_state.pending_tier3_requests.contains_key(&peer_info.id),
             stats: self.stats.clone(),
-            _peer_connections_metric: metrics::PEER_CONNECTIONS
-                .new_point(&metrics::Connection { tier, type_: self.peer_type }),
+            _peer_connections_metric: peer_connections_metric,
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
             last_time_sent_message: AtomicCell::new(now),
