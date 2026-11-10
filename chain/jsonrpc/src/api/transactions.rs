@@ -207,7 +207,7 @@ mod tests {
     // The wire struct has three fields, but a positional array still holds the transaction alone
     #[test]
     fn test_serialize_send_tx_rejects_positional_arrays_of_several_params() {
-        let (_, str_ecc) = ecc_base64();
+        let (_, str_ecc) = external_call_base64();
         let str_tx = signed_tx_base64();
         let invalid = [
             serde_json::json!([str_tx, null, "FINAL"]),
@@ -219,7 +219,7 @@ mod tests {
         });
     }
 
-    fn ecc_base64() -> (EccTransaction, String) {
+    fn external_call_base64() -> (EccTransaction, String) {
         let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]);
         let base64 = to_base64(&borsh::to_vec(&ecc).unwrap());
         (ecc, base64)
@@ -231,15 +231,15 @@ mod tests {
 
     #[test]
     fn test_serialize_send_tx_params_with_ecc() {
-        let (ecc, str_ecc) = ecc_base64();
-        let params = serde_json::json!({"ecc_base64": str_ecc, "wait_until": "NONE"});
+        let (ecc, str_ecc) = external_call_base64();
+        let params = serde_json::json!({"external_call_base64": str_ecc, "wait_until": "NONE"});
         let request = RpcSendTransactionRequest::parse(params).unwrap();
         assert_eq!(request.transaction, TransactionEnvelope::from(ecc));
     }
 
     #[test]
     fn test_serialize_send_tx_params_with_ecc_as_binary() {
-        let (ecc, str_ecc) = ecc_base64();
+        let (ecc, str_ecc) = external_call_base64();
         let request = RpcSendTransactionRequest::parse(serde_json::json!([str_ecc])).unwrap();
         assert_eq!(request.transaction, TransactionEnvelope::from(ecc));
     }
@@ -247,13 +247,13 @@ mod tests {
     // A request carries exactly one of the transaction fields, and each holds its own kind
     #[test]
     fn test_serialize_send_tx_params_with_wrong_transaction_fields() {
-        let (_, str_ecc) = ecc_base64();
+        let (_, str_ecc) = external_call_base64();
         let str_tx = signed_tx_base64();
         let invalid = [
-            serde_json::json!({"signed_tx_base64": str_tx, "ecc_base64": str_ecc}),
+            serde_json::json!({"signed_tx_base64": str_tx, "external_call_base64": str_ecc}),
             serde_json::json!({"wait_until": "NONE"}),
             serde_json::json!({"signed_tx_base64": str_ecc}),
-            serde_json::json!({"ecc_base64": str_tx}),
+            serde_json::json!({"external_call_base64": str_tx}),
         ];
         invalid.into_iter().for_each(|params| {
             assert!(RpcSendTransactionRequest::parse(params.clone()).is_err(), "{params}");
@@ -263,14 +263,14 @@ mod tests {
     // Requests are serialized the way they are parsed, e.g. by the JSON-RPC client
     #[test]
     fn test_send_tx_request_round_trip() {
-        let (_, str_ecc) = ecc_base64();
-        [("signed_tx_base64", signed_tx_base64()), ("ecc_base64", str_ecc)].into_iter().for_each(
-            |(field, value)| {
+        let (_, str_ecc) = external_call_base64();
+        [("signed_tx_base64", signed_tx_base64()), ("external_call_base64", str_ecc)]
+            .into_iter()
+            .for_each(|(field, value)| {
                 let params = serde_json::json!({field: value, "wait_until": "INCLUDED"});
                 let request = RpcSendTransactionRequest::parse(params.clone()).unwrap();
                 assert_eq!(serde_json::to_value(&request).unwrap(), params);
-            },
-        );
+            });
     }
 
     /// The request as it was before ECCs.
