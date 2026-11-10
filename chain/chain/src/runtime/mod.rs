@@ -289,10 +289,11 @@ impl NightshadeRuntime {
             }
             let Some(ecc) = visit.packed else { continue };
 
-            // Known only if a signed transaction of the contract is in the chunk. Otherwise the run
-            // reads the account, as apply does.
+            // Set only if a signed transaction of the contract was packed, when apply has the
+            // account loaded. Otherwise the run reads the account, as apply does, even if
+            // preparation loaded it to reject a transaction.
             let loaded_account =
-                signer_overlay.loaded_account_mut(ecc.contract_id()).map(|account| account.clone());
+                signer_overlay.packed_account_mut(ecc.contract_id()).map(|account| account.clone());
             let context = EccDryRunContext {
                 shard_id,
                 epoch_id,
@@ -353,7 +354,7 @@ impl NightshadeRuntime {
                     // Only the reads of an accepted call go to the storage proof. A refused call
                     // is not in the chunk, so a later call must not get its nodes for free.
                     state_update.trie_update.trie.merge_recorded(&state.trie);
-                    if let Some(account) = signer_overlay.loaded_account_mut(ecc.contract_id()) {
+                    if let Some(account) = signer_overlay.packed_account_mut(ecc.contract_id()) {
                         *account = charged;
                     }
                     // The call is in the chunk, so it counts toward the chunk's rules and shares.
@@ -1358,6 +1359,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);
                         }
+                        signer_overlay.mark_packed(validated_tx.signer_id());
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.size_for_limits();

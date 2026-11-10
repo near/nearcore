@@ -79,6 +79,12 @@ impl ExternalCallsInChunk {
         }
     }
 
+    /// What the calls recorded so far.
+    #[cfg(test)]
+    pub(crate) fn recorded_size(&self) -> u64 {
+        self.recorded_size
+    }
+
     /// Whether the chunk has room left in every share, so that `process_external_call` takes the
     /// next call. What a call uses is known only once it ran, so a chunk can pass each share by
     /// at most one call.

@@ -1367,14 +1367,16 @@ fn test_apply_ecc_refused_lack_balance_for_storage() {
 }
 
 /// Dry-runs the ECC from `ecc_to_bob` on top of `root`, as the chunk producer does before packing
-/// it, and counts it toward `external_calls`. Returns the verdict and what bob's contract stored
-/// under `ECC_KEY` in the state the run left.
-fn dry_run_ecc_to_bob_counting(
+/// it, and counts it toward `external_calls`. `loaded_account` is bob's account if the producer has
+/// it loaded already. Returns the verdict and what bob's contract stored under `ECC_KEY` in the
+/// state the run left.
+fn dry_run_ecc_to_bob_loaded(
     tries: &ShardTries,
     root: CryptoHash,
     apply_state: &ApplyState,
     epoch_info_provider: &dyn EpochInfoProvider,
     external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
 ) -> (EccDryRun, Option<Vec<u8>>) {
     // The trie records its reads, as the producer's does.
     let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
@@ -1394,13 +1396,24 @@ fn dry_run_ecc_to_bob_counting(
         context,
         epoch_info_provider,
         external_calls,
-        None,
+        loaded_account,
         &ecc_to_bob(),
     )
     .unwrap();
     let key = TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() };
     let written = state.get(&key, AccessOptions::DEFAULT).unwrap();
     (dry_run, written)
+}
+
+/// Like `dry_run_ecc_to_bob_loaded`, with bob's account not loaded.
+fn dry_run_ecc_to_bob_counting(
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    dry_run_ecc_to_bob_loaded(tries, root, apply_state, epoch_info_provider, external_calls, None)
 }
 
 /// Like `dry_run_ecc_to_bob_counting`, for a chunk with no ECCs before this one.
@@ -1542,6 +1555,39 @@ fn test_dry_run_ecc_recording_budget_matches_apply() {
             }
         }
     }
+}
+
+/// The dry run counts the read of the contract's account toward the storage proof share, as apply
+/// does when it processes the call. It does not if the account is loaded already, which apply has
+/// when the chunk has a signed transaction of the contract: then apply read it earlier.
+#[test]
+fn test_dry_run_ecc_counts_the_account_read_unless_it_is_loaded() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (_, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let bob = get_account(&tries.new_trie_update(ShardUId::single_shard(), root), &bob_account())
+        .unwrap()
+        .unwrap();
+    let recorded = |loaded_account: Option<Account>| {
+        let mut external_calls =
+            ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+        let (dry_run, _) = dry_run_ecc_to_bob_loaded(
+            &tries,
+            root,
+            &apply_state,
+            &epoch_info_provider,
+            &mut external_calls,
+            loaded_account,
+        );
+        assert_matches!(dry_run, EccDryRun::Accepted { .. });
+        external_calls.recorded_size()
+    };
+
+    let account_read = recorded(None) - recorded(Some(bob));
+
+    assert!(account_read > 0, "the read of the account is not counted");
 }
 
 /// The dry run counts a call toward the shares for ECCs, and refuses a call past them without

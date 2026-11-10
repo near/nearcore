@@ -2727,6 +2727,36 @@ fn test_prepare_transactions_runs_an_ecc_on_the_balance_signed_transactions_left
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
 }
 
+/// A signed transaction of the contract that preparation rejects is not in the chunk. The ECC
+/// goes on and runs on the account as it is in the state, and is packed.
+#[test]
+fn test_prepare_transactions_runs_an_ecc_after_a_rejected_signed_transaction_of_its_contract() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let trie = env.runtime.tries.get_trie_for_shard(test_shard_uid(&env), env.state_roots[0]);
+    let contract_id: AccountId = "test1".parse().unwrap();
+    let balance = get_account(&TrieUpdate::new(trie), &contract_id).unwrap().unwrap().amount();
+    // A transfer of more than the contract has.
+    let transfer = SignedTransaction::send_money(
+        1,
+        contract_id.clone(),
+        "test2".parse().unwrap(),
+        &InMemorySigner::test_signer(&contract_id),
+        balance.checked_add(Balance::from_yoctonear(1)).unwrap(),
+        env.head.prev_block_hash,
+    );
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+    pool.insert_transaction(ValidatedTransaction::new_for_test(transfer));
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
+
+    assert_eq!(signed_txs(&prepared.transactions).count(), 0);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+}
+
 #[cfg(feature = "test_features")]
 fn wait_until_ecc_thread_is_free(runtime: &NightshadeRuntime) {
     while runtime.ecc_thread.is_busy() {
