@@ -213,7 +213,7 @@ expression: config_view
     "vm_kind": "<REDACTED>",
     "ml_dsa_verify_host_fn": true,
     "sha3_host_fns": true,
-    "bls12381_not_in_group_fix": false,
+    "bls12381_not_in_group_fix": true,
     "fix_contract_loading_cost": true,
     "universal_accounts": true,
     "limit_config": {
