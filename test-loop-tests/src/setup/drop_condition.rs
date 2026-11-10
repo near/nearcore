@@ -1,7 +1,8 @@
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-    spice_data_request_dropper, spice_designated_endorsement_dropper,
+    contract_code_request_dropper, spice_data_request_dropper,
+    spice_designated_endorsement_dropper,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -49,6 +50,9 @@ pub enum DropCondition {
     /// Drops every request for spice data, so a node can only get data that was pushed to
     /// it.
     SpiceDataRequests,
+    /// Drops every request for contract code, so chunk validators can only validate with code
+    /// they already hold (in the compiled cache or the contract code cache).
+    ContractCodeRequests,
 }
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
@@ -154,6 +158,9 @@ impl NodeExecutionData {
             }
             DropCondition::SpiceDataRequests => {
                 self.register_override_handler(test_loop_data, spice_data_request_dropper());
+            }
+            DropCondition::ContractCodeRequests => {
+                self.register_override_handler(test_loop_data, contract_code_request_dropper());
             }
         }
     }

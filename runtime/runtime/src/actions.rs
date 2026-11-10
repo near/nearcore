@@ -907,6 +907,7 @@ fn implicit_creation_allowed(account_type: AccountType, receipt_shape: ReceiptSh
 
 #[cfg(test)]
 mod tests {
+    use near_store::NoContractCodeCache;
 
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
@@ -1273,6 +1274,7 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
             shard_id: ShardUId::single_shard().shard_id(),

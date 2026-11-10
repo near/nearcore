@@ -25,6 +25,7 @@ use near_primitives::views::{
 use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::state_viewer::TrieViewer;
 use near_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
+use near_store::NoContractCodeCache;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
 use parking_lot::RwLock;
@@ -210,6 +211,7 @@ impl RuntimeUser {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: self.client.read().block_height + 1,
             block_timestamp: 0,

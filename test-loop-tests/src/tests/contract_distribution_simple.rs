@@ -1,9 +1,11 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::rpc_account_id;
 use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
-    run_until_caches_contain_contract,
+    clear_contract_code_caches, run_until_caches_contain_contract,
+    run_until_code_caches_contain_contract,
 };
 use crate::utils::transactions::{make_account, make_accounts};
 use itertools::Itertools;
@@ -47,7 +49,9 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     }
 
     if clear_cache {
+        // Clear the code caches too, so the code has to come from chunk producers again.
         clear_compiled_contract_caches(&mut env);
+        clear_contract_code_caches(&mut env);
     }
 
     let tx = env.rpc_node().tx_call(
@@ -131,7 +135,9 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     }
 
     if clear_cache {
+        // Clear the code caches too, so the code has to come from chunk producers again.
         clear_compiled_contract_caches(&mut env);
+        clear_contract_code_caches(&mut env);
     }
 
     let tx = env.rpc_node().tx_call(
@@ -187,6 +193,58 @@ fn test_contract_distribution_wait_cache_populate_different_accounts() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_call_after_clear_different_accounts() {
     test_contract_distribution_different_accounts(true, true);
+}
+
+/// Chunk validators recompile from their contract code cache instead of asking a chunk producer
+/// for the code: with every compiled cache cleared and every code request dropped, the calls
+/// still get all their endorsements.
+#[cfg_attr(not(feature = "test_features"), ignore)]
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_contract_distribution_recompile_from_code_cache() {
+    init_test_logger();
+    // We need 1 more non-validator account to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 1);
+
+    let mut env = setup(&accounts).drop(DropCondition::ContractCodeRequests);
+
+    let beneficiary = make_account(0);
+    let contract_id = accounts[NUM_VALIDATORS].clone();
+    let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let method_name = "main";
+    let args = vec![];
+
+    let start_height = env.node_for_account(&accounts[0]).head().height;
+
+    let tx = env.rpc_node().tx_deploy_contract(&contract_id, contract.code().to_vec());
+    env.rpc_runner().run_tx(tx, Duration::seconds(5));
+
+    // The deploy reaches every node: the chunk producer applies it, the others get the broadcast.
+    run_until_caches_contain_contract(&mut env, contract.hash());
+    run_until_code_caches_contain_contract(&mut env, contract.hash());
+
+    // Only the compiled artifacts go; the raw code stays in the code caches.
+    clear_compiled_contract_caches(&mut env);
+
+    for _ in 0..2 {
+        let tx = env.rpc_node().tx_call(
+            &contract_id,
+            &contract_id,
+            method_name,
+            args.clone(),
+            Balance::ZERO,
+            Gas::from_teragas(300),
+        );
+        env.rpc_runner().run_tx(tx, Duration::seconds(5));
+    }
+    run_until_caches_contain_contract(&mut env, contract.hash());
+
+    let tx = env.rpc_node().tx_delete_account(&contract_id, &beneficiary);
+    env.rpc_runner().run_tx(tx, Duration::seconds(5));
+
+    let end_height = env.node_for_account(&accounts[0]).head().height;
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 }
 
 /// Executes a test that deploys and calls different contracts to the same account.

@@ -1,3 +1,4 @@
+use crate::contract_code_cache::ContractCodeCache;
 use crate::{TrieStorage, metrics};
 use near_primitives::errors::{MissingTrieValue, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -128,12 +129,17 @@ impl ContractsTracker {
     }
 }
 
-/// Reads contract code from the trie by its hash.
+/// Reads contract code by its hash: from the node's contract code cache when it has it,
+/// otherwise from the trie, keeping what the trie returned in the cache.
 ///
 /// Cloning is cheap.
 #[derive(Clone)]
 pub struct ContractStorage {
     storage: Arc<dyn TrieStorage>,
+    /// Node-local, shard-independent copy of raw contract code. Only ever a cache: the trie
+    /// decides whether a contract exists, the cache just supplies the bytes for its hash.
+    /// `NoContractCodeCache` where nothing is kept.
+    code_cache: Arc<dyn ContractCodeCache>,
     /// Tracker that tracks the contract calls and committed/uncommitted deployments.
     ///
     /// Calling `finalize`` on any instance of `ContractStorage` will finalize the tracker and
@@ -142,8 +148,17 @@ pub struct ContractStorage {
 }
 
 impl ContractStorage {
-    pub fn new(storage: Arc<dyn TrieStorage>) -> Self {
-        Self { storage, tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))) }
+    /// `code_cache` is consulted ahead of `storage` and receives the code read from it.
+    pub fn new(storage: Arc<dyn TrieStorage>, code_cache: Arc<dyn ContractCodeCache>) -> Self {
+        Self {
+            storage,
+            code_cache,
+            tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))),
+        }
+    }
+
+    pub fn code_cache(&self) -> Arc<dyn ContractCodeCache> {
+        self.code_cache.clone()
     }
 
     /// Retrieves the contract code by its hash.
@@ -167,8 +182,18 @@ impl ContractStorage {
             }
         }
 
+        if let Some(code) = self.code_cache.get(&code_hash) {
+            return Some(code);
+        }
+
         match self.storage.retrieve_raw_bytes(&code_hash) {
-            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Ok(raw_code) => {
+                let code = ContractCode::new(raw_code.to_vec(), Some(code_hash));
+                // Code found in the trie (or in a witness) is global: keep it so the next
+                // compile of this contract, under any config, does not need the trie again.
+                self.code_cache.put(&code);
+                Some(code)
+            }
             Err(StorageError::MissingTrieValue(MissingTrieValue { context, hash: _ })) => {
                 metrics::STORAGE_MISSING_CONTRACTS_COUNT
                     .with_label_values(&[context.metrics_label()])
@@ -237,12 +262,18 @@ impl ContractStorage {
     pub(crate) fn finalize(self) -> ContractUpdates {
         let mut guard = self.tracker.lock();
         let tracker = guard.take().expect("finalize must be called only once");
+        // Deployed code, local or global, is kept in the cache whether this node tracks the
+        // shard or only validated the chunk.
+        for deployed in tracker.committed_deploys.values() {
+            self.code_cache.put(&deployed.code);
+        }
         tracker.finalize()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::contract_code_cache::{ContractCodeCache, NoContractCodeCache};
     use crate::{TrieStorage, contract::ContractStorage};
     use itertools::Itertools;
     use near_primitives::{
@@ -251,6 +282,7 @@ mod tests {
         stateless_validation::contract_distribution::CodeHash,
     };
     use near_primitives_core::code::ContractCode;
+    use parking_lot::Mutex;
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,
@@ -283,7 +315,7 @@ mod tests {
     }
 
     fn empty_contract_storage() -> ContractStorage {
-        ContractStorage::new(Arc::new(MockTrieStorage::new()))
+        ContractStorage::new(Arc::new(MockTrieStorage::new()), Arc::new(NoContractCodeCache))
     }
 
     /// Tests a scenario with old (already existing in the storage) and new contracts and finalizing after rolling back some deploys and committing others.
@@ -298,7 +330,8 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage =
+            ContractStorage::new(Arc::new(mock_storage), Arc::new(NoContractCodeCache));
 
         contract_storage.record_deploy(old_contracts[0].clone_for_tests());
         contract_storage.record_deploy(new_contracts[0].clone_for_tests());
@@ -347,7 +380,8 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage =
+            ContractStorage::new(Arc::new(mock_storage), Arc::new(NoContractCodeCache));
 
         // Only existing contracts should be returned by `get` before deploying the new ones.
         for contract in old_contracts {
@@ -391,7 +425,8 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage =
+            ContractStorage::new(Arc::new(mock_storage), Arc::new(NoContractCodeCache));
 
         contract_storage.record_deploy(new_contracts[0].clone_for_tests());
         contract_storage.record_deploy(new_contracts[1].clone_for_tests());
@@ -428,7 +463,8 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage =
+            ContractStorage::new(Arc::new(mock_storage), Arc::new(NoContractCodeCache));
 
         // Make the same `get` calls before and after finalizing the tracker.
         // Both should return the same results for existing and missing contracts.
@@ -460,8 +496,10 @@ mod tests {
     fn test_contract_storage_filters_global_deploys_from_broadcast() {
         let local = ContractCode::new(vec![1], None);
         let global = ContractCode::new(vec![2], None);
-        let contract_storage =
-            ContractStorage::new(Arc::new(MockTrieStorage { store: HashMap::new() }));
+        let contract_storage = ContractStorage::new(
+            Arc::new(MockTrieStorage { store: HashMap::new() }),
+            Arc::new(NoContractCodeCache),
+        );
 
         contract_storage.record_deploy(local.clone_for_tests());
         contract_storage.record_global_contract_deploy(global.clone_for_tests());
@@ -509,5 +547,100 @@ mod tests {
         contract_storage.record_deploy(code.clone_for_tests());
         contract_storage.commit_deploys();
         assert_eq!(contract_storage.finalize().contract_deploy_hashes(), expected);
+    }
+
+    /// In-memory `ContractCodeCache` that records every put, for checking what the storage
+    /// serves from where.
+    #[derive(Default)]
+    struct MockCodeCache {
+        codes: Mutex<HashMap<CryptoHash, Vec<u8>>>,
+        puts: Mutex<Vec<CryptoHash>>,
+    }
+
+    impl ContractCodeCache for MockCodeCache {
+        fn get(&self, code_hash: &CryptoHash) -> Option<ContractCode> {
+            let codes = self.codes.lock();
+            let code = codes.get(code_hash)?;
+            Some(ContractCode::new(code.clone(), Some(*code_hash)))
+        }
+
+        fn has(&self, code_hash: &CryptoHash) -> bool {
+            self.codes.lock().contains_key(code_hash)
+        }
+
+        fn put(&self, code: &ContractCode) {
+            self.puts.lock().push(*code.hash());
+            self.codes.lock().insert(*code.hash(), code.code().to_vec());
+        }
+
+        #[cfg(feature = "test_features")]
+        fn test_only_clear(&self) {
+            self.codes.lock().clear();
+        }
+    }
+
+    /// Code in the cache is served without touching the trie storage, which here lacks it.
+    #[test]
+    fn test_contract_storage_serves_code_cache_before_trie() {
+        let contract = ContractCode::new(vec![1], None);
+        let code_cache = Arc::new(MockCodeCache::default());
+        code_cache.put(&contract);
+        code_cache.puts.lock().clear();
+        let contract_storage =
+            ContractStorage::new(Arc::new(MockTrieStorage::new()), code_cache.clone());
+
+        let read = contract_storage.get(*contract.hash()).unwrap();
+        assert_eq!(read.hash(), contract.hash());
+        assert_eq!(read.code(), contract.code());
+        assert!(code_cache.puts.lock().is_empty(), "a cache hit must not write back");
+    }
+
+    /// Code read from the trie storage is kept in the cache; code the tracker holds for a
+    /// pending deploy is not, as that deploy may still be rolled back.
+    #[test]
+    fn test_contract_storage_keeps_trie_code_in_store() {
+        let in_trie = ContractCode::new(vec![1], None);
+        let pending = ContractCode::new(vec![2], None);
+        let mut mock_storage = MockTrieStorage::new();
+        mock_storage.insert(*in_trie.hash(), in_trie.code().to_vec().into());
+        let code_cache = Arc::new(MockCodeCache::default());
+        let contract_storage = ContractStorage::new(Arc::new(mock_storage), code_cache.clone());
+        contract_storage.record_deploy(pending.clone_for_tests());
+
+        assert!(contract_storage.get(*pending.hash()).is_some());
+        assert!(!code_cache.has(pending.hash()));
+
+        assert!(contract_storage.get(*in_trie.hash()).is_some());
+        assert!(code_cache.has(in_trie.hash()));
+        assert_eq!(*code_cache.puts.lock(), vec![*in_trie.hash()]);
+
+        // The second read is served by the cache: the trie storage is not asked again.
+        assert!(contract_storage.get(*in_trie.hash()).is_some());
+        assert_eq!(code_cache.puts.lock().len(), 1);
+    }
+
+    /// Finalizing keeps committed deploys, local and global, in the cache, and drops the
+    /// rolled back one.
+    #[test]
+    fn test_contract_storage_finalize_keeps_committed_deploys_in_store() {
+        let local = ContractCode::new(vec![1], None);
+        let global = ContractCode::new(vec![2], None);
+        let rolled_back = ContractCode::new(vec![3], None);
+        let code_cache = Arc::new(MockCodeCache::default());
+        let contract_storage =
+            ContractStorage::new(Arc::new(MockTrieStorage::new()), code_cache.clone());
+
+        contract_storage.record_deploy(rolled_back.clone_for_tests());
+        contract_storage.rollback_deploys();
+        contract_storage.record_deploy(local.clone_for_tests());
+        contract_storage.record_global_contract_deploy(global.clone_for_tests());
+        contract_storage.commit_deploys();
+        assert!(code_cache.puts.lock().is_empty(), "nothing is stored before finalize");
+
+        let updates = contract_storage.finalize();
+        assert_eq!(updates.contract_deploy_hashes(), HashSet::from([CodeHash(*local.hash())]));
+        assert!(code_cache.has(local.hash()));
+        assert!(code_cache.has(global.hash()));
+        assert!(!code_cache.has(rolled_back.hash()));
     }
 }

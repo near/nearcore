@@ -26,8 +26,8 @@ use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
 use near_store::{
-    Trie, TrieAccess, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
-    get_gas_key_nonce,
+    NoContractCodeCache, Trie, TrieAccess, TrieUpdate, get_access_key, get_access_key_by_handle,
+    get_account, get_gas_key_nonce,
 };
 use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
 use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
@@ -501,6 +501,9 @@ impl TrieViewer {
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: view_state.cache,
+            // View calls run on nodes that track the shard, so the code is in state and there is
+            // nothing a node-local copy would add.
+            contract_code_cache: Arc::new(NoContractCodeCache),
             is_new_chunk: false,
             save_receipt_to_tx: false,
             congestion_info: Default::default(),

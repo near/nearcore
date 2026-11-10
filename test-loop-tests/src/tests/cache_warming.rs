@@ -2,8 +2,13 @@
 //! preceding a protocol upgrade that changes the cache-key signature.
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
+use crate::setup::drop_condition::DropCondition;
+use crate::utils::account::{create_account_id, rpc_account_id};
+use crate::utils::contract_distribution::assert_all_chunk_endorsements_received;
+use crate::utils::node::TestLoopNode;
+use crate::utils::transactions::make_accounts;
 use near_async::time::Duration;
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::gas::Gas;
@@ -101,4 +106,120 @@ fn slow_test_cache_warming_across_vm_config_change() {
     );
     let outcome = env.rpc_runner().execute_tx(post_call_tx, Duration::seconds(10)).unwrap();
     assert_eq!(outcome.receipts_outcome[0].outcome.logs, vec!["hello"]);
+}
+
+/// The same transition observed on a chunk validator that tracks no shard.
+///
+/// Such a node never reads contract code from state: it only has what a witness, a code
+/// response or a deploy broadcast brought it. Warming for the next protocol version needs the
+/// raw code, so without the contract code cache it finds nothing and the validator enters the
+/// new epoch cold. Here the deploy broadcast puts the code in the validator's code cache, the
+/// pre-upgrade calls trigger warming from it, and the validator holds the contract under the new
+/// `wasm_config` before any call runs under the new protocol. Code requests are dropped
+/// throughout, so nothing can have come from a chunk producer.
+#[test]
+fn slow_test_cache_warming_on_stateless_validator() {
+    init_test_logger();
+
+    let runtime_config_store = RuntimeConfigStore::new();
+    let new_protocol = runtime_config_store.vm_generation(PROTOCOL_VERSION).0;
+    assert!(new_protocol > MIN_SUPPORTED_PROTOCOL_VERSION);
+    let old_protocol = new_protocol - 1;
+    assert_ne!(
+        runtime_config_store.get_config(old_protocol).wasm_config.non_crypto_hash(),
+        runtime_config_store.get_config(new_protocol).wasm_config.non_crypto_hash(),
+    );
+    let epoch_length = 10;
+
+    // One block and chunk producer, which tracks the shard, and one chunk validator that does
+    // not track any shard. With equal stakes, every chunk needs both endorsements.
+    let accounts = make_accounts(3);
+    let producer = accounts[0].clone();
+    let stateless_validator = accounts[1].clone();
+    let user = accounts[2].clone();
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&[producer.as_str()], &[stateless_validator.as_str()]);
+
+    let mut env = TestLoopBuilder::new()
+        .protocol_version(old_protocol)
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .add_user_account(&rpc_account_id(), Balance::from_near(1_000_000))
+        .enable_rpc()
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_protocol))
+        .runtime_config_store(runtime_config_store)
+        .build()
+        .drop(DropCondition::ContractCodeRequests);
+
+    let code = near_test_contracts::backwards_compatible_rs_contract();
+    let code_hash = CryptoHash::hash_bytes(code);
+    let deploy_tx = env.rpc_node().tx_deploy_contract(&user, code.to_vec());
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+
+    // The deploy broadcast is what gives the stateless validator the raw code.
+    env.runner_for_account(&stateless_validator).run_until(
+        |node| node.client().runtime_adapter.contract_code_cache().has(&code_hash),
+        Duration::seconds(5),
+    );
+
+    // Calls under the old protocol: validating them is what triggers warming on the validator.
+    for _ in 0..3 {
+        let call_tx = env.rpc_node().tx_call(
+            &user,
+            &user,
+            "log_something",
+            vec![],
+            Balance::ZERO,
+            Gas::from_teragas(300),
+        );
+        env.rpc_runner().run_tx(call_tx, Duration::seconds(10));
+    }
+    assert_eq!(
+        env.node_for_account(&stateless_validator).protocol_version_at_head(),
+        old_protocol,
+        "the calls must run under the old protocol for the check below to mean anything"
+    );
+
+    env.runner_for_account(&stateless_validator).run_until(
+        |node| node.protocol_version_at_head() == new_protocol,
+        Duration::seconds((6 * epoch_length) as i64),
+    );
+
+    // No call has run under the new protocol yet, so only warming can have produced this entry,
+    // and only the contract code cache can have supplied the code for it. Warming compiles on a
+    // background thread, so give it a moment.
+    let is_warmed = |node: &TestLoopNode<'_>| {
+        let runtime = &node.client().runtime_adapter;
+        let next_wasm_config = Arc::clone(&runtime.get_runtime_config(new_protocol).wasm_config);
+        near_vm_runner::contract_cached(
+            next_wasm_config,
+            runtime.compiled_contract_cache(),
+            code_hash,
+        )
+        .expect("compiled-contract cache lookup failed")
+    };
+    env.runner_for_account(&stateless_validator)
+        .run_until(|node| is_warmed(node), Duration::seconds(5));
+    assert!(
+        is_warmed(&env.node_for_account(&stateless_validator)),
+        "stateless validator has no compiled artifact under the new wasm_config; \
+         warming from the contract code cache did not work"
+    );
+
+    // Under the new protocol the call runs and the stateless validator endorses it, still with
+    // every code request dropped.
+    let call_height = env.node_for_account(&producer).head().height;
+    let post_call_tx = env.rpc_node().tx_call(
+        &user,
+        &user,
+        "log_something",
+        vec![],
+        Balance::ZERO,
+        Gas::from_teragas(300),
+    );
+    let outcome = env.rpc_runner().execute_tx(post_call_tx, Duration::seconds(10)).unwrap();
+    assert_eq!(outcome.receipts_outcome[0].outcome.logs, vec!["hello"]);
+    let end_height = env.node_for_account(&producer).head().height;
+    assert_all_chunk_endorsements_received(&env, call_height, end_height);
 }

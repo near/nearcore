@@ -72,6 +72,7 @@ use near_primitives::version::{
     MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives_core::chains::{MAINNET, TESTNET};
+use near_store::NoContractCodeCache;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
@@ -199,6 +200,7 @@ fn setup_runtime_for_shard(
         shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
+        contract_code_cache: Arc::new(NoContractCodeCache),
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
         shard_id: shard_uid.shard_id(),
@@ -6546,6 +6548,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let shards_congestion_info =
         shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
     let mut apply_state = ApplyState {
+        contract_code_cache: Arc::new(NoContractCodeCache),
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
         shard_id: shard_uid.shard_id(),
@@ -8054,6 +8057,7 @@ mod self_signed_state_init {
             .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
         let apply_state = ApplyState {
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: CREATION_HEIGHT + 1,
             shard_id: shard_uid.shard_id(),

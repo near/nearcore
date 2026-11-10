@@ -1,4 +1,4 @@
-use crate::stateless_validation::contracts_cache_contains_contract;
+use crate::stateless_validation::contract_available_locally;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
@@ -846,7 +846,8 @@ impl SpiceChunkValidatorActor {
         true
     }
 
-    /// The contracts in `contracts` not in the compiled contract cache of `epoch_id`.
+    /// The contracts in `contracts` not available locally for `epoch_id`: neither compiled under
+    /// its config nor held as raw code in the contract code cache.
     fn uncached_contracts<'a>(
         &self,
         epoch_id: &EpochId,
@@ -854,10 +855,11 @@ impl SpiceChunkValidatorActor {
     ) -> Result<HashSet<CodeHash>, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
-        let cache = self.runtime_adapter.compiled_contract_cache();
         Ok(contracts
             .into_iter()
-            .filter(|hash| !contracts_cache_contains_contract(cache, hash, runtime_config))
+            .filter(|hash| {
+                !contract_available_locally(self.runtime_adapter.as_ref(), hash, runtime_config)
+            })
             .cloned()
             .collect())
     }

@@ -4,7 +4,7 @@ use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use crate::metrics;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
-use crate::stateless_validation::contracts_cache_contains_contract;
+use crate::stateless_validation::contract_available_locally;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
@@ -962,7 +962,6 @@ impl PartialWitnessActor {
             Err(err) => return Err(err),
         }
         let key = accesses.chunk_production_key();
-        let contracts_cache = self.runtime.compiled_contract_cache();
         let runtime_config = self
             .runtime
             .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
@@ -971,7 +970,7 @@ impl PartialWitnessActor {
                 .contracts()
                 .iter()
                 .filter(|&hash| {
-                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
+                    !contract_available_locally(self.runtime.as_ref(), hash, runtime_config)
                 })
                 .cloned(),
         );

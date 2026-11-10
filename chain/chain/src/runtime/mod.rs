@@ -66,9 +66,9 @@ use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
-    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
-    get_gas_key_nonce,
+    ApplyStatePartResult, COLD_HEAD_KEY, ContractCodeCache, DBCol, ShardTries, StateSnapshotConfig,
+    Store, Trie, TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key,
+    get_account, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{
@@ -101,6 +101,10 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
+    /// Raw contract code this node has seen, keyed by hash. Handed to the runtime with every
+    /// chunk application and view call, so code is served from it ahead of the trie and the
+    /// witness, and kept in it.
+    contract_code_cache: Arc<dyn ContractCodeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -130,6 +134,7 @@ impl NightshadeRuntime {
     pub fn new(
         store: Store,
         compiled_contract_cache: Box<dyn ContractRuntimeCache>,
+        contract_code_cache: Arc<dyn ContractCodeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
@@ -174,6 +179,7 @@ impl NightshadeRuntime {
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
+            contract_code_cache,
             runtime_config_store,
             store,
             tries,
@@ -354,6 +360,7 @@ impl NightshadeRuntime {
             next_wasm_config,
             vm_generation: self.runtime_config_store.vm_generation(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
+            contract_code_cache: self.contract_code_cache.clone(),
             is_new_chunk,
             save_receipt_to_tx,
             congestion_info,
@@ -1678,6 +1685,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.compiled_contract_cache.as_ref()
     }
 
+    fn contract_code_cache(&self) -> Arc<dyn ContractCodeCache> {
+        self.contract_code_cache.clone()
+    }
+
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         let cache = self.compiled_contract_cache.handle();
         let job = move || cache.on_protocol_version_update(new_protocol_version);
@@ -1696,6 +1707,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         .entered();
         if contract_codes.is_empty() {
             return Ok(());
+        }
+        // Deployed code broadcast by chunk producers and code synced in state parts: keep the
+        // bytes, so later re-keys of the compiled cache recompile locally.
+        for code in &contract_codes {
+            self.contract_code_cache.put(code);
         }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);

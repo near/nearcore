@@ -2,7 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
-    run_until_caches_contain_contract,
+    clear_contract_code_caches, run_until_caches_contain_contract,
 };
 use crate::utils::transactions::{check_txs, make_accounts};
 use itertools::Itertools;
@@ -60,6 +60,7 @@ fn test_contract_distribution_cross_shard() {
     call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids);
 
     clear_compiled_contract_caches(&mut env);
+    clear_contract_code_caches(&mut env);
 
     call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids);
 

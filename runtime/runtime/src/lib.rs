@@ -80,10 +80,10 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
-    get_promise_yield_status, get_pure, get_received_data, get_received_data_size,
-    get_yield_id_for_data_id, has_received_data, remove_postponed_receipt,
+    ContractCodeCache, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
+    get, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
+    get_promise_yield_receipt, get_promise_yield_status, get_pure, get_received_data,
+    get_received_data_size, get_yield_id_for_data_id, has_received_data, remove_postponed_receipt,
     remove_promise_yield_receipt, remove_promise_yield_status, remove_yield_id_mappings, set,
     set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
     set_postponed_receipt, set_promise_yield_receipt, set_received_data,
@@ -224,6 +224,10 @@ pub struct ApplyState {
     pub vm_generation: VmGeneration,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
+    /// Node-local cache of raw contract code, consulted ahead of the trie (or the witness) when
+    /// a contract has to be compiled and fed with code read or deployed while applying. A
+    /// `NoContractCodeCache` where the node keeps none.
+    pub contract_code_cache: Arc<dyn ContractCodeCache>,
     /// Cache for trie node accesses.
     pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
@@ -3308,7 +3312,8 @@ impl<'a> ApplyProcessingState<'a> {
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie, &apply_state.config.wasm_config);
-        let state_update = TrieUpdate::new(trie);
+        let state_update =
+            TrieUpdate::new_with_contract_code_cache(trie, apply_state.contract_code_cache.clone());
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
             // This contains the gas "burnt" for refund receipts. Even though we don't actually

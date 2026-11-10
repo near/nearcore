@@ -2,6 +2,7 @@ pub use self::iterator::TrieUpdateIterator;
 use super::{AccessOptions, OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::StorageError;
 use crate::contract::ContractStorage;
+use crate::contract_code_cache::{ContractCodeCache, NoContractCodeCache};
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::hash::{CryptoHash, hash};
@@ -14,6 +15,7 @@ use near_primitives::types::{
 use near_primitives_core::code::ContractCode;
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 mod iterator;
 
@@ -113,11 +115,22 @@ impl Drop for RecordingBudget<'_> {
 }
 
 impl TrieUpdate {
+    /// Contract code read through this update comes from the trie alone. Use
+    /// [`Self::new_with_contract_code_cache`] where contracts are executed.
     pub fn new(trie: Trie) -> Self {
-        let trie_storage = trie.storage.clone();
+        Self::new_with_contract_code_cache(trie, Arc::new(NoContractCodeCache))
+    }
+
+    /// Serves contract code from `contract_code_cache` ahead of the trie and keeps code read from
+    /// the trie or deployed through this update in it.
+    pub fn new_with_contract_code_cache(
+        trie: Trie,
+        contract_code_cache: Arc<dyn ContractCodeCache>,
+    ) -> Self {
+        let contract_storage = ContractStorage::new(trie.storage.clone(), contract_code_cache);
         Self {
             trie,
-            contract_storage: ContractStorage::new(trie_storage),
+            contract_storage,
             contract_compilations: BTreeMap::new(),
             committed: Default::default(),
             prospective: Default::default(),
@@ -130,7 +143,10 @@ impl TrieUpdate {
     pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
-            contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            contract_storage: ContractStorage::new(
+                self.trie.storage.clone(),
+                self.contract_storage.code_cache(),
+            ),
             contract_compilations: BTreeMap::new(),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),

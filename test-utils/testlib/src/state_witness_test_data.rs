@@ -17,6 +17,7 @@ use near_primitives::types::EpochId;
 use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
+use near_store::NoContractCodeCache;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{set_access_key, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -75,6 +76,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
 
     let apply_state = ApplyState {
+        contract_code_cache: Arc::new(NoContractCodeCache),
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
         shard_id: shard_uid.shard_id(),
