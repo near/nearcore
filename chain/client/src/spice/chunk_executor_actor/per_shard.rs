@@ -46,7 +46,7 @@ use near_store::DBCol;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -90,13 +90,42 @@ pub(crate) struct PerShardChunkExecutor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
-    parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
+    parked_blocks: ParkedBlocks,
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
+}
+
+/// The blocks waiting to be applied, by height and by parent, so that an event about a block
+/// retries only its children.
+#[derive(Default)]
+struct ParkedBlocks {
+    /// Each parked block's parent, lowest height first.
+    parents: BTreeMap<(BlockHeight, CryptoHash), (BlockHeight, CryptoHash)>,
+    /// The parked blocks by their parent's hash.
+    children: HashMap<CryptoHash, BTreeSet<(BlockHeight, CryptoHash)>>,
+}
+
+impl ParkedBlocks {
+    fn insert(&mut self, block: (BlockHeight, CryptoHash), parent: (BlockHeight, CryptoHash)) {
+        self.parents.insert(block, parent);
+        self.children.entry(parent.1).or_default().insert(block);
+    }
+
+    fn remove(&mut self, block: &(BlockHeight, CryptoHash)) {
+        let Some((_, parent_hash)) = self.parents.remove(block) else {
+            return;
+        };
+        if let Some(siblings) = self.children.get_mut(&parent_hash) {
+            siblings.remove(block);
+            if siblings.is_empty() {
+                self.children.remove(&parent_hash);
+            }
+        }
+    }
 }
 
 /// Outcome of a per-shard `try_apply` attempt for a single parked block.
@@ -156,7 +185,7 @@ impl PerShardChunkExecutor {
             apply_chunks_spawner,
             apply_done_sender,
             blocks_in_execution: HashSet::new(),
-            parked_blocks: BTreeSet::new(),
+            parked_blocks: ParkedBlocks::default(),
             replayed_after_sync_block: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
@@ -170,7 +199,9 @@ impl PerShardChunkExecutor {
     }
 
     /// Park `block` and try to drain — the per-shard half of the coordinator
-    /// routing a processed block to this shard.
+    /// routing a processed block to this shard. It retries the whole queue, which picks up what no
+    /// event about a parent does: a finished catchup, a fork below the final execution head, or a
+    /// transient error.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) {
         self.park_block(block.header());
         self.try_apply_pending();
@@ -190,11 +221,20 @@ impl PerShardChunkExecutor {
         ) {
             tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
         }
-        self.parked_blocks.insert((header.height(), *header.hash()));
+        let Some(prev_height) = header.prev_height() else {
+            tracing::error!(
+                target: "chunk_executor",
+                block_hash=%header.hash(),
+                "cannot park a block whose header does not have its parent's height",
+            );
+            return;
+        };
+        self.parked_blocks
+            .insert((header.height(), *header.hash()), (prev_height, prev_block_hash));
     }
 
     /// Network receipt arrival for this shard: buffer it, verify-drain if ready,
-    /// then re-drive the parked queue.
+    /// then retry the parked children of `source_block`.
     pub(crate) fn handle_incoming_receipt(
         &mut self,
         source_block: CryptoHash,
@@ -202,18 +242,18 @@ impl PerShardChunkExecutor {
     ) -> Result<(), Error> {
         self.unverified_receipts.insert(source_block, receipt_proof);
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, &source_block)?;
-        self.try_apply_pending();
+        self.try_apply_children(&source_block);
         Ok(())
     }
 
     /// The chunk execution result for `source_block` landed: drain receipts buffered
-    /// against it and re-drive this shard's parked queue.
+    /// against it and retry its parked children.
     pub(crate) fn handle_execution_result_endorsed(
         &mut self,
         source_block: &CryptoHash,
     ) -> Result<(), Error> {
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)?;
-        self.try_apply_pending();
+        self.try_apply_children(source_block);
         Ok(())
     }
 
@@ -225,7 +265,7 @@ impl PerShardChunkExecutor {
     /// Hashes of the parked blocks (test accessor).
     #[cfg(test)]
     pub(crate) fn parked_block_hashes(&self) -> Vec<CryptoHash> {
-        self.parked_blocks.iter().map(|(_, block_hash)| *block_hash).collect()
+        self.parked_blocks.parents.keys().map(|(_, block_hash)| *block_hash).collect()
     }
 
     /// Number of source blocks with buffered receipts (test accessor).
@@ -239,20 +279,50 @@ impl PerShardChunkExecutor {
     /// while a lower one waits, so we scan past `NotReady`. Cross-shard
     /// dependencies are re-driven by the next receipt / endorsement / sibling apply.
     pub(crate) fn try_apply_pending(&mut self) {
-        let parked: Vec<(BlockHeight, CryptoHash)> = self.parked_blocks.iter().copied().collect();
+        let parked: Vec<(BlockHeight, CryptoHash)> =
+            self.parked_blocks.parents.keys().copied().collect();
         for entry in parked {
-            match self.try_apply(&entry.1) {
-                Ok(ApplyOutcome::NotReady) => continue,
-                Ok(ApplyOutcome::Scheduled | ApplyOutcome::Dropped) => {
-                    self.parked_blocks.remove(&entry);
-                }
-                Err(err) => {
-                    // Leave this block parked (a transient error may clear) but keep
-                    // draining the rest of the queue — one bad block must not strand
-                    // ready siblings.
-                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_uid.shard_id(), "per-shard apply failed");
-                    continue;
-                }
+            self.try_apply_parked(entry);
+        }
+    }
+
+    /// Apply the parked children of `block_hash` that are ready: applying a block, landing its
+    /// execution result or receiving receipts from it can make only its children ready.
+    pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) {
+        let children: Vec<(BlockHeight, CryptoHash)> =
+            self.parked_blocks.children.get(block_hash).into_iter().flatten().copied().collect();
+        for child in children {
+            self.try_apply_parked(child);
+        }
+    }
+
+    /// Try to apply the parked block `entry`, and unpark it once it is scheduled or dropped.
+    fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) {
+        let Some(&parent) = self.parked_blocks.parents.get(&entry) else {
+            return;
+        };
+        // A block needs its parent applied first.
+        if self.parked_blocks.parents.contains_key(&parent)
+            || self.blocks_in_execution.contains(&parent.1)
+        {
+            return;
+        }
+
+        match self.try_apply(&entry.1) {
+            Ok(ApplyOutcome::NotReady) => {}
+            Ok(ApplyOutcome::Scheduled | ApplyOutcome::Dropped) => {
+                self.parked_blocks.remove(&entry)
+            }
+            Err(err) => {
+                // Leave this block parked (a transient error may clear) but keep
+                // draining the rest of the queue.
+                tracing::error!(
+                    target: "chunk_executor",
+                    ?err,
+                    block_hash=%entry.1,
+                    shard_id=%self.shard_uid.shard_id(),
+                    "per-shard apply failed",
+                );
             }
         }
     }
@@ -873,4 +943,60 @@ pub(crate) fn is_catching_up(
     let state_sync_info: Option<StateSyncInfo> =
         chain_store.store().get_ser(DBCol::StateDlInfos, epoch_first_block.as_ref());
     Ok(state_sync_info.is_some_and(|info| info.shards().contains(&shard_id)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ParkedBlocks;
+    use near_primitives::hash::CryptoHash;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    #[test]
+    fn test_parked_blocks_insert() {
+        let parent = (1, CryptoHash::hash_bytes(b"parent"));
+        let other_parent = (0, CryptoHash::hash_bytes(b"other parent"));
+        let child = (2, CryptoHash::hash_bytes(b"child"));
+        let sibling = (3, CryptoHash::hash_bytes(b"sibling"));
+        let other_child = (1, CryptoHash::hash_bytes(b"other child"));
+        let mut parked_blocks = ParkedBlocks::default();
+
+        parked_blocks.insert(child, parent);
+        parked_blocks.insert(sibling, parent);
+        parked_blocks.insert(other_child, other_parent);
+
+        assert_eq!(
+            parked_blocks.parents,
+            BTreeMap::from([(child, parent), (sibling, parent), (other_child, other_parent)])
+        );
+        assert_eq!(
+            parked_blocks.children,
+            HashMap::from([
+                (parent.1, BTreeSet::from([child, sibling])),
+                (other_parent.1, BTreeSet::from([other_child])),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parked_blocks_remove() {
+        let parent = (1, CryptoHash::hash_bytes(b"parent"));
+        let child = (2, CryptoHash::hash_bytes(b"child"));
+        let sibling = (3, CryptoHash::hash_bytes(b"sibling"));
+        let mut parked_blocks = ParkedBlocks::default();
+        parked_blocks.insert(child, parent);
+        parked_blocks.insert(sibling, parent);
+
+        parked_blocks.remove(&child);
+        assert_eq!(parked_blocks.parents, BTreeMap::from([(sibling, parent)]));
+        assert_eq!(parked_blocks.children, HashMap::from([(parent.1, BTreeSet::from([sibling]))]));
+
+        // Removing a parent's last child removes the parent too.
+        parked_blocks.remove(&sibling);
+        assert!(parked_blocks.parents.is_empty());
+        assert!(parked_blocks.children.is_empty());
+
+        // Removing a block that is not parked changes nothing.
+        parked_blocks.remove(&child);
+        assert!(parked_blocks.parents.is_empty());
+    }
 }
