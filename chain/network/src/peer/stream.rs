@@ -255,7 +255,7 @@ impl FramedStream {
         if !accepted_encodings.contains(&Encoding::Borsh) {
             return recv.run_proto(None).await;
         }
-        let frame = recv.read_small_frame(MAX_SMALL_FRAME_SIZE_BYTES).await?;
+        let frame = recv.read_small_frame().await?;
         match PeerMessageHeader::try_from_slice(&frame) {
             Ok(header) => recv.run_borsh(frame, header.kind()).await,
             // Anything which is not a borsh header is treated as a protobuf-encoded message.
@@ -363,7 +363,7 @@ impl RecvLoop {
         }
         loop {
             let n = self.read_frame_len().await?;
-            let (body, recv_permit) = self.read_frame(n).await?;
+            let (body, recv_permit) = self.read_body_frame(n).await?;
             if !self.deliver(PeerMessageFrames::proto(body), recv_permit).await {
                 return Ok(());
             }
@@ -401,7 +401,7 @@ impl RecvLoop {
                 }
                 .into());
             }
-            let (body, recv_permit) = self.read_frame(body_len).await?;
+            let (body, recv_permit) = self.read_body_frame(body_len).await?;
             let frames =
                 PeerMessageFrames { encoding: Encoding::Borsh, header: Some(header), body };
             if !self.deliver(frames, recv_permit).await {
@@ -418,7 +418,7 @@ impl RecvLoop {
         skip_handshake_copy: &mut bool,
     ) -> Result<(Vec<u8>, PeerMessageKind), RecvError> {
         loop {
-            let frame = self.read_small_frame(MAX_SMALL_FRAME_SIZE_BYTES).await?;
+            let frame = self.read_small_frame().await?;
             match PeerMessageHeader::try_from_slice(&frame) {
                 Ok(header) => {
                     *skip_handshake_copy = false;
@@ -451,13 +451,13 @@ impl RecvLoop {
         Ok(n)
     }
 
-    /// Reads a frame of at most `max_size` bytes, without recording it in the metrics.
-    async fn read_small_frame(&mut self, max_size: usize) -> Result<Vec<u8>, RecvError> {
+    /// Reads a frame of at most `MAX_SMALL_FRAME_SIZE_BYTES` bytes, without recording it in the metrics.
+    async fn read_small_frame(&mut self) -> Result<Vec<u8>, RecvError> {
         let n = self.read_frame_len().await?;
-        if n > max_size {
+        if n > MAX_SMALL_FRAME_SIZE_BYTES {
             return Err(NetworkProtocolViolation::FrameTooLarge {
                 got_bytes: n,
-                want_max_bytes: max_size,
+                want_max_bytes: MAX_SMALL_FRAME_SIZE_BYTES,
             }
             .into());
         }
@@ -482,7 +482,10 @@ impl RecvLoop {
     }
 
     /// Reads a frame of `n` bytes, which contains a message or its body.
-    async fn read_frame(&mut self, n: usize) -> Result<(Vec<u8>, RecvMessagePermit), RecvError> {
+    async fn read_body_frame(
+        &mut self,
+        n: usize,
+    ) -> Result<(Vec<u8>, RecvMessagePermit), RecvError> {
         with_read_timeout(self.read_timeout, async {
             let recv_permit = self.acquire_recv_permit(n).await?;
 
