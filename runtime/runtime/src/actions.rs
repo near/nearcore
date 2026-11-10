@@ -482,17 +482,19 @@ pub(crate) fn apply_delegate_action(
         receiver_id: delegate_action.receiver_id().clone(),
         receipt_id: CryptoHash::default(),
 
-        receipt: match action_receipt.signer_public_key() {
-            Some(signer_public_key) => ReceiptEnum::Action(ActionReceipt {
-                signer_id: action_receipt.signer_id().clone(),
-                signer_public_key: signer_public_key.clone(),
-                gas_price: action_receipt.gas_price(),
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: delegate_action.get_actions(),
-            }),
+        receipt: match &*action_receipt.authorization_context() {
+            AuthorizationContext::AccessKey(signer_public_key) => {
+                ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id().clone(),
+                    signer_public_key: signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price(),
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: delegate_action.get_actions(),
+                })
+            }
             // The new receipt stays in the chain of the external call that started it.
-            None => ReceiptEnum::ActionV3(ActionReceiptV3 {
+            AuthorizationContext::ExternalContractCall => ReceiptEnum::ActionV3(ActionReceiptV3 {
                 signer_id: action_receipt.signer_id().clone(),
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,

@@ -626,7 +626,8 @@ fn test_ecc_promise_transfers_to_another_shard() {
 
     let receiver_after = env.rpc_node().query_balance(&receiver_id);
     assert_eq!(receiver_after, receiver_before.checked_add(ECC_TRANSFER_AMOUNT).unwrap());
-    // The test chain's gas price is 0, so gas costs nothing and the transfer is a lower bound.
+    // The test chain burns gas at price 0 but buys the call's attached gas at the minimum purchase
+    // price, and the transfer refunds all of it, so the contract pays exactly the transfer.
     let contract_after = env.rpc_node().query_balance(&contract_id);
-    assert!(contract_after <= contract_before.checked_sub(ECC_TRANSFER_AMOUNT).unwrap());
+    assert_eq!(contract_after, contract_before.checked_sub(ECC_TRANSFER_AMOUNT).unwrap());
 }

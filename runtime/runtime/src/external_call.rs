@@ -37,7 +37,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile_data_v3::ProfileDataV3;
-use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
+use near_primitives::receipt::{AuthorizationContext, Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::{
     ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
     ExecutionOutcomeWithId, ExecutionStatus,
@@ -54,6 +54,7 @@ use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_account, set_account};
 use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache};
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -545,7 +546,7 @@ pub(crate) fn run_external_call(
     if outcome.aborted.is_none() {
         let signer = NewReceiptSigner {
             signer_id: contract_id,
-            signer_public_key: None,
+            authorization_context: Cow::Owned(AuthorizationContext::ExternalContractCall),
             gas_price: receipt_gas_price,
         };
         receipts = new_receipts(state_update, apply_state, contract_id, receipt_manager, &signer)?;

@@ -2520,12 +2520,7 @@ impl ReceiptEnumView {
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
-            authorization_context: Some(match action_receipt.signer_public_key() {
-                Some(signer_public_key) => {
-                    AuthorizationContext::AccessKey(signer_public_key.clone())
-                }
-                None => AuthorizationContext::ExternalContractCall,
-            }),
+            authorization_context: Some(action_receipt.authorization_context().into_owned()),
         }
     }
 }
@@ -2551,9 +2546,22 @@ impl TryFrom<ReceiptView> for Receipt {
                     authorization_context,
                 } => {
                     let authorization_context = match (authorization_context, signer_public_key) {
-                        (Some(authorization_context), _) => authorization_context,
+                        (Some(authorization_context), None) => authorization_context,
                         (None, Some(signer_public_key)) => {
                             AuthorizationContext::AccessKey(signer_public_key)
+                        }
+                        (
+                            Some(AuthorizationContext::AccessKey(public_key)),
+                            Some(signer_public_key),
+                        ) if public_key == signer_public_key => {
+                            AuthorizationContext::AccessKey(public_key)
+                        }
+                        (Some(_), Some(_)) => {
+                            return Err(
+                                "an action receipt view's signer_public_key disagrees with \
+                                        its authorization_context"
+                                    .into(),
+                            );
                         }
                         (None, None) => {
                             return Err("an action receipt view names no signer key and no \
@@ -2577,7 +2585,8 @@ impl TryFrom<ReceiptView> for Receipt {
                     // Note that this is not consistent with how `new_receipts` are
                     // created by the runtime - there we always create ActionReceiptV2.
                     // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views. This will be fixed with #14709.
+                    // through views, and so does a V3 receipt authorized by an access key,
+                    // which the runtime never builds. This will be fixed with #14709.
                     match authorization_context {
                         AuthorizationContext::AccessKey(signer_public_key)
                             if refund_to.is_some() =>
@@ -3424,6 +3433,30 @@ mod tests {
             view.as_object_mut().unwrap().remove("authorization_context");
             let view: ReceiptView = serde_json::from_value(json).unwrap();
             assert_eq!(Receipt::try_from(view).unwrap(), receipt);
+        }
+    }
+
+    /// A receipt view whose signer key disagrees with its authorization context does not convert.
+    #[test]
+    fn test_receipt_view_with_contradicting_key_is_refused() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let other_public_key = PublicKey::from_seed(KeyType::ED25519, "other");
+        let receipt = action_receipt_with(ReceiptEnum::Action(ActionReceipt {
+            signer_id: "signer.near".parse().unwrap(),
+            signer_public_key: signer_public_key.clone(),
+            gas_price: Balance::from_yoctonear(100),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        }));
+        let json = assert_receipt_view_round_trip(receipt);
+        let contradicting_contexts =
+            [json!("ExternalContractCall"), json!({"AccessKey": other_public_key})];
+        for authorization_context in contradicting_contexts {
+            let mut json = json.clone();
+            json["receipt"]["Action"]["authorization_context"] = authorization_context;
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert!(Receipt::try_from(view).is_err());
         }
     }
 

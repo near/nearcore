@@ -6,7 +6,6 @@ use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
-use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
@@ -31,13 +30,14 @@ use near_vm_runner::logic::errors::{
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{ExecutionMode, VMContext, VMOutcome};
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::Arc;
 
 /// Who signs and pays for the receipts a contract run creates.
 pub(crate) struct NewReceiptSigner<'a> {
     pub signer_id: &'a AccountId,
-    pub signer_public_key: Option<&'a PublicKey>,
+    pub authorization_context: Cow<'a, AuthorizationContext>,
     pub gas_price: Balance,
 }
 
@@ -70,8 +70,8 @@ pub(crate) fn new_receipts(
                 );
             }
 
-            let new_receipt = match signer.signer_public_key {
-                Some(signer_public_key) => {
+            let new_receipt = match &*signer.authorization_context {
+                AuthorizationContext::AccessKey(signer_public_key) => {
                     let new_action_receipt = ActionReceiptV2 {
                         signer_id: signer.signer_id.clone(),
                         signer_public_key: signer_public_key.clone(),
@@ -87,7 +87,7 @@ pub(crate) fn new_receipts(
                         ReceiptEnum::ActionV2(new_action_receipt)
                     }
                 }
-                None => {
+                AuthorizationContext::ExternalContractCall => {
                     let new_action_receipt = ActionReceiptV3 {
                         signer_id: signer.signer_id.clone(),
                         refund_to: receipt.refund_to,
@@ -298,7 +298,7 @@ pub(crate) fn action_function_call(
     if execution_succeeded {
         let signer = NewReceiptSigner {
             signer_id: action_receipt.signer_id(),
-            signer_public_key: action_receipt.signer_public_key(),
+            authorization_context: action_receipt.authorization_context(),
             gas_price: action_receipt.gas_price(),
         };
         let new_receipts =

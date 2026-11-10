@@ -642,6 +642,21 @@ impl VersionedActionReceipt<'_> {
         }
     }
 
+    /// What authorized the chain of receipts this receipt belongs to
+    pub fn authorization_context(&self) -> Cow<'_, AuthorizationContext> {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => Cow::Owned(
+                AuthorizationContext::AccessKey(action_receipt.signer_public_key.clone()),
+            ),
+            VersionedActionReceipt::V2(action_receipt) => Cow::Owned(
+                AuthorizationContext::AccessKey(action_receipt.signer_public_key.clone()),
+            ),
+            VersionedActionReceipt::V3(action_receipt) => {
+                Cow::Borrowed(&action_receipt.authorization_context)
+            }
+        }
+    }
+
     /// A gas_price which has been used to buy gas in the original transaction
     pub fn gas_price(&self) -> Balance {
         match self {
