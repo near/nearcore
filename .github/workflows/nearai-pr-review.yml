@@ -31,8 +31,10 @@ jobs:
     permissions:
       checks: read
       contents: read
-      issues: write  # PR comments go through the issues API
-      pull-requests: read
+      issues: write
+      # `gh pr comment` posts through GraphQL addComment, which on a PR needs
+      # pull-requests: write.
+      pull-requests: write
     # Job level, so an unrelated comment on the PR does not cancel a review.
     concurrency:
       group: nearai-review-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -413,6 +415,17 @@ jobs:
             cat "$RUNNER_TEMP/review.md"
           } > "$RUNNER_TEMP/comment.md"
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      # Keeps the comment text when posting fails, so a long review is not lost.
+      # comment.md is written only after the key check above has passed.
+      - name: Upload the review
+        if: ${{ always() && steps.key-check.outputs.present == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nearai-review-${{ env.PR_NUMBER }}
+          path: ${{ runner.temp }}/comment.md
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Only for runs that failed before the post step. A failed post step does
       # not add a note, because its comment may have been created anyway.
