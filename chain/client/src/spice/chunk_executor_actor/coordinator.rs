@@ -378,10 +378,9 @@ impl ChunkExecutorActor {
         };
         match executor.handle_apply_chunks_done(block_hash, apply_result) {
             Ok(proofs) => {
-                // Re-drive this shard's own queue: the just-applied block can make
-                // its next-height successor (same shard) ready. Cross-shard wakeup
-                // is handled by the fanout in `coordinator_post_apply`.
-                executor.try_apply_pending();
+                // The just-applied block can make its children in this shard ready.
+                // Cross-shard wakeup is handled by the fanout in `coordinator_post_apply`.
+                executor.try_apply_children(&block_hash);
                 proofs
             }
             Err(err) => {
@@ -399,7 +398,7 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
-        self.try_progress_receiving_shards(outgoing_proofs);
+        self.try_progress_receiving_shards(block_hash, outgoing_proofs);
         // A shard caught up for the next epoch also applies blocks at or below the final
         // execution head. Those were postprocessed once this epoch's shards applied them, and
         // postprocessing one again would move the execution head metric back.
@@ -416,14 +415,18 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Local-path fanout: the receipts in `outgoing_proofs` are already on disk, so
-    /// re-check the parked queue of each locally tracked receiving shard.
-    fn try_progress_receiving_shards(&mut self, outgoing_proofs: &[ReceiptProof]) {
+    /// Local-path fanout: the receipts `block_hash` sends in `outgoing_proofs` are already on disk,
+    /// so retry the parked children of `block_hash` in each locally tracked receiving shard.
+    fn try_progress_receiving_shards(
+        &mut self,
+        block_hash: &CryptoHash,
+        outgoing_proofs: &[ReceiptProof],
+    ) {
         let destinations: HashSet<ShardId> =
             outgoing_proofs.iter().map(|proof| proof.1.to_shard_id).collect();
         for to_shard_id in destinations {
             if let Some(executor) = self.executor_for_shard_id(to_shard_id) {
-                executor.try_apply_pending();
+                executor.try_apply_children(block_hash);
             }
         }
     }
