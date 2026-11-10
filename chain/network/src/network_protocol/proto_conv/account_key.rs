@@ -3,8 +3,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
-    AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
-    VersionedAccountData, from_unix_nanos, to_unix_nanos,
+    AccountData, AccountKeySignature, AccountKeySignedPayload, OwnedAccount, SignedAccountData,
+    SignedOwnedAccount, VersionedAccountData, from_unix_nanos, to_unix_nanos,
 };
 use protobuf::{Message as _, MessageField as MF};
 
@@ -73,7 +73,7 @@ pub enum ParseSignedAccountDataError {
 }
 
 impl VersionedAccountData {
-    /// Parses the protobuf encoding of the data, which is signed in `SignedAccountData`.
+    /// Parses the protobuf encoding of the data, see `AccountKeySignature::Proto`.
     pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedAccountDataError> {
         let account_data = proto::AccountKeyPayload::parse_from_bytes(payload)
             .map_err(ParseSignedAccountDataError::Decode)?;
@@ -81,13 +81,22 @@ impl VersionedAccountData {
     }
 }
 
-impl From<&SignedAccountData> for proto::AccountKeySignedPayload {
-    fn from(x: &SignedAccountData) -> Self {
-        Self {
-            payload: (&x.payload.payload).clone(),
-            signature: MF::some((&x.payload.signature).into()),
-            ..Self::default()
-        }
+impl SignedAccountData {
+    /// Converts the data to protobuf. Returns `None` if it is signed over its borsh encoding,
+    /// which can't be expressed in protobuf.
+    pub(crate) fn to_proto(&self) -> Option<proto::AccountKeySignedPayload> {
+        signature_to_proto(&self.signature)
+    }
+}
+
+fn signature_to_proto(signature: &AccountKeySignature) -> Option<proto::AccountKeySignedPayload> {
+    match signature {
+        AccountKeySignature::Proto { payload, signature } => Some(proto::AccountKeySignedPayload {
+            payload: payload.clone(),
+            signature: MF::some(signature.into()),
+            ..Default::default()
+        }),
+        AccountKeySignature::Borsh(_) => None,
     }
 }
 
@@ -97,7 +106,7 @@ impl TryFrom<&proto::AccountKeySignedPayload> for SignedAccountData {
         let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
             account_data: VersionedAccountData::from_proto_bytes(&x.payload)?,
-            payload: AccountKeySignedPayload { payload: x.payload.clone(), signature },
+            signature: AccountKeySignature::Proto { payload: x.payload.clone(), signature },
         })
     }
 }

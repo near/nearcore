@@ -213,6 +213,23 @@ impl NetworkTransitionConfig {
             ConnectionEncoding::BorshOnly => &[Encoding::Borsh],
         }
     }
+
+    /// Encoding over which this node signs structs.
+    pub(crate) fn signing_encoding(&self) -> Encoding {
+        match self.signed_struct_format {
+            SignedStructFormat::ProtobufOnly | SignedStructFormat::AcceptBorsh => Encoding::Proto,
+            SignedStructFormat::SendBorsh | SignedStructFormat::BorshOnly => Encoding::Borsh,
+        }
+    }
+
+    /// Whether this node accepts structs signed over `encoding`.
+    pub(crate) fn accepts_signed_encoding(&self, encoding: Encoding) -> bool {
+        match (self.signed_struct_format, encoding) {
+            (SignedStructFormat::ProtobufOnly, Encoding::Borsh) => false,
+            (SignedStructFormat::BorshOnly, Encoding::Proto) => false,
+            _ => true,
+        }
+    }
 }
 
 impl Default for NetworkTransitionConfig {
