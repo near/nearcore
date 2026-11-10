@@ -22,6 +22,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
+use near_chain::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD;
 use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
@@ -2396,4 +2397,28 @@ fn test_executing_a_shard_once_its_catchup_finishes() {
     // The shard is applied at the block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
     assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
+    // The node, which tracks no shard in the catch-up epoch, postprocessed the blocks after the
+    // final execution head as it processed them.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_after_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+    let execution_head = catch_up.blocks_after_head.last().unwrap();
+    let execution_head_height = execution_head.header().height() as i64;
+    assert_eq!(BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.get(), execution_head_height);
+
+    // The catch-up shard finishes applying a block between the final execution head and the
+    // execution head.
+    let block_hash = *catch_up.blocks_after_head[0].hash();
+    catch_up.test_actor.actor.coordinator_post_apply(&block_hash, catch_up.shard_uid, &[]).unwrap();
+
+    // The block is not postprocessed again, which would move the execution head metric back.
+    assert_eq!(BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.get(), execution_head_height);
 }

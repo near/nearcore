@@ -402,12 +402,16 @@ impl ChunkExecutorActor {
         outgoing_proofs: &[ReceiptProof],
     ) -> Result<(), Error> {
         self.try_progress_receiving_shards(block_hash, outgoing_proofs);
-        // A shard caught up for the next epoch also applies blocks at or below the final
-        // execution head. Those were postprocessed once this epoch's shards applied them, and
-        // postprocessing one again would move the execution head metric back. Such a block is
-        // final, so the shard's own flat head and memtrie roots follow it.
+        // Block postprocessing follows the shards tracked this epoch: a shard caught up for the
+        // next epoch also applies blocks they have postprocessed already, and postprocessing one
+        // again would move the execution head metric back. A block at or below the final
+        // execution head is final, though, so such a shard's own flat head and memtrie roots
+        // follow it.
         let header = self.chain_store.get_block_header(block_hash)?;
-        if !is_descendant_of_final_execution_head(&self.chain_store, &header) {
+        if !self.shard_tracker.tracked_shard_uids(header.prev_hash())?.contains(&shard_uid) {
+            if is_descendant_of_final_execution_head(&self.chain_store, &header) {
+                return Ok(());
+            }
             return apply_shard_postprocessing(
                 self.runtime_adapter.as_ref(),
                 &self.chain_store,
