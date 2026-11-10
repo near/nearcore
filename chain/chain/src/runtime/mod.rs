@@ -312,6 +312,8 @@ impl NightshadeRuntime {
                 cache: Some(self.compiled_contract_cache.handle()),
             };
             if run_state.is_none() {
+                let waits_for_nodes = parent_nodes.is_some();
+                let wait_start = Instant::now();
                 let first_run = self.first_ecc_run(
                     state_update,
                     parent_nodes.take(),
@@ -320,6 +322,13 @@ impl NightshadeRuntime {
                     time_limit,
                     cancel,
                 );
+                if waits_for_nodes {
+                    let result =
+                        first_run.as_ref().err().map_or("ready", |no_state| no_state.label());
+                    metrics::ECC_STATE_WAIT_TIME
+                        .with_label_values(&[shard_label.as_str(), result])
+                        .observe(wait_start.elapsed().as_secs_f64());
+                }
                 match first_run {
                     Ok(FirstRunState { state, restarted_time }) => {
                         if let Some(time) = restarted_time {
