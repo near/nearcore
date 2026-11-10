@@ -1176,14 +1176,15 @@ mod tests {
     }
 
     /// With the parameters of the version that enables external contract calls, the fees of the
-    /// largest payload leave most of the authorization budget to the contract.
+    /// largest payload leave most of the authorization budget to the contract. The payload here
+    /// is as large as the cap on a call's size, a bit larger than any call that keeps to it.
     #[test]
     fn ecc_cost_of_max_payload_fits_budget() {
         let config_store = RuntimeConfigStore::new();
         let protocol_version = ProtocolFeature::ExternalContractCalls.protocol_version();
         let config = config_store.get_config(protocol_version);
         let limit_config = &config.wasm_config.limit_config;
-        let payload = vec![0; limit_config.max_transaction_size as usize];
+        let payload = vec![0; config.external_calls_config.max_call_size as usize];
         let ecc = EccTransaction::new("contract.near".parse().unwrap(), payload);
         let cost = ecc_cost(config, &ecc, Balance::from_yoctonear(1)).unwrap();
         assert!(
