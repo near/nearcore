@@ -1690,12 +1690,18 @@ impl messaging::Handler<IncomingFrame> for PeerActor {
             let (header, mut peer_msg) = match PeerMessage::deserialize_frames(&msg) {
                 Ok(parsed) => parsed,
                 Err(err) => {
-                    tracing::debug!(target: "network", data = %near_fmt::AbbrBytes(&msg.body), peer_info = %this.peer_info, %err, "received invalid data");
+                    tracing::debug!(
+                        target: "network",
+                        header = %near_fmt::AbbrBytes(msg.header.as_ref().map(|h| h.as_slice())),
+                        body = %near_fmt::AbbrBytes(&msg.body),
+                        peer_info = %this.peer_info,
+                        %err,
+                        "can't parse PeerMessage frames");
                     return;
                 }
             };
             if let Err(err) = check_header_matches_body(msg.encoding, header.as_ref(), &peer_msg) {
-                tracing::debug!(target: "network", peer_info = %this.peer_info, %err, "received invalid data");
+                tracing::debug!(target: "network", peer_info = %this.peer_info, %err, "header kind doesn't match body kind");
                 this.stop(ClosingReason::StreamError);
                 return;
             }
