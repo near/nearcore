@@ -1569,6 +1569,7 @@ fn test_process_block_with_execution_result_for_nonexistent_shard() {
     process_block(&mut chain, block.clone());
 
     let mut core_statements = block_certification_core_statements(&block);
+    let invalid_index = core_statements.len();
     core_statements.push(execution_result_core_statement(*block.hash(), ShardId::new(999)));
     // Approvals and block merkle root let the block pass header validation as a block received
     // from the network.
@@ -1598,7 +1599,16 @@ fn test_process_block_with_execution_result_for_nonexistent_shard() {
         Provenance::NONE,
         &mut BlockProcessingArtifact::default(),
     );
-    assert_matches!(result, Err(Error::InvalidSpiceCoreStatements(_)));
+    assert_matches!(
+        result,
+        Err(Error::InvalidSpiceCoreStatements(err)) if matches!(
+            *err,
+            InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+                index,
+                reason: "execution results included without enough corresponding endorsement",
+            } if index == invalid_index
+        )
+    );
 }
 
 #[test]
