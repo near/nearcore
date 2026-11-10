@@ -1,6 +1,9 @@
 use itertools::Itertools;
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
+use near_pool::{
+    DEFAULT_ECC_SIZE_SHARE, InsertTransactionResult, PoolIteratorWrapper, TransactionPool,
+};
+use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::{TransactionEnvelope, ValidatedTransactionEnvelope};
 use near_primitives::{
@@ -49,11 +52,26 @@ pub struct ShardedTransactionPool {
     /// If set, new transactions that bring the size of the pool over this limit will be rejected.
     /// The size is tracked and enforced separately for each shard.
     pool_size_limit: Option<u64>,
+
+    /// The share of the size limit that ECCs may fill in the pool of each shard.
+    ecc_size_share: Rational32,
 }
 
 impl ShardedTransactionPool {
     pub fn new(rng_seed: RngSeed, pool_size_limit: Option<u64>) -> Self {
-        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
+        Self {
+            tx_pools: HashMap::new(),
+            rng_seed,
+            pool_size_limit,
+            ecc_size_share: DEFAULT_ECC_SIZE_SHARE,
+        }
+    }
+
+    /// Sets the share of the size limit that ECCs may fill in the pool of each shard. It applies
+    /// to the pools created from now on, so it is meant to be set before the pool is used.
+    pub fn with_ecc_size_share(mut self, ecc_size_share: Rational32) -> Self {
+        self.ecc_size_share = ecc_size_share;
+        self
     }
 
     pub fn get_pool_iterator(&mut self, shard_uid: ShardUId) -> Option<PoolIteratorWrapper<'_>> {
@@ -98,6 +116,7 @@ impl ShardedTransactionPool {
                 self.pool_size_limit,
                 &shard_uid.to_string(),
             )
+            .with_ecc_size_share(self.ecc_size_share)
         })
     }
 

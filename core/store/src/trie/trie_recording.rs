@@ -9,6 +9,7 @@ use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
 use std::collections::{HashSet, VecDeque};
+use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -40,6 +41,9 @@ pub struct TrieRecorder {
     pub codes_to_record: dashmap::DashSet<AccountId, AHashRandomState>,
 }
 struct TrieNodeWithRefcount(Arc<[u8]>, u32);
+
+/// The size charged to the upper bound of the recorded size for every key removal.
+const REMOVAL_UPPER_BOUND_SIZE: usize = 2000;
 
 impl From<Arc<[u8]>> for TrieNodeWithRefcount {
     fn from(value: Arc<[u8]>) -> Self {
@@ -141,8 +145,10 @@ impl TrieRecorder {
     }
 
     pub fn record_key_removal(&self) {
-        // Charge 2000 bytes for every removal
-        self.upper_bound_size.fetch_add(2000, Ordering::Release).checked_add(2000).unwrap();
+        self.upper_bound_size
+            .fetch_add(REMOVAL_UPPER_BOUND_SIZE, Ordering::Release)
+            .checked_add(REMOVAL_UPPER_BOUND_SIZE)
+            .unwrap();
         // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
         // this if there was an overflow.
         self.removal_counter.fetch_add(1, Ordering::Relaxed);
@@ -189,6 +195,33 @@ impl TrieRecorder {
             return Err(StorageError::RecordingBudgetExceeded { limit });
         }
         Ok(())
+    }
+
+    /// Adds everything `other` recorded to this recorder. Only the nodes this recorder did not
+    /// have yet add to its size.
+    pub fn merge(&self, other: &TrieRecorder) {
+        debug_assert!(!ptr::eq(self, other), "a recorder cannot be merged into itself");
+        for item in &other.recorded {
+            let (hash, TrieNodeWithRefcount(node, refcount)) = item.pair();
+            let mut is_new = false;
+            self.recorded
+                .entry(*hash)
+                .or_insert_with(|| {
+                    is_new = true;
+                    TrieNodeWithRefcount(Arc::clone(node), 0)
+                })
+                .1 += *refcount;
+            if is_new {
+                self.upper_bound_size.fetch_add(node.len(), Ordering::Release);
+                self.size.fetch_add(node.len(), Ordering::Release);
+            }
+        }
+        let removals = other.removal_counter.load(Ordering::Relaxed);
+        self.removal_counter.fetch_add(removals, Ordering::Relaxed);
+        self.upper_bound_size.fetch_add(removals * REMOVAL_UPPER_BOUND_SIZE, Ordering::Release);
+        other.codes_to_record.iter().for_each(|account_id| {
+            self.codes_to_record.insert(account_id.clone());
+        });
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
@@ -1345,5 +1378,40 @@ mod memtrie_batch_iteration_tests {
         for use_memtries in [true, false] {
             test_batched_iteration_impl(use_memtries);
         }
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::{REMOVAL_UPPER_BOUND_SIZE, TrieRecorder};
+    use near_primitives::hash::hash;
+    use near_primitives::state::PartialState;
+    use near_primitives::types::AccountId;
+    use std::sync::Arc;
+
+    /// Merging adds only the nodes the recorder did not have to its size, and a recorder that is
+    /// not merged leaves the other alone.
+    #[test]
+    fn test_merge_recorders() {
+        let node = |byte: u8, len: usize| -> Arc<[u8]> { vec![byte; len].into() };
+        let (hash_a, hash_b) = (hash(&[1]), hash(&[2]));
+
+        let main = TrieRecorder::new(None);
+        main.record(&hash_a, node(1, 10));
+        let run = TrieRecorder::new(None);
+        run.record(&hash_a, node(1, 10));
+        run.record(&hash_b, node(2, 20));
+        run.record_key_removal();
+        run.codes_to_record.insert("alice".parse().unwrap());
+        assert_eq!(main.recorded_storage_size(), 10);
+
+        main.merge(&run);
+        assert_eq!(main.recorded_storage_size(), 30);
+        assert_eq!(main.recorded_storage_size_upper_bound(), 30 + REMOVAL_UPPER_BOUND_SIZE);
+        assert!(main.codes_to_record.contains(&"alice".parse::<AccountId>().unwrap()));
+        assert_eq!(run.recorded_storage_size(), 30);
+
+        let PartialState::TrieValues(nodes) = main.recorded_storage().nodes;
+        assert_eq!(nodes.len(), 2);
     }
 }

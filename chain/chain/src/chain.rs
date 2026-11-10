@@ -3823,9 +3823,22 @@ impl Chain {
             );
             return None;
         };
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(&epoch_id) else {
+            tracing::debug!(
+                target: "chain",
+                height = block.height,
+                shard_id = %shard_uid.shard_id(),
+                "no epoch info; skipping early transaction preparation"
+            );
+            return None;
+        };
         let next_chunk_prepare_context = PrepareTransactionsBlockContext {
             next_gas_price,
             height: block.height,
+            timestamp: block.block_timestamp,
+            // `block` is the parent of the next chunk's block, and it is in `epoch_id`.
+            epoch_id,
+            epoch_height: epoch_info.epoch_height(),
             next_epoch_id: epoch_id,
             congestion_info: block.congestion_info.clone(),
             // The next chunk of the shard has the gas limit of this one.

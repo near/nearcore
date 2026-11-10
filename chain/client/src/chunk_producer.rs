@@ -10,7 +10,7 @@ use near_chain::spice::chunk_application::spice_block_congestion_info;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::{
     PendingConstraints, PendingTxCheckResult, PrepareTransactionsBlockContext,
-    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -24,6 +24,7 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::num_rational::Rational32;
 use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
@@ -97,6 +98,8 @@ pub struct ChunkProducer {
     /// If present, limits adding transactions from the transaction
     /// pool to the chunk by certain time.
     chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
+    /// The share of the time limit that ECCs may take.
+    ecc_time_share: MutableConfigValue<Rational32>,
     chain: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -117,11 +120,13 @@ impl ChunkProducer {
     pub fn new(
         clock: Clock,
         chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
+        ecc_time_share: MutableConfigValue<Rational32>,
         chain_store: &ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
+        ecc_pool_size_share: Rational32,
         prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
         spice_pending_transaction_queue_enabled: bool,
     ) -> Self {
@@ -138,13 +143,14 @@ impl ChunkProducer {
             },
             clock,
             chunk_transactions_time_limit,
+            ecc_time_share,
             chain: chain_store.clone(),
             epoch_manager,
             runtime_adapter,
-            sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
-                rng_seed,
-                transaction_pool_size_limit,
-            ))),
+            sharded_tx_pool: Arc::new(Mutex::new(
+                ShardedTransactionPool::new(rng_seed, transaction_pool_size_limit)
+                    .with_ecc_size_share(ecc_pool_size_share),
+            )),
             pending_transaction_queue: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
             spice_pending_transaction_queue_enabled,
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
@@ -154,6 +160,14 @@ impl ChunkProducer {
             prepare_transactions_jobs: PrepareTransactionsManager::new(),
             prepare_transactions_spawner,
         }
+    }
+
+    /// How long preparing the transactions of a chunk may take now, as the node is set up.
+    fn time_limits(&self) -> PrepareTransactionsTimeLimits {
+        PrepareTransactionsTimeLimits::new(
+            self.chunk_transactions_time_limit.get(),
+            self.ecc_time_share.get(),
+        )
     }
 
     pub fn produce_chunk(
@@ -498,10 +512,7 @@ impl ChunkProducer {
                         res.push(group.next().unwrap().into());
                     }
                     (
-                        PreparedTransactions {
-                            transactions: res,
-                            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                        },
+                        PreparedTransactions { transactions: res, ..PreparedTransactions::new() },
                         Vec::new(),
                     )
                 } else if ProtocolFeature::Spice.enabled(protocol_version) {
@@ -558,7 +569,7 @@ impl ChunkProducer {
                                 PendingTxCheckResult::Admit(PendingConstraints::default())
                             }
                         },
-                        self.chunk_transactions_time_limit.get(),
+                        self.time_limits(),
                         None,
                     )?;
                     (prepared, skipped.0)
@@ -575,18 +586,16 @@ impl ChunkProducer {
                         prev_block.block_congestion_info(),
                         chunk_extra.gas_limit(),
                     )?;
-                    (
-                        self.runtime_adapter.prepare_transactions(
-                            storage_config,
-                            shard_id,
-                            prev_block_context,
-                            &mut iter,
-                            chain_validate,
-                            validate_tx_ttl,
-                            self.chunk_transactions_time_limit.get(),
-                        )?,
-                        Vec::new(),
-                    )
+                    let (prepared, skipped) = self.runtime_adapter.prepare_transactions(
+                        storage_config,
+                        shard_id,
+                        prev_block_context,
+                        &mut iter,
+                        chain_validate,
+                        validate_tx_ttl,
+                        self.time_limits(),
+                    )?;
+                    (prepared, skipped.0)
                 }
             } else {
                 (PreparedTransactions::new(), Vec::new())
@@ -751,7 +760,7 @@ impl ChunkProducer {
             tx_validity_period_check: Box::new(tx_validity_period_check),
             validate_tx_ttl: Box::new(validate_tx_ttl),
             prev_chunk_tx_hashes,
-            time_limit: self.chunk_transactions_time_limit.get(),
+            time_limits: self.time_limits(),
         };
         let prepare_job = self.prepare_transactions_jobs.push(prepare_job_key, prepare_job_inputs);
 

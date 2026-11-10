@@ -11,7 +11,8 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 pub use crate::external_call::{
-    ExternalCallsInChunk, ProcessedExternalCall, process_external_call,
+    EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
+    dry_run_external_call, process_external_call,
 };
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
@@ -246,6 +247,44 @@ pub struct ApplyState {
 }
 
 impl ApplyState {
+    /// The state the chunk producer runs an ECC with before packing it. See `EccDryRunContext`.
+    pub(crate) fn for_ecc_dry_run(context: EccDryRunContext) -> Self {
+        let EccDryRunContext {
+            shard_id,
+            epoch_id,
+            protocol_version,
+            config,
+            vm_generation,
+            gas_price,
+            prev_block,
+            cache,
+        } = context;
+        Self {
+            // The producer tracks the shard, so this is the reason apply runs the call with.
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height: prev_block.height + 1,
+            shard_id,
+            epoch_id,
+            epoch_height: prev_block.epoch_height,
+            gas_price,
+            block_timestamp: prev_block.timestamp,
+            gas_limit: None,
+            random_seed: CryptoHash::default(),
+            prev_block,
+            current_protocol_version: protocol_version,
+            config,
+            next_wasm_config: None,
+            vm_generation,
+            cache,
+            trie_access_tracker_state: Default::default(),
+            is_new_chunk: true,
+            save_receipt_to_tx: false,
+            congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
+            on_post_state_ready: None,
+        }
+    }
+
     pub fn create_receipt_id(
         &self,
         parent_receipt_id: &CryptoHash,

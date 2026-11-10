@@ -55,6 +55,27 @@ pub(crate) static PREPARE_TX_GAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static ECC_DRY_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_ecc_dry_runs_total",
+        "ECCs run by the chunk producer before packing them, by result: accepted, refused, \
+         late (the run did not finish in time) or busy (the thread was running an earlier call).",
+        &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ECC_DRY_RUN_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_ecc_dry_run_time_seconds",
+        "Time the chunk producer waited for the dry run of an ECC, including the runs that were late.",
+        &["shard_id"],
+        // From 1 ms to 512 ms.
+        Some(exponential_buckets(0.001, 2.0, 10).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static PREPARE_TX_REJECTED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_rejected",
