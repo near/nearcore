@@ -30,6 +30,7 @@ pub mod archive;
 mod columns;
 pub mod config;
 pub mod contract;
+pub mod contract_code_cache;
 pub mod db;
 mod deserialized_column;
 pub mod flat;
@@ -42,6 +43,10 @@ pub mod spice_proof_verifier;
 mod store;
 pub mod trie;
 mod utils;
+
+pub use contract_code_cache::{
+    ContractCodeCache, FilesystemContractCodeCache, NoContractCodeCache,
+};
 
 #[cfg(test)]
 mod tests {

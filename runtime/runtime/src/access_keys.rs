@@ -372,6 +372,7 @@ mod tests {
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::NoContractCodeCache;
     use near_store::{
         ShardTries, ShardUId, Trie, TrieUpdate, get_access_key, get_account, get_gas_key_nonce,
         set_access_key, set_account,
@@ -400,6 +401,7 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
             shard_id: ShardUId::single_shard().shard_id(),

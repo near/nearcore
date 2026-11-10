@@ -17,6 +17,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
+use near_store::NoContractCodeCache;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
@@ -103,6 +104,7 @@ impl StandaloneRuntime {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
             shard_id: shard_uid.shard_id(),

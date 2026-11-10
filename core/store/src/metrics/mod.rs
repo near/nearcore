@@ -499,6 +499,48 @@ pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::
     )
     .unwrap()
 });
+pub static CONTRACT_CODE_CACHE_HITS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_code_cache_hits_total",
+        "Number of contract code reads served by the contract code cache",
+    )
+    .unwrap()
+});
+pub static CONTRACT_CODE_CACHE_MISSES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_code_cache_misses_total",
+        "Number of contract code reads the contract code cache could not serve",
+    )
+    .unwrap()
+});
+pub static CONTRACT_CODE_CACHE_PUTS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_code_cache_puts_total",
+        "Number of contracts written to the contract code cache",
+    )
+    .unwrap()
+});
+pub static CONTRACT_CODE_CACHE_EVICTIONS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_code_cache_evictions_total",
+        "Number of contracts evicted from the contract code cache to stay within its size limit",
+    )
+    .unwrap()
+});
+pub static CONTRACT_CODE_CACHE_SIZE_BYTES: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_contract_code_cache_size_bytes",
+        "Total size of the contracts kept in the contract code cache",
+    )
+    .unwrap()
+});
+pub static CONTRACT_CODE_CACHE_ENTRIES: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_contract_code_cache_entries",
+        "Number of contracts kept in the contract code cache",
+    )
+    .unwrap()
+});
 
 pub static ROCKS_ITERATOR_TIME_HISTOGRAM: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(

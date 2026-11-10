@@ -22,6 +22,7 @@ use near_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
     get_signer_and_authorization, set_tx_state_changes, verify_and_charge_access_key_tx_ephemeral,
 };
+use near_store::NoContractCodeCache;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -189,6 +190,8 @@ impl<'c> EstimatorContext<'c> {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
+            // Code is read from state on purpose: the estimator measures that cost.
+            contract_code_cache: Arc::new(NoContractCodeCache),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             // Put each runtime into a separate shard.
             block_height: 1,

@@ -66,9 +66,9 @@ use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
-    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
-    get_gas_key_nonce,
+    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, NoContractCodeCache, ShardTries,
+    StateSnapshotConfig, Store, Trie, TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges,
+    get_access_key, get_account, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{
@@ -354,6 +354,7 @@ impl NightshadeRuntime {
             next_wasm_config,
             vm_generation: self.runtime_config_store.vm_generation(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
+            contract_code_cache: Arc::new(NoContractCodeCache),
             is_new_chunk,
             save_receipt_to_tx,
             congestion_info,
