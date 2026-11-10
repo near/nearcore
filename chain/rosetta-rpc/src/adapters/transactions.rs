@@ -25,11 +25,14 @@ pub(crate) struct ExecutionToReceipts {
     /// receipts map is needed to determine the init account of the receipt
     /// and to determine if a receipt is a refund.
     receipts: HashMap<CryptoHash, AccountId>,
+    /// A mapping from the unique ids of external calls to their contracts.
+    external_calls: HashMap<CryptoHash, AccountId>,
     /// A vector of FungibleTokenEvents derived from logs in the ExecutionOutcomeWithIdView vector.
     events: Vec<FungibleTokenEvent>,
     /// A mapping from execution ID (transaction or receipt hash) to execution outcome status.
     statuses: HashMap<CryptoHash, crate::models::ExecutionStatus>,
 }
+
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
     /// transaction or receipt causing the execution to list of created
@@ -47,19 +50,26 @@ impl ExecutionToReceipts {
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
         let mut receipts = HashMap::new();
+        let mut external_calls = HashMap::new();
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
-                    .send_async(near_client::GetChunk::ChunkHash(
-                        near_primitives::sharding::ChunkHash(block.chunks[shard_id].chunk_hash),
+                    .send_async(near_client::GetChunk::BlockHash(
+                        block_hash,
+                        block.chunks[shard_id].shard_id,
                     ))
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
-                // TODO(ecc): represent ECCs in Rosetta
-                transactions.extend(chunk.transactions.into_iter().filter_map(|t| match t {
-                    TransactionEnvelopeView::Signed(t) => Some((t.hash, t)),
-                    TransactionEnvelopeView::Unsigned(_) => None,
-                }));
+                for transaction in chunk.transactions {
+                    match transaction {
+                        TransactionEnvelopeView::Signed(t) => {
+                            transactions.insert(t.hash, t);
+                        }
+                        TransactionEnvelopeView::Unsigned(call) => {
+                            external_calls.insert(call.transaction_id, call.contract_id);
+                        }
+                    }
+                }
                 receipts
                     .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
             }
@@ -102,7 +112,14 @@ impl ExecutionToReceipts {
                 (exec.id, status)
             })
             .collect();
-        Ok(Self { map: map_hash_to_receipts, transactions, receipts, events, statuses })
+        Ok(Self {
+            map: map_hash_to_receipts,
+            transactions,
+            receipts,
+            external_calls,
+            events,
+            statuses,
+        })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
@@ -111,6 +128,7 @@ impl ExecutionToReceipts {
             map: Default::default(),
             transactions: Default::default(),
             receipts: Default::default(),
+            external_calls: Default::default(),
             events: Default::default(),
             statuses: Default::default(),
         }
@@ -140,7 +158,8 @@ impl ExecutionToReceipts {
     ) -> Option<crate::models::ExecutionStatus> {
         use near_primitives::views::StateChangeCauseView;
         let exec_id = match cause {
-            StateChangeCauseView::TransactionProcessing { tx_hash } => Some(*tx_hash),
+            StateChangeCauseView::TransactionProcessing { tx_hash: id }
+            | StateChangeCauseView::ExternalCallProcessing { transaction_id: id } => Some(*id),
             StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
             | StateChangeCauseView::ReceiptProcessing { receipt_hash }
             | StateChangeCauseView::PostponedReceipt { receipt_hash }
@@ -239,10 +258,14 @@ async fn get_predecessor_id_from_receipt_or_transaction(
     cause: &near_primitives::views::StateChangeCauseView,
     transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
     receipts_in_block: &HashMap<CryptoHash, AccountId>,
+    external_calls_in_block: &HashMap<CryptoHash, AccountId>,
 ) -> Option<AccountIdentifier> {
     let predecessor_id = match cause {
         near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
             transactions_in_block.get(tx_hash)?.signer_id.clone()
+        }
+        near_primitives::views::StateChangeCauseView::ExternalCallProcessing { transaction_id } => {
+            external_calls_in_block.get(transaction_id)?.clone()
         }
         near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
             match receipts_in_block.get(receipt_hash) {
@@ -371,6 +394,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
     for account_change in accounts_changes {
         let transactions_in_block = &transactions.exec_to_rx.transactions;
         let receipts_in_block = &transactions.exec_to_rx.receipts;
+        let external_calls_in_block = &transactions.exec_to_rx.external_calls;
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
                 let is_transaction_processing = matches!(
@@ -401,10 +425,14 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                     deposit,
                                     ..
                                 } => sum.checked_add(*deposit).unwrap(),
+                                // TODO: match every action, so a new one with a deposit is not
+                                // missed. This wildcard predates external calls.
                                 _ => sum,
                             });
                         if total_sum.is_zero() { None } else { Some(total_sum) }
                     }),
+                    // An external call's change is its contract's own run, so like a receipt's run
+                    // it is one transfer: the receipts holding its deposits may not be stored yet.
                     _ => None,
                 };
                 let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
@@ -412,6 +440,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     &account_change.cause,
                     transactions_in_block,
                     receipts_in_block,
+                    external_calls_in_block,
                 )
                 .await;
                 let previous_account_state = accounts_previous_state.get(&account_id);
@@ -740,17 +769,20 @@ async fn convert_gas_key_changes_to_operations(
                 }
                 let transactions_in_block = &transactions.exec_to_rx.transactions;
                 let receipts_in_block = &transactions.exec_to_rx.receipts;
+                let external_calls_in_block = &transactions.exec_to_rx.external_calls;
                 let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
                     view_client_addr,
                     &change.cause,
                     transactions_in_block,
                     receipts_in_block,
+                    external_calls_in_block,
                 )
                 .await;
                 let metadata = crate::models::OperationMetadata::from_predecessor(
                     predecessor_id.clone(),
                 )
                 .map(|m| {
+                    // An external call's charge falls on the contract's balance, never on a gas key.
                     if matches!(
                         change.cause,
                         near_primitives::views::StateChangeCauseView::TransactionProcessing { .. }
