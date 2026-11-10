@@ -9,8 +9,9 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain::spice::chunk_application::spice_block_congestion_info;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::{
-    PendingConstraints, PendingTxCheckResult, PrepareTransactionsBlockContext,
-    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    ParentPostStateNodes, PendingConstraints, PendingTxCheckResult,
+    PrepareTransactionsBlockContext, PrepareTransactionsTimeLimits, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -34,6 +35,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
+use near_runtime::PostStateNodes;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
@@ -45,6 +47,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use time::ext::InstantExt as _;
 use tracing::instrument;
 
@@ -571,6 +574,7 @@ impl ChunkProducer {
                         },
                         self.time_limits(),
                         None,
+                        None,
                     )?;
                     (prepared, skipped.0)
                 } else {
@@ -703,6 +707,7 @@ impl ChunkProducer {
         shard_update_key: CachedShardUpdateKey,
         shard_uid: ShardUId,
         state: TrieUpdate,
+        post_state_nodes: Receiver<PostStateNodes>,
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
@@ -754,6 +759,7 @@ impl ChunkProducer {
         let prepare_job_inputs = PrepareTransactionsJobInputs {
             runtime_adapter: self.runtime_adapter.clone(),
             state,
+            post_state_nodes: Some(ParentPostStateNodes { shard_uid, receiver: post_state_nodes }),
             shard_uid,
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),

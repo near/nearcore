@@ -382,6 +382,7 @@ mod tests {
     use super::*;
     use crate::ShardUId;
     use crate::test_utils::TestTriesBuilder;
+    use crate::trie::NewTrieNodes;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;
@@ -421,6 +422,73 @@ mod tests {
             values,
             vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
         );
+    }
+
+    /// A trie over the nodes that a chunk added reads what the chunk's state holds before the
+    /// changes are in the store, and records what the trie of the stored changes does, so a call
+    /// run on it reads and records as it does in apply.
+    #[test]
+    fn trie_with_new_nodes_reads_and_records_like_the_stored_trie() {
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let tries = TestTriesBuilder::new()
+            .with_shard_layout(shard_layout)
+            .with_flat_storage(true)
+            .with_in_memory_tries(true)
+            .build();
+        let key = |index: u32| test_key(format!("key{index:04}").into_bytes());
+        let cause = StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() };
+
+        // A state in the store with enough keys for a trie of some depth.
+        let mut update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
+        (0..300).for_each(|index| update.set(key(index), vec![1; 100]));
+        update.commit(cause.clone());
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let old_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        tries.apply_memtrie_changes(&trie_changes, shard_uid, 1);
+
+        // A chunk that overwrites a key with a large value, adds a key and removes one.
+        let mut update = tries.new_trie_update(shard_uid, old_root);
+        update.set(key(7), vec![2; 5000]);
+        update.set(key(1000), vec![3; 100]);
+        update.remove(key(8));
+        update.commit(cause);
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let new_root = trie_changes.new_root;
+        let new_nodes = NewTrieNodes::from_changes(&trie_changes);
+        assert!(!new_nodes.is_empty());
+        let with_new_nodes = tries.get_trie_with_new_nodes(shard_uid, new_root, new_nodes);
+
+        // What a read finds and records.
+        let read = |trie: &Trie, key: &TrieKey| {
+            let update = TrieUpdate::new(trie.recording_reads_new_recorder());
+            let value = update.get(key, AccessOptions::DEFAULT).unwrap();
+            (value, update.trie.recorded_storage_size_upper_bound())
+        };
+        let keys = (0..300).chain([1000]).map(key).collect::<Vec<_>>();
+
+        // The changes are not in the store yet, and the store alone can't read them: only the
+        // trie that has the new nodes does.
+        let store_only = tries.get_view_trie_for_shard(shard_uid, new_root);
+        let store_only = TrieUpdate::new(store_only.recording_reads_new_recorder());
+        assert!(store_only.get(&key(1000), AccessOptions::DEFAULT).is_err());
+        let before_store = keys.iter().map(|key| read(&with_new_nodes, key)).collect::<Vec<_>>();
+        assert_eq!(before_store[7].0, Some(vec![2; 5000]));
+        assert_eq!(before_store[8].0, None);
+        assert_eq!(before_store[300].0, Some(vec![3; 100]));
+
+        // Once they are stored, every key reads the same from the trie that has them in memory
+        // and from the stored one, and records the same.
+        let mut store_update = tries.store_update();
+        assert_eq!(tries.apply_all(&trie_changes, shard_uid, &mut store_update), new_root);
+        store_update.commit();
+        tries.apply_memtrie_changes(&trie_changes, shard_uid, 2);
+        let stored = tries.get_trie_for_shard(shard_uid, new_root);
+        for (index, key) in keys.iter().enumerate() {
+            assert_eq!(before_store[index], read(&stored, key), "key {index}");
+        }
     }
 
     #[test]

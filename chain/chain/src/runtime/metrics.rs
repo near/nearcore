@@ -59,8 +59,24 @@ pub(crate) static ECC_DRY_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_ecc_dry_runs_total",
         "ECCs run by the chunk producer before packing them, by result: accepted, refused, \
-         late (the run did not finish in time) or busy (the thread was running an earlier call).",
+         late (the run did not finish in time) or busy (the thread was running an earlier call). \
+         An ECC that did not run because early preparation had no state to run it on is counted \
+         as state_timed_out (the nodes of the parent chunk came too late), state_cancelled or \
+         state_lost (the apply of the parent chunk failed).",
         &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ECC_STATE_WAIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_ecc_state_wait_seconds",
+        "Time that early preparation waited for the trie nodes of the parent chunk before it ran \
+         the first ECC, by result: ready, or state_timed_out, state_cancelled and state_lost as \
+         in near_ecc_dry_runs_total. The job holds the transaction pool lock meanwhile.",
+        &["shard_id", "result"],
+        // From 1 ms to 2 s.
+        Some(exponential_buckets(0.001, 2.0, 12).unwrap()),
     )
     .unwrap()
 });

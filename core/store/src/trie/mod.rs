@@ -13,7 +13,9 @@ pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
+pub use crate::trie::trie_storage::{
+    NewTrieNodes, TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};

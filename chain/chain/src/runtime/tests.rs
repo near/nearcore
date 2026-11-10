@@ -61,19 +61,21 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::PostStateNodes;
 use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::config::ecc_cost;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
+use near_store::trie::NewTrieNodes;
 use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-#[cfg(feature = "test_features")]
+use std::sync::mpsc;
 use std::thread;
 use tempfile::TempDir;
 
@@ -1867,13 +1869,14 @@ fn prepare_transactions_extra_with_time_limit(
         check_pending,
         cancel,
         time_limits(time_limit),
+        None,
         |_| {},
         |_| {},
     )
 }
 
 /// Like `prepare_transactions_extra_with_time_limit`, with the state changed by `change_state` and
-/// the block context by `change_context`.
+/// the block context by `change_context`. `parent_nodes` is as for `prepare_transactions_extra`.
 fn prepare_transactions_extra_in_state(
     env: &TestEnv,
     chain: &Chain,
@@ -1883,6 +1886,7 @@ fn prepare_transactions_extra_in_state(
     check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
     time_limits: PrepareTransactionsTimeLimits,
+    parent_nodes: Option<ParentPostStateNodes>,
     change_state: impl FnOnce(&mut TrieUpdate),
     change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1917,6 +1921,7 @@ fn prepare_transactions_extra_in_state(
         check_pending,
         time_limits,
         cancel,
+        parent_nodes,
     )
 }
 
@@ -1994,6 +1999,7 @@ fn prepare_eccs_with_limits(
         &mut PendingTxCheckResult::always_admit(),
         None,
         time_limits,
+        None,
         change_state,
         change_context,
     )
@@ -2270,6 +2276,7 @@ fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
         &mut PendingTxCheckResult::always_admit(),
         Some(Arc::new(AtomicBool::new(true))),
         time_limits(None),
+        None,
         give_contracts(&["test1", "test2"]),
         |_| {},
     )
@@ -2527,6 +2534,208 @@ fn test_prepare_transactions_refused_ecc_does_not_use_the_shares() {
     }
 }
 
+/// What the apply of the parent chunk does for `prepare_eccs_early`.
+#[derive(Clone, Copy)]
+enum ParentApply {
+    /// It finalizes the parent's writes and sends the nodes they add.
+    Finalizes,
+    /// It sends the nodes only after this long, while the preparation waits for them.
+    FinalizesAfter(StdDuration),
+    /// It fails before it sends them.
+    Fails,
+    /// It has not sent them by the time the preparation gives up waiting.
+    Stalls,
+    /// It has not sent them when the preparation is cancelled, this long after it starts.
+    StallsUntilCancelled(StdDuration),
+}
+
+/// Prepares ECCs as early preparation does. The state of the preparation holds `parent_writes`,
+/// the writes of the parent chunk, as pending changes. The nodes that the writes add to the trie
+/// are sent as `parent_apply` says, though they are never stored.
+fn prepare_eccs_early(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    parent_apply: ParentApply,
+    time_limits: PrepareTransactionsTimeLimits,
+    parent_writes: impl Fn(&mut TrieUpdate),
+) -> (PreparedTransactions, SkippedTransactions) {
+    let cause = StateChangeCause::InitialState;
+    let shard_uid = test_shard_uid(env);
+    let (sender, receiver) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let nodes = || {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut update = TrieUpdate::new(trie.recording_reads_new_recorder());
+        parent_writes(&mut update);
+        update.commit(cause.clone());
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let nodes = NewTrieNodes::from_changes(&trie_changes);
+        PostStateNodes { state_root: trie_changes.new_root, nodes }
+    };
+    match parent_apply {
+        ParentApply::Finalizes => sender.send(nodes()).unwrap(),
+        ParentApply::FinalizesAfter(delay) => {
+            let (nodes, sender) = (nodes(), sender.clone());
+            thread::spawn(move || {
+                thread::sleep(delay);
+                let _ = sender.send(nodes);
+            });
+        }
+        ParentApply::StallsUntilCancelled(delay) => {
+            let cancel = Arc::clone(&cancel);
+            thread::spawn(move || {
+                thread::sleep(delay);
+                cancel.store(true, Ordering::Relaxed);
+            });
+        }
+        ParentApply::Fails | ParentApply::Stalls => {}
+    }
+    // The sender stays until the preparation is over, unless the parent's apply failed.
+    let sender = (!matches!(parent_apply, ParentApply::Fails)).then_some(sender);
+    let result = prepare_transactions_extra_in_state(
+        env,
+        chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        Some(cancel),
+        time_limits,
+        Some(ParentPostStateNodes { shard_uid, receiver }),
+        |state| {
+            parent_writes(state);
+            state.commit(cause);
+        },
+        |_| {},
+    )
+    .unwrap();
+    drop(sender);
+    result
+}
+
+/// Early preparation runs ECCs on the state that the parent chunk leaves, as apply of the next
+/// chunk finds it. Reading what the parent wrote from its pending changes costs nothing, while
+/// apply reads it from the trie, so an ECC that reads too much of it is refused there. Here a
+/// value that is over what an ECC's run may record is refused by the run, and the ECC is dropped.
+#[test]
+fn test_prepare_transactions_early_drops_an_ecc_that_reads_too_much_of_the_parent_writes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
+    let value = vec![1; config.external_calls_config.max_call_recorded_size * 3 / 2];
+    let key = TrieKey::ContractData { account_id: "test1".parse().unwrap(), key: b"k".to_vec() };
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::Finalizes,
+        time_limits(None),
+        |state| {
+            give_contracts(&["test1"])(state);
+            state.set(key.clone(), value.clone());
+        },
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// An ECC whose contract the parent chunk deployed, with its account, code and data in the nodes
+/// that the parent's apply sent, runs and is packed.
+#[test]
+fn test_prepare_transactions_early_packs_an_ecc_to_a_contract_the_parent_deployed() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let key = TrieKey::ContractData { account_id: "test1".parse().unwrap(), key: b"k".to_vec() };
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::Finalizes,
+        time_limits(None),
+        |state| {
+            give_contracts(&["test1"])(state);
+            state.set(key.clone(), b"value".to_vec());
+        },
+    );
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+}
+
+/// An ECC waits for the nodes of the parent chunk's apply, and runs once they come, however late.
+#[test]
+fn test_prepare_transactions_early_waits_for_the_parent_nodes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+    let delay = StdDuration::from_millis(150);
+
+    let start = Instant::now();
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::FinalizesAfter(delay),
+        time_limits(None),
+        |state| give_contracts(&["test1"])(state),
+    );
+
+    assert!(start.elapsed() >= delay);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+}
+
+/// An ECC that has no nodes of the parent chunk to run on goes back to the pool, and the
+/// preparation goes on without ECCs, with the signed transactions it has. That is so if the
+/// parent's apply fails, if the nodes do not come before the time for ECCs is up, even when the
+/// preparation as a whole has no time limit, and if the preparation is cancelled while it waits.
+#[test]
+fn test_prepare_transactions_early_puts_back_eccs_without_the_parent_nodes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let short_ecc_time =
+        PrepareTransactionsTimeLimits { total: None, ecc: Duration::milliseconds(300) };
+    let cases = [
+        (ParentApply::Fails, time_limits(None), PrepareTransactionsLimit::NoMoreTxsInPool),
+        (ParentApply::Stalls, short_ecc_time, PrepareTransactionsLimit::Time),
+        (
+            ParentApply::StallsUntilCancelled(StdDuration::from_millis(50)),
+            time_limits(None),
+            PrepareTransactionsLimit::Cancelled,
+        ),
+    ];
+    for (parent_apply, limits, limited_by) in cases {
+        let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+        let (prepared, skipped) =
+            prepare_eccs_early(&env, &chain, &mut pool, parent_apply, limits, |state| {
+                give_contracts(&["test1"])(state)
+            });
+
+        assert!(packed_eccs(&prepared.transactions).is_empty());
+        assert_eq!(
+            skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(),
+            [ecc("test1", 1).get_hash()]
+        );
+        assert_eq!(prepared.limited_by, limited_by);
+    }
+}
+
 /// The shard of the test environment.
 fn test_shard_uid(env: &TestEnv) -> ShardUId {
     let prev_hash = env.head.prev_block_hash;
@@ -2580,6 +2789,7 @@ fn test_prepare_transactions_fails_when_the_run_of_an_ecc_fails() {
         &mut PendingTxCheckResult::always_admit(),
         None,
         time_limits(None),
+        None,
         give_contracts(&["test1", "test2"]),
         |context| context.epoch_id = EpochId(CryptoHash::hash_bytes(b"no such epoch")),
     );
@@ -3934,6 +4144,7 @@ fn test_strict_nonce_u64_max_not_included() {
             &mut PendingTxCheckResult::always_admit(),
             time_limits(default_produce_chunk_add_transactions_time_limit()),
             None,
+            None,
         )
         .unwrap();
 
@@ -4013,6 +4224,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
             time_limits(None),
+            None,
             None,
         )
         .unwrap();
