@@ -90,7 +90,7 @@ pub(crate) struct PerShardChunkExecutor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
-    parked_blocks: ParkedBlocks,
+    pub(super) parked_blocks: ParkedBlocks,
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
@@ -102,7 +102,7 @@ pub(crate) struct PerShardChunkExecutor {
 /// The blocks waiting to be applied, by height and by parent, so that an event about a block
 /// retries only its children.
 #[derive(Default)]
-struct ParkedBlocks {
+pub(super) struct ParkedBlocks {
     /// Each parked block's parent, lowest height first.
     parents: BTreeMap<(BlockHeight, CryptoHash), (BlockHeight, CryptoHash)>,
     /// The parked blocks by their parent's hash.
@@ -124,6 +124,18 @@ impl ParkedBlocks {
             if siblings.is_empty() {
                 self.children.remove(&parent_hash);
             }
+        }
+    }
+
+    pub(super) fn drop_up_to_height(&mut self, height: BlockHeight) {
+        let dropped: Vec<(BlockHeight, CryptoHash)> = self
+            .parents
+            .keys()
+            .take_while(|(block_height, _)| *block_height <= height)
+            .copied()
+            .collect();
+        for block in dropped {
+            self.remove(&block);
         }
     }
 }
@@ -998,5 +1010,23 @@ mod tests {
         // Removing a block that is not parked changes nothing.
         parked_blocks.remove(&child);
         assert!(parked_blocks.parents.is_empty());
+    }
+
+    #[test]
+    fn test_parked_blocks_drop_up_to_height() {
+        let parent = (1, CryptoHash::hash_bytes(b"parent"));
+        let child = (2, CryptoHash::hash_bytes(b"child"));
+        let grandchild = (3, CryptoHash::hash_bytes(b"grandchild"));
+        let mut parked_blocks = ParkedBlocks::default();
+        parked_blocks.insert(child, parent);
+        parked_blocks.insert(grandchild, child);
+
+        parked_blocks.drop_up_to_height(child.0);
+
+        assert_eq!(parked_blocks.parents, BTreeMap::from([(grandchild, child)]));
+        assert_eq!(
+            parked_blocks.children,
+            HashMap::from([(child.1, BTreeSet::from([grandchild]))])
+        );
     }
 }

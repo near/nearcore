@@ -2422,3 +2422,34 @@ fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
     // The block is not postprocessed again, which would move the execution head metric back.
     assert_eq!(BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.get(), execution_head_height);
 }
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
+    // The shard's catchup is still running, and a block below the sync block, which the shard never
+    // applies, is still parked, as after a restart that changed the tracked shards. The node has
+    // processed the sync block, which waits behind it.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    let stale_block = catch_up
+        .test_actor
+        .chain
+        .get_block_header(catch_up.sync_block.header().prev_hash())
+        .unwrap();
+    catch_up.test_actor.actor.park_block(catch_up.shard_uid, &stale_block);
+    catch_up
+        .test_actor
+        .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
+
+    // The catchup finishes, and the node processes the next epoch's first block.
+    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
+    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
+    store_update.commit();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
+        block_hash: *catch_up.next_epoch_first_block.hash(),
+    });
+
+    // The shard is applied at the block after the sync block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}

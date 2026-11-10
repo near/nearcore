@@ -343,6 +343,9 @@ impl ChunkExecutorActor {
                 continue;
             }
 
+            // The shard never applies a block at or below the sync block, and one left parked
+            // would hold back the blocks after it.
+            executor.parked_blocks.drop_up_to_height(sync_header.height());
             let mut block_hash = sync_hash;
             while block_hash != final_execution_head.last_block_hash {
                 let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
@@ -639,6 +642,11 @@ impl ChunkExecutorActor {
             .filter(|(shard_uid, _)| shard_uid.shard_id() == shard_id)
             .flat_map(|(_, executor)| executor.parked_block_hashes())
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn park_block(&mut self, shard_uid: ShardUId, header: &BlockHeader) {
+        self.get_or_create_per_shard_executor(shard_uid).park_block(header);
     }
 
     #[cfg(test)]
