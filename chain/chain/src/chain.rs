@@ -2520,6 +2520,7 @@ impl Chain {
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         // Core statements are validated before being used to compute newly certified execution
         // results for the gas price and total supply checks below.
+        // TODO(spice): Consider enforcing this order in the type system.
         let newly_certified_block_execution_results = if ProtocolFeature::Spice
             .enabled(protocol_version)
         {
