@@ -3,7 +3,8 @@
 //! execution-head advance / block postprocessing.
 
 use super::per_shard::{
-    PerShardChunkExecutor, PerShardDeps, is_catching_up, is_descendant_of_final_execution_head,
+    PerShardChunkExecutor, PerShardDeps, is_canonical, is_catching_up,
+    is_descendant_of_final_execution_head,
 };
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_manager::ReceiptProofId;
@@ -407,12 +408,14 @@ impl ChunkExecutorActor {
         self.try_progress_receiving_shards(block_hash, outgoing_proofs);
         // Block postprocessing follows the shards tracked this epoch: a shard caught up for the
         // next epoch also applies blocks they have postprocessed already, and postprocessing one
-        // again would move the execution head metric back. A block at or below the final
-        // execution head is final, though, so such a shard's own flat head and memtrie roots
-        // follow it.
+        // again would move the execution head metric back. A canonical block at or below the
+        // final execution head is final, though, so such a shard's own flat head and memtrie roots
+        // follow it. A fork the head passed is not.
         let header = self.chain_store.get_block_header(block_hash)?;
         if !self.shard_tracker.tracked_shard_uids(header.prev_hash())?.contains(&shard_uid) {
-            if is_descendant_of_final_execution_head(&self.chain_store, &header) {
+            if is_descendant_of_final_execution_head(&self.chain_store, &header)
+                || !is_canonical(&self.chain_store, &header)
+            {
                 return Ok(());
             }
             return apply_shard_postprocessing(
