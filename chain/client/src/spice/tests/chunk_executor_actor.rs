@@ -13,6 +13,7 @@ use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
     pre_spice_boundary_genesis, save_and_record_block,
 };
+use assert_matches::assert_matches;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -68,6 +69,10 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::flat::{
+    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageReadyStatus,
+    FlatStorageStatus,
+};
 use near_store::{DBCol, PartialStorage, ShardUId};
 use num_rational::Rational32;
 use parking_lot::RwLock;
@@ -2452,4 +2457,68 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
     // The shard is applied at the block after the sync block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
     assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_moving_the_flat_head_of_a_caught_up_shard_for_a_fork() {
+    // The shard's state was synced at the sync block, where its flat head is, and it has the delta
+    // of the block after it, which a fork block next to the final execution head branches off.
+    let mut catch_up = CatchUpTest::setup();
+    let sync_header = catch_up.sync_block.header();
+    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
+    store_update.flat_store_update().set_flat_storage_status(
+        catch_up.shard_uid,
+        FlatStorageStatus::Ready(FlatStorageReadyStatus {
+            flat_head: BlockInfo {
+                hash: *sync_header.hash(),
+                height: sync_header.height(),
+                prev_hash: *sync_header.prev_hash(),
+            },
+        }),
+    );
+    store_update.commit();
+    let flat_storage_manager = catch_up.test_actor.chain.runtime_adapter.get_flat_storage_manager();
+    flat_storage_manager.create_flat_storage_for_shard(catch_up.shard_uid).unwrap();
+    let fork_parent = catch_up.blocks_up_to_head[0].clone();
+    let header = fork_parent.header();
+    flat_storage_manager
+        .get_flat_storage_for_shard(catch_up.shard_uid)
+        .unwrap()
+        .add_delta(FlatStateDelta {
+            metadata: FlatStateDeltaMetadata {
+                block: BlockInfo {
+                    hash: *header.hash(),
+                    height: header.height(),
+                    prev_hash: *header.prev_hash(),
+                },
+                prev_block_with_changes: None,
+            },
+            changes: FlatStateChanges::default(),
+        })
+        .unwrap()
+        .commit();
+    // The chain refuses a block below its final head, so the fork block is only stored.
+    let fork_block = TestBlockBuilder::from_prev_block(
+        Clock::real(),
+        &fork_parent,
+        Arc::new(create_test_signer("test-producer-0")),
+    )
+    .build();
+    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
+    store_update.insert_ser(DBCol::BlockHeader, fork_block.hash().as_ref(), fork_block.header());
+    store_update.commit();
+
+    // The shard finishes applying the fork block after the final execution head passed it.
+    catch_up
+        .test_actor
+        .actor
+        .coordinator_post_apply(fork_block.hash(), catch_up.shard_uid, &[])
+        .unwrap();
+
+    // The fork block is not final, so the shard's flat head stays at the sync block.
+    assert_matches!(
+        flat_storage_manager.get_flat_storage_status(catch_up.shard_uid),
+        FlatStorageStatus::Ready(status) if status.flat_head.hash == *catch_up.sync_block.hash()
+    );
 }
