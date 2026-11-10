@@ -6,8 +6,9 @@ use crate::client::{
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, SnapshotHostInfoV1, StateRequestAck,
-    StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
+    Encoding, Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, SnapshotHostInfoV1,
+    StateRequestAck, StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody,
+    TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::PeerHandle;
@@ -100,6 +101,7 @@ async fn connect_tier3(
     chain: &data::Chain,
     key: &SecretKey,
     clock: &time::Clock,
+    encoding: Encoding,
 ) -> (tcp::StreamId, Stream) {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
         .await
@@ -107,7 +109,7 @@ async fn connect_tier3(
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let peer_id = PeerId::new(key.public_key());
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier3Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -148,10 +150,11 @@ async fn connect_requester(
     chain: &data::Chain,
     clock: &time::Clock,
     rng: &mut impl Rng,
+    encoding: Encoding,
 ) -> (tcp::StreamId, Stream) {
     let mut events = pm.events.from_now();
     let (stream_id, mut stream) =
-        connect_tier3(pm, chain, &data::make_secret_key(rng), clock).await;
+        connect_tier3(pm, chain, &data::make_secret_key(rng), clock, encoding).await;
     assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
     let msg = stream.read().await.unwrap();
     assert!(matches!(msg, PeerMessage::Tier3Handshake(_)), "unexpected message: {msg}");
@@ -205,6 +208,12 @@ async fn send_request(pm: &ActorHandler, request: NetworkRequests) -> NetworkRes
 // Verify that a node accepts Tier3 connections from peers which request state from it.
 #[tokio::test]
 async fn requester_accepted() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        requester_accepted_with_encoding(encoding).await;
+    }
+}
+
+async fn requester_accepted_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853240);
     let rng = &mut rng;
@@ -213,7 +222,7 @@ async fn requester_accepted() {
     let clock = clock.clock();
 
     let pm = start_pm(&clock, &chain, rng).await;
-    connect_requester(&pm, &chain, &clock, rng).await;
+    connect_requester(&pm, &chain, &clock, rng, encoding).await;
 }
 
 // Verify that a node accepts at most MAX_INBOUND_TIER3_CONNECTIONS requesters at a time,
@@ -221,6 +230,12 @@ async fn requester_accepted() {
 // connection makes room for another.
 #[tokio::test]
 async fn requesters_limited() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        requesters_limited_with_encoding(encoding).await;
+    }
+}
+
+async fn requesters_limited_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853241);
     let rng = &mut rng;
@@ -231,12 +246,12 @@ async fn requesters_limited() {
     let pm = start_pm(&clock, &chain, rng).await;
     let mut requesters = vec![];
     for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS {
-        requesters.push(connect_requester(&pm, &chain, &clock, rng).await);
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
     }
 
     let mut events = pm.events.from_now();
     let (stream_id, _stream) =
-        connect_tier3(&pm, &chain, &data::make_secret_key(rng), &clock).await;
+        connect_tier3(&pm, &chain, &data::make_secret_key(rng), &clock, encoding).await;
     assert_eq!(
         handshake_result(&mut events, stream_id).await,
         Err(ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
@@ -253,7 +268,7 @@ async fn requesters_limited() {
     })
     .await;
     let mut events = pm.events.from_now();
-    let (stream_id, _host_stream) = connect_tier3(&pm, &chain, &host_key, &clock).await;
+    let (stream_id, _host_stream) = connect_tier3(&pm, &chain, &host_key, &clock, encoding).await;
     assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
 
     let (closed_id, closed) = requesters.pop().unwrap();
@@ -265,12 +280,18 @@ async fn requesters_limited() {
             _ => None,
         })
         .await;
-    connect_requester(&pm, &chain, &clock, rng).await;
+    connect_requester(&pm, &chain, &clock, rng, encoding).await;
 }
 
 // Verify that requesters handshaking concurrently can't exceed MAX_INBOUND_TIER3_CONNECTIONS.
 #[tokio::test]
 async fn concurrent_requesters_limited() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        concurrent_requesters_limited_with_encoding(encoding).await;
+    }
+}
+
+async fn concurrent_requesters_limited_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853245);
     let rng = &mut rng;
@@ -283,11 +304,12 @@ async fn concurrent_requesters_limited() {
     let pm = start_pm(&clock, &chain, rng).await;
     let mut requesters = vec![];
     for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS - FREE {
-        requesters.push(connect_requester(&pm, &chain, &clock, rng).await);
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
     }
     let events = pm.events.from_now();
     let keys: Vec<SecretKey> = (0..2 * FREE).map(|_| data::make_secret_key(rng)).collect();
-    let racing = join_all(keys.iter().map(|key| connect_tier3(&pm, &chain, key, &clock))).await;
+    let racing =
+        join_all(keys.iter().map(|key| connect_tier3(&pm, &chain, key, &clock, encoding))).await;
 
     let mut accepted = 0;
     for (stream_id, _) in &racing {
@@ -308,6 +330,12 @@ async fn concurrent_requesters_limited() {
 // the Tier3 connection on which the requests arrived.
 #[tokio::test]
 async fn requests_answered_over_tier3() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        requests_answered_over_tier3_with_encoding(encoding).await;
+    }
+}
+
+async fn requests_answered_over_tier3_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853242);
     let rng = &mut rng;
@@ -316,7 +344,7 @@ async fn requests_answered_over_tier3() {
     let clock = clock.clock();
 
     let pm = start_pm(&clock, &chain, rng).await;
-    let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng).await;
+    let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng, encoding).await;
 
     let shard_id = ShardId::new(0);
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
@@ -360,6 +388,12 @@ fn client_answering(response: StateRequestResponse) -> StateRequestSenderForNetw
 // request or fails to respond. No response follows the acks.
 #[tokio::test]
 async fn unanswered_requests_acknowledged_over_tier3() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        unanswered_requests_acknowledged_over_tier3_with_encoding(encoding).await;
+    }
+}
+
+async fn unanswered_requests_acknowledged_over_tier3_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853243);
     let rng = &mut rng;
@@ -389,7 +423,7 @@ async fn unanswered_requests_acknowledged_over_tier3() {
             client,
         )
         .await;
-        let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng).await;
+        let (_, mut stream) = connect_requester(&pm, &chain, &clock, rng, encoding).await;
 
         // The host would send a response right after the ack, so receiving the next request's
         // ack instead shows that it sent none. The header request is sent again at the end to
@@ -406,6 +440,12 @@ async fn unanswered_requests_acknowledged_over_tier3() {
 // Verify that a node accepts an ack for its state request over a Tier3 connection.
 #[tokio::test]
 async fn ack_accepted_over_tier3() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        ack_accepted_over_tier3_with_encoding(encoding).await;
+    }
+}
+
+async fn ack_accepted_over_tier3_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853244);
     let rng = &mut rng;
@@ -430,7 +470,7 @@ async fn ack_accepted_over_tier3() {
     })
     .await;
     let mut events = pm.events.from_now();
-    let (stream_id, mut stream) = connect_tier3(&pm, &chain, &host_key, &clock).await;
+    let (stream_id, mut stream) = connect_tier3(&pm, &chain, &host_key, &clock, encoding).await;
     assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
 
     let ack = StateRequestAck {

@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Handshake, PartialEdgeInfo, PeerMessage};
+use crate::network_protocol::{Encoding, Handshake, PartialEdgeInfo, PeerMessage};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::ActorHandler;
@@ -23,6 +23,12 @@ fn to_active_nonce(timestamp: time::Utc) -> u64 {
 // Test connecting to peer manager with timestamp-like nonces.
 #[tokio::test]
 async fn test_nonces() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        test_nonces_with_encoding(encoding).await;
+    }
+}
+
+async fn test_nonces_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -58,7 +64,7 @@ async fn test_nonces() {
             tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
                 .await
                 .unwrap();
-        let mut stream = stream::Stream::new(stream);
+        let mut stream = stream::Stream::new_with_encoding(stream, encoding);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
         let handshake = PeerMessage::Tier2Handshake(Handshake {

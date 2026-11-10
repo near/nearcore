@@ -260,6 +260,12 @@ async fn test_oversized_peers_response_bans_without_adding_to_peer_store() -> an
 #[tokio::test]
 // Verifies that HandshakeFailures are served correctly.
 async fn test_handshake() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        test_handshake_with_encoding(encoding).await;
+    }
+}
+
+async fn test_handshake_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
@@ -272,7 +278,7 @@ async fn test_handshake() {
     let inbound =
         PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
-    let mut outbound = Stream::new(outbound_stream);
+    let mut outbound = Stream::new_with_encoding(outbound_stream, encoding);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -324,7 +330,13 @@ async fn test_handshake() {
 }
 
 #[tokio::test]
-async fn test_borsh_handshake() {
+async fn test_handshake_response() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        test_handshake_response_with_encoding(encoding).await;
+    }
+}
+
+async fn test_handshake_response_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
@@ -337,7 +349,7 @@ async fn test_borsh_handshake() {
     let inbound =
         PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
-    let mut outbound = Stream::new_with_encoding(outbound_stream, Encoding::Borsh);
+    let mut outbound = Stream::new_with_encoding(outbound_stream, encoding);
 
     let handshake = Handshake {
         protocol_version: PROTOCOL_VERSION,
@@ -351,7 +363,7 @@ async fn test_borsh_handshake() {
         owned_account: None,
     };
     outbound.write(&PeerMessage::Tier2Handshake(handshake)).await;
-    // The inbound side negotiated borsh, so it responds with a borsh-encoded handshake.
+    // The inbound side responds with a handshake in the negotiated encoding.
     let resp = outbound.read().await.unwrap();
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }

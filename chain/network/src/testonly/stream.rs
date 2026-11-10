@@ -9,17 +9,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub struct Stream {
     stream: tcp::Stream,
     encoding: Encoding,
+    first_message: bool,
 }
 
 impl Stream {
-    /// Creates a stream which speaks protobuf.
-    pub fn new(stream: tcp::Stream) -> Self {
-        Self::new_with_encoding(stream, Encoding::Proto)
-    }
-
-    /// Creates a stream which speaks `encoding`.
+    /// Creates a stream which speaks `encoding`. For `Encoding::Borsh` it behaves like a node
+    /// configured with `PreferBorsh`: the initial handshake is sent in both encodings.
     pub fn new_with_encoding(stream: tcp::Stream, encoding: Encoding) -> Self {
-        Self { stream, encoding }
+        Self { stream, encoding, first_message: true }
     }
 
     pub async fn read(&mut self) -> Result<PeerMessage, std::io::Error> {
@@ -42,7 +39,19 @@ impl Stream {
     }
 
     pub async fn write(&mut self, msg: &PeerMessage) {
-        let frames = msg.serialize_with_encoding(self.encoding);
+        if self.first_message {
+            self.first_message = false;
+            if self.encoding == Encoding::Borsh && is_handshake(msg) {
+                // Like a node with `PreferBorsh`, send the initial handshake in both encodings.
+                self.write_frames(msg.serialize_with_encoding(Encoding::Borsh)).await;
+                self.write_frames(msg.serialize_with_encoding(Encoding::Proto)).await;
+                return;
+            }
+        }
+        self.write_frames(msg.serialize_with_encoding(self.encoding)).await;
+    }
+
+    async fn write_frames(&mut self, frames: PeerMessageFrames) {
         if let Some(header) = frames.header {
             self.write_encoded(&header).await;
         }
@@ -62,6 +71,15 @@ impl Stream {
         self.stream.stream.write_all(msg).await.unwrap();
         self.stream.stream.flush().await.unwrap();
     }
+}
+
+fn is_handshake(msg: &PeerMessage) -> bool {
+    matches!(
+        msg,
+        PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_)
+    )
 }
 
 fn invalid_data(err: impl std::fmt::Display) -> std::io::Error {
