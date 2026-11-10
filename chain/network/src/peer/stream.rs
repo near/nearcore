@@ -525,6 +525,7 @@ async fn with_read_timeout<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network_protocol::{PeerMessage, PeersRequest};
     use crate::stats::metrics;
 
     /// Simulates a half-open TCP connection by holding the receiver socket open without reading.
@@ -550,9 +551,18 @@ mod tests {
             vec!["test_half_open".to_string()],
         ));
 
-        // Enqueue enough large messages to fill the TCP send buffer.
+        // Enqueue enough large borsh messages to fill the TCP send buffer. The send loop treats
+        // the frames as opaque, so only the header needs to be a valid borsh header.
+        let header =
+            PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None })
+                .serialize_with_encoding(Encoding::Borsh)
+                .header;
         for _ in 0..64 {
-            let message = PeerMessageFrames::proto(vec![0u8; 1024 * 1024]);
+            let message = PeerMessageFrames {
+                encoding: Encoding::Borsh,
+                header: header.clone(),
+                body: vec![0u8; 1024 * 1024],
+            };
             let _ = queue_send.send(Frame::with_permit(message, OutgoingPermit::fake_for_test()));
         }
         // Close the sender so run_send_loop will drain the queue and exit.
