@@ -310,7 +310,7 @@ pub fn verify_ecc_ephemeral<A: Borrow<Account>>(
 ) -> Result<A, InvalidTxError> {
     let contract_id = ecc.contract_id();
     let Some(contract) = contract else {
-        return Err(InvalidTxError::SignerDoesNotExist { signer_id: contract_id.clone() });
+        return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
     };
     let balance = contract.borrow().amount();
     if balance < cost.burnt_amount {
@@ -3185,7 +3185,7 @@ mod tests {
         let (ecc, cost) = ecc_and_cost();
         assert_eq!(
             verify_ecc_ephemeral(None::<&Account>, &ecc, &cost),
-            Err(InvalidTxError::SignerDoesNotExist { signer_id: ecc.contract_id().clone() })
+            Err(InvalidTxError::ContractNotFound { contract_id: ecc.contract_id().clone() })
         );
     }
 

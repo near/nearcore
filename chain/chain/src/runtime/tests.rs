@@ -2319,7 +2319,7 @@ fn test_can_accept_ecc_checks_contract_and_fees() {
 
     assert!(matches!(
         can_accept("nobody", min_gas_price),
-        Err(InvalidTxError::SignerDoesNotExist { .. })
+        Err(InvalidTxError::ContractNotFound { .. })
     ));
     assert!(matches!(
         can_accept("test1", min_gas_price),

@@ -1151,10 +1151,11 @@ impl<'a> ChainStoreUpdate<'a> {
             let outcome_ids =
                 self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
             for outcome_id in outcome_ids {
-                self.gc_col(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(&outcome_id, block_hash),
-                );
+                let key = get_outcome_id_block_hash(&outcome_id, block_hash);
+                self.gc_col(DBCol::TransactionResultForBlock, &key);
+                // Only an external call's outcome has a row here, so for any other outcome this
+                // writes a deletion of a missing key and reads nothing.
+                self.gc_col(DBCol::ExternalCallTransactions, &key);
             }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }

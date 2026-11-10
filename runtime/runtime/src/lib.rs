@@ -61,8 +61,9 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ECC_METHOD_NAME, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
-    ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
+    Action, ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope,
+    TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -485,6 +486,8 @@ pub struct ApplyResult {
     pub contract_updates: ContractUpdates,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// The unique id and the hash of each external call that got an outcome.
+    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
 }
 
 #[derive(Debug)]
@@ -2205,7 +2208,7 @@ impl Runtime {
                         ecc,
                         maybe_validation_error,
                     )?;
-                    record_external_call(processing_state, receipt_sink, processed)?;
+                    record_external_call(processing_state, receipt_sink, ecc, processed)?;
                     continue;
                 }
             };
@@ -2894,6 +2897,7 @@ impl Runtime {
             prefetcher,
             processed_receipts,
             receipt_to_tx,
+            external_calls,
             ..
         } = processing_state;
         let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
@@ -3053,6 +3057,7 @@ impl Runtime {
             bandwidth_scheduler_state_hash,
             contract_updates,
             receipt_to_tx,
+            external_calls,
         })
     }
 }
@@ -3096,9 +3101,12 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
 fn record_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt_sink: &mut ReceiptSink,
+    ecc: &EccTransaction,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
     let ProcessedExternalCall { outcome, accepted, receipts } = processed;
+    // Every call that gets here gets an outcome.
+    processing_state.external_calls.push((outcome.id, *ecc.hash()));
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
     let stats = &mut processing_state.stats.balance;
@@ -3108,8 +3116,7 @@ fn record_external_call(
     } else {
         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
-    let contract_id = &outcome.outcome.executor_id;
-    send_ecc_receipts(processing_state, receipt_sink, &outcome.id, contract_id, receipts)?;
+    send_ecc_receipts(processing_state, receipt_sink, &outcome.id, ecc.contract_id(), receipts)?;
     processing_state.outcomes.push(outcome);
     Ok(())
 }
@@ -3171,8 +3178,6 @@ fn send_ecc_receipts(
         return Ok(());
     }
     for receipt in receipts {
-        // TODO(ecc): map the call's unique id to the call, so `EXPERIMENTAL_receipt_to_tx` can
-        // resolve the `tx_hash` this records.
         record_transaction_receipt(processing_state, &receipt, *outcome_id, contract_id);
         receipt_sink.forward_or_buffer_receipt(
             receipt,
@@ -3180,7 +3185,7 @@ fn send_ecc_receipts(
             &mut processing_state.state_update,
         )?;
     }
-    let cause = StateChangeCause::TransactionProcessing { tx_hash: *outcome_id };
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: *outcome_id };
     processing_state.state_update.commit(cause);
     Ok(())
 }
@@ -3277,6 +3282,7 @@ fn missing_chunk_apply_result(
         bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
         receipt_to_tx: vec![],
+        external_calls: vec![],
     });
 }
 
@@ -3493,6 +3499,7 @@ impl<'a> ApplyProcessingState<'a> {
             delayed_receipts,
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
+            external_calls: Vec::new(),
         }
     }
 }
@@ -3518,6 +3525,8 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// The unique id and the hash of each external call that got an outcome.
+    external_calls: Vec<(CryptoHash, CryptoHash)>,
 }
 
 trait MaybeRefReceipt {

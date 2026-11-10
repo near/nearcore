@@ -22,7 +22,7 @@ pub struct IndexerChunkView {
     /// targeting that shard.
     pub receipts: Vec<views::ReceiptView>,
     /// Receipts generated in this chunk from transactions with `signer_id`
-    /// equal to `receiver_id`.
+    /// equal to `receiver_id`, and from external calls to their own contract.
     #[serde(default)]
     pub local_receipts: Vec<views::ReceiptView>,
     /// Receipts that were processed instantly in the same chunk they were created.
@@ -33,7 +33,7 @@ pub struct IndexerChunkView {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 pub struct IndexerTransactionWithOutcome {
-    pub transaction: views::SignedTransactionView,
+    pub transaction: views::TransactionEnvelopeView,
     pub outcome: IndexerExecutionOutcomeWithOptionalReceipt,
 }
 

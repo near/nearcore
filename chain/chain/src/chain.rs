@@ -95,9 +95,9 @@ use near_primitives::types::{
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
-    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
+    BlockStatusView, DroppedReason, EccTransactionView, ExecutionOutcomeWithIdView,
+    ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView,
+    FinalExecutionStatus, LightClientBlockView, TransactionEnvelopeView,
 };
 use near_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -3253,10 +3253,7 @@ impl Chain {
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, true)?;
         let status = self.get_execution_status(&outcomes, transaction_hash);
         let receipts_outcome = outcomes.split_off(1);
-        let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
-            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
-        })?;
-        let transaction = signed_transaction_view(transaction)?;
+        let transaction = self.get_transaction_view(transaction_hash)?;
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -3287,15 +3284,13 @@ impl Chain {
     ///
     /// Returns `Ok(None)` if the transaction is recorded on chain but has no
     /// execution outcome yet (included, not executed), and `Err(DBNotFoundErr)`
-    /// if the transaction is not in the store at all.
+    /// if the transaction is not in the store at all. An external call is found
+    /// by its outcome, so one with no outcome yet is not found.
     pub fn get_partial_transaction_result_option(
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<Option<FinalExecutionOutcomeView>, Error> {
-        let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
-            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
-        })?;
-        let transaction = signed_transaction_view(transaction)?;
+        let transaction = self.get_transaction_view(transaction_hash)?;
 
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
@@ -3324,7 +3319,10 @@ impl Chain {
     ) -> Result<FinalExecutionOutcomeWithReceiptView, Error> {
         let receipt_id_from_transaction =
             outcome.transaction_outcome.outcome.receipt_ids.get(0).cloned();
-        let is_local_receipt = outcome.transaction.signer_id == outcome.transaction.receiver_id;
+        // Only a signed transaction converts into a receipt to its own signer, which is left out.
+        // An external call's receipts come from its run and are all listed.
+        let is_local_receipt =
+            outcome.transaction.as_signed().is_some_and(|tx| tx.signer_id == tx.receiver_id);
 
         let receipts = outcome
             .receipts_outcome
@@ -4253,6 +4251,27 @@ impl Chain {
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 
+    /// The transaction whose outcome has id `id`. A signed transaction is looked up by its hash, and
+    /// an external call by the unique id of its copy.
+    pub fn get_transaction_view(&self, id: &CryptoHash) -> Result<TransactionEnvelopeView, Error> {
+        let not_found = || Error::DBNotFoundErr(format!("Transaction {} is not found", id));
+        // The id doesn't say its kind. For an external call this read misses, since a unique id is
+        // never a key of the transactions column, and the column's bloom filter answers it.
+        if let Some(transaction) = self.chain_store.get_transaction(id) {
+            let signed_tx =
+                Arc::unwrap_or_clone(transaction).into_signed().ok_or_else(not_found)?;
+            return Ok(TransactionEnvelopeView::Signed(signed_tx.into()));
+        }
+        let outcome = self.get_execution_outcome(id).map_err(|_| not_found())?;
+        let tx_hash = self
+            .chain_store
+            .get_external_call_hash(id, &outcome.block_hash)
+            .ok_or_else(not_found)?;
+        let transaction = self.chain_store.get_transaction(&tx_hash).ok_or_else(not_found)?;
+        let call = transaction.as_unsigned().ok_or_else(not_found)?.clone();
+        Ok(TransactionEnvelopeView::Unsigned(EccTransactionView::new(call, *id)))
+    }
+
     /// Get transaction result for given hash of transaction or receipt id
     /// Chain may not be canonical yet
     pub fn get_execution_outcome(
@@ -4343,21 +4362,6 @@ impl Chain {
     pub fn patch_state_in_progress(&self) -> bool {
         self.sandbox_patches.in_progress()
     }
-}
-
-/// The view of a transaction looked up from the store by its hash.
-fn signed_transaction_view(
-    transaction: Arc<TransactionEnvelope>,
-) -> Result<SignedTransactionView, Error> {
-    // TODO(ecc): show ECCs in tx status. The view has no form for them, and their outcome id is
-    // not their hash (see `create_ecc_outcome_id`).
-    let transaction_hash = transaction.get_hash();
-    let signed_tx = Arc::unwrap_or_clone(transaction).into_signed().ok_or_else(|| {
-        Error::Other(format!(
-            "transaction {transaction_hash} is an external contract call, which tx status does not support yet"
-        ))
-    })?;
-    Ok(signed_tx.into())
 }
 
 #[instrument(

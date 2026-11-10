@@ -193,8 +193,9 @@ fn convert_cause_to_transaction_id(
     use near_primitives::views::StateChangeCauseView;
 
     match cause {
-        StateChangeCauseView::TransactionProcessing { tx_hash } => {
-            Ok((TransactionIdentifier::transaction(tx_hash), Some(*tx_hash)))
+        StateChangeCauseView::TransactionProcessing { tx_hash: id }
+        | StateChangeCauseView::ExternalCallProcessing { transaction_id: id } => {
+            Ok((TransactionIdentifier::transaction(id), Some(*id)))
         }
         StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
         | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }

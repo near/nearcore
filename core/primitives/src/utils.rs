@@ -2,6 +2,7 @@
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::sharding::ChunkHash;
+use crate::transaction::TransactionEnvelope;
 use crate::types::{ChunkExecutionResultHash, ShardId};
 use crate::universal_state_init::RawStateInit;
 use chrono;
@@ -12,6 +13,7 @@ use near_primitives_core::deterministic_account_id::DeterministicAccountStateIni
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
+use std::collections::HashSet;
 use std::convert::AsRef;
 use std::fmt;
 use std::mem::size_of;
@@ -310,6 +312,30 @@ pub fn create_ecc_outcome_id(ecc_hash: &CryptoHash, block_height: BlockHeight) -
     bytes.extend_from_slice(ecc_hash.as_ref());
     bytes.extend_from_slice(block_height.to_le_bytes().as_ref());
     hash(&bytes)
+}
+
+/// The outcome id of each of the chunk's `transactions`, in the block at `height`. An external call
+/// with no outcome in `outcome_ids` gets `None`.
+pub fn chunk_transaction_outcome_ids(
+    transactions: &[TransactionEnvelope],
+    height: BlockHeight,
+    outcome_ids: impl IntoIterator<Item = CryptoHash>,
+) -> Vec<Option<CryptoHash>> {
+    // A malicious producer can include the same call twice. Both copies get the same unique id,
+    // but only the first has an outcome, so an id is taken out of the set once it is used.
+    let mut call_outcome_ids: HashSet<CryptoHash> = outcome_ids.into_iter().collect();
+    let mut ids = Vec::with_capacity(transactions.len());
+    for tx in transactions {
+        let id = match tx.as_unsigned() {
+            None => Some(tx.get_hash()),
+            Some(call) => {
+                let unique_id = create_ecc_outcome_id(call.hash(), height);
+                call_outcome_ids.remove(&unique_id).then_some(unique_id)
+            }
+        };
+        ids.push(id);
+    }
+    ids
 }
 
 /// Creates a new Receipt ID based on original receipt id.

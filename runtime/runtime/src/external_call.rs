@@ -32,8 +32,8 @@ use dashmap::DashMap;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, ExternalCallChunkLimit, FunctionCallError,
-    IntegerOverflowError, InvalidTxError, RuntimeError, StorageError, TxExecutionError,
+    ActionError, ActionErrorKind, ExternalCallChunkLimit, IntegerOverflowError, InvalidTxError,
+    RuntimeError, StorageError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile_data_v3::ProfileDataV3;
@@ -326,16 +326,13 @@ fn process_admitted_external_call<'a>(
     // The contract is both the sender and the receiver of the call, so an account with no
     // contract is refused like a missing account, without loading anything.
     if matches!(account.contract().as_ref(), AccountContract::None) {
-        let account_id = contract_id.clone();
-        let error =
-            FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id });
-        let kind = ActionErrorKind::FunctionCallError(error);
-        return Ok(refuse(ActionError { index: Some(0), kind }.into()));
+        let error = InvalidTxError::ContractNotFound { contract_id: contract_id.clone() };
+        return Ok(refuse(error.into()));
     }
 
     // The state update may hold changes staged before the call, such as the outgoing buffer pops
     // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
-    let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: outcome_id };
     state_update.commit(cause.clone());
     let mut run = run_external_call(
         state_update,

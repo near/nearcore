@@ -1373,11 +1373,11 @@ pub fn generate_openrpc() -> serde_json::Value {
 
     // ==================== Deprecated Methods ====================
 
-    add_method::<RpcSendTransactionRequest, CryptoHash>(
+    add_method::<RpcSendTransactionRequest, Option<CryptoHash>>(
         &mut methods,
         &mut all_schemas,
         "broadcast_tx_async",
-        "Sends a transaction and immediately returns hash (deprecated: use send_tx)",
+        "Sends a transaction and immediately returns hash, or null for an external call (deprecated: use send_tx)",
         true,
         &["transaction", "deprecated"],
     );

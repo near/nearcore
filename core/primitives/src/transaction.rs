@@ -554,7 +554,7 @@ impl schemars::JsonSchema for SignedTransaction {
 
 /// First byte of the borsh encoding of an [`EccTransaction`], which tells it apart from the
 /// signed transactions (see [`TransactionEnvelope`]).
-const ECC_ESCAPE_BYTE: u8 = 0xFF;
+pub(crate) const ECC_ESCAPE_BYTE: u8 = 0xFF;
 
 /// Version of the borsh encoding of an [`EccTransaction`], the byte after [`ECC_ESCAPE_BYTE`].
 const ECC_VERSION: u8 = 0;
@@ -941,6 +941,15 @@ impl TransactionEnvelope {
     pub fn into_signed(self) -> Option<SignedTransaction> {
         match self {
             Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    /// The id `tx` status takes for this transaction, if it is known before the transaction lands.
+    /// A signed transaction's id is its hash, and an external call's depends on its block.
+    pub fn outcome_id_before_inclusion(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Signed(tx) => Some(tx.get_hash()),
             Self::Unsigned(_) => None,
         }
     }

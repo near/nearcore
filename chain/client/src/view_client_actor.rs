@@ -852,8 +852,8 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
 
         let chunk = match msg {
             GetChunk::ChunkHash(chunk_hash) => {
-                let chunk = self.chain.get_chunk(&chunk_hash)?;
-                ShardChunk::clone(&chunk)
+                let chunk = ShardChunk::clone(&self.chain.get_chunk(&chunk_hash)?);
+                self.chain.chain_store().with_external_call_height_included(chunk)?
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
@@ -1953,7 +1953,7 @@ impl Handler<TxStatusResponse> for ViewClientActor {
         let TxStatusResponse(tx_result) = msg;
         tracing::debug!(
             target: "client",
-            tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
+            tx_hash = %tx_result.transaction.id(), status = ?tx_result.status,
             tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
             num_receipt_outcomes = tx_result.receipts_outcome.len(),
             "receive tx status response"

@@ -12,7 +12,9 @@ use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransac
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
-use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
+use near_primitives::views::{
+    ActionView, ExecutionStatusView, ReceiptEnumView, SignedTransactionView,
+};
 use near_primitives_core::types::{Nonce, NonceIndex};
 use parking_lot::Mutex;
 use rocksdb::DB;
@@ -529,26 +531,24 @@ impl TxTracker {
         Ok(())
     }
 
-    fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
-        let nonce_key = NonceLookupKey::from_tx_view(&tx.transaction);
+    fn remove_tx(&mut self, tx: &SignedTransactionView) {
+        let nonce_key = NonceLookupKey::from_tx_view(tx);
         match self.txs_by_signer.entry(nonce_key.clone()) {
             hash_map::Entry::Occupied(mut e) => {
                 let txs = e.get_mut();
-                if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
-                    tracing::warn!(target: "mirror", tx_hash = %tx.transaction.hash, "tried to remove nonexistent tx from txs_by_signer");
+                if !txs.remove(&TxId { hash: tx.hash, nonce: tx.nonce }) {
+                    tracing::warn!(target: "mirror", tx_hash = %tx.hash, "tried to remove nonexistent tx from txs_by_signer");
                 }
                 // split off from hash: default() since that's the smallest hash, which will leave us with every tx with nonce
                 // greater than this one in txs_left.
-                let txs_left = txs.split_off(&TxId {
-                    hash: CryptoHash::default(),
-                    nonce: tx.transaction.nonce + 1,
-                });
+                let txs_left =
+                    txs.split_off(&TxId { hash: CryptoHash::default(), nonce: tx.nonce + 1 });
                 if !txs.is_empty() {
                     tracing::debug!(
                         target: "mirror",
-                        tx_signer_id = %tx.transaction.signer_id,
-                        tx_public_key = ?tx.transaction.public_key,
-                        tx_nonce = tx.transaction.nonce,
+                        tx_signer_id = %tx.signer_id,
+                        tx_public_key = ?tx.public_key,
+                        tx_nonce = tx.nonce,
                         skip_txs = ?txs,
                         "skip txs by tx inclusion",
                     );
@@ -570,7 +570,7 @@ impl TxTracker {
             hash_map::Entry::Vacant(_) => {
                 tracing::warn!(
                     target: "mirror",
-                    tx_hash = ?tx.transaction.hash,
+                    tx_hash = ?tx.hash,
                     ?nonce_key,
                     "recently removed tx, but nonce key not in txs_by_signer"
                 );
@@ -611,7 +611,7 @@ impl TxTracker {
                     )
                     .unwrap();
                     for tx in &c.transactions {
-                        if let Some(info) = self.sent_txs.get(&tx.transaction.hash) {
+                        if let Some(info) = self.sent_txs.get(&tx.transaction.id()) {
                             write!(
                             log_message,
                             "{} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
@@ -789,20 +789,23 @@ impl TxTracker {
         db: &DB,
         tx: IndexerTransactionWithOutcome,
     ) -> anyhow::Result<()> {
-        if let Some(info) = self.sent_txs.remove(&tx.transaction.hash) {
+        // The mirror sends signed transactions only.
+        // TODO(ecc): track external calls once the mirror sends them.
+        let Some(signed_tx) = tx.transaction.as_signed() else { return Ok(()) };
+        if let Some(info) = self.sent_txs.remove(&signed_tx.hash) {
             crate::metrics::TRANSACTIONS_INCLUDED.inc();
-            self.remove_tx(&tx);
+            self.remove_tx(signed_tx);
             if info.source_height > self.height_seen {
                 self.height_seen = info.source_height;
             }
         }
-        if let Some(nonce_keys) = crate::read_pending_outcome(db, &tx.transaction.hash)? {
+        if let Some(nonce_keys) = crate::read_pending_outcome(db, &signed_tx.hash)? {
             match tx.outcome.execution_outcome.outcome.status {
                 ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                     self.tx_to_receipt(
                         tx_block_queue,
                         db,
-                        &tx.transaction.hash,
+                        &signed_tx.hash,
                         &receipt_id,
                         nonce_keys,
                     )?;
@@ -811,7 +814,7 @@ impl TxTracker {
                     unreachable!()
                 }
                 ExecutionStatusView::Failure(_) => {
-                    self.on_outcome_finished(db, &tx.transaction.hash, &nonce_keys)?;
+                    self.on_outcome_finished(db, &signed_tx.hash, &nonce_keys)?;
                 }
             };
         }

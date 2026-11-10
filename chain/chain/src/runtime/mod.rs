@@ -755,6 +755,7 @@ impl NightshadeRuntime {
             stats: apply_result.stats,
             proposed_split,
             receipt_to_tx: apply_result.receipt_to_tx,
+            external_calls: apply_result.external_calls,
         };
 
         Ok(result)

@@ -119,12 +119,12 @@ fn test_rpc_refuses_ecc_to_account_without_contract() {
     let response = env.rpc_node().process_tx(ecc(&nobody), false);
     assert_eq!(
         response,
-        ProcessTxResponse::InvalidTx(InvalidTxError::SignerDoesNotExist { signer_id: nobody })
+        ProcessTxResponse::InvalidTx(InvalidTxError::ContractNotFound { contract_id: nobody })
     );
 }
 
-/// `send_tx` cannot wait for an ECC to land, since `tx` has no way to find it yet. It still
-/// hands the ECC to the node, so a refusal comes back as an error.
+/// `send_tx` with `NONE` hands an ECC to the node without waiting, and a refusal comes back as
+/// an error.
 #[test]
 fn test_jsonrpc_send_tx_with_ecc() {
     init_test_logger();
@@ -139,7 +139,7 @@ fn test_jsonrpc_send_tx_with_ecc() {
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
-            |client| client.send_tx(ecc(&contract_id), TxExecutionStatus::Final),
+            |client| client.send_tx(ecc(&contract_id), TxExecutionStatus::None),
             Duration::seconds(5),
         )
         .unwrap();

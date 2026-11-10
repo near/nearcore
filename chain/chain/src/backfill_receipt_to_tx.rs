@@ -158,7 +158,7 @@ pub fn process_height(
                 continue;
             }
 
-            let is_tx = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
+            let is_tx = chain_store.is_transaction_outcome(&outcome_id, &block_hash);
 
             // For receipt outcomes, look up the parent receipt once (not per child).
             let parent_receipt = if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };

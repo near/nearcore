@@ -799,7 +799,7 @@ fn test_apply_ecc_missing_contract() {
     }
     let contract_id: AccountId = "missing.near".parse().unwrap();
     let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
-    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+    assert_eq!(err, InvalidTxError::ContractNotFound { contract_id });
 }
 
 /// An ECC to a contract that can't pay for its fees is rejected.
@@ -833,11 +833,8 @@ fn test_apply_ecc_no_contract() {
     let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
     assert_eq!(
         refused.error,
-        TxExecutionError::ActionError(ActionError {
-            index: Some(0),
-            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { account_id: bob_account() }
-            )),
+        TxExecutionError::InvalidTxError(InvalidTxError::ContractNotFound {
+            contract_id: bob_account()
         })
     );
     let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
@@ -2375,7 +2372,7 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     assert_matches!(
         &outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_eq!(outcome.gas_burnt, Gas::ZERO);
@@ -2496,7 +2493,7 @@ fn test_apply_eccs_from_storage_proof() {
     assert_matches!(
         statuses[4],
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_matches!(statuses[5], ExecutionStatus::SuccessReceiptId(_));
@@ -3081,7 +3078,7 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
     assert_matches!(
         first.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     let ExternalCallChunkLimit::StorageProof { used, limit } =
