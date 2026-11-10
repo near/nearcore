@@ -1,7 +1,6 @@
-use near_async::time::Duration;
 use near_chain::types::{
     PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter,
+    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -27,7 +26,7 @@ pub struct PrepareTransactionsJobInputs {
     pub tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub validate_tx_ttl: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
-    pub time_limit: Option<Duration>,
+    pub time_limits: PrepareTransactionsTimeLimits,
 }
 
 impl PrepareTransactionsJobInputs {
@@ -41,6 +40,9 @@ impl PrepareTransactionsJobInputs {
         let prev_block_context = PrepareTransactionsBlockContext {
             next_gas_price: Default::default(),
             height: 0,
+            timestamp: 0,
+            epoch_id: Default::default(),
+            epoch_height: 0,
             next_epoch_id: Default::default(),
             congestion_info: Default::default(),
             gas_limit: Default::default(),
@@ -55,7 +57,7 @@ impl PrepareTransactionsJobInputs {
             tx_validity_period_check: Box::new(|_| true),
             validate_tx_ttl: Box::new(|_| true),
             prev_chunk_tx_hashes: HashSet::new(),
-            time_limit: None,
+            time_limits: PrepareTransactionsTimeLimits::unlimited_without_eccs(),
         }
     }
 }
@@ -144,7 +146,7 @@ impl PrepareTransactionsJob {
             &inputs.validate_tx_ttl,
             inputs.prev_chunk_tx_hashes,
             &mut PendingTxCheckResult::always_admit(),
-            inputs.time_limit,
+            inputs.time_limits,
             Some((&self).cancel.clone()),
         );
         drop(iter);
@@ -397,6 +399,9 @@ mod tests {
         let prev_block_context = PrepareTransactionsBlockContext {
             next_gas_price: Default::default(),
             height,
+            timestamp: 0,
+            epoch_id: Default::default(),
+            epoch_height: 0,
             next_epoch_id: Default::default(),
             congestion_info: Default::default(),
             gas_limit: Default::default(),

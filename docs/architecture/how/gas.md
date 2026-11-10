@@ -293,6 +293,26 @@ that the chunk processes no receipts, at no cost to anyone and with the chunk
 still produced and rewarded. The work of rejecting such calls is bounded by
 `max_external_calls_per_chunk` instead.
 
+The producer puts signed transactions into the chunk first, and then runs the
+calls one at a time on a thread of their own, on the state at the start of the
+chunk. A call sees its contract's balance after the signed transactions ahead of
+it in the chunk, and only the state read by a call that is accepted counts toward
+the chunk's storage proof. The producer counts each accepted call toward the
+compute and storage proof shares as apply does, and takes no more calls once one
+of them has no room, leaving the rest in the pool. It counts the storage proof
+of each call alone, so a trie node shared with an earlier call counts again, and
+a chunk may hold fewer calls than apply would admit. A contract's run stops only
+when it ends or runs out of gas, so the producer waits for a call only for what
+is left of the time limit for adding transactions
+(`produce_chunk_add_transactions_time_limit`) after the signed ones, and at most
+`ecc_time_share` of it (1/2 by default). A call that is not done by then is left
+out of the chunk and runs on in the background, and the producer takes no other
+call until it is done. The call is dropped from the pool if it had the whole
+share to itself, since it would not finish next time either, and stays in the
+pool otherwise. `ecc_pool_size_share` (1/10 by default) is the
+share of the transaction pool that calls may fill. Setting either share to zero
+keeps calls out of chunks, or out of the pool.
+
 For now, a call that creates a promise or resumes a yielded one is rejected:
 external calls can't create receipts yet. This will be resolved in future work on this feature.
 

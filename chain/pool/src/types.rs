@@ -15,11 +15,6 @@ pub trait TransactionGroupIterator {
 
     /// The next group of ECCs. Groups of signed transactions are left alone in the pool.
     fn next_ecc(&mut self) -> Option<&mut EccGroup>;
-
-    /// Next group if `allow_eccs` is true, next *signed* group otherwise.
-    fn next_filtered(&mut self, allow_eccs: bool) -> Option<PooledGroup<'_>> {
-        if allow_eccs { self.next() } else { self.next_signed().map(PooledGroup::Signed) }
-    }
 }
 
 /// A hash of the group's identity (e.g. an AccountId and a PublicKey, or the AccountId of a

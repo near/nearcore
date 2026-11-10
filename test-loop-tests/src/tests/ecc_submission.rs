@@ -12,8 +12,10 @@ use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxResponse;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{ECC_METHOD_NAME, EccTransaction, ExecutionStatus};
@@ -29,6 +31,29 @@ fn ecc(contract_id: &AccountId) -> EccTransaction {
     EccTransaction::new(contract_id.clone(), vec![1, 2, 3])
 }
 
+/// The first byte of the payload of the ECCs that `ecc_contract` refuses.
+const REFUSED_TAG: u8 = 255;
+
+/// A contract whose ECC method returns the payload, and refuses a call whose payload starts with
+/// `REFUSED_TAG`.
+fn ecc_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "input" (func $input (param i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (func (export "{ECC_METHOD_NAME}")
+    (call $input (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {REFUSED_TAG})) (then unreachable))
+    (call $value_return (call $register_len (i64.const 0)) (i64.const 0))
+  )
+)"#
+    ))
+}
+
 /// A chain with an RPC node that tracks every shard and produces no chunks, and a contract on it.
 fn setup(protocol_version: u32, accounts: &[&AccountId], contract_id: &AccountId) -> TestLoopEnv {
     let mut builder = TestLoopBuilder::new()
@@ -40,7 +65,7 @@ fn setup(protocol_version: u32, accounts: &[&AccountId], contract_id: &AccountId
         builder = builder.add_user_account(account_id, Balance::from_near(1_000));
     }
     let mut env = builder.build();
-    let deploy_tx = env.rpc_node().tx_deploy_test_contract(contract_id);
+    let deploy_tx = env.rpc_node().tx_deploy_contract(contract_id, ecc_contract());
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
     env
 }
@@ -172,7 +197,7 @@ fn setup_two_shards(contracts: &[&AccountId], rpc_tracks_shards: bool) -> TestLo
     }
     let mut env = builder.build();
     for contract_id in contracts {
-        let deploy_tx = env.validator().tx_deploy_test_contract(contract_id);
+        let deploy_tx = env.validator().tx_deploy_contract(contract_id, ecc_contract());
         env.validator_runner().run_tx(deploy_tx, Duration::seconds(10));
     }
     env
@@ -284,23 +309,6 @@ fn ecc_outcome_id(node: &TestLoopNode, ecc_hash: CryptoHash, from_height: u64) -
     create_ecc_outcome_id(&ecc_hash, height)
 }
 
-/// A contract whose ECC method accepts every call and returns the call's payload.
-fn ecc_echo_contract() -> Vec<u8> {
-    near_test_contracts::wat_contract(&format!(
-        r#"(module
-  (import "env" "input" (func $input (param i64)))
-  (import "env" "register_len" (func $register_len (param i64) (result i64)))
-  (import "env" "read_register" (func $read_register (param i64 i64)))
-  (import "env" "value_return" (func $value_return (param i64 i64)))
-  (memory (export "memory") 1)
-  (func (export "{ECC_METHOD_NAME}")
-    (call $input (i64.const 0))
-    (call $read_register (i64.const 0) (i64.const 0))
-    (call $value_return (call $register_len (i64.const 0)) (i64.const 0)))
-)"#
-    ))
-}
-
 /// An ECC sent to an RPC node that produces no chunks lands in a chunk of its contract's shard,
 /// once, and runs there: the contract accepts it, and the outcome holds what its method returned.
 #[test]
@@ -315,8 +323,6 @@ fn test_ecc_lands_in_a_chunk() {
     }
     let contract_id = create_account_id("contract");
     let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
-    let deploy_tx = env.rpc_node().tx_deploy_contract(&contract_id, ecc_echo_contract());
-    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
 
     let payload = vec![1, 2, 3];
     let ecc = EccTransaction::new(contract_id, payload.clone());
@@ -384,7 +390,7 @@ fn test_chunks_hold_eccs_within_their_size_share() {
     }
     let mut env = builder.build();
     for contract_id in &contract_ids {
-        let deploy_tx = env.rpc_node().tx_deploy_test_contract(contract_id);
+        let deploy_tx = env.rpc_node().tx_deploy_contract(contract_id, ecc_contract());
         env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
     }
     let node = env.rpc_node();
@@ -435,4 +441,94 @@ fn test_chunks_hold_eccs_within_their_size_share() {
         assert!(sizes.len() <= 5, "{ecc_sizes_per_chunk:?}");
         assert!(sizes.iter().sum::<u64>() <= size_share, "{ecc_sizes_per_chunk:?}");
     }
+}
+
+/// The producer runs each ECC before it packs it: one that the contract accepts lands with a
+/// successful outcome, and one that it refuses never lands, and is not tried again.
+#[test]
+fn test_producer_packs_the_ecc_the_contract_accepts_and_drops_the_one_it_refuses() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+    let first_height = env.rpc_node().head().height;
+
+    // The refused call comes first, and the producer drops it without giving up the contract's
+    // place in the chunk for the next one.
+    let refused = EccTransaction::new(contract_id.clone(), vec![REFUSED_TAG]);
+    let accepted = EccTransaction::new(contract_id, vec![1, 2]);
+    let (refused_hash, accepted_hash) = (refused.get_hash(), accepted.get_hash());
+    for ecc in [refused, accepted] {
+        assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+    }
+
+    let included_at = env.rpc_runner().run_until_included(&[accepted_hash]);
+    let outcome_id = create_ecc_outcome_id(&accepted_hash, included_at);
+    let outcome = env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
+    assert_eq!(outcome.outcome_with_id.outcome.status, ExecutionStatus::SuccessValue(vec![1, 2]));
+
+    env.rpc_runner().run_for_number_of_blocks(10);
+    assert!(chunks_with_ecc(&env.rpc_node(), refused_hash, first_height).is_empty());
+    assert_eq!(chunks_with_ecc(&env.rpc_node(), accepted_hash, first_height).len(), 1);
+}
+
+/// The producer stops packing ECCs once they use up their share of the chunk's compute, so apply
+/// refuses none of the ones it packed. With a share that one ECC uses up, three ECCs to different
+/// contracts, which wait in the pool together, go into three chunks, one each, and the contracts
+/// accept all of them. Had the producer packed them into one chunk, apply would have refused the
+/// last two for reaching the share.
+#[test]
+fn test_chunks_hold_eccs_within_their_compute_share() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_ids = ["c1", "c2", "c3"].map(create_account_id);
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.chunk_compute_share = Rational32::new(1, i32::MAX);
+    let mut builder = TestLoopBuilder::new()
+        .enable_rpc()
+        .epoch_length(10)
+        .runtime_config_store(RuntimeConfigStore::with_one_config(runtime_config))
+        .config_modifier(|client_config, _| give_eccs_time(client_config));
+    for contract_id in &contract_ids {
+        builder = builder.add_user_account(contract_id, Balance::from_near(1_000));
+    }
+    let mut env = builder.build();
+    for contract_id in &contract_ids {
+        let deploy_tx = env.rpc_node().tx_deploy_contract(contract_id, ecc_contract());
+        env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+    }
+    let first_height = env.rpc_node().head().height;
+
+    let eccs = contract_ids.each_ref().map(ecc);
+    let hashes = eccs.each_ref().map(EccTransaction::get_hash);
+    for ecc in eccs {
+        assert_eq!(env.rpc_node().process_tx(ecc, false), ProcessTxResponse::RequestRouted);
+    }
+    env.rpc_runner().run_until(
+        |node| hashes.iter().all(|hash| !chunks_with_ecc(node, *hash, first_height).is_empty()),
+        Duration::seconds(30),
+    );
+
+    for hash in hashes {
+        let outcome_id = ecc_outcome_id(&env.rpc_node(), hash, first_height);
+        let outcome =
+            env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
+        let status = outcome.outcome_with_id.outcome.status;
+        assert_eq!(status, ExecutionStatus::SuccessValue(vec![1, 2, 3]));
+    }
+    let chunks_of_hash = hashes.map(|hash| chunks_with_ecc(&env.rpc_node(), hash, first_height));
+    let distinct_chunks = chunks_of_hash.iter().flatten().collect::<HashSet<_>>();
+    assert_eq!(distinct_chunks.len(), 3, "{chunks_of_hash:?}");
 }

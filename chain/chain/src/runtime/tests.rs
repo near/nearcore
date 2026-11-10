@@ -4,6 +4,7 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -19,6 +20,8 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::config::ExternalCallsConfig;
+use near_pool::types::PooledGroup;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::{AccessKeyPermission, AccountContract};
 use near_primitives::action::UniversalStateInitAction;
@@ -31,6 +34,7 @@ use near_primitives::congestion_info::{
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
+use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
@@ -42,7 +46,7 @@ use near_primitives::transaction::{
     ExecutionStatus, SignedTransaction, StakeAction, Transaction, TransactionEnvelope,
     TransactionNonce, TransactionV0, TransferAction, ValidatedEcc, ValidatedTransactionEnvelope,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -58,16 +62,19 @@ use near_primitives::views::{
     ValidatorKickoutView,
 };
 use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::config::ecc_cost;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use num_rational::{Ratio, Rational32};
+use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+#[cfg(feature = "test_features")]
+use std::thread;
 use tempfile::TempDir;
 
 const TEST_SEED: RngSeed = [3; 32];
@@ -1749,6 +1756,35 @@ fn signed_txs(txs: &[ValidatedTransactionEnvelope]) -> impl Iterator<Item = &Val
     })
 }
 
+/// The time ECCs get in the tests, so long that no run ends up late.
+const TEST_ECC_TIME_LIMIT: Duration = Duration::seconds(10);
+
+/// The time limits of the tests: `total` for the whole preparation, and time for ECCs that no run
+/// of a test goes over, so the tests do not depend on how fast the machine is.
+fn time_limits(total: Option<Duration>) -> PrepareTransactionsTimeLimits {
+    PrepareTransactionsTimeLimits { total, ecc: TEST_ECC_TIME_LIMIT }
+}
+
+/// The context to prepare transactions for the chain's head.
+fn block_context(
+    env: &TestEnv,
+    congestion_info: BlockCongestionInfo,
+    next_epoch_id: EpochId,
+) -> PrepareTransactionsBlockContext {
+    let prev_hash = env.head.prev_block_hash;
+    let epoch_id = env.epoch_manager.get_epoch_id(&prev_hash).unwrap();
+    PrepareTransactionsBlockContext {
+        next_gas_price: env.runtime.genesis_config.min_gas_price,
+        height: env.head.height,
+        timestamp: 0,
+        epoch_id,
+        epoch_height: env.epoch_manager.get_epoch_info(&epoch_id).unwrap().epoch_height(),
+        next_epoch_id,
+        congestion_info,
+        gas_limit: env.runtime.genesis_config.gas_limit,
+    }
+}
+
 fn prepare_transactions(
     env: &TestEnv,
     chain: &Chain,
@@ -1765,13 +1801,7 @@ fn prepare_transactions(
     env.runtime.prepare_transactions(
         storage_config,
         shard_id,
-        PrepareTransactionsBlockContext {
-            next_gas_price: env.runtime.genesis_config.min_gas_price,
-            height: env.head.height,
-            next_epoch_id,
-            congestion_info,
-            gas_limit: env.runtime.genesis_config.gas_limit,
-        },
+        block_context(env, congestion_info, next_epoch_id),
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {
             chain
@@ -1780,7 +1810,7 @@ fn prepare_transactions(
                 .is_ok()
         },
         &|_| true,
-        default_produce_chunk_add_transactions_time_limit(),
+        time_limits(default_produce_chunk_add_transactions_time_limit()),
     )
 }
 
@@ -1823,7 +1853,7 @@ fn prepare_transactions_extra_with_time_limit(
         validate_tx_ttl,
         check_pending,
         cancel,
-        time_limit,
+        time_limits(time_limit),
         |_| {},
         |_| {},
     )
@@ -1839,7 +1869,7 @@ fn prepare_transactions_extra_in_state(
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
-    time_limit: Option<Duration>,
+    time_limits: PrepareTransactionsTimeLimits,
     change_state: impl FnOnce(&mut TrieUpdate),
     change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1855,13 +1885,7 @@ fn prepare_transactions_extra_in_state(
     trie = trie.recording_reads_new_recorder();
     let mut state_update = TrieUpdate::new(trie);
     change_state(&mut state_update);
-    let mut block_context = PrepareTransactionsBlockContext {
-        next_gas_price: env.runtime.genesis_config.min_gas_price,
-        height: env.head.height,
-        next_epoch_id,
-        congestion_info,
-        gas_limit: env.runtime.genesis_config.gas_limit,
-    };
+    let mut block_context = block_context(env, congestion_info, next_epoch_id);
     change_context(&mut block_context);
 
     env.runtime.prepare_transactions_extra(
@@ -1878,7 +1902,7 @@ fn prepare_transactions_extra_in_state(
         validate_tx_ttl,
         skip_tx_hashes,
         check_pending,
-        time_limit,
+        time_limits,
         cancel,
     )
 }
@@ -1928,6 +1952,26 @@ fn prepare_eccs_with_context(
     change_state: impl FnOnce(&mut TrieUpdate),
     change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
 ) -> (PreparedTransactions, SkippedTransactions) {
+    prepare_eccs_with_limits(
+        env,
+        chain,
+        pool,
+        skip_tx_hashes,
+        time_limits(None),
+        change_state,
+        change_context,
+    )
+}
+
+fn prepare_eccs_with_limits(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    time_limits: PrepareTransactionsTimeLimits,
+    change_state: impl FnOnce(&mut TrieUpdate),
+    change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
+) -> (PreparedTransactions, SkippedTransactions) {
     prepare_transactions_extra_in_state(
         env,
         chain,
@@ -1936,22 +1980,59 @@ fn prepare_eccs_with_context(
         &|_| true,
         &mut PendingTxCheckResult::always_admit(),
         None,
-        default_produce_chunk_add_transactions_time_limit(),
+        time_limits,
         change_state,
         change_context,
     )
     .unwrap()
 }
 
-/// A change of the state that gives the accounts a local contract.
-fn give_contracts(account_ids: &[&str]) -> impl FnOnce(&mut TrieUpdate) + use<> {
-    let code_hash = CryptoHash::hash_bytes(b"code");
-    let contracts =
-        account_ids.iter().map(|id| (*id, AccountContract::Local(code_hash))).collect_vec();
-    give_account_contracts(contracts)
+/// The tag of the ECCs that `ecc_test_contract` refuses.
+const REFUSED_TAG: u8 = 255;
+
+/// The tag of the ECCs whose run in `ecc_test_contract` fails with an error of the runtime, not a
+/// refusal of the contract: it asks for the total stake of the epoch of the parent block.
+const FAILING_TAG: u8 = 254;
+
+/// A contract whose ECC method reads a key of its storage, refuses the call with the payload
+/// `[REFUSED_TAG]`, asks for the total stake with `[FAILING_TAG]`, and accepts any other one.
+fn ecc_test_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "input" (func $input (param i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "storage_read" (func $storage_read (param i64 i64 i64) (result i64)))
+  (import "env" "validator_total_stake" (func $validator_total_stake (param i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 1024) "k")
+  (func (export "{ECC_METHOD_NAME}")
+    (drop (call $storage_read (i64.const 1) (i64.const 1024) (i64.const 1)))
+    (call $input (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {REFUSED_TAG})) (then unreachable))
+    (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {FAILING_TAG}))
+      (then (call $validator_total_stake (i64.const 2048))))
+  )
+)"#
+    ))
 }
 
-/// A change of the state that gives each account its contract.
+/// A change of the state that gives the accounts the contract from `ecc_test_contract`.
+fn give_contracts(account_ids: &[&str]) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let account_ids = account_ids.iter().map(|id| id.parse::<AccountId>().unwrap()).collect_vec();
+    move |state_update| {
+        let code = ContractCode::new(ecc_test_contract(), None);
+        for account_id in account_ids {
+            let mut account = get_account(state_update, &account_id).unwrap().unwrap();
+            account.set_contract(AccountContract::Local(*code.hash())).unwrap();
+            set_account(state_update, account_id.clone(), &account);
+            state_update.set_code(account_id, &code);
+            state_update.record_contract_deploy(code.clone_for_tests());
+        }
+    }
+}
+
+/// A change of the state that gives each account its contract. It puts no code behind it.
 fn give_account_contracts(
     contracts: Vec<(&str, AccountContract)>,
 ) -> impl FnOnce(&mut TrieUpdate) + use<> {
@@ -2175,7 +2256,7 @@ fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
         &|_| true,
         &mut PendingTxCheckResult::always_admit(),
         Some(Arc::new(AtomicBool::new(true))),
-        default_produce_chunk_add_transactions_time_limit(),
+        time_limits(None),
         give_contracts(&["test1", "test2"]),
         |_| {},
     )
@@ -2279,17 +2360,27 @@ fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
     }
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
-    let by_hash = AccountContract::Global(CryptoHash::hash_bytes(b"code"));
-    let by_account = AccountContract::GlobalByAccount("deployer.near".parse().unwrap());
+    let code = ContractCode::new(ecc_test_contract(), None);
+    let deployer: AccountId = "deployer.near".parse().unwrap();
+    let by_hash = AccountContract::Global(*code.hash());
+    let by_account = AccountContract::GlobalByAccount(deployer.clone());
+    // The runs load the code of the global contracts from the state.
+    let global_contracts = [
+        GlobalContractCodeIdentifier::CodeHash(*code.hash()),
+        GlobalContractCodeIdentifier::AccountId(deployer),
+    ];
+    let give_account_contracts =
+        give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]);
+    let change_state = move |state_update: &mut TrieUpdate| {
+        give_account_contracts(state_update);
+        for identifier in global_contracts {
+            state_update.set(TrieKey::GlobalContractCode { identifier }, code.code().to_vec());
+        }
+        state_update.record_contract_deploy(code.clone_for_tests());
+    };
 
-    let (prepared, skipped) = prepare_eccs_with_context(
-        &env,
-        &chain,
-        &mut pool,
-        HashSet::new(),
-        give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]),
-        |_| {},
-    );
+    let (prepared, skipped) =
+        prepare_eccs_with_context(&env, &chain, &mut pool, HashSet::new(), change_state, |_| {});
 
     assert_eq!(
         packed_eccs(&prepared.transactions),
@@ -2318,6 +2409,444 @@ fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
     // Put back the way the producer does.
     pool.reintroduce_prepared(prepared.transactions, skipped.0);
     assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![1, 2, 3])]);
+}
+
+/// The producer packs an ECC that its contract accepts, and drops one that the contract refuses,
+/// without giving up the contract's place in the chunk: the next ECC to the same contract goes in.
+#[test]
+fn test_prepare_transactions_packs_accepted_eccs_and_drops_refused_ones() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", REFUSED_TAG), ecc("test2", 2)]);
+
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![("test1".to_string(), 1), ("test2".to_string(), 2)]
+    );
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// A test env whose ECCs have so small a share of a chunk's compute, or of its storage proof,
+/// that one ECC takes all of it. `set_shares` gets the config and the amounts the shares are of.
+fn get_test_env_with_tiny_ecc_shares(
+    set_shares: impl FnOnce(&mut ExternalCallsConfig, Gas, u64),
+) -> (TestEnv, Chain, TransactionPool) {
+    let mut runtime_config = RuntimeConfig::test();
+    let gas_limit = Gas::from_teragas(1000);
+    let proof_limit = runtime_config.witness_config.main_storage_proof_size_soft_limit;
+    set_shares(&mut runtime_config.external_calls_config, gas_limit, proof_limit);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    get_test_env_with_chain_and_pool_for(Some(store))
+}
+
+/// A share of `amount` that is a unit or more, but less than what any ECC uses.
+fn tiny_share(amount: u64) -> Rational32 {
+    Rational32::new(1, i32::try_from(amount).unwrap_or(i32::MAX))
+}
+
+fn set_tiny_compute_share(config: &mut ExternalCallsConfig, gas_limit: Gas, _: u64) {
+    config.chunk_compute_share = tiny_share(gas_limit.as_gas());
+}
+
+fn set_tiny_storage_proof_share(config: &mut ExternalCallsConfig, _: Gas, proof_limit: u64) {
+    config.chunk_storage_proof_share = tiny_share(proof_limit);
+}
+
+/// Changes the shares of ECCs in a config to tiny ones, given the amounts they are shares of.
+type SetTinyShares = fn(&mut ExternalCallsConfig, Gas, u64);
+
+fn tiny_share_cases() -> [(&'static str, SetTinyShares); 2] {
+    [("compute", set_tiny_compute_share), ("storage proof", set_tiny_storage_proof_share)]
+}
+
+/// Once the ECCs of a chunk use up their share of its compute or of its storage proof, the producer
+/// takes no more of them, and they stay in the pool. Apply refuses a call past a share, so the
+/// producer must not pack one.
+#[test]
+fn test_prepare_transactions_stops_at_a_full_share() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let contracts = ["test1", "test2", "test3"];
+    let tests = tiny_share_cases();
+    for (name, set_shares) in tests {
+        let (env, chain, _) = get_test_env_with_tiny_ecc_shares(set_shares);
+        let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+        let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+        assert_eq!(packed_eccs(&prepared.transactions).len(), 1, "{name}");
+        assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2, "{name}");
+    }
+}
+
+/// An ECC that its contract refuses is not in the chunk, so it uses none of the chunk's shares:
+/// an ECC after it is still taken.
+#[test]
+fn test_prepare_transactions_refused_ecc_does_not_use_the_shares() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let tests = tiny_share_cases();
+    for (name, set_shares) in tests {
+        let (env, chain, _) = get_test_env_with_tiny_ecc_shares(set_shares);
+        let mut pool = pool_with_eccs([
+            ecc("test1", REFUSED_TAG),
+            ecc("test2", REFUSED_TAG),
+            ecc("test3", 1),
+            ecc("test4", 1),
+        ]);
+
+        let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+        let packed = packed_eccs(&prepared.transactions);
+        assert_eq!(packed.len(), 1, "{name}");
+        assert_eq!(packed[0].1, 1, "{name}");
+    }
+}
+
+/// The shard of the test environment.
+fn test_shard_uid(env: &TestEnv) -> ShardUId {
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    shard_layout.shard_uids().next().unwrap()
+}
+
+/// Saves the contract from `ecc_test_contract` for the accounts in the state of the environment,
+/// with a value under the key the contract reads. Unlike `give_contracts`, which only changes the
+/// state of a preparation, it puts nodes in the trie for the runs of the contract to read.
+#[cfg(feature = "test_features")]
+fn deploy_ecc_contracts(env: &mut TestEnv, account_ids: &[&str]) {
+    let shard_uid = test_shard_uid(env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let mut state_update = TrieUpdate::new(trie);
+    let code = ContractCode::new(ecc_test_contract(), None);
+    for account_id in account_ids {
+        let account_id: AccountId = account_id.parse().unwrap();
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        account.set_contract(AccountContract::Local(*code.hash())).unwrap();
+        set_account(&mut state_update, account_id.clone(), &account);
+        state_update.set_code(account_id.clone(), &code);
+        let key = TrieKey::ContractData { account_id, key: b"k".to_vec() };
+        state_update.set(key, b"value".to_vec());
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = env.runtime.tries.store_update();
+    env.state_roots[0] = env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+}
+
+/// A call whose run fails with an error of the runtime fails the preparation, as such an error
+/// fails the application of a chunk. It is not a refusal of the contract. Here the contract asks for
+/// the total stake of an epoch that does not exist.
+#[test]
+fn test_prepare_transactions_fails_when_the_run_of_an_ecc_fails() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", FAILING_TAG), ecc("test2", 1)]);
+
+    let result = prepare_transactions_extra_in_state(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+        time_limits(None),
+        give_contracts(&["test1", "test2"]),
+        |context| context.epoch_id = EpochId(CryptoHash::hash_bytes(b"no such epoch")),
+    );
+
+    assert_matches!(result, Err(Error::EpochOutOfBounds(_)));
+}
+
+/// The size of the state that checking that the accounts hold a contract reads, which is all a
+/// preparation reads for ECCs that their contracts refuse.
+#[cfg(feature = "test_features")]
+fn recorded_size_of_contract_checks(env: &TestEnv, contracts: &[&str]) -> usize {
+    let shard_uid = test_shard_uid(env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let state_update = TrieUpdate::new(trie.recording_reads_new_recorder());
+    let wrapper = TrieUpdateWitnessSizeWrapper::new(state_update);
+    for contract_id in contracts {
+        assert!(account_holds_contract(&wrapper, &contract_id.parse().unwrap()).unwrap());
+    }
+    wrapper.recorded_storage_size()
+}
+
+/// The reads of a refused ECC stay out of the storage proof. Otherwise a later ECC would get the
+/// nodes the refused one read for free, and fit at the producer but not at apply.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_leaves_the_reads_of_refused_eccs_out_of_the_storage_proof() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+    let contracts = ["test1", "test2"];
+    deploy_ecc_contracts(&mut env, &contracts);
+    let mut refused = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, REFUSED_TAG)));
+    let mut accepted = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+    let (prepared_refused, _) = prepare_eccs(&env, &chain, &mut refused, HashSet::new(), &[]);
+    let (prepared_accepted, _) = prepare_eccs(&env, &chain, &mut accepted, HashSet::new(), &[]);
+
+    assert!(packed_eccs(&prepared_refused.transactions).is_empty());
+    assert_eq!(packed_eccs(&prepared_accepted.transactions).len(), 2);
+    // Nothing but the check of the contracts is in the proof of the refused ECCs. The accepted
+    // ones add what their runs read: the code length and the value of the contract.
+    let checks = recorded_size_of_contract_checks(&env, &contracts);
+    assert_eq!(prepared_refused.recorded_storage_size, checks);
+    assert!(prepared_accepted.recorded_storage_size > checks);
+}
+
+/// The preparation stops taking ECCs once what it read is over the soft limit of the storage
+/// proof, as it stops taking signed transactions.
+#[test]
+fn test_prepare_transactions_stops_taking_eccs_at_the_storage_proof_limit() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::StorageProofSize);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2);
+}
+
+/// Signed transactions go into the chunk before any ECC, whatever the order in the pool.
+#[test]
+fn test_prepare_transactions_packs_signed_transactions_before_eccs() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    for contract_id in ["test1", "test2", "test3", "test4"] {
+        assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
+    }
+    let num_signed_txs = pool.len() - 4;
+
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        &["test1", "test2", "test3", "test4"],
+    );
+
+    let kinds = prepared
+        .transactions
+        .iter()
+        .map(|tx| matches!(tx, ValidatedTransactionEnvelope::Signed(_)))
+        .collect_vec();
+    assert_eq!(kinds.len(), num_signed_txs + 4);
+    assert!(kinds[..num_signed_txs].iter().all(|is_signed| *is_signed));
+    assert!(kinds[num_signed_txs..].iter().all(|is_signed| !is_signed));
+}
+
+/// An ECC runs on the balance its contract has left after the signed transactions that are ahead of
+/// it in the chunk.
+#[test]
+fn test_prepare_transactions_runs_an_ecc_on_the_balance_signed_transactions_left() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let shard_uid = test_shard_uid(&env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let contract_id: AccountId = "test1".parse().unwrap();
+    let balance = get_account(&TrieUpdate::new(trie), &contract_id).unwrap().unwrap().amount();
+    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
+    let gas_price = env.runtime.genesis_config.min_gas_price;
+    let ecc_fee = ecc_cost(config, ecc("test1", 1).to_ecc(), gas_price).unwrap().burnt_amount;
+
+    // A transfer that leaves the contract one yocto short of the fees of the ECC.
+    let signer = InMemorySigner::test_signer(&contract_id);
+    let transfer = |deposit: Balance| {
+        SignedTransaction::send_money(
+            1,
+            contract_id.clone(),
+            "test2".parse().unwrap(),
+            &signer,
+            deposit,
+            env.head.prev_block_hash,
+        )
+    };
+    let fees = tx_cost(config, &transfer(Balance::ZERO).transaction, gas_price).unwrap().total_cost;
+    let left = ecc_fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let deposit = balance.checked_sub(fees).unwrap().checked_sub(left).unwrap();
+
+    let mut with_transfer = pool_with_eccs([ecc("test1", 1)]);
+    with_transfer.insert_transaction(ValidatedTransaction::new_for_test(transfer(deposit)));
+    let mut without_transfer = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut with_transfer, HashSet::new(), &["test1"]);
+    assert_eq!(signed_txs(&prepared.transactions).count(), 1);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(drain_eccs_from_pool(&mut with_transfer).is_empty());
+
+    let (prepared, _) =
+        prepare_eccs(&env, &chain, &mut without_transfer, HashSet::new(), &["test1"]);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+}
+
+#[cfg(feature = "test_features")]
+fn wait_until_ecc_thread_is_free(runtime: &NightshadeRuntime) {
+    while runtime.ecc_thread.is_busy() {
+        thread::yield_now();
+    }
+}
+
+/// An ECC that is not done by the deadline is left out of the chunk, and runs on in the
+/// background. If it had the whole time for ECCs to itself it is dropped, as it would not finish
+/// next time either. Until it is done the next chunks take no ECCs, and then they take them again.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_leaves_out_a_late_ecc_and_takes_no_others_while_it_runs() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    let contracts = ["test1", "test2"];
+    let limits = PrepareTransactionsTimeLimits { total: None, ecc: Duration::milliseconds(50) };
+    let prepare = |pool: &mut TransactionPool| {
+        let change_state = give_contracts(&contracts);
+        prepare_eccs_with_limits(&env, &chain, pool, HashSet::new(), limits, change_state, |_| {})
+    };
+
+    let mut pool = pool_with_eccs([held]);
+    let (prepared, skipped) = prepare(&mut pool);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
+    // It had the whole time to itself, so it is not put back.
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 0);
+    assert!(env.runtime.ecc_thread.is_busy());
+
+    // The run is going on, and no other ECC is taken, nor lost.
+    let mut pool = pool_with_eccs([ecc("test2", 1)]);
+    let (prepared, skipped) = prepare(&mut pool);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test2".to_string(), vec![1])]);
+
+    // Once it is done, ECCs are taken again.
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+    let mut pool = pool_with_eccs([ecc("test2", 1)]);
+    let (prepared, _) = prepare(&mut pool);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+}
+
+/// A late ECC that started late, because the signed transactions left less time than ECCs may
+/// take, is put back: it may finish in time when it has more.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_puts_back_a_late_ecc_that_started_late() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    // The time of the whole preparation ends before the time for ECCs does.
+    let limits = PrepareTransactionsTimeLimits {
+        total: Some(Duration::milliseconds(50)),
+        ecc: Duration::seconds(60),
+    };
+    let mut pool = pool_with_eccs([held]);
+
+    let (prepared, skipped) = prepare_eccs_with_limits(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        limits,
+        give_contracts(&["test1"]),
+        |_| {},
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
+    assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![held_hash]);
+    assert_eq!(pool.len(), 0);
+
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+}
+
+/// With no time for ECCs, none are taken, and they stay in the pool.
+#[test]
+fn test_prepare_transactions_takes_no_eccs_without_time_for_them() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    let num_signed_txs = pool.len();
+    assert_eq!(pool.insert_transaction(ecc("test1", 1)), InsertTransactionResult::Success);
+    let limits = PrepareTransactionsTimeLimits { total: None, ecc: Duration::ZERO };
+
+    let (prepared, _) = prepare_eccs_with_limits(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        limits,
+        give_contracts(&["test1"]),
+        |_| {},
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![1])]);
+}
+
+/// ECCs get their share of the time limit, or of the default limit if there is none, and a share
+/// of nothing or of the whole is kept within those bounds.
+#[test]
+fn test_time_limits_of_eccs() {
+    let ms = Duration::milliseconds;
+    let limits = |total, share| PrepareTransactionsTimeLimits::new(total, share).ecc;
+    assert_eq!(limits(Some(ms(200)), Rational32::new(1, 2)), ms(100));
+    assert_eq!(limits(Some(ms(300)), Rational32::new(1, 3)), ms(100));
+    assert_eq!(limits(Some(ms(200)), Rational32::new(0, 1)), Duration::ZERO);
+    assert_eq!(limits(Some(ms(200)), Rational32::new(-1, 2)), Duration::ZERO);
+    assert_eq!(limits(Some(ms(200)), Rational32::new(1, 1)), ms(200));
+    assert_eq!(limits(Some(ms(200)), Rational32::new(3, 2)), ms(200));
+    assert_eq!(limits(None, Rational32::new(1, 2)), ms(100));
+    assert_eq!(limits(None, Rational32::new(0, 1)), Duration::ZERO);
+    assert_eq!(PrepareTransactionsTimeLimits::new(None, Rational32::new(1, 2)).total, None);
 }
 
 /// TODO(spice): the producer does not pack ECCs under Spice yet, so they all stay in the pool.
@@ -3302,13 +3831,7 @@ fn test_strict_nonce_u64_max_not_included() {
         .prepare_transactions_extra(
             state_update,
             shard_id,
-            PrepareTransactionsBlockContext {
-                next_gas_price: env.runtime.genesis_config.min_gas_price,
-                height: env.head.height,
-                next_epoch_id,
-                congestion_info,
-                gas_limit: env.runtime.genesis_config.gas_limit,
-            },
+            block_context(&env, congestion_info, next_epoch_id),
             &mut PoolIteratorWrapper::new(&mut pool),
             &mut |tx: &SignedTransaction| -> bool {
                 chain
@@ -3319,7 +3842,7 @@ fn test_strict_nonce_u64_max_not_included() {
             &|_| true,
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
-            default_produce_chunk_add_transactions_time_limit(),
+            time_limits(default_produce_chunk_add_transactions_time_limit()),
             None,
         )
         .unwrap();
@@ -3387,6 +3910,9 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             PrepareTransactionsBlockContext {
                 next_gas_price: runtime.genesis_config.min_gas_price,
                 height: 0,
+                timestamp: 0,
+                epoch_id,
+                epoch_height: 0,
                 next_epoch_id: epoch_id,
                 congestion_info: Default::default(),
                 gas_limit: runtime.genesis_config.gas_limit,
@@ -3396,7 +3922,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             &|_| true,
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
-            None,
+            time_limits(None),
             None,
         )
         .unwrap();

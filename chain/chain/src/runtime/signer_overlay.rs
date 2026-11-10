@@ -64,6 +64,31 @@ impl SignerOverlay {
         self.entries.get(account_id)?.account.bootstrap_nonce()
     }
 
+    /// Returns the entry of the account, loading it from the trie on first access. `Ok(None)`
+    /// signals that the account does not exist.
+    fn account_entry_mut(
+        &mut self,
+        trie: &dyn TrieAccess,
+        account_id: &AccountId,
+    ) -> Result<Option<&mut AccountEntry>, StorageError> {
+        match self.entries.entry(account_id.clone()) {
+            Entry::Occupied(entry) => Ok(Some(entry.into_mut())),
+            Entry::Vacant(entry) => {
+                let Some(account) = get_account(trie, account_id)? else {
+                    return Ok(None);
+                };
+                Ok(Some(entry.insert(AccountEntry { account, keys: HashMap::new() })))
+            }
+        }
+    }
+
+    /// Returns the account if a transaction signed by it loaded it already, without loading it.
+    /// It is the account that those transactions paid from, so an ECC to a contract that signs
+    /// transactions has to see its balance after them.
+    pub fn loaded_account_mut(&mut self, account_id: &AccountId) -> Option<&mut Account> {
+        self.entries.get_mut(account_id).map(|entry| &mut entry.account)
+    }
+
     /// Returns mutable references to the account and per-key state, loading
     /// from the trie on first access. `Ok(None)` signals that the requested
     /// account, access key, or gas-key nonce does not exist in state. Storage
@@ -76,14 +101,8 @@ impl SignerOverlay {
         nonce_index: Option<NonceIndex>,
     ) -> Result<Option<(&mut Account, &mut KeyEntry)>, StorageError> {
         // Ensure the account is loaded.
-        let entry = match self.entries.entry(account_id.clone()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let Some(account) = get_account(trie, account_id)? else {
-                    return Ok(None);
-                };
-                entry.insert(AccountEntry { account, keys: HashMap::new() })
-            }
+        let Some(entry) = self.account_entry_mut(trie, account_id)? else {
+            return Ok(None);
         };
 
         // Destructure to split the borrow between account and keys.
@@ -176,6 +195,29 @@ mod tests {
         let mut overlay = SignerOverlay::new();
         let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0));
         assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn loaded_account_is_shared_with_the_key_entries() {
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None).unwrap().unwrap();
+
+        let account = overlay.loaded_account_mut(&alice()).unwrap();
+        account.set_amount(Balance::from_yoctonear(7));
+
+        let (account, _) =
+            overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None).unwrap().unwrap();
+        assert_eq!(account.amount(), Balance::from_yoctonear(7));
+    }
+
+    #[test]
+    fn account_is_not_loaded_by_asking_for_it() {
+        let mut overlay = SignerOverlay::new();
+        assert!(overlay.loaded_account_mut(&alice()).is_none());
     }
 
     #[test]
