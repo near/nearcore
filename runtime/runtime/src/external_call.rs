@@ -10,7 +10,6 @@
 //! processing state, so the chunk producer can call it to run a call before packing it, and
 //! make the same decision as apply.
 
-use crate::ApplyState;
 use crate::config::{EccCost, ecc_cost, safe_add_balance, safe_add_compute, safe_gas_to_balance};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
@@ -20,6 +19,7 @@ use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, record_contract_call};
 use crate::receipt_manager::ReceiptManager;
 use crate::verifier::{StorageStakingError, check_storage_stake, verify_ecc_ephemeral};
+use crate::{ApplyState, PrevBlockContext};
 use ahash::RandomState as AHashRandomState;
 use dashmap::DashMap;
 use near_parameters::RuntimeConfig;
@@ -35,13 +35,15 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, Compute, EpochInfoProvider, Gas, StateChangeCause,
+    AccountId, Balance, Compute, EpochId, EpochInfoProvider, Gas, ShardId, StateChangeCause,
+    VmGeneration,
 };
 use near_primitives::utils::create_ecc_outcome_id;
+use near_primitives::version::ProtocolVersion;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_account, set_account};
-use near_vm_runner::CompilePriority;
 use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
+use near_vm_runner::{CompilePriority, ContractRuntimeCache};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -52,7 +54,7 @@ use std::sync::Arc;
 /// The other rules on a chunk's external calls, one call per contract, a limit on their number
 /// and a share of the chunk's transaction bytes, make a chunk invalid, and are checked before
 /// apply.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternalCallsInChunk {
     compute: Compute,
     recorded_size: u64,
@@ -77,8 +79,13 @@ impl ExternalCallsInChunk {
         }
     }
 
-    /// Whether the chunk has room left in every share. What a call uses is known only once it
-    /// ran, so a chunk can pass each share by at most one call.
+    /// Whether the chunk has room left in every share, so that `process_external_call` takes the
+    /// next call. What a call uses is known only once it ran, so a chunk can pass each share by
+    /// at most one call.
+    pub fn has_room(&self) -> bool {
+        self.fits().is_ok()
+    }
+
     fn fits(&self) -> Result<(), InvalidTxError> {
         let (used, limit) = (self.compute, self.compute_share);
         if used >= limit {
@@ -188,6 +195,82 @@ pub fn process_external_call<'a>(
         processed.outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     external_calls.add(compute, recorded);
     Ok(processed)
+}
+
+/// What the chunk producer knows when it runs an ECC before packing it.
+///
+/// The run reads only these fields of the `ApplyState` that apply runs the call with, and the
+/// other fields are left empty. A run that starts reading another field has to get it here too:
+/// the dry run and apply have to reach the same verdict.
+pub struct EccDryRunContext {
+    pub shard_id: ShardId,
+    /// The epoch of the block the chunk is for.
+    pub epoch_id: EpochId,
+    pub protocol_version: ProtocolVersion,
+    pub config: Arc<RuntimeConfig>,
+    pub vm_generation: VmGeneration,
+    pub gas_price: Balance,
+    /// The chunk's parent block, which the run sees.
+    pub prev_block: PrevBlockContext,
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
+}
+
+/// What a dry run of an ECC found.
+#[derive(Debug)]
+pub enum EccDryRun {
+    /// The contract accepts the call and pays for it. `account` is its account after the call.
+    Accepted { account: Account, gas_burnt: Gas, compute_usage: Compute },
+    /// The call fails or the contract refuses it, and nobody pays.
+    Refused(TxExecutionError),
+}
+
+/// Runs an ECC as apply does, with `process_external_call`, on top of the state in
+/// `state_update`. The chunk producer uses it to pack only the calls that the contract accepts.
+///
+/// As in apply, an accepted call's writes are committed to `state_update`, so that the next
+/// call runs on top of them. A refused call leaves nothing in it. `external_calls` counts the
+/// call toward the shares whatever comes of it, so the caller keeps a copy to go back to if the
+/// call is refused: a refused call is not in the chunk, and apply does not count it.
+///
+/// `loaded_account` is the contract's account if the chunk's signed transactions have read it
+/// already, as apply does by then. Otherwise it is read from `state_update`, and the read counts
+/// toward the shares, as it does in apply.
+pub fn dry_run_external_call(
+    state_update: &mut TrieUpdate,
+    context: EccDryRunContext,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
+    ecc: &EccTransaction,
+) -> Result<EccDryRun, RuntimeError> {
+    let apply_state = ApplyState::for_ecc_dry_run(context);
+    let contract_id = ecc.contract_id();
+    let accounts = DashMap::with_hasher(AHashRandomState::new());
+    if let Some(account) = loaded_account {
+        accounts.insert(contract_id, Ok(Some(account)));
+    }
+    let ProcessedExternalCall { outcome, accepted } = process_external_call(
+        state_update,
+        &apply_state,
+        epoch_info_provider,
+        external_calls,
+        &accounts,
+        ecc,
+        None,
+    )?;
+    let outcome = outcome.outcome;
+    if !accepted {
+        let ExecutionStatus::Failure(error) = outcome.status else {
+            unreachable!("a refused external call has a failed outcome");
+        };
+        return Ok(EccDryRun::Refused(error));
+    }
+    let account = accounts
+        .get(contract_id)
+        .and_then(|entry| entry.value().as_ref().ok().cloned().flatten())
+        .expect("an accepted call leaves its contract's account in the map");
+    let compute_usage = outcome.compute_usage.expect("an ECC outcome reports its compute");
+    Ok(EccDryRun::Accepted { account, gas_burnt: outcome.gas_burnt, compute_usage })
 }
 
 /// Processes an external contract call that passed the check of the chunk's shares for ECCs,
