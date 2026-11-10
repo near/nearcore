@@ -37,6 +37,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
+use near_o11y::log_assert_fail;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::network::PeerId;
 use near_primitives::utils::DisplayOption;
@@ -455,6 +456,16 @@ impl PeerActor {
         frames: PeerMessageFrames,
         reserved_permit: Option<OutgoingPermit>,
     ) {
+        if frames.body.len() > msg.max_size() {
+            metrics::MessageDropped::TooLargeForType.inc_msg_type(msg.msg_variant());
+            log_assert_fail!(
+                "dropping outgoing {} message of {} bytes exceeding the size limit of {} bytes for its type",
+                msg.msg_variant(),
+                frames.body.len(),
+                msg.max_size(),
+            );
+            return;
+        }
         let bytes_len = frames.len();
         // Reserve capacity in the global outgoing-queue limiter. Pre-acquired reservations are
         // shrunk to the actual serialized size; everything else acquires now and drops the message

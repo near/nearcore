@@ -9,6 +9,7 @@ use bytesize::{KIB, MIB};
 use itertools::Itertools;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, Sender};
+use near_o11y::log_assert_fail;
 use near_o11y::metrics::Histogram;
 use std::io;
 use std::net::SocketAddr;
@@ -281,10 +282,13 @@ impl FramedStream {
             // Try writing a batch of messages and flush once at the end.
             loop {
                 let msg_len = frame.message.len();
-                // TODO(gprusak): sending a too large message should probably be treated as a bug,
-                // since dropping messages may lead to hard-to-debug high-level issues.
                 if frame.message.body.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
+                    log_assert_fail!(
+                        "dropping outgoing message of {} bytes exceeding the maximum network message size of {} bytes",
+                        frame.message.body.len(),
+                        NETWORK_MESSAGE_MAX_SIZE_BYTES,
+                    );
                 } else {
                     tokio::time::timeout(write_timeout, async {
                         // The header and the body are written together, so that a message is
