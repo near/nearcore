@@ -200,22 +200,6 @@ pub static TRANSACTION_PROCESSED_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::
     .unwrap()
 });
 
-pub static PREFETCH_ENQUEUED: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_prefetch_enqueued",
-        "Prefetch requests queued up",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-pub static PREFETCH_QUEUE_FULL: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_prefetch_queue_full",
-        "Prefetch requests failed to queue up",
-        &["shard_id"],
-    )
-    .unwrap()
-});
 pub static EXTERNAL_CALL_PROCESSED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_ecc_processed_total",

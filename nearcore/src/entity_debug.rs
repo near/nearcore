@@ -440,7 +440,7 @@ impl EntityDebugHandlerImpl {
                     TriePath::parse(trie_path).ok_or_else(|| anyhow!("Invalid path"))?;
                 // The shard uid and state root come from the request, so read straight from the
                 // state column rather than through `get_tries().get_trie_for_shard`, which would
-                // register a trie cache and prefetch threads per shard uid it is handed.
+                // register a trie cache per shard uid it is handed.
                 let storage = Arc::new(TrieDBStorage::new(
                     self.runtime.get_tries().store(),
                     trie_path.shard_uid,

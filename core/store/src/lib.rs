@@ -18,10 +18,9 @@ pub use crate::trie::update::{
 };
 pub use crate::trie::{
     ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
-    PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,
-    ShardTries, StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache,
-    TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
-    estimator,
+    RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS, ShardTries, StateSnapshot,
+    StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig,
+    TrieDBStorage, TrieStorage, WrappedTrieChanges, estimator,
 };
 pub use crate::utils::*;
 pub use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};

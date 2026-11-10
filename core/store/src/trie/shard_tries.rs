@@ -55,8 +55,6 @@ struct ShardTriesInner {
     /// Cache for readers.
     view_caches: Mutex<HashMap<ShardUId, TrieCache>>,
     flat_storage_manager: FlatStorageManager,
-    /// Prefetcher state, such as IO threads, per shard.
-    prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
     /// Provides access to the snapshot of the DB at the beginning of an epoch.
     // Needs a synchronization primitive because it can be concurrently accessed:
     // * writes by StateSnapshotActor
@@ -99,7 +97,6 @@ impl ShardTries {
             caches: Default::default(),
             view_caches: Default::default(),
             flat_storage_manager,
-            prefetchers: Default::default(),
             state_snapshot: Default::default(),
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
@@ -263,29 +260,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         is_view: bool,
     ) -> TrieCachingStorage {
-        // Do not enable prefetching on view caches.
-        // 1) Performance of view calls is not crucial.
-        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
-        //    If you want to enable it for view calls, at least make sure they don't share
-        //    the `PrefetchApi` instances with the normal calls.
-        let prefetch_enabled = !is_view && self.0.trie_config.prefetch_enabled();
-        let prefetch_api = prefetch_enabled.then(|| {
-            self.0
-                .prefetchers
-                .write()
-                .entry(shard_uid)
-                .or_insert_with(|| {
-                    PrefetchApi::new(
-                        self.0.store.clone(),
-                        cache.clone(),
-                        shard_uid,
-                        &self.0.trie_config,
-                    )
-                })
-                .0
-                .clone()
-        });
-        TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view, prefetch_api)
+        TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view)
     }
 
     fn apply_deletions_inner(

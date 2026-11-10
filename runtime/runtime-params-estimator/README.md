@@ -90,13 +90,5 @@ do
 done
 ```
 
-When running these command, make sure to run with `sequential` and to disable
-prefetching is disabled, or else the replaying modes that match requests to
-receipts will not work properly.
-
-```js
-// config.json
-  "store": {
-    "enable_receipt_prefetching": false
-  }
-```
+When running these commands, make sure to use `sequential`, or else the replaying
+modes that match requests to receipts will not work properly.
