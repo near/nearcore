@@ -91,7 +91,7 @@ fn handshake_tracked_shards_too_many() {
 }
 
 #[test]
-fn trace_context_roundtrips_span_context() {
+fn trace_context_round_trips_span_context() {
     use super::trace_context::TraceContext;
     use opentelemetry::Context;
     use opentelemetry::trace::{
