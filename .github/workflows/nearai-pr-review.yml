@@ -417,14 +417,18 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
 
       # Keeps the comment text when posting fails, so a long review is not lost.
-      # comment.md is written only after the key check above has passed.
+      # comment.md is written only after the review passes the API-key check
+      # in Post review. A failed upload does not fail the job.
       - name: Upload the review
         if: ${{ always() && steps.key-check.outputs.present == 'true' }}
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nearai-review-${{ env.PR_NUMBER }}
           path: ${{ runner.temp }}/comment.md
           if-no-files-found: ignore
+          # A re-run of the job uploads under the same name again.
+          overwrite: true
           retention-days: 14
 
       # Only for runs that failed before the post step. A failed post step does
