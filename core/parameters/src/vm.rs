@@ -249,6 +249,13 @@ pub struct Config {
     ///   signer shard.
     pub fix_ml_dsa_cost_charging: bool,
 
+    /// Enable the `FixRegisterInputCharging` protocol feature. The BLS12-381
+    /// host functions with a per-element cost and the yield resume host
+    /// functions charge from the length of the input they read, as all other
+    /// host functions do. Before, they charged from the `len` argument, which
+    /// is `u64::MAX` for register input.
+    pub fix_register_input_charging: bool,
+
     /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
     /// function.
     pub ml_dsa_verify_host_fn: bool,
@@ -302,6 +309,7 @@ impl Config {
         self.universal_accounts = true;
         self.canonical_universal_state_init = true;
         self.fix_ml_dsa_cost_charging = true;
+        self.fix_register_input_charging = true;
         self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
         self.bls12381_not_in_group_fix = true;

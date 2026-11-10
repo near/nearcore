@@ -3,6 +3,17 @@
 Here we provide a specification of trie API. After this NEP is merged, the cases where our current implementation does
 not follow the specification are considered to be bugs that need to be fixed.
 
+In an external call (see [Context API](ContextAPI.md)), the storage functions below can also panic with
+`RecordedStorageExceeded`: the trie nodes and values the call reads go into the chunk's storage proof, and an external
+call may add at most `max_external_call_recorded_size` (20 KiB) to it. A read that would record a value past the limit
+fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
+a `storage_remove` that crosses it. The call is then rejected, and nobody pays for it (see
+[Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)).
+
+Removals are costly in an external call. Each `storage_remove` counts toward the limit with a fixed estimate of 2000
+bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
+reads count as well. Larger cleanups belong in the receipts the call creates, once external calls can create them.
+
 ---
 
 #### storage_write
@@ -34,13 +45,8 @@ Writes key-value into storage.
 - If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
 - If the value is longer than `max_length_storage_value` (4,194,304 bytes) it panics with `ValueLengthExceeded`;
 - If called in a view call it panics with `ProhibitedInView`;
-
-###### Current bugs
-
-- `External::storage_set` trait can return an error which is then converted to a generic non-descriptive
-  `StorageUpdateError`, [here](https://github.com/nearprotocol/nearcore/blob/942bd7bdbba5fb3403e5c2f1ee3c08963947d0c6/runtime/wasm/src/runtime.rs#L210)
-  however the actual implementation does not return error at all, [see](https://github.com/nearprotocol/nearcore/blob/4773873b3cd680936bf206cebd56bdc3701ddca9/runtime/runtime/src/ext.rs#L95);
-- Does not return into the registers.
+- If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit` it panics with
+  `RecordedStorageExceeded`;
 
 ---
 
@@ -68,10 +74,8 @@ Reads the value stored under the given key.
 - If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`;
 - If returning the preempted value into the registers exceed the memory container it panics with `MemoryAccessViolation`;
 - If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
-
-###### Current bugs
-
-- This function currently does not exist.
+- If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit` it panics with
+  `RecordedStorageExceeded`;
 
 ---
 
@@ -103,10 +107,10 @@ Very similar to `storage_read`:
 - If returning the preempted value into the registers exceed the memory container it panics with `MemoryAccessViolation`;
 - If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
 - If called in a view call it panics with `ProhibitedInView`;
-
-###### Current bugs
-
-- Does not return into the registers.
+- If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit` it panics with
+  `RecordedStorageExceeded`;
+- If called in an external call and the removal, counted as 2000 bytes even if the key is not present, crosses
+  `max_external_call_recorded_size` it panics with `RecordedStorageExceeded` (see above);
 
 ---
 
@@ -128,6 +132,8 @@ Checks if there is a key-value pair.
 - If `key_len + key_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
 - If `key_len` is `u64::MAX` and `key_ptr` is an unused register it panics with `InvalidRegisterId`;
 - If the key is longer than `max_length_storage_key` (2,048 bytes) it panics with `KeyLengthExceeded`;
+- If the storage proof recorded for this receipt exceeds `per_receipt_storage_proof_size_limit` it panics with
+  `RecordedStorageExceeded`;
 
 ---
 
@@ -137,19 +143,7 @@ Checks if there is a key-value pair.
 storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64
 ```
 
-DEPRECATED, calling it will result in `HostError::Deprecated` error.
-Creates an iterator object inside the host.
-Returns the identifier that uniquely differentiates the given iterator from other iterators that can be simultaneously
-created.
-
-###### Normal operation
-
-- It iterates over the keys that have the provided prefix. The order of iteration is defined by the lexicographic
-  order of the bytes in the keys. If there are no keys, it creates an empty iterator, see below on empty iterators;
-
-###### Panics
-
-- If `prefix_len + prefix_ptr` exceeds the memory container it panics with `MemoryAccessViolation`;
+DEPRECATED, calling it will result in `HostError::Deprecated` error. It charges no gas.
 
 ---
 
@@ -159,20 +153,7 @@ created.
 storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64
 ```
 
-DEPRECATED, calling it will result in `HostError::Deprecated` error.
-Similarly to `storage_iter_prefix`
-creates an iterator object inside the host.
-
-###### Normal operation
-
-Unless lexicographically `start < end`, it creates an empty iterator.
-Iterates over all key-values such that keys are between `start` and `end`, where `start` is inclusive and `end` is exclusive.
-
-Note, this definition allows for `start` or `end` keys to not actually exist on the given trie.
-
-###### Panics
-
-- If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to an unused register it panics with `MemoryAccessViolation`;
+DEPRECATED, calling it will result in `HostError::Deprecated` error. It charges no gas.
 
 ---
 
@@ -182,25 +163,4 @@ Note, this definition allows for `start` or `end` keys to not actually exist on 
 storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64
 ```
 
-DEPRECATED, calling it will result in `HostError::Deprecated` error.
-Advances iterator and saves the next key and value in the register.
-
-###### Normal operation
-
-- If iterator is not empty (after calling next it points to a key-value), copies the key into `key_register_id` and value into `value_register_id` and returns `1`;
-- If iterator is empty returns `0`.
-
-This allows us to iterate over the keys that have zero bytes stored in values.
-
-###### Panics
-
-- If `key_register_id == value_register_id` panics with `MemoryAccessViolation`;
-- If the registers exceed the memory limit panics with `MemoryAccessViolation`;
-- If `iterator_id` does not correspond to an existing iterator panics with `InvalidIteratorId`
-- If between the creation of the iterator and calling `storage_iter_next` any modification to storage was done through
-  `storage_write` or `storage_remove` the iterator is invalidated and the error message is `IteratorWasInvalidated`.
-
-###### Current bugs
-
-- Not implemented, currently we have `storage_iter_next` and `data_read` + `DATA_TYPE_STORAGE_ITER` that together fulfill
-  the purpose, but have unspecified behavior.
+DEPRECATED, calling it will result in `HostError::Deprecated` error. It charges no gas.

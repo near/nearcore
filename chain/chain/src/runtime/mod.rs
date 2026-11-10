@@ -36,8 +36,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::{
-    NonceMode, SignedTransaction, TransactionEnvelope, ValidatedEcc, ValidatedTransaction,
-    ValidatedTransactionEnvelope,
+    ExternalCallsValidity, NonceMode, SignedTransaction, TransactionEnvelope, ValidatedEcc,
+    ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -387,6 +387,9 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
+                RuntimeError::ExternalCallWithoutRecorder => {
+                    Error::Other("external call run on a trie that doesn't record".to_string())
+                }
             })?;
         let elapsed = instant.elapsed();
 
@@ -948,16 +951,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut skipped_transactions: Vec<ValidatedTransactionEnvelope> = Vec::new();
         let mut num_checked_transactions = 0;
 
-        // ECCs go into the chunk only up to a limit, and only once there is a feature for them.
+        // ECCs go into the chunk only once there is a feature for them.
         // TODO(spice): pack ECCs under Spice as well.
         let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
             && !ProtocolFeature::Spice.enabled(protocol_version);
-        let mut num_eccs_left =
-            if eccs_allowed { runtime_config.max_eccs_per_chunk(prev_block.gas_limit) } else { 0 };
         let mut num_eccs_packed = 0;
-        // The contracts that have their ECC in the chunk. The groups come round after round, and
-        // a contract gets one ECC per chunk.
-        let mut contracts_in_chunk: HashSet<AccountId> = HashSet::new();
+        // The rules on a chunk's ECCs taken together, which a chunk that breaks is invalid: one
+        // per contract, a limit on their number, and a share of the chunk's transaction bytes.
+        let mut external_calls = ExternalCallsValidity::new(runtime_config);
         let deadline = time_limit.map(|limit| start_time + limit);
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
@@ -968,7 +969,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
+        'add_txs_loop: while let Some(group) =
+            transaction_groups.next_filtered(eccs_allowed && external_calls.has_room())
+        {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -1006,7 +1009,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         group,
                         &state_update,
                         &skip_tx_hashes,
-                        &contracts_in_chunk,
+                        &mut external_calls,
                         self.epoch_manager.as_ref(),
                         runtime_config,
                         &epoch_id,
@@ -1022,10 +1025,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                         break;
                     }
                     if let Some(ecc) = visit.packed {
-                        contracts_in_chunk.insert(ecc.contract_id().clone());
                         total_size += ecc.get_size();
                         prepared_transactions.transactions.push(ecc.into());
-                        num_eccs_left -= 1;
                         num_eccs_packed += 1;
                     }
                     continue;
@@ -1200,7 +1201,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_left, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, ecc_size = external_calls.size(), "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])
@@ -1823,12 +1824,14 @@ struct EccGroupVisit {
 /// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
 /// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
 /// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
-/// that does not fit in `size_left`. Takes nothing if the contract is in `contracts_in_chunk`.
+/// that does not fit in `size_left`, the room left in the chunk, or would break the rules on
+/// the chunk's ECCs taken together (`external_calls`). Takes nothing if the chunk holds an ECC
+/// to the contract already. The ECC it takes is added to `external_calls`.
 fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
     skip_tx_hashes: &HashSet<CryptoHash>,
-    contracts_in_chunk: &HashSet<AccountId>,
+    external_calls: &mut ExternalCallsValidity,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
@@ -1841,7 +1844,7 @@ fn take_ecc_from_group(
     let Some(contract_id) = group.peek_next().map(|ecc| ecc.contract_id()) else {
         return Ok(visit);
     };
-    if contracts_in_chunk.contains(contract_id) {
+    if external_calls.has_call_to(contract_id) {
         return Ok(visit);
     }
     let contract_id = contract_id.clone();
@@ -1864,13 +1867,13 @@ fn take_ecc_from_group(
             continue;
         }
         // Only the chunk that has room for it takes it. The others in the group wait behind it.
-        // TODO(ecc): cap the bytes all the ECCs of a chunk may take, to a share like the ones of
-        // the pool and of the gas, once the shares are picked. ECCs cost their sender nothing,
-        // and a few big ones to different contracts can take most of the room signed
-        // transactions share with them.
         if ecc.get_size() > size_left {
             break;
         }
+        // Committed only if the ECC is packed; dropped with it if it is discarded below.
+        let Ok(reservation) = external_calls.reserve(ecc.to_ecc()) else {
+            break;
+        };
         // Not between popping the ECC and putting it somewhere: an error must not lose it.
         let (accepted_by_congestion_control, has_contract) = match checks {
             Some(checks) => checks,
@@ -1894,6 +1897,7 @@ fn take_ecc_from_group(
             tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding ECC to an account with no contract");
             visit.num_rejected_without_contract += 1;
         } else {
+            reservation.commit();
             visit.packed = Some(ecc);
             break;
         }

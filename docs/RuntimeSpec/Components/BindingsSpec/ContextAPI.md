@@ -4,19 +4,6 @@ Context API mostly provides read-only functions that access current information 
 (that originally initiated the chain of cross-contract calls, the immediate contract that called the current one, the account of the current contract),
 other important information like storage usage.
 
-Many of the below functions are currently implemented through `data_read` which allows to read generic context data.
-However, there is no reason to have `data_read` instead of the specific functions:
-
-- `data_read` does not solve forward compatibility. If later we want to add another context function, e.g. `executed_operations`
-  we can just declare it as a new function, instead of encoding it as `DATA_TYPE_EXECUTED_OPERATIONS = 42` which is passed
-  as the first argument to `data_read`;
-- `data_read` does not help with renaming. If later we decide to rename `signer_account_id` to `originator_id` then one could
-  argue that contracts that rely on `data_read` would not break, while contracts relying on `signer_account_id()` would. However
-  the name change often means the change of the semantics, which means the contracts using this function are no longer safe to
-  execute anyway.
-
-However there is one reason to not have `data_read` -- it makes `API` more human-like which is a general direction Wasm APIs, like WASI are moving towards to.
-
 Some of the functions below behave differently depending on how the contract execution was initiated:
 
 - an **internal** call executes a receipt, created by a transaction or by a cross-contract call;
@@ -26,7 +13,8 @@ Some of the functions below behave differently depending on how the contract exe
   An external call runs the contract method with the reserved name `__nightly_external_call` (the name will change
   when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
   action to it fails with `ReservedMethodName`. For now, an external call that creates a promise or resumes a
-  yielded one is rejected. This limitation will be lifted in future work on this feature.
+  yielded one is rejected. This limitation will be lifted in future work on this feature. An external call's
+  storage reads are limited too (see [Trie API](TrieAPI.md)).
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
   doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
@@ -55,6 +43,7 @@ signer_account_id(register_id: u64)
 
 All contract calls are a result of some transaction that was signed by some account using
 some access key and submitted into a memory pool (either through the wallet using RPC or by a node itself). This function returns the id of that account.
+For a receipt created from a delegate action (meta transaction), this is the relayer that signed the outer transaction.
 
 ###### Normal operation
 
@@ -67,10 +56,6 @@ some access key and submitted into a memory pool (either through the wallet usin
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
 - If called in a view function panics with `ProhibitedInView`.
 
-###### Current bugs
-
-- Currently we conflate `originator_id` and `sender_id` in our code base.
-
 ---
 
 #### signer_account_pk
@@ -82,16 +67,14 @@ signer_account_pk(register_id: u64)
 Saves the public key fo the access key that was used by the signer into the register.
 In rare situations smart contract might want to know the exact access key that was used to send the original transaction,
 e.g. to increase the allowance or manipulate with the public key.
+The key is borsh-encoded: one key type byte (0 ed25519, 1 secp256k1, 2 ML-DSA-65), then the key bytes.
+For a receipt created from a delegate action, this is the relayer's key.
 
 ###### Panics
 
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
 - If called in a view function panics with `ProhibitedInView`;
 - If called in an external call panics with `ProhibitedInExternalCall`.
-
-###### Current bugs
-
-- Not implemented.
 
 ---
 
@@ -114,10 +97,6 @@ that does function invocation on the contract or another contract as a result of
 - If called in a view function panics with `ProhibitedInView`;
 - If called in an external call panics with `ProhibitedInExternalCall`.
 
-###### Current bugs
-
-- Not implemented.
-
 ---
 
 #### refund_to_account_id
@@ -139,10 +118,6 @@ can set this to another account id when sending the receipt.
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
 - If called in a view function panics with `ProhibitedInView`.
 
-###### Current bugs
-
-- Not implemented.
-
 ---
 
 #### input
@@ -156,21 +131,11 @@ Reads input to the contract call into the register. Input is expected to be in J
 ###### Normal operation
 
 - If input is provided saves the bytes (potentially zero) of input into register.
-- If input is not provided does not modify the register.
-
-###### Returns
-
-- If input was not provided returns `0`;
-- If input was provided returns `1`; If input is zero bytes returns `1`, too.
+- If input is not provided writes 0 bytes into the register.
 
 ###### Panics
 
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
-
-###### Current bugs
-
-- Implemented as part of `data_read`. However there is no reason to have one unified function, like `data_read` that can
-  be used to read all
 
 ---
 
@@ -213,4 +178,4 @@ Returns the number of bytes used by the contract if it was saved to the trie as 
 invocation. This includes:
 
 - The data written with `storage_*` functions during current and previous execution;
-- The bytes needed to store the account protobuf and the access keys of the given account.
+- The bytes needed to store the account and the access keys of the given account.
