@@ -190,7 +190,7 @@ pub fn resolve_receipt_via_hint(
                     tracing::debug!(
                         %outcome_id,
                         height,
-                        "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
+                        "outcome id is both a transaction's outcome and in DBCol::Receipts; \
                          skipping ambiguous classification"
                     );
                     continue;

@@ -302,7 +302,8 @@ mod tests {
         assert_eq!(legacy.wait_until, TxExecutionStatus::Included);
     }
 
-    // `tx` looks a transaction up by its signer, which an ECC does not have
+    // The one-param form decodes only a signed transaction. `tx` finds an ECC by its unique id,
+    // with its contract as the sender.
     #[test]
     fn test_serialize_tx_status_params_with_ecc() {
         let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![1, 2, 3]);
