@@ -29,7 +29,7 @@ near-o11y.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
 
-nearcore.workspace = true
+nearcore = { workspace = true, features = ["json_rpc"] }
 near-chain-configs.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true

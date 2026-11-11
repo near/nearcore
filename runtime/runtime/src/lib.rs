@@ -11,7 +11,8 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 pub use crate::external_call::{
-    ExternalCallsInChunk, ProcessedExternalCall, process_external_call,
+    EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
+    dry_run_external_call, process_external_call,
 };
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
@@ -76,9 +77,9 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
-use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
+use near_store::trie::{AccessOptions, NewTrieNodes};
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
@@ -102,6 +103,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
 use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
@@ -140,6 +142,17 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 pub struct PostState {
     pub trie_update: TrieUpdate,
+    /// The nodes that the apply of the chunk added to the trie, which it sends once it has
+    /// finalized the changes in `trie_update`, later than it calls the callback with the post
+    /// state. The sender is dropped without sending if the apply fails.
+    pub new_nodes: Receiver<PostStateNodes>,
+}
+
+/// What the apply of a chunk added to the trie, with the state root it led to.
+#[derive(Debug)]
+pub struct PostStateNodes {
+    pub state_root: StateRoot,
+    pub nodes: NewTrieNodes,
 }
 
 impl Debug for PostState {
@@ -246,6 +259,44 @@ pub struct ApplyState {
 }
 
 impl ApplyState {
+    /// The state the chunk producer runs an ECC with before packing it. See `EccDryRunContext`.
+    pub(crate) fn for_ecc_dry_run(context: EccDryRunContext) -> Self {
+        let EccDryRunContext {
+            shard_id,
+            epoch_id,
+            protocol_version,
+            config,
+            vm_generation,
+            gas_price,
+            prev_block,
+            cache,
+        } = context;
+        Self {
+            // The producer tracks the shard, so this is the reason apply runs the call with.
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height: prev_block.height + 1,
+            shard_id,
+            epoch_id,
+            epoch_height: prev_block.epoch_height,
+            gas_price,
+            block_timestamp: prev_block.timestamp,
+            gas_limit: None,
+            random_seed: CryptoHash::default(),
+            prev_block,
+            current_protocol_version: protocol_version,
+            config,
+            next_wasm_config: None,
+            vm_generation,
+            cache,
+            trie_access_tracker_state: Default::default(),
+            is_new_chunk: true,
+            save_receipt_to_tx: false,
+            congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
+            on_post_state_ready: None,
+        }
+    }
+
     pub fn create_receipt_id(
         &self,
         parent_receipt_id: &CryptoHash,
@@ -2913,13 +2964,25 @@ impl Runtime {
             .observe(chunk_recorded_size_upper_bound);
 
         // Call `on_post_state_ready` with a clone of the `state_update` if requested.
-        if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
-            let post_state = PostState { trie_update: state_update.clone_for_tx_preparation() };
-            let callback = &on_post_state_ready.callback;
-            callback(post_state);
-        }
+        let new_nodes_sender =
+            apply_state.on_post_state_ready.as_ref().map(|on_post_state_ready| {
+                let (sender, new_nodes) = mpsc::channel();
+                let trie_update = state_update.clone_for_tx_preparation();
+                let callback = &on_post_state_ready.callback;
+                callback(PostState { trie_update, new_nodes });
+                sender
+            });
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
             state_update.finalize()?;
+        // Only ECCs read the nodes, so there is no copy of them before there are ECCs. Without it
+        // the sender is dropped, as if apply failed, and nobody waits for them.
+        let ecc_enabled =
+            ProtocolFeature::ExternalContractCalls.enabled(apply_state.current_protocol_version);
+        if let Some(sender) = new_nodes_sender.filter(|_| ecc_enabled) {
+            let nodes = NewTrieNodes::from_changes(&trie_changes);
+            // Nobody receives them if the job that wanted them is gone.
+            let _ = sender.send(PostStateNodes { state_root: trie_changes.new_root, nodes });
+        }
 
         if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt

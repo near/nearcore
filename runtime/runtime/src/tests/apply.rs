@@ -14,6 +14,10 @@ use crate::{
     ActionResult, ApplyResult, ApplyState, PrevBlockContext, Runtime, ValidatorAccountsUpdate,
     action_add_key,
 };
+use crate::{
+    EccDryRun, EccDryRunContext, ExternalCallsInChunk, PostState, PostStateNodes,
+    PostStateReadyCallback, dry_run_external_call,
+};
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use bytesize::ByteSize;
@@ -74,8 +78,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::chains::{MAINNET, TESTNET};
 use near_store::test_utils::TestTriesBuilder;
-use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
+use near_store::trie::{AccessOptions, NewTrieNodes};
 use near_store::{
     KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
@@ -84,9 +88,11 @@ use near_store::{
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
+use std::sync::mpsc::TryRecvError;
 use testlib::runtime_utils::{alice_account, bob_account, carol_account};
 
 mod contract_compilation_status;
@@ -1796,6 +1802,473 @@ fn test_apply_ecc_refused_lack_balance_for_storage() {
             },
         })
     );
+}
+
+/// Dry-runs the ECC from `ecc_to_bob` on top of `root`, as the chunk producer does before packing
+/// it, and counts it toward `external_calls`. `loaded_account` is bob's account if the producer has
+/// it loaded already. Returns the verdict and what bob's contract stored under `ECC_KEY` in the
+/// state the run left.
+fn dry_run_ecc_to_bob_loaded(
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    dry_run_ecc_to_bob_on_trie(
+        trie,
+        apply_state,
+        epoch_info_provider,
+        external_calls,
+        loaded_account,
+    )
+}
+
+/// Like `dry_run_ecc_to_bob_loaded`, on any `trie`, such as one over the nodes that a chunk added.
+fn dry_run_ecc_to_bob_on_trie(
+    trie: Trie,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    // The trie records its reads, as the producer's does.
+    let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
+    let context = EccDryRunContext {
+        shard_id: apply_state.shard_id,
+        epoch_id: apply_state.epoch_id,
+        protocol_version: apply_state.current_protocol_version,
+        config: Arc::clone(&apply_state.config),
+        vm_generation: apply_state.vm_generation,
+        gas_price: apply_state.gas_price,
+        prev_block: apply_state.prev_block.clone(),
+        cache: None,
+    };
+    let dry_run = dry_run_external_call(
+        &mut state,
+        context,
+        epoch_info_provider,
+        external_calls,
+        loaded_account,
+        &ecc_to_bob(),
+    )
+    .unwrap();
+    let key = TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() };
+    let written = state.get(&key, AccessOptions::DEFAULT).unwrap();
+    (dry_run, written)
+}
+
+/// Like `dry_run_ecc_to_bob_loaded`, with bob's account not loaded.
+fn dry_run_ecc_to_bob_counting(
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    dry_run_ecc_to_bob_loaded(tries, root, apply_state, epoch_info_provider, external_calls, None)
+}
+
+/// Like `dry_run_ecc_to_bob_counting`, for a chunk with no ECCs before this one.
+fn dry_run_ecc_to_bob(
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> (EccDryRun, Option<Vec<u8>>) {
+    let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+    dry_run_ecc_to_bob_counting(tries, root, apply_state, epoch_info_provider, &mut external_calls)
+}
+
+/// The dry run of an ECC ends as apply does: it accepts the calls that apply accepts, with the
+/// same gas, compute, contract account and writes, and refuses the calls that apply refuses, with
+/// the same error and no writes.
+#[test]
+fn test_dry_run_ecc_matches_apply() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (charge, storage_usage) = accepted_ecc_charge_and_storage_usage();
+    let config = RuntimeConfig::test();
+    let storage_stake = config.storage_amount_per_byte().checked_mul(storage_usage.into()).unwrap();
+    let fee = ecc_cost(&config, &ecc_to_bob(), GAS_PRICE).unwrap().burnt_amount;
+    let rich = Balance::from_near(1_000);
+    let cases = [
+        ("accepted", ecc_accepting_contract(), rich, Balance::ZERO),
+        ("panic", ecc_contract("(call $write_payload) unreachable"), rich, Balance::ZERO),
+        (
+            "random seed",
+            ecc_contract("(call $write_payload) (call $random_seed (i64.const 1))"),
+            rich,
+            Balance::ZERO,
+        ),
+        (
+            "out of gas",
+            ecc_contract("(call $write_payload) (loop $forever (br $forever))"),
+            rich,
+            Balance::ZERO,
+        ),
+        (
+            "promise",
+            ecc_contract(
+                "(call $write_payload) \
+                 (drop (call $promise_batch_create (i64.const 10) (i64.const 24)))",
+            ),
+            rich,
+            Balance::ZERO,
+        ),
+        (
+            "not enough balance for the run",
+            ecc_accepting_contract(),
+            charge.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+            Balance::from_near(1_000),
+        ),
+        (
+            "not enough balance for the fees",
+            ecc_accepting_contract(),
+            fee.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+            Balance::from_near(1_000),
+        ),
+        (
+            "lack balance for storage",
+            ecc_accepting_contract(),
+            charge,
+            storage_stake.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+        ),
+    ];
+    for (name, code, amount, locked) in cases {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_ecc_contract(code, amount, locked);
+        let (dry_run, dry_run_written) =
+            dry_run_ecc_to_bob(&tries, root, &apply_state, &epoch_info_provider);
+        let (root, apply_result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root,
+            &apply_state,
+            vec![ecc_to_bob().into()],
+            &epoch_info_provider,
+        );
+        let outcome = &apply_result.outcomes[0].outcome;
+        let (bob, written) = bob_ecc_state(&tries, root);
+        assert_eq!(dry_run_written, written, "{name}");
+        match dry_run {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+                assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
+                assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
+                assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
+                assert_eq!(bob, account, "{name}");
+            }
+            EccDryRun::Refused(error) => {
+                assert_eq!(outcome.status, ExecutionStatus::Failure(error), "{name}");
+            }
+        }
+    }
+}
+
+/// The dry run keeps a run to the recording budget as apply does: it stops a run that reads too
+/// much with the same error, and accepts one that reads a value just under the budget. Its
+/// recorder starts empty, so it never records less of a call than apply does.
+#[test]
+fn test_dry_run_ecc_recording_budget_matches_apply() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let num_values = many_values(&RuntimeConfig::test()).len() as u64;
+    let read_many = ecc_body_on_keys("storage_read", 0, num_values);
+    let read_large = ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1);
+    let cases: [(&str, &str, fn(&RuntimeConfig) -> Vec<(Vec<u8>, Vec<u8>)>); 2] = [
+        ("many reads", &read_many, many_values),
+        ("value under the cap", &read_large, |config| vec![value_under_the_cap(config)]),
+    ];
+    for (name, body, data) in cases {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_ecc_contract(ecc_contract(body), Balance::from_near(1_000), Balance::ZERO);
+        let root = set_contract_data(&tries, root, &bob_account(), data(&apply_state.config));
+
+        let (dry_run, _) = dry_run_ecc_to_bob(&tries, root, &apply_state, &epoch_info_provider);
+
+        let (root, apply_result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root,
+            &apply_state,
+            vec![ecc_to_bob().into()],
+            &epoch_info_provider,
+        );
+        let status = &apply_result.outcomes[0].outcome.status;
+        match dry_run {
+            EccDryRun::Accepted { account, .. } => {
+                assert_matches!(status, ExecutionStatus::SuccessValue(_), "{name}");
+                assert_eq!(bob_ecc_state(&tries, root).0, account, "{name}");
+            }
+            EccDryRun::Refused(error) => {
+                assert_eq!(error, recorded_storage_exceeded(&apply_state.config), "{name}");
+                assert_eq!(status, &ExecutionStatus::Failure(error), "{name}");
+            }
+        }
+    }
+}
+
+/// The dry run counts the read of the contract's account toward the storage proof share, as apply
+/// does when it processes the call. It does not if the account is loaded already, which apply has
+/// when the chunk has a signed transaction of the contract: then apply read it earlier.
+#[test]
+fn test_dry_run_ecc_counts_the_account_read_unless_it_is_loaded() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (_, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let bob = get_account(&tries.new_trie_update(ShardUId::single_shard(), root), &bob_account())
+        .unwrap()
+        .unwrap();
+    let recorded = |loaded_account: Option<Account>| {
+        let mut external_calls =
+            ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+        let (dry_run, _) = dry_run_ecc_to_bob_loaded(
+            &tries,
+            root,
+            &apply_state,
+            &epoch_info_provider,
+            &mut external_calls,
+            loaded_account,
+        );
+        assert_matches!(dry_run, EccDryRun::Accepted { .. });
+        external_calls.recorded_size()
+    };
+
+    let account_read = recorded(None) - recorded(Some(bob));
+
+    assert!(account_read > 0, "the read of the account is not counted");
+}
+
+/// The dry run counts a call toward the shares for ECCs, and refuses a call past them without
+/// running it, as apply does.
+#[test]
+fn test_dry_run_ecc_counts_toward_the_shares() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (_, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let gas_limit = apply_state.gas_limit.unwrap();
+    let config = Arc::make_mut(&mut apply_state.config);
+    config.external_calls_config.chunk_compute_share = tiny_share(gas_limit.as_gas());
+    let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+    assert!(external_calls.has_room());
+
+    let (first, _) = dry_run_ecc_to_bob_counting(
+        &tries,
+        root,
+        &apply_state,
+        &epoch_info_provider,
+        &mut external_calls,
+    );
+    assert_matches!(first, EccDryRun::Accepted { .. });
+    assert!(!external_calls.has_room());
+
+    let (second, written) = dry_run_ecc_to_bob_counting(
+        &tries,
+        root,
+        &apply_state,
+        &epoch_info_provider,
+        &mut external_calls,
+    );
+    let EccDryRun::Refused(error) = second else { panic!("expected the call to be refused") };
+    assert_matches!(
+        error,
+        TxExecutionError::InvalidTxError(InvalidTxError::ExternalCallChunkShareReached {
+            share: ExternalCallChunkLimit::Compute { .. }
+        })
+    );
+    assert_eq!(written, None);
+}
+
+/// Apply gives early preparation the nodes that it added right after it finalized its changes, and
+/// the state root they lead to. They are enough to read the chunk's state before the chunk's
+/// changes are stored: the chunk here is an ECC that writes to its contract, and its charge.
+#[test]
+fn test_apply_sends_the_nodes_it_added_after_finalizing() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
+    let post_state = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&post_state);
+    apply_state.on_post_state_ready =
+        Some(PostStateReadyCallback::new(move |state| *captured.lock() = Some(state)));
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(
+                vec![TransactionEnvelope::from(ecc_to_bob())],
+                vec![true],
+            ),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let PostState { trie_update, new_nodes } =
+        post_state.lock().take().expect("apply calls the callback");
+    // The post state has the chunk's changes pending, and the nodes come with the state root.
+    assert!(trie_update.committed_len() > 0);
+    let PostStateNodes { state_root, nodes } =
+        new_nodes.try_recv().expect("apply sends the nodes before it returns");
+    assert_eq!(state_root, apply_result.state_root);
+    // The changes are not stored: only a trie that has the nodes reads them.
+    let trie = tries.get_trie_with_new_nodes(ShardUId::single_shard(), state_root, nodes);
+    let state = TrieUpdate::new(trie.recording_reads_new_recorder());
+    let bob = get_account(&state, &bob_account()).unwrap().unwrap();
+    let key = TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() };
+    assert_eq!(state.get(&key, AccessOptions::DEFAULT).unwrap().as_deref(), Some(ECC_PAYLOAD));
+    let mut store_update = tries.store_update();
+    let root_after =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    assert_eq!(root_after, state_root);
+    assert_eq!(bob_ecc_state(&tries, root_after).0, bob);
+}
+
+/// Apply sends no nodes before the ECC feature, and drops the sender, as when it fails, so
+/// nobody waits for them.
+#[test]
+fn test_apply_sends_no_nodes_before_the_feature() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::ExternalContractCalls.protocol_version() - 1;
+    let post_state = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&post_state);
+    apply_state.on_post_state_ready =
+        Some(PostStateReadyCallback::new(move |state| *captured.lock() = Some(state)));
+
+    runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(Vec::<TransactionEnvelope>::new(), vec![]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let PostState { new_nodes, .. } = post_state.lock().take().expect("apply calls the callback");
+    assert_matches!(new_nodes.try_recv(), Err(TryRecvError::Disconnected));
+}
+
+/// Early preparation runs an ECC on a trie at the new state root of the parent chunk, served from
+/// the nodes that the parent's apply added, before the parent's changes are stored. The ECC reads
+/// what the parent wrote, which is where its dry run used to differ from the apply of the next
+/// chunk. The dry run ends as that apply does, with the same gas, compute and account, or with the
+/// same error for a read past the recording budget, and records the same as a dry run on the
+/// stored state. The ECC reads a value that the parent wrote, just under the budget and just over.
+#[test]
+fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let read_value = ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1);
+    let cases: [(&str, fn(&RuntimeConfig) -> (Vec<u8>, Vec<u8>)); 2] =
+        [("value under the cap", value_under_the_cap), ("value over the cap", large_value)];
+    let shard_uid = ShardUId::single_shard();
+    for (name, parent_value) in cases {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_ecc_contract(ecc_contract(&read_value), Balance::from_near(1_000), Balance::ZERO);
+        let new_ecc_calls =
+            || ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
+
+        // The parent chunk writes the value. Its apply has finalized the changes, which are not
+        // stored yet.
+        let (key, value) = parent_value(&apply_state.config);
+        let mut parent = tries.new_trie_update(shard_uid, root);
+        parent.set(TrieKey::ContractData { account_id: bob_account(), key }, value);
+        parent.commit(StateChangeCause::InitialState);
+        let parent_changes = parent.finalize().unwrap().trie_changes;
+
+        // Early preparation dry-runs the ECC on a trie that has the parent's new nodes.
+        let new_nodes = NewTrieNodes::from_changes(&parent_changes);
+        let parent_trie =
+            tries.get_trie_with_new_nodes(shard_uid, parent_changes.new_root, new_nodes);
+        let mut early_calls = new_ecc_calls();
+        let (early, _) = dry_run_ecc_to_bob_on_trie(
+            parent_trie,
+            &apply_state,
+            &epoch_info_provider,
+            &mut early_calls,
+            None,
+        );
+
+        // The parent's changes are stored, and the producer's normal path dry-runs the ECC on them.
+        let mut store_update = tries.store_update();
+        let root_after_parent = tries.apply_all(&parent_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        let mut stored_calls = new_ecc_calls();
+        dry_run_ecc_to_bob_counting(
+            &tries,
+            root_after_parent,
+            &apply_state,
+            &epoch_info_provider,
+            &mut stored_calls,
+        );
+        assert_eq!(early_calls.recorded_size(), stored_calls.recorded_size(), "{name}");
+
+        // The next chunk applies the ECC.
+        let (root_after_ecc, apply_result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root_after_parent,
+            &apply_state,
+            vec![ecc_to_bob().into()],
+            &epoch_info_provider,
+        );
+        let outcome = &apply_result.outcomes[0].outcome;
+        match early {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+                assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
+                assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
+                assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
+                assert_eq!(bob_ecc_state(&tries, root_after_ecc).0, account, "{name}");
+            }
+            EccDryRun::Refused(error) => {
+                assert_eq!(error, recorded_storage_exceeded(&apply_state.config), "{name}");
+                assert_eq!(outcome.status, ExecutionStatus::Failure(error), "{name}");
+            }
+        }
+    }
+}
+
+/// The dry run refuses a call to an account with no contract with the error apply gives.
+#[test]
+fn test_dry_run_ecc_refuses_account_without_contract_as_apply_does() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+
+    let (dry_run, _) = dry_run_ecc_to_bob(&tries, root, &apply_state, &epoch_info_provider);
+
+    let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
+    assert_matches!(dry_run, EccDryRun::Refused(error) if error == refused.error);
 }
 
 /// Applies a chunk with only `ecc`, to a contract with `code`. Returns the ECC's outcome and the

@@ -295,6 +295,41 @@ that the chunk processes no receipts, at no cost to anyone and with the chunk
 still produced and rewarded. The work of rejecting such calls is bounded by
 `max_external_calls_per_chunk` instead.
 
+The producer puts signed transactions into the chunk first, and then runs the
+calls one at a time on a thread of their own, on the state at the start of the
+chunk. A call sees its contract's balance after the signed transactions ahead of
+it in the chunk, and only the state read by a call that is accepted counts toward
+the chunk's storage proof. The producer counts each accepted call toward the
+compute and storage proof shares as apply does, and takes no more calls once one
+of them has no room, leaving the rest in the pool. It counts the storage proof
+of each call alone, so a trie node shared with an earlier call counts again, and
+a chunk may hold fewer calls than apply would admit. A contract's run stops only
+when it ends or runs out of gas, so the producer waits for a call only for what
+is left of the time limit for adding transactions
+(`produce_chunk_add_transactions_time_limit`) after the signed ones, and at most
+`ecc_time_share` of it (1/2 by default). A call that is not done by then is left
+out of the chunk and runs on in the background, and the producer takes no other
+call until it is done. The call is dropped from the pool if it had the whole
+share to itself, since it would not finish next time either, and stays in the
+pool otherwise. `ecc_pool_size_share` (1/10 by default) is the
+share of the transaction pool that calls may fill. Setting either share to zero
+keeps calls out of chunks, or out of the pool.
+
+Early preparation of the next chunk starts before the changes of the parent
+chunk are in a trie, so the calls would read what the parent wrote from those
+pending changes, which records nothing, while apply reads it from the trie. The
+producer runs the calls on a trie at the parent's new state root instead. Its
+nodes are the ones that the parent's apply sends once it has finalized its
+changes, and the store has the rest, so the calls read and record what apply
+does. The first call waits for the nodes, until the end of the time limit for
+the whole preparation, or for the time of the calls if there is no such limit,
+and the time of the calls starts when the nodes are there. If they do not come
+in time, if the apply of the parent fails, or if the preparation is cancelled,
+no call goes into that chunk and the calls stay in the pool. The trie has no
+memtrie, so its reads come from the store and are slower. Signed transactions
+still read what the parent wrote from the pending changes, which records
+nothing.
+
 An accepted call's promises become receipts, as a function call's do. Every
 receipt in the chain they start has the contract as its signer and names the
 external call as what authorized it, so gas refunds go to the contract's

@@ -17,7 +17,7 @@ rocksdb.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore.workspace = true
+nearcore = { workspace = true, features = ["json_rpc"] }
 near-async.workspace = true
 near-client.workspace = true
 near-client-primitives.workspace = true

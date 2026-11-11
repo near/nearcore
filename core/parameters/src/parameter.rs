@@ -266,6 +266,8 @@ pub enum Parameter {
     // Flag for the `CanonicalUniversalStateInit` protocol feature.
     CanonicalUniversalStateInit,
     FixMlDsaCostCharging,
+    // Flag for the `FixRegisterInputCharging` protocol feature.
+    FixRegisterInputCharging,
 
     // Congestion Control
     MaxCongestionIncomingGas,

@@ -13,7 +13,9 @@ pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
+pub use crate::trie::trie_storage::{
+    NewTrieNodes, TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
@@ -674,6 +676,14 @@ impl Trie {
         trie.recorder = Some(recorder);
         trie.use_access_tracker = self.use_access_tracker;
         trie
+    }
+
+    /// Adds what `other` recorded to what this trie records. Does nothing if either of them does
+    /// not record.
+    pub fn merge_recorded(&self, other: &Trie) {
+        if let (Some(recorder), Some(other)) = (&self.recorder, &other.recorder) {
+            recorder.merge(other);
+        }
     }
 
     /// Takes the recorded state proof out of the trie.
