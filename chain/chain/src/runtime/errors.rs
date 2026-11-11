@@ -21,6 +21,12 @@ impl QueryError {
             CallFunctionError::UninitializedAccount { requested_account_id } => {
                 Self::UninitializedAccount { requested_account_id, block_height, block_hash }
             }
+            CallFunctionError::InvalidStateInit { error } => {
+                Self::InvalidStateInit { error, block_height, block_hash }
+            }
+            CallFunctionError::NoGlobalContractCode { identifier } => {
+                Self::NoGlobalContractCode { identifier, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::CallFunctionError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },

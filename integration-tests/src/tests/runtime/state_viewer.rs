@@ -125,6 +125,7 @@ fn test_view_call() {
         &"test.contract".parse().unwrap(),
         "run_test",
         &[],
+        None,
         &mut logs,
         &MockEpochInfoProvider::default(),
     );
@@ -153,6 +154,7 @@ fn test_view_call_try_changing_storage() {
         &"test.contract".parse().unwrap(),
         "run_test_with_storage_change",
         &[],
+        None,
         &mut logs,
         &MockEpochInfoProvider::default(),
     );
@@ -185,6 +187,7 @@ fn test_view_call_with_args() {
         &"test.contract".parse().unwrap(),
         "sum_with_input",
         &args,
+        None,
         &mut logs,
         &MockEpochInfoProvider::default(),
     );
@@ -430,6 +433,7 @@ fn test_log_when_panic() {
             &"test.contract".parse().unwrap(),
             "panic_after_logging",
             &[],
+            None,
             &mut logs,
             &MockEpochInfoProvider::default(),
         )

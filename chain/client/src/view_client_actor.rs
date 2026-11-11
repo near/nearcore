@@ -469,6 +469,9 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 },
+                RuntimeQueryError::InvalidStateInit { error, block_height, block_hash } => {
+                    QueryError::InvalidStateInit { error, block_height, block_hash }
+                }
                 near_chain::near_chain_primitives::error::QueryError::NoContractCode {
                     contract_account_id,
                     block_height,

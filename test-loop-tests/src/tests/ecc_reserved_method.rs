@@ -112,6 +112,7 @@ fn test_ecc_reserved_method_protocol_upgrade() {
             account_id: contract,
             method_name: ECC_METHOD_NAME.to_owned(),
             args: vec![].into(),
+            state_init: None,
         })
         .expect("view call to the ecc method should succeed");
     let QueryResponseKind::CallResult(call_result) = response.kind else {

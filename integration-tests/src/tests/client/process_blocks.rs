@@ -3540,6 +3540,7 @@ mod contract_precompilation_tests {
                 &"test0".parse().unwrap(),
                 "log_something",
                 &[],
+                None,
                 &mut logs,
                 &MockEpochInfoProvider::default(),
             )
