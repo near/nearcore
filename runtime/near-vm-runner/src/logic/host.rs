@@ -731,7 +731,8 @@ pub fn signer_account_id(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
 ///
 /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
 /// * If called as view function returns `ProhibitedInView`.
-/// * If called in an external contract call returns `ProhibitedInExternalCall`.
+/// * If called in an external contract call, or in a receipt that call led to, returns
+///   `ProhibitedInExternalCall`.
 ///
 /// # Cost
 ///
@@ -752,11 +753,16 @@ pub fn signer_account_pk(ctx: &mut HostCtx, _memory: &mut [u8], register_id: u64
             return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
         }
     }
+    let Some(signer_account_pk) = &ctx.context.signer_account_pk else {
+        return Err(
+            HostError::ProhibitedInExternalCall { method_name: method_name.to_string() }.into()
+        );
+    };
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.signer_account_pk.as_slice(),
+        signer_account_pk.as_slice(),
     )
 }
 
@@ -4278,6 +4284,7 @@ pub fn promise_batch_action_delete_account(
 /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` point outside
 /// the memory of the guest or host returns `MemoryAccessViolation`;
 /// * If called as view function returns `ProhibitedInView`;
+/// * If called in an external contract call returns `ProhibitedInExternalCall`;
 /// * Gas is insufficient;
 /// * Too many promises have been created already;
 /// * Resumption token cannot be written to the register `register_id`.
@@ -4311,6 +4318,12 @@ pub fn promise_yield_create(
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_create".to_string(),
+        }
+        .into());
+    }
+    if let ExecutionMode::External { .. } = ctx.context.execution_mode {
+        return Err(HostError::ProhibitedInExternalCall {
             method_name: "promise_yield_create".to_string(),
         }
         .into());
@@ -4398,6 +4411,12 @@ pub fn promise_yield_create_with_id(
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_create_with_id".to_string(),
+        }
+        .into());
+    }
+    if let ExecutionMode::External { .. } = ctx.context.execution_mode {
+        return Err(HostError::ProhibitedInExternalCall {
             method_name: "promise_yield_create_with_id".to_string(),
         }
         .into());

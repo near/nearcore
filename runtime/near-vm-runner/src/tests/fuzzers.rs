@@ -46,7 +46,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "bob".parse().unwrap(),
-        signer_account_pk: vec![0, 1, 2, 3, 4],
+        signer_account_pk: Some(vec![0, 1, 2, 3, 4]),
         predecessor_account_id: "carol".parse().unwrap(),
         refund_to_account_id: "david".parse().unwrap(),
         input: std::rc::Rc::from(input),

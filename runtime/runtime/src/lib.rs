@@ -1245,6 +1245,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -1296,6 +1300,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 if new_receipt.is_instant_receipt() {
@@ -1471,7 +1477,7 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_gas_refund(
                 &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
+                action_receipt.authorization_context().into_owned(),
             ));
         }
 
@@ -2191,7 +2197,7 @@ impl Runtime {
                         ecc,
                         maybe_validation_error,
                     )?;
-                    record_external_call(processing_state, processed)?;
+                    record_external_call(processing_state, receipt_sink, processed)?;
                     continue;
                 }
             };
@@ -2335,28 +2341,13 @@ impl Runtime {
                             metadata: ExecutionMetadata::V1,
                         },
                     };
-                    if processing_state.apply_state.save_receipt_to_tx {
-                        processing_state.receipt_to_tx.push((
-                            receipt_id,
-                            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                                    tx_hash: *tx_hash,
-                                    sender_account_id: signer_id.clone(),
-                                }),
-                                receiver_account_id: tx.transaction.receiver_id().clone(),
-                                shard_id: processing_state.apply_state.shard_id,
-                            }),
-                        ));
-                    }
-                    if receipt.receiver_id() == signer_id {
-                        processing_state.local_receipts.push_back(receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            receipt,
-                            &processing_state.apply_state,
-                            &mut processing_state.state_update,
-                        )?;
-                    }
+                    send_transaction_receipt(
+                        processing_state,
+                        receipt_sink,
+                        receipt,
+                        *tx_hash,
+                        signer_id,
+                    )?;
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     (outcome, result)
                 }
@@ -3092,13 +3083,14 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
         .collect()
 }
 
-/// Records the outcome of an external contract call that `process_external_call` processed, and
-/// counts what it reports toward the chunk's gas, compute and burnt tokens.
+/// Records the outcome of an external contract call that `process_external_call` processed, counts
+/// what it reports toward the chunk's gas, compute and burnt tokens, and sends out its receipts.
 fn record_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let ProcessedExternalCall { outcome, accepted } = processed;
+    let ProcessedExternalCall { outcome, accepted, receipts } = processed;
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
     let stats = &mut processing_state.stats.balance;
@@ -3108,7 +3100,71 @@ fn record_external_call(
     } else {
         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
+    let contract_id = &outcome.outcome.executor_id;
+    send_ecc_receipts(processing_state, receipt_sink, &outcome.id, contract_id, receipts)?;
     processing_state.outcomes.push(outcome);
+    Ok(())
+}
+
+/// Records that `receipt` comes from the transaction `tx_hash` of `sender_id`, and sends it: to the
+/// chunk's local receipts if the sender receives it, otherwise out through `receipt_sink`.
+fn send_transaction_receipt(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    receipt: Receipt,
+    tx_hash: CryptoHash,
+    sender_id: &AccountId,
+) -> Result<(), RuntimeError> {
+    if processing_state.apply_state.save_receipt_to_tx {
+        processing_state.receipt_to_tx.push((
+            *receipt.receipt_id(),
+            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                    tx_hash,
+                    sender_account_id: sender_id.clone(),
+                }),
+                receiver_account_id: receipt.receiver_id().clone(),
+                shard_id: processing_state.apply_state.shard_id,
+            }),
+        ));
+    }
+    if receipt.receiver_id() == sender_id {
+        processing_state.local_receipts.push_back(receipt);
+    } else {
+        receipt_sink.forward_or_buffer_receipt(
+            receipt,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
+        )?;
+    }
+    Ok(())
+}
+
+/// Sends out the receipts of an accepted external call, which carry their ids already, the way a
+/// signed transaction sends its receipt, and commits what sending them wrote.
+fn send_ecc_receipts(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    outcome_id: &CryptoHash,
+    contract_id: &AccountId,
+    receipts: Vec<Receipt>,
+) -> Result<(), RuntimeError> {
+    if receipts.is_empty() {
+        return Ok(());
+    }
+    for receipt in receipts {
+        // TODO(ecc): map the call's unique id to the call, so `EXPERIMENTAL_receipt_to_tx` can
+        // resolve the `tx_hash` this records.
+        send_transaction_receipt(
+            processing_state,
+            receipt_sink,
+            receipt,
+            *outcome_id,
+            contract_id,
+        )?;
+    }
+    let cause = StateChangeCause::TransactionProcessing { tx_hash: *outcome_id };
+    processing_state.state_update.commit(cause);
     Ok(())
 }
 
@@ -3124,26 +3180,22 @@ fn action_transfer_or_implicit_account_creation(
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
+        let gas_refund_key = action_receipt.signer_public_key().filter(|_| is_gas_refund);
         // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
         // the refund goes to the gas key balance and we skip crediting the account balance.
-        if is_gas_refund
+        if let Some(signer_public_key) = gas_refund_key
             && try_refund_gas_key_balance(
                 state_update,
                 receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
+                signer_public_key,
                 deposit,
             )?
         {
             return Ok(());
         }
         action_transfer(account, deposit)?;
-        if is_gas_refund {
-            try_refund_allowance(
-                state_update,
-                receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
-                deposit,
-            )?;
+        if let Some(signer_public_key) = gas_refund_key {
+            try_refund_allowance(state_update, receipt.receiver_id(), signer_public_key, deposit)?;
         }
     } else {
         debug_assert!(!is_refund);
@@ -3503,7 +3555,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

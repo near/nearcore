@@ -237,7 +237,7 @@ fn get_chunk_application_input(
 
         if only_contracts {
             let mut has_contracts = false;
-            // TODO(ecc): count ECCs as contract transactions once they are executed
+            // TODO(ecc): count ECCs as contract transactions
             for tx in chunk.to_transactions().iter().filter_map(TransactionEnvelope::as_signed) {
                 for action in tx.transaction.actions() {
                     has_contracts = has_contracts

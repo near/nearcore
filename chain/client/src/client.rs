@@ -668,7 +668,7 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                // TODO(ecc): account ECCs against the contract's balance
                 transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
@@ -721,7 +721,7 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    // TODO(ecc): account ECCs against the contract's balance
                     transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,
