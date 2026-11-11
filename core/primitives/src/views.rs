@@ -3378,6 +3378,7 @@ mod tests {
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::serialize::to_base64;
     use near_primitives_core::types::Balance;
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -3452,6 +3453,24 @@ mod tests {
         assert_eq!(ecc_json["kind"], "external_call");
         assert_eq!(ecc_json["transaction_id"], json!(ecc_view.id()));
         assert_eq!(ecc_json["state_init"], serde_json::Value::Null);
+    }
+
+    /// The view of a copy that carries a state init shows it, under the unique id of the copy
+    /// without it.
+    #[test]
+    fn test_external_call_view_with_state_init() {
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![4, 5, 6])),
+        );
+        let view = TransactionEnvelopeView::new(TransactionEnvelope::from(with), 1);
+        let without_view = TransactionEnvelopeView::new(TransactionEnvelope::from(without), 1);
+        assert_eq!(view.id(), without_view.id());
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["state_init"], json!(to_base64(&[4, 5, 6])));
+        assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
     }
 
     /// JSON written before transaction views carried `kind` decodes as a signed transaction.

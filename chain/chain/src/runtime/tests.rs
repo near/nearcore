@@ -24,7 +24,7 @@ use near_parameters::config::ExternalCallsConfig;
 use near_pool::types::PooledGroup;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::{AccessKeyPermission, AccountContract};
-use near_primitives::action::UniversalStateInitAction;
+use near_primitives::action::{GlobalContractIdentifier, UniversalStateInitAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -2368,6 +2368,46 @@ fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
 
     assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
     assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// A call whose state init derives to another account fails apply's validity check. One can reach
+/// the pool only unchecked, such as after a reorg, and the producer leaves it out of the chunk.
+#[test]
+fn test_prepare_transactions_drops_an_ecc_whose_state_init_is_for_another_account() {
+    if !eccs_are_packed() {
+        return;
+    }
+    // The init names a global contract that accepts the call, so only the validity check refuses
+    // it.
+    let code = ContractCode::new(ecc_test_contract(), None);
+    let state_init = |value: &[u8]| {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), value.to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw()
+    };
+    let wallet = derive_universal_account_id(&state_init(b"v"));
+    let other_init = state_init(b"w");
+    assert_ne!(derive_universal_account_id(&other_init), wallet);
+    let call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(other_init));
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ValidatedEcc::new_for_test(call), ecc("test1", 1)]);
+    let change_state = |state_update: &mut TrieUpdate| {
+        give_contracts(&["test1"])(state_update);
+        let account = Account::new_uninitialized(Balance::from_near(10), 100, 0);
+        set_account(state_update, wallet, &account);
+        let identifier = GlobalContractCodeIdentifier::CodeHash(*code.hash());
+        state_update.set(TrieKey::GlobalContractCode { identifier }, code.code().to_vec());
+        state_update.record_contract_deploy(code.clone_for_tests());
+    };
+
+    let (prepared, _) =
+        prepare_eccs_with_context(&env, &chain, &mut pool, HashSet::new(), change_state, |_| {});
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
     assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 

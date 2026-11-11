@@ -576,6 +576,7 @@ pub fn get_block_metadata(
 mod tests {
     use super::*;
     use crate::transaction::{EccTransaction, SignedTransaction};
+    use crate::universal_state_init::RawStateInit;
     use near_crypto::{KeyType, PublicKey};
 
     /// A call repeated in a chunk gets its id once, under the one outcome apply gave it, a call with
@@ -592,6 +593,24 @@ mod tests {
 
         let ids = chunk_transaction_outcome_ids(&transactions, height, [unique_id]);
         assert_eq!(ids, vec![Some(unique_id), Some(signed.get_hash()), None, None]);
+    }
+
+    /// A copy of a call with its state init and a copy without share one id, which only the
+    /// first gets.
+    #[test]
+    fn test_chunk_transaction_outcome_ids_with_state_init() {
+        let height = 7;
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![2])),
+        );
+        let unique_id = create_ecc_outcome_id(without.hash(), height);
+        let transactions: Vec<TransactionEnvelope> = vec![with.into(), without.into()];
+
+        let ids = chunk_transaction_outcome_ids(&transactions, height, [unique_id]);
+        assert_eq!(ids, vec![Some(unique_id), None]);
     }
 
     #[test]

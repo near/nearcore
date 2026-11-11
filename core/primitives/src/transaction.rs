@@ -1720,9 +1720,44 @@ mod tests {
         let ecc = test_ecc();
         let other_contract = EccTransaction::new("other.near".parse().unwrap(), vec![1, 2, 3]);
         let other_payload = EccTransaction::new(ecc.contract_id().clone(), vec![]);
-        for other in [other_contract, other_payload] {
+        let other_state_init = test_ecc_with_state_init();
+        for other in [other_contract, other_payload, other_state_init] {
             assert_ne!(other.get_hash(), ecc.get_hash());
         }
+    }
+
+    fn test_ecc_with_state_init() -> EccTransaction {
+        let ecc = test_ecc();
+        let state_init = Some(RawStateInit(vec![4, 5, 6]));
+        EccTransaction::new_with_state_init(
+            ecc.contract_id().clone(),
+            ecc.payload().to_vec(),
+            state_init,
+        )
+    }
+
+    /// The copy of a call with its state init and the copy without differ in bytes, and share the
+    /// hash their unique ids come from: the hash of the copy without the state init.
+    #[test]
+    fn test_ecc_hash_without_state_init() {
+        let without = test_ecc();
+        let with = test_ecc_with_state_init();
+        assert_eq!(without.hash_without_state_init(), without.hash());
+        assert_eq!(with.hash_without_state_init(), without.hash());
+        assert_eq!(with.without_state_init().hash(), without.hash());
+        assert_eq!(with.without_state_init().state_init(), None);
+        assert_eq!(TransactionEnvelope::from(with).id_hash(), without.hash());
+    }
+
+    #[test]
+    fn test_ecc_with_state_init_borsh_roundtrip() {
+        let ecc = test_ecc_with_state_init();
+        let bytes = borsh::to_vec(&ecc).unwrap();
+        assert_eq!(ecc.get_size(), bytes.len() as u64);
+        let decoded = EccTransaction::try_from_slice(&bytes).unwrap();
+        assert_eq!(decoded.state_init(), ecc.state_init());
+        assert_eq!(decoded.hash(), ecc.hash());
+        assert_eq!(decoded.hash_without_state_init(), ecc.hash_without_state_init());
     }
 
     #[test]
