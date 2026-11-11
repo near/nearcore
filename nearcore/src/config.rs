@@ -665,6 +665,7 @@ impl Config {
         None
     }
 
+    #[cfg_attr(not(feature = "json_rpc"), allow(unused_variables))]
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
@@ -1498,7 +1499,10 @@ fn create_localnet_config(
         std::cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
 
     // Configure networking and RPC endpoint. Enable debug-RPC by default for all nodes.
-    config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
+    #[cfg(feature = "json_rpc")]
+    {
+        config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
+    }
     config.network.addr = network_config.0.to_string();
     config.network.public_addrs = vec![PeerAddr {
         addr: network_config.0,

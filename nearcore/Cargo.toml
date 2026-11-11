@@ -99,7 +99,7 @@ test_features = [
     "near-client/test_features",
     "near-network/test_features",
     "near-store/test_features",
-    "near-jsonrpc/test_features",
+    "near-jsonrpc?/test_features",
     "near-primitives/test_features",
     "near-vm-runner/test_features",
 ]
@@ -122,15 +122,15 @@ nightly = [
     "near-client/nightly",
     "near-dyn-configs/nightly",
     "near-epoch-manager/nightly",
-    "near-jsonrpc-primitives/nightly",
-    "near-jsonrpc/nightly",
+    "near-jsonrpc-primitives?/nightly",
+    "near-jsonrpc?/nightly",
     "near-mainnet-res/nightly",
     "near-network/nightly",
     "near-o11y/nightly",
     "near-parameters/nightly",
     "near-pool/nightly",
     "near-primitives/nightly",
-    "near-rosetta-rpc/nightly",
+    "near-rosetta-rpc?/nightly",
     "near-store/nightly",
     "near-telemetry/nightly",
     "near-transactions-generator/nightly",
@@ -140,7 +140,7 @@ nightly = [
 ]
 sandbox = [
     "near-client/sandbox",
-    "near-jsonrpc/sandbox",
+    "near-jsonrpc?/sandbox",
     "near-o11y/sandbox",
     "near-runtime/sandbox",
 ]
