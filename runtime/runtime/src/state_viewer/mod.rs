@@ -1,6 +1,7 @@
 use crate::access_keys::initial_nonce_value;
 use crate::action_validation::validate_actions;
 use crate::actions::OrInconsistentState;
+use crate::config::safe_add_balance;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
@@ -10,16 +11,19 @@ use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, function_call_context};
 use crate::receipt_manager::ReceiptManager;
 use crate::universal_account_id::install_universal_account;
+use crate::verifier::{StorageStakingError, check_storage_stake};
 use crate::{ActionResult, ApplyState, PrevBlockContext};
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
-use near_parameters::RuntimeConfigStore;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{AccessKey, Account, AccountState};
 use near_primitives::action::{
     DeterministicStateInitAction, GlobalContractIdentifier, UniversalStateInitAction,
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::errors::{ActionError, ActionErrorKind, ActionsValidationError, StorageError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, RuntimeError, StorageError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, VersionedActionReceipt};
 use near_primitives::transaction::{Action, FunctionCallAction};
@@ -111,6 +115,16 @@ fn ensure_initialized(
         }
         Some(AccountState::Initialized) => Ok(()),
     }
+}
+
+/// Tops `account` up to its storage stake, as a state init's deposit does.
+fn top_up_storage_stake(account: &mut Account, config: &RuntimeConfig) -> Result<(), RuntimeError> {
+    if let Err(StorageStakingError::LackBalanceForStorageStaking(missing)) =
+        check_storage_stake(account, account.amount(), config)
+    {
+        account.set_amount(safe_add_balance(account.amount(), missing)?);
+    }
+    Ok(())
 }
 
 pub struct TrieViewer {
@@ -639,7 +653,7 @@ impl TrieViewer {
         }
     }
 
-    /// Applies `state_init` as its action would, minus deposit settlement.
+    /// Applies `state_init` as its action would, with a deposit that just covers the storage stake.
     fn install_state_init(
         &self,
         state_update: &mut TrieUpdate,
@@ -666,7 +680,7 @@ impl TrieViewer {
         let initial_nonce = initial_nonce_value(view_state.block_height + 1, protocol_version);
         let storage_usage_config = &config.fees.storage_usage_config;
         let mut result = ActionResult::default();
-        let account = match state_init {
+        let mut account = match state_init {
             StateInitView::Deterministic { code, data } => {
                 // Old blocks have no entry cap; check the newest one before cloning.
                 let limit = self
@@ -742,7 +756,10 @@ impl TrieViewer {
             }
         };
         match result.result {
-            Ok(_) => Ok(account),
+            Ok(_) => {
+                top_up_storage_stake(&mut account, config)?;
+                Ok(account)
+            }
             Err(ActionError {
                 kind: ActionErrorKind::GlobalContractDoesNotExist { identifier },
                 ..

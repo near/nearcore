@@ -921,10 +921,26 @@ fn test_view_call_with_deterministic_state_init() {
     });
 
     // Missing, then funded without a contract.
-    assert_eq!(env.view_read_value(&account, &key, with_init.clone()).unwrap(), value);
+    assert_eq!(env.view_call(&account, "read_value", &key, with_init.clone()).unwrap(), value);
     env.fund_with_near_balance(account.clone(), Balance::from_near(3));
     assert_eq!(env.get_account_state(account.clone()).code_hash, CryptoHash::default());
-    assert_eq!(env.view_read_value(&account, &key, with_init).unwrap(), value);
+    assert_eq!(env.view_call(&account, "read_value", &key, with_init).unwrap(), value);
+}
+
+/// A view tops the account up to its storage stake, as the init's deposit does.
+#[test]
+fn test_view_call_with_state_init_tops_up_storage_stake() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    let (state_init, account) = env.new_deterministic_account_with_data(big());
+    let with_init = Some(StateInitView::Deterministic {
+        code: state_init.code().clone().into(),
+        data: state_init.data().clone(),
+    });
+
+    let balance = env.view_call(&account, "ext_account_balance", &[], with_init).unwrap();
+    let balance = Balance::from_yoctonear(u128::from_le_bytes(balance.try_into().unwrap()));
+    assert_eq!(balance, env.balance_for_storage(state_init));
 }
 
 /// Views cap `0s` state init entries at the newest limit, even at older blocks.
@@ -1403,18 +1419,19 @@ impl TestEnv {
         self.env.rpc_node().view_account_query(account).unwrap()
     }
 
-    /// `read_value` of `key` on `account`, run on top of `state_init` if given.
-    fn view_read_value(
+    /// `method` on `account` with `args`, run on top of `state_init` if given.
+    fn view_call(
         &mut self,
         account: &AccountId,
-        key: &[u8],
+        method: &str,
+        args: &[u8],
         state_init: Option<StateInitView>,
     ) -> Result<Vec<u8>, QueryError> {
         self.env.test_loop.run_for(Duration::seconds(2));
         let response = self.env.rpc_node().runtime_query(QueryRequest::CallFunction {
             account_id: account.clone(),
-            method_name: "read_value".to_owned(),
-            args: key.to_vec().into(),
+            method_name: method.to_owned(),
+            args: args.to_vec().into(),
             state_init,
         })?;
         let QueryResponseKind::CallResult(call) = response.kind else {
