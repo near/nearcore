@@ -236,8 +236,8 @@ external calls reached one of their shares, described below. A rejected call
 burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
 so it doesn't add to the chunk's gas used or move the next gas price, which
 everyone else pays. An honest chunk producer runs each call before including it
-and leaves out the ones that would be rejected. An accepted call's fees and gas
-are burnt, and count toward the chunk's gas like any other.
+and leaves out the ones that would be rejected. An accepted call's fees and the
+gas it burns count toward the chunk's gas like any other.
 
 Since a rejected call costs nobody anything, further limits bound the work
 validators do on external calls, per call and per chunk. Besides
@@ -255,7 +255,7 @@ validators do on external calls, per call and per chunk. Besides
   proof limit uses too, even for a key that isn't there. So removals are costly
   in an external call: it can remove no more than ten keys, and fewer, as the
   trie nodes it reads count as well. Larger cleanups belong in the receipts the
-  call creates, once external calls can create them.
+  call creates.
 
 All the external calls of a chunk together get a share of the chunk's limits:
 

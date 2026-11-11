@@ -6597,7 +6597,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`method_name` is not allowed in external contract calls",
+            "description": "`method_name` is not allowed in external contract calls, or in the receipts they lead to",
             "properties": {
               "ProhibitedInExternalCall": {
                 "properties": {
@@ -8888,6 +8888,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8912,6 +8923,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8933,6 +8955,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sync_checkpoint": {
                 "$ref": "#/components/schemas/SyncCheckpoint"
@@ -12963,6 +12996,53 @@
         ],
         "title": "StateChangesRequestView"
       },
+      "StateInitView": {
+        "description": "The initial state of a `0s` or `0u` account, as its state-init action carries it.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "deterministic": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "deterministic"
+            ],
+            "title": "Deterministic",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "universal": {
+                "$ref": "#/components/schemas/RawStateInit"
+              }
+            },
+            "required": [
+              "universal"
+            ],
+            "title": "Universal",
+            "type": "object"
+          }
+        ],
+        "title": "StateInitView"
+      },
       "StateItem": {
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
         "properties": {
@@ -15550,6 +15630,21 @@
           "required": false,
           "schema": {
             "type": "string"
+          }
+        },
+        {
+          "name": "state_init",
+          "required": false,
+          "schema": {
+            "description": "Runs the call as if this were installed, unless the account already has its state.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StateInitView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {

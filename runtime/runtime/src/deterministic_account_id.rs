@@ -21,9 +21,39 @@ pub(crate) fn action_deterministic_state_init(
     action: &DeterministicStateInitAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
+    let account = install_deterministic_state_init(
+        state_update,
+        maybe_account,
+        account_id,
+        &action.state_init,
+        result,
+        &apply_state.config.fees.storage_usage_config,
+    )?;
+    if result.result.is_err() {
+        return Ok(());
+    }
+
+    settle_state_init_deposit(
+        account,
+        action.deposit,
+        account_id,
+        receipt,
+        &apply_state.config,
+        result,
+    )
+}
+
+/// Creates the account if it's missing, then deploys `state_init` unless it has a contract.
+pub(crate) fn install_deterministic_state_init<'a>(
+    state_update: &mut TrieUpdate,
+    maybe_account: &'a mut Option<Account>,
+    account_id: &AccountId,
+    state_init: &DeterministicAccountStateInit,
+    result: &mut ActionResult,
+    storage_usage_config: &StorageUsageConfig,
+) -> Result<&'a mut Account, RuntimeError> {
     // See https://github.com/near/NEPs/blob/master/neps/nep-0616.md#account-state
     // for the detailed description around deterministic account state.
-    let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     let account = match maybe_account {
         Some(account) => account,
         None => {
@@ -45,23 +75,12 @@ pub(crate) fn action_deterministic_state_init(
             state_update,
             account,
             account_id,
-            &action.state_init,
+            state_init,
             result,
             storage_usage_config,
         )?;
     }
-    if result.result.is_err() {
-        return Ok(());
-    }
-
-    settle_state_init_deposit(
-        account,
-        action.deposit,
-        account_id,
-        receipt,
-        &apply_state.config,
-        result,
-    )
+    Ok(account)
 }
 
 /// Settle a state-init action's attached deposit against the created account's

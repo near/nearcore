@@ -1,29 +1,42 @@
+use crate::access_keys::initial_nonce_value;
+use crate::action_validation::validate_actions;
+use crate::config::safe_add_balance;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
 };
+use crate::deterministic_account_id::install_deterministic_state_init;
 use crate::ext::RuntimeExt;
 use crate::function_call::{execute_function_call, function_call_context};
 use crate::receipt_manager::ReceiptManager;
-use crate::{ApplyState, PrevBlockContext};
+use crate::universal_account_id::install_universal_state_init;
+use crate::verifier::{StorageStakingError, check_storage_stake};
+use crate::{ActionResult, ApplyState, PrevBlockContext};
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
-use near_parameters::RuntimeConfigStore;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{AccessKey, Account, AccountState};
-use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::action::{
+    DeterministicStateInitAction, GlobalContractIdentifier, UniversalStateInitAction,
+};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, RuntimeError, StorageError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, VersionedActionReceipt};
-use near_primitives::transaction::FunctionCallAction;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::{self, parse_key_handle_from_access_key_key};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
-use near_primitives::version::assert_supported_protocol_version;
-use near_primitives::views::{StateItem, ViewStateResult};
+use near_primitives::version::{PROTOCOL_VERSION, assert_supported_protocol_version};
+use near_primitives::views::{StateInitView, StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_store::trie::AccessOptions;
 use near_store::{
     Trie, TrieAccess, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
@@ -97,6 +110,16 @@ fn ensure_initialized(
         }
         Some(AccountState::Initialized) => Ok(()),
     }
+}
+
+/// Tops `account` up to its storage stake, as a state init's deposit does.
+fn top_up_storage_stake(account: &mut Account, config: &RuntimeConfig) -> Result<(), RuntimeError> {
+    if let Err(StorageStakingError::LackBalanceForStorageStaking(missing)) =
+        check_storage_stake(account, account.amount(), config)
+    {
+        account.set_amount(safe_add_balance(account.amount(), missing)?);
+    }
+    Ok(())
 }
 
 pub struct TrieViewer {
@@ -462,16 +485,25 @@ impl TrieViewer {
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
+        state_init: Option<&StateInitView>,
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         assert_supported_protocol_version(view_state.current_protocol_version);
         let now = Instant::now();
         let root = *state_update.get_root();
-        let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
-            errors::CallFunctionError::AccountDoesNotExist {
-                requested_account_id: contract_id.clone(),
-            }
+        let mut account = get_account(&state_update, contract_id)?;
+        if let Some(state_init) = state_init {
+            self.install_state_init(
+                &mut state_update,
+                &mut account,
+                contract_id,
+                state_init,
+                &view_state,
+            )?;
+        }
+        let account = account.ok_or_else(|| errors::CallFunctionError::AccountDoesNotExist {
+            requested_account_id: contract_id.clone(),
         })?;
         if !account.is_initialized() {
             return Err(errors::CallFunctionError::UninitializedAccount {
@@ -587,10 +619,7 @@ impl TrieViewer {
                     &mut runtime_ext,
                     &context,
                     config,
-                )
-                .map_err(|e| errors::CallFunctionError::InternalError {
-                    error_message: e.to_string(),
-                })?
+                )?
             }
             ContractPreparation::Aborted(abort) => {
                 abort.into_outcome(&context, Arc::clone(&config.wasm_config))
@@ -616,6 +645,111 @@ impl TrieViewer {
                 ReturnData::ReceiptIndex(_) | ReturnData::None => vec![],
             };
             Ok(result)
+        }
+    }
+
+    /// Applies `state_init` as its action would, with a deposit that just covers the storage stake.
+    fn install_state_init(
+        &self,
+        state_update: &mut TrieUpdate,
+        account: &mut Option<Account>,
+        account_id: &AccountId,
+        state_init: &StateInitView,
+        view_state: &ViewApplyState,
+    ) -> Result<(), errors::CallFunctionError> {
+        let protocol_version = view_state.current_protocol_version;
+        let config = self.runtime_config_store.get_config(protocol_version);
+        let invalid = |error: ActionsValidationError| errors::CallFunctionError::InvalidStateInit {
+            error: Box::new(error),
+        };
+        let validate = |action| {
+            validate_actions(
+                &config.wasm_config.limit_config,
+                &[action],
+                account_id,
+                protocol_version,
+            )
+            .map_err(invalid)
+        };
+        // Its action runs a block later at the earliest; height 0 would underflow.
+        let block_height = view_state.block_height + 1;
+        let storage_usage_config = &config.fees.storage_usage_config;
+        let mut result = ActionResult::default();
+        let account = match state_init {
+            StateInitView::Deterministic { code, data } => {
+                // Old blocks have no entry cap; check the newest one before cloning.
+                // TODO: remove once `MIN_SUPPORTED_PROTOCOL_VERSION >= 87`.
+                let limit = self
+                    .runtime_config_store
+                    .get_config(PROTOCOL_VERSION)
+                    .wasm_config
+                    .limit_config
+                    .max_state_init_entries;
+                if data.len() as u64 > limit {
+                    return Err(invalid(
+                        ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                            number_of_entries: data.len() as u64,
+                            limit,
+                        },
+                    ));
+                }
+                let state_init =
+                    DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                        code: code.clone().into(),
+                        data: data.clone(),
+                    });
+                validate(Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: state_init.clone(),
+                    deposit: Balance::ZERO,
+                })))?;
+                install_deterministic_state_init(
+                    state_update,
+                    account,
+                    account_id,
+                    &state_init,
+                    &mut result,
+                    storage_usage_config,
+                )?
+            }
+            StateInitView::Universal(raw) => {
+                validate(Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw.clone(),
+                    deposit: Balance::ZERO,
+                })))?;
+                let account = account.get_or_insert_with(|| {
+                    Account::new_uninitialized(
+                        Balance::ZERO,
+                        storage_usage_config.num_bytes_account,
+                        initial_nonce_value(block_height, protocol_version),
+                    )
+                });
+                if !account.is_initialized() {
+                    install_universal_state_init(
+                        state_update,
+                        account,
+                        account_id,
+                        raw,
+                        &mut result,
+                        &config.fees,
+                        block_height,
+                        protocol_version,
+                    )?;
+                }
+                account
+            }
+        };
+        match result.result {
+            Ok(_) => {
+                top_up_storage_stake(account, config)?;
+                Ok(())
+            }
+            Err(ActionError {
+                kind: ActionErrorKind::GlobalContractDoesNotExist { identifier },
+                ..
+            }) => Err(errors::CallFunctionError::NoGlobalContractCode { identifier }),
+            Err(error) => {
+                Err(errors::CallFunctionError::InternalError { error_message: error.to_string() })
+            }
         }
     }
 

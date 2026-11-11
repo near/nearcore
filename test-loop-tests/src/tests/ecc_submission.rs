@@ -19,10 +19,11 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
+use near_primitives::receipt::{ActionReceiptV3, AuthorizationContext, ReceiptEnum};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{
-    ECC_METHOD_NAME, EccTransaction, ExecutionStatus, TransactionEnvelope,
+    Action, ECC_METHOD_NAME, EccTransaction, ExecutionStatus, TransactionEnvelope, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
 use near_primitives::utils::create_ecc_outcome_id;
@@ -779,8 +780,40 @@ fn test_ecc_promise_transfers_to_another_shard() {
     };
     let receipt_outcome =
         env.rpc_runner().run_until_outcome_available(*receipt_id, OUTCOME_TIMEOUT);
-    let receipt_status = receipt_outcome.outcome_with_id.outcome.status;
-    assert_matches!(receipt_status, ExecutionStatus::SuccessValue(_));
+    let receipt_outcome = receipt_outcome.outcome_with_id.outcome;
+    assert_matches!(receipt_outcome.status, ExecutionStatus::SuccessValue(_));
+    // The gas the transfer did not burn at the purchase price comes back as a gas refund of the
+    // external call's chain, to the contract.
+    let [refund_id] = receipt_outcome.receipt_ids.as_slice() else {
+        panic!("expected one refund, got {receipt_outcome:?}");
+    };
+    let refund_outcome = env.rpc_runner().run_until_outcome_available(*refund_id, OUTCOME_TIMEOUT);
+    assert_matches!(
+        refund_outcome.outcome_with_id.outcome.status,
+        ExecutionStatus::SuccessValue(_)
+    );
+    let refund = env.rpc_node().receipt(*refund_id);
+    assert!(refund.predecessor_id().is_system());
+    assert_eq!(refund.receiver_id(), &contract_id);
+    let ReceiptEnum::ActionV3(ActionReceiptV3 {
+        signer_id,
+        refund_to: None,
+        authorization_context: AuthorizationContext::ExternalContractCall,
+        gas_price,
+        output_data_receivers,
+        input_data_ids,
+        actions,
+    }) = refund.receipt()
+    else {
+        panic!("expected a gas refund of the external call's chain, got {refund:?}");
+    };
+    assert_eq!(signer_id, &contract_id);
+    assert_eq!(*gas_price, Balance::ZERO);
+    assert!(output_data_receivers.is_empty() && input_data_ids.is_empty());
+    assert_matches!(
+        actions.as_slice(),
+        [Action::Transfer(TransferAction { deposit })] if *deposit > Balance::ZERO
+    );
     env.rpc_runner().run_for_number_of_blocks(BLOCKS_TO_SETTLE);
 
     let receiver_after = env.rpc_node().query_balance(&receiver_id);

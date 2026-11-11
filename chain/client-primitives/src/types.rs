@@ -1,4 +1,5 @@
 use near_primitives::block::Block;
+use near_primitives::errors::ActionsValidationError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -403,6 +404,12 @@ pub enum QueryError {
     )]
     UninitializedAccount {
         requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init at block #{block_height}: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
         block_height: BlockHeight,
         block_hash: CryptoHash,
     },

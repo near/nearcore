@@ -31,7 +31,11 @@ fn needed_shards(
     let destinations = shard_layout
         .shard_ids()
         .filter(|shard_id| {
-            shard_tracker.should_apply_chunk(ApplyChunksMode::IsCaughtUp, block.hash(), *shard_id)
+            shard_tracker.should_apply_chunk(
+                ApplyChunksMode::IncludeCatchupShards,
+                block.hash(),
+                *shard_id,
+            )
         })
         .collect();
     Ok(NeededShards { sources, destinations })

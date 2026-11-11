@@ -1,7 +1,8 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::errors::{
-    ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError, StorageError,
+    ActionsValidationError, ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError,
+    StorageError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayoutError;
@@ -27,6 +28,12 @@ pub enum QueryError {
     #[error("account {requested_account_id} exists but is not initialized")]
     UninitializedAccount {
         requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
         block_height: BlockHeight,
         block_hash: CryptoHash,
     },

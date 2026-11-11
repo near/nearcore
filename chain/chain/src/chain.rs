@@ -20,7 +20,11 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::boundary::write_boundary_uncertified_chunks;
+use crate::spice::core::{
+    SpiceCoreReader, record_uncertified_chunks_by_advancing,
+    record_uncertified_chunks_by_replaying_certification_window,
+};
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1431,9 +1435,9 @@ impl Chain {
                 &prev_block,
                 prev_chunk_header,
                 if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
+                    ApplyChunksMode::IncludeCatchupShards
                 } else {
-                    ApplyChunksMode::NotCaughtUp
+                    ApplyChunksMode::ExcludeCatchupShards
                 },
                 incoming_receipts,
                 storage_context,
@@ -1651,6 +1655,36 @@ impl Chain {
         let new_tail = tail_block.header().height();
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
+
+        // The sync block is processed next. It starts from its parent's uncertified chunks and
+        // credits its parent's endorsements against its grandparent's, and this node processed
+        // neither block. The rows are written before the heads move: after a crash in between, the
+        // next state sync writes them again, skipping the ones already there.
+        if header.is_spice() {
+            let chain_store = self.chain_store.store().chain_store();
+            if prev_block.header().is_spice() {
+                record_uncertified_chunks_by_replaying_certification_window(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header().prev_hash(),
+                )?;
+                record_uncertified_chunks_by_advancing(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    &prev_block,
+                )?;
+            } else {
+                // The sync block is the first spice block, so its parent is the last pre-spice
+                // block, whose row block processing would have seeded.
+                let mut store_update = chain_store.store().store_update();
+                write_boundary_uncertified_chunks(
+                    &mut store_update,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header(),
+                )?;
+                store_update.commit();
+            }
+        }
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -2633,7 +2667,11 @@ impl Chain {
             // If we have the state for shards in the next epoch already downloaded, apply the state transition
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
-            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+            if is_caught_up {
+                ApplyChunksMode::IncludeCatchupShards
+            } else {
+                ApplyChunksMode::ExcludeCatchupShards
+            },
             invalid_chunks,
         )?;
 
@@ -2995,7 +3033,7 @@ impl Chain {
                 &block,
                 &prev_block,
                 &receipts_by_shard,
-                ApplyChunksMode::CatchingUp,
+                ApplyChunksMode::OnlyCatchupShards,
                 &mut Vec::new(),
             )?;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
@@ -3490,13 +3528,13 @@ impl Chain {
         for (shard_index, (block_context, cached_shard_update_key)) in
             update_shard_args.into_iter().enumerate()
         {
-            // Take the sandbox patch from the tracker for this shard.  Only
+            // Take the sandbox patch from the tracker for this shard. Only
             // shards with a new chunk receive the patch — old-chunk shards
-            // would silently drop it in the runtime.  The CatchingUp mode
-            // never consumes sandbox patches.
+            // would silently drop it in the runtime. The OnlyCatchupShards
+            // mode never consumes sandbox patches.
             let shard_has_new_chunk =
                 chunk_headers.get(shard_index).map_or(false, |h| h.is_new_chunk(block_height));
-            let state_patch = if mode != ApplyChunksMode::CatchingUp {
+            let state_patch = if mode != ApplyChunksMode::OnlyCatchupShards {
                 self.sandbox_patches.take_for_shard(shard_has_new_chunk)
             } else {
                 SandboxStatePatch::default()

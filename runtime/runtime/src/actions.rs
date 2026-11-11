@@ -482,7 +482,7 @@ pub(crate) fn apply_delegate_action(
         receiver_id: delegate_action.receiver_id().clone(),
         receipt_id: CryptoHash::default(),
 
-        receipt: match &*action_receipt.authorization_context() {
+        receipt: match action_receipt.authorization_context().as_ref() {
             AuthorizationContext::AccessKey(signer_public_key) => {
                 ReceiptEnum::Action(ActionReceipt {
                     signer_id: action_receipt.signer_id().clone(),

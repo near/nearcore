@@ -1,3 +1,4 @@
+use near_primitives::errors::ActionsValidationError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
 
@@ -44,6 +45,12 @@ pub enum RpcQueryError {
     #[error("account {requested_account_id} exists but is not initialized")]
     UninitializedAccount {
         requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
         block_height: BlockHeight,
         block_hash: CryptoHash,
     },
