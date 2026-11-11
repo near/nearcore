@@ -82,7 +82,8 @@ An [ActionReceipt](#actionreceipt) is a request to apply [Actions](Actions.md), 
 If `refund_to` is set, deposit refunds for the receipt go to that account instead of `predecessor_id`.
 Action receipts that contracts create in a chain a signed transaction started use these V2 kinds.
 `ActionV3` and `PromiseYieldV3` carry an `ActionReceiptV3`, which has the fields of `ActionReceiptV2` with `authorization_context` in place of `signer_public_key`.
-`authorization_context` is `AccessKey(PublicKey)` or `ExternalContractCall`, and every receipt in a chain an external call started uses these V3 kinds with `ExternalContractCall`.
+`authorization_context` is `AccessKey(PublicKey)` or `ExternalContractCall`, and the action receipts and gas refunds in a chain an external call started use these V3 kinds with `ExternalContractCall`.
+A deposit refund comes from `system` in every chain, as an `Action` receipt.
 
 ## ActionReceipt
 

@@ -1442,6 +1442,104 @@ fn test_apply_ecc_promise() {
     assert_eq!(charge, burnt.checked_add(attached).unwrap());
 }
 
+/// The gas an ECC's receipt does not use comes back to the contract as a gas refund of the
+/// external call's chain: a V3 receipt from system with the contract as signer and no key.
+#[test]
+fn test_apply_ecc_promise_unused_gas_refund() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("who"));
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    let carol_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| &outcome.id == receipt.receipt_id())
+        .expect("carol's receipt has an outcome");
+    // `who` creates no promises, so the gas it used is the gas it burnt.
+    assert_matches!(carol_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    let gas_burnt = carol_outcome.outcome.gas_burnt;
+
+    // The receipt prepaid its static gas and the execution fees of itself and its function call.
+    let config = &apply_state.config;
+    let fees = &config.fees;
+    let receipt_gas_price = config.min_gas_purchase_price;
+    assert!(GAS_PRICE < receipt_gas_price);
+    let method_gas = fees.fee(ActionCosts::function_call_byte).exec_fee().gas;
+    let prepaid_gas = CAROL_CALL_GAS
+        .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
+        .and_then(|gas| gas.checked_add(fees.fee(ActionCosts::function_call_base).exec_fee().gas))
+        .and_then(|gas| gas.checked_add(method_gas.checked_mul("who".len() as u64).unwrap()))
+        .unwrap();
+    let unused_gas = prepaid_gas.checked_sub(gas_burnt).unwrap();
+    let penalty = fees.gas_penalty_for_gas_refund(unused_gas);
+    // Gas burns at the block's price, below the price it was bought at, so the difference on the
+    // burnt gas comes back too.
+    let price_surplus =
+        safe_gas_to_balance(receipt_gas_price.checked_sub(GAS_PRICE).unwrap(), gas_burnt).unwrap();
+    let refund = safe_gas_to_balance(receipt_gas_price, unused_gas)
+        .unwrap()
+        .checked_sub(safe_gas_to_balance(GAS_PRICE, penalty).unwrap())
+        .and_then(|refund| refund.checked_add(price_surplus))
+        .unwrap();
+
+    let refund_receipt = receipt_to_bob(&apply_result).clone();
+    let refund_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
+    assert_eq!(carol_outcome.outcome.receipt_ids, vec![refund_id]);
+    assert_eq!(
+        refund_receipt,
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: bob_account(),
+            receipt_id: refund_id,
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: bob_account(),
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        })
+    );
+
+    let (bob_before, _) = bob_ecc_state(&tries, root);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&refund_receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, &refund_id),
+        ExecutionStatus::SuccessValue(value) if value.is_empty()
+    );
+    let (bob_after, _) = bob_ecc_state(&tries, root);
+    assert_eq!(bob_after.amount(), bob_before.amount().checked_add(refund).unwrap());
+}
+
 /// The callee of an accepted ECC's promise sees the contract as both signer and predecessor.
 #[test]
 fn test_apply_ecc_promise_callee_sees_contract() {
