@@ -992,9 +992,14 @@ pub fn record_uncertified_chunks_for_block(
         block,
         prev_uncertified_chunks,
     )?;
-    let certification_lag =
-        certification_lag(chain_store_update.chain_store(), block.header(), &uncertified_chunks)?;
 
+    // `block`'s own header is not in the store yet while it is being recorded.
+    let older_chunks = uncertified_chunks
+        .iter()
+        .filter(|chunk_info| &chunk_info.chunk_id.block_hash != block.header().hash());
+    let certification_lag =
+        find_oldest_uncertified_block_header(chain_store_update.chain_store(), older_chunks)?
+            .map_or(0, |oldest| block.header().height().saturating_sub(oldest.height()));
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
     let mut store_update = chain_store_update.chain_store().store_ref().store_update();
@@ -1123,21 +1128,6 @@ fn advance_uncertified_chunks(
     }
 
     Ok(uncertified_chunks)
-}
-
-/// The number of blocks certification is behind consensus at `block`, not counting `block`'s own
-/// chunks: 0 when none of the `uncertified_chunks` it leaves behind belongs to an older block.
-fn certification_lag(
-    chain_store: &ChainStoreAdapter,
-    block: &BlockHeader,
-    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
-) -> Result<BlockHeight, Error> {
-    // `block`'s own header is not in the store yet while it is being recorded.
-    let older_chunks = uncertified_chunks
-        .iter()
-        .filter(|chunk_info| &chunk_info.chunk_id.block_hash != block.hash());
-    Ok(find_oldest_uncertified_block_header(chain_store, older_chunks)?
-        .map_or(0, |oldest| block.height().saturating_sub(oldest.height())))
 }
 
 /// Records `block`'s uncertified chunks by advancing its parent's, for a block this node never
