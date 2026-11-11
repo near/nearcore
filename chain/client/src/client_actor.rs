@@ -20,6 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
+use crate::sync::header::MAX_BLOCK_HEADERS;
 use crate::sync::peers::{PeerAdvertisedHead, SyncPeers};
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
@@ -664,6 +665,16 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
 impl Handler<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>> for ClientActor {
     fn handle(&mut self, msg: SpanWrapped<BlockHeadersResponse>) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg.span_unwrap();
+        if headers.len() > MAX_BLOCK_HEADERS as usize {
+            tracing::warn!(
+                target: "client",
+                num_headers = headers.len(),
+                max_headers = MAX_BLOCK_HEADERS,
+                ?peer_id,
+                "received more block headers than requested"
+            );
+            return Err(ReasonForBan::Abusive);
+        }
         if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {

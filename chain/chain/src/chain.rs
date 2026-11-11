@@ -1558,6 +1558,17 @@ impl Chain {
         };
 
         if all_known {
+            // Detect if the node has been hit by the header sync stall bug and perform recovery.
+            // Can be removed in the future. (Release 2.15+)
+            if let Some(last_header) = headers.last() {
+                if last_header.height() > self.chain_store.header_head()?.height {
+                    let mut chain_store_update = self.chain_store.store_update();
+                    let tip = Tip::from_header(last_header);
+                    chain_store_update.save_header_head(&tip)?;
+                    metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
+                    chain_store_update.commit()?;
+                }
+            }
             return Ok(());
         }
 
@@ -1582,15 +1593,16 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.store_update.into());
+
+            if header.height() > chain_store_update.header_head()?.height {
+                let tip = Tip::from_header(header);
+                chain_store_update.save_header_head(&tip)?;
+                metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
+            }
             chain_store_update.commit()?;
         }
 
-        let mut chain_update = self.chain_update();
-        if let Some(header) = headers.last() {
-            // Update header_head if it's the new tip
-            chain_update.update_header_head(header)?;
-        }
-        chain_update.commit()
+        Ok(())
     }
 
     /// Returns if given block header is on the current chain.
