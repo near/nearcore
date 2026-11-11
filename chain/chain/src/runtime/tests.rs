@@ -2806,7 +2806,8 @@ fn recorded_size_of_contract_checks(env: &TestEnv, contracts: &[&str]) -> usize 
     let state_update = TrieUpdate::new(trie.recording_reads_new_recorder());
     let wrapper = TrieUpdateWitnessSizeWrapper::new(state_update);
     for contract_id in contracts {
-        assert!(account_holds_contract(&wrapper, &contract_id.parse().unwrap()).unwrap());
+        let ecc = EccTransaction::new(contract_id.parse().unwrap(), vec![]);
+        assert!(call_can_run_at_account(&wrapper, &ecc).unwrap());
     }
     wrapper.recorded_storage_size()
 }

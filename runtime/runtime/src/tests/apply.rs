@@ -2089,7 +2089,7 @@ fn test_dry_run_ecc_matches_apply() {
         let (bob, written) = bob_ecc_state(&tries, root);
         assert_eq!(dry_run_written, written, "{name}");
         match dry_run {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
@@ -2372,7 +2372,7 @@ fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
         );
         let outcome = &apply_result.outcomes[0].outcome;
         match early {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");

@@ -138,6 +138,8 @@ pub struct ProcessedExternalCall {
     pub accepted: bool,
     /// The receipts an accepted call sends, with their ids, for the caller to send out.
     pub receipts: Vec<Receipt>,
+    /// Whether the call installed its state init, which it does only on an uninitialized account.
+    pub installed_state_init: bool,
 }
 
 /// Processes an external contract call of a chunk: checks the chunk's shares for ECCs, reads
@@ -176,6 +178,7 @@ pub fn process_external_call<'a>(
         outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
         accepted: false,
         receipts: vec![],
+        installed_state_init: false,
     };
     let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
         Ok(cost) => cost,
@@ -242,7 +245,13 @@ pub struct EccDryRunContext {
 #[derive(Debug)]
 pub enum EccDryRun {
     /// The contract accepts the call and pays for it. `account` is its account after the call.
-    Accepted { account: Account, gas_burnt: Gas, compute_usage: Compute },
+    Accepted {
+        account: Account,
+        gas_burnt: Gas,
+        compute_usage: Compute,
+        /// Whether the call installed its state init.
+        installed_state_init: bool,
+    },
     /// The call fails or the contract refuses it, and nobody pays.
     Refused(TxExecutionError),
 }
@@ -277,15 +286,16 @@ pub fn dry_run_external_call(
     let validation_error =
         validate_external_call(&apply_state.config, ecc, apply_state.current_protocol_version)
             .err();
-    let ProcessedExternalCall { outcome, accepted, receipts: _ } = process_external_call(
-        state_update,
-        &apply_state,
-        epoch_info_provider,
-        external_calls,
-        &accounts,
-        ecc,
-        validation_error,
-    )?;
+    let ProcessedExternalCall { outcome, accepted, receipts: _, installed_state_init } =
+        process_external_call(
+            state_update,
+            &apply_state,
+            epoch_info_provider,
+            external_calls,
+            &accounts,
+            ecc,
+            validation_error,
+        )?;
     let outcome = outcome.outcome;
     if !accepted {
         let ExecutionStatus::Failure(error) = outcome.status else {
@@ -298,7 +308,8 @@ pub fn dry_run_external_call(
         .and_then(|entry| entry.value().as_ref().ok().cloned().flatten())
         .expect("an accepted call leaves its contract's account in the map");
     let compute_usage = outcome.compute_usage.expect("an ECC outcome reports its compute");
-    Ok(EccDryRun::Accepted { account, gas_burnt: outcome.gas_burnt, compute_usage })
+    let gas_burnt = outcome.gas_burnt;
+    Ok(EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init })
 }
 
 /// Processes an external contract call that passed the check of the chunk's shares for ECCs,
@@ -326,6 +337,7 @@ fn process_admitted_external_call<'a>(
         outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
         accepted: false,
         receipts: vec![],
+        installed_state_init: false,
     };
     // A call that installs its state init pays the install's fees too, so its contract must
     // cover them before the run.
@@ -340,6 +352,7 @@ fn process_admitted_external_call<'a>(
     if cost.gas_burnt >= config.wasm_config.limit_config.max_gas_burnt_external {
         return Ok(refuse(gas_exceeded(), call_compute));
     }
+    let state_init = contract.as_ref().and_then(|account| state_init_to_install(account, ecc));
     let account = match verify_ecc_ephemeral(contract.as_mut(), ecc, &cost) {
         Ok(account) => account,
         Err(err) => return Ok(refuse(err.into(), cost.compute_burnt)),
@@ -382,7 +395,8 @@ fn process_admitted_external_call<'a>(
     let mut receipts = std::mem::take(&mut run.new_receipts);
     let receipt_ids = set_ecc_receipt_ids(apply_state, &outcome_id, &mut receipts);
     let outcome = run.into_outcome(outcome_id, apply_state.block_height, ecc, account, receipt_ids);
-    Ok(ProcessedExternalCall { outcome, accepted, receipts })
+    let installed_state_init = accepted && state_init.is_some();
+    Ok(ProcessedExternalCall { outcome, accepted, receipts, installed_state_init })
 }
 
 /// Gives the receipts of an external call their ids, derived from the call's outcome id the way a

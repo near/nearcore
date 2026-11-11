@@ -22,9 +22,10 @@ use crate::verifier::{
 };
 pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
-    account_holds_contract, get_signer_and_authorization, is_bootstrap, set_tx_state_changes,
-    validate_envelope, validate_transaction, verify_and_charge_access_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
+    call_can_run_at_account, ecc_cost_for_account, get_signer_and_authorization, is_bootstrap,
+    set_tx_state_changes, validate_envelope, validate_transaction,
+    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -3096,7 +3097,7 @@ fn record_external_call(
     ecc: &EccTransaction,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let ProcessedExternalCall { outcome, accepted, receipts } = processed;
+    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _ } = processed;
     // Every call that gets here gets an outcome.
     processing_state.external_calls.push((outcome.id, *ecc.hash()));
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");

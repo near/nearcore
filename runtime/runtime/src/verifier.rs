@@ -19,7 +19,7 @@ use near_primitives::transaction::{
     ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
-use near_primitives::universal_state_init::RawStateInit;
+use near_primitives::universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit};
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
@@ -398,14 +398,21 @@ pub fn get_signer_and_authorization(
     }
 }
 
-/// Whether the account exists and holds a contract, which an ECC to it needs. An ECC to any
-/// other account has nothing to run, so nobody should spend resources on it.
-// TODO(ecc): also check that the contract exports `ECC_METHOD_NAME`
-pub fn account_holds_contract(
+/// Whether the account of `ecc`'s contract has a contract, or gets one from the state init the call
+/// installs. A call to any other account has nothing to run, so nobody should spend on it.
+pub fn call_can_run_at_account(
     state_update: &dyn TrieAccess,
-    account_id: &AccountId,
+    ecc: &EccTransaction,
 ) -> Result<bool, StorageError> {
-    Ok(get_account(state_update, account_id)?.is_some_and(|account| account.contract().is_some()))
+    let Some(account) = get_account(state_update, ecc.contract_id())? else {
+        return Ok(false);
+    };
+    let Some(state_init) = state_init_to_install(&account, ecc) else {
+        return Ok(account.contract().is_some());
+    };
+    // Decoding is bounded by the call's size limit, as in its validity check.
+    let state_init = UniversalStateInit::from_raw(state_init, DecodeMode::Strict);
+    Ok(state_init.is_ok_and(|state_init| state_init.code().is_some()))
 }
 
 /// The fees `ecc` pays before its run when `account` is its contract's account, the install of its
