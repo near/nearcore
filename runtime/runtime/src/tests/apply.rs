@@ -11096,6 +11096,35 @@ mod ecc_state_init {
         assert_eq!(install_cost, tokens_burnt[1].checked_add(action_cost).unwrap());
     }
 
+    /// A chunk with two copies of one call is invalid. If one reaches apply anyway, apply skips the
+    /// second copy with no outcome, since both copies share a unique id.
+    #[test]
+    fn test_ecc_copies_with_and_without_state_init_in_one_chunk() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let with_init = EccTransaction::new_with_state_init(account_id, vec![], Some(init));
+        let without_init = with_init.without_state_init();
+
+        let (_, result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root,
+            &apply_state,
+            vec![with_init.into(), without_init.clone().into()],
+            &epoch_info_provider,
+        );
+
+        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
+        let unique_id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
+        assert_eq!(outcome.id, unique_id);
+        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+    }
+
     /// The producer's dry run of a call with a state init ends as apply does, the install accepted,
     /// refused or skipped, and it says whether the call installed the state init.
     #[test]
