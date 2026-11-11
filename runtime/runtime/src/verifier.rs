@@ -21,6 +21,7 @@ use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
+use std::collections::HashSet;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -708,14 +709,29 @@ pub(crate) fn validate_receipt(
     })?;
 
     match receipt.versioned_receipt() {
-        VersionedReceiptEnum::Action(action_receipt)
-        | VersionedReceiptEnum::PromiseYield(action_receipt) => validate_action_receipt(
+        VersionedReceiptEnum::Action(action_receipt) => validate_action_receipt(
             limit_config,
             action_receipt,
             receipt.receiver_id(),
             current_protocol_version,
             mode,
         ),
+        VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            // Applying a PromiseYield receipt stores it under its only input data id.
+            let num_inputs = action_receipt.input_data_ids().len();
+            if num_inputs != 1 {
+                return Err(ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                    number_of_input_data_dependencies: num_inputs as u64,
+                });
+            }
+            validate_action_receipt(
+                limit_config,
+                action_receipt,
+                receipt.receiver_id(),
+                current_protocol_version,
+                mode,
+            )
+        }
         VersionedReceiptEnum::Data(data_receipt)
         | VersionedReceiptEnum::PromiseResume(data_receipt) => {
             validate_data_receipt(limit_config, &data_receipt)
@@ -751,6 +767,13 @@ fn validate_action_receipt(
             number_of_input_data_dependencies: receipt.input_data_ids().len() as u64,
             limit: limit_config.max_number_input_data_dependencies,
         });
+    }
+
+    // Input data is read and removed from the state once per id, so a repeated id would make
+    // the second read fail. Honest receipts get a fresh data id for every dependency.
+    let mut seen_data_ids = HashSet::new();
+    if let Some(data_id) = receipt.input_data_ids().iter().find(|id| !seen_data_ids.insert(*id)) {
+        return Err(ReceiptValidationError::DuplicateInputDataId { data_id: *data_id });
     }
 
     if let Some(account_id) = receipt.refund_to() {
@@ -802,7 +825,7 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::ActionsValidationError;
     use near_primitives::hash::{CryptoHash, hash};
-    use near_primitives::receipt::ActionReceipt;
+    use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         AddKeyAction, CreateAccountAction, DeployContractAction, FunctionCallAction,
@@ -2051,6 +2074,73 @@ mod tests {
             ValidateReceiptMode::NewReceipt,
         )
         .expect("valid receipt");
+    }
+
+    #[test]
+    fn test_validate_promise_yield_receipt_input_count() {
+        let limit_config = test_limit_config();
+        let promise_yield = |input_data_ids| {
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: alice_account(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::PromiseYield(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: Balance::from_yoctonear(100),
+                    output_data_receivers: vec![],
+                    input_data_ids,
+                    actions: vec![],
+                }),
+            })
+        };
+        let hash = |byte| CryptoHash::hash_bytes(&[byte]);
+        for mode in [ValidateReceiptMode::NewReceipt, ValidateReceiptMode::ExistingReceipt] {
+            let validate =
+                |receipt| validate_receipt(&limit_config, &receipt, PROTOCOL_VERSION, mode);
+            validate(promise_yield(vec![hash(1)])).expect("exactly one input is valid");
+            for input_data_ids in [vec![], vec![hash(1), hash(2)]] {
+                let number_of_input_data_dependencies = input_data_ids.len() as u64;
+                assert_eq!(
+                    validate(promise_yield(input_data_ids)),
+                    Err(ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                        number_of_input_data_dependencies
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_action_receipt_duplicate_input_data_ids() {
+        let limit_config = test_limit_config();
+        let hash = |byte| CryptoHash::hash_bytes(&[byte]);
+        let action_receipt = |input_data_ids| {
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: alice_account(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: Balance::from_yoctonear(100),
+                    output_data_receivers: vec![],
+                    input_data_ids,
+                    actions: vec![],
+                }),
+            })
+        };
+        for mode in [ValidateReceiptMode::NewReceipt, ValidateReceiptMode::ExistingReceipt] {
+            let validate =
+                |receipt| validate_receipt(&limit_config, &receipt, PROTOCOL_VERSION, mode);
+            validate(action_receipt(vec![])).expect("no inputs is valid");
+            validate(action_receipt(vec![hash(1), hash(2), hash(3)])).expect("distinct inputs");
+            // The duplicate doesn't have to be adjacent.
+            assert_eq!(
+                validate(action_receipt(vec![hash(1), hash(2), hash(1)])),
+                Err(ReceiptValidationError::DuplicateInputDataId { data_id: hash(1) })
+            );
+        }
     }
 
     #[test]

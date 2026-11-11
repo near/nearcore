@@ -69,6 +69,10 @@ pub enum RuntimeError {
     StorageError(StorageError),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
+    /// An invariant of the execution was broken, e.g. by a receipt that honest execution never
+    /// produces. Unlike `StorageError::StorageInconsistentState`, it does not mean that the
+    /// storage is corrupted. The message is for debugging purposes only.
+    ExecutionInvariantBroken(String),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
 }
@@ -550,6 +554,10 @@ pub enum ReceiptValidationError {
     ReceiptSizeExceeded { size: u64, limit: u64 } = 7,
     /// The `refund_to` of an ActionReceipt is not valid.
     InvalidRefundTo { account_id: String } = 8,
+    /// A `PromiseYield` receipt must have exactly one input data dependency.
+    InvalidPromiseYieldInputDataCount { number_of_input_data_dependencies: u64 } = 9,
+    /// The same input data id is listed more than once in an ActionReceipt.
+    DuplicateInputDataId { data_id: CryptoHash } = 10,
 }
 
 impl Display for ReceiptValidationError {
@@ -588,6 +596,20 @@ impl Display for ReceiptValidationError {
             }
             ReceiptValidationError::InvalidRefundTo { account_id } => {
                 write!(f, "The refund_to `{}` of an ActionReceipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                number_of_input_data_dependencies,
+            } => write!(
+                f,
+                "A PromiseYield receipt must have exactly one input data dependency, got {}",
+                number_of_input_data_dependencies
+            ),
+            ReceiptValidationError::DuplicateInputDataId { data_id } => {
+                write!(
+                    f,
+                    "The input data id {} is listed more than once in an ActionReceipt",
+                    data_id
+                )
             }
         }
     }

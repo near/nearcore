@@ -211,7 +211,7 @@ impl NightshadeRuntime {
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
-            block_type: _,
+            block_type,
             height: block_height,
             ref prev_block_hash,
             block_timestamp,
@@ -363,13 +363,31 @@ impl NightshadeRuntime {
                     tracing::warn!(?err, "invalid tx");
                     Error::InvalidTransactions
                 }
+                // An optimistic apply may run on receipts from a chunk that nobody has validated, so
+                // a forged receipt can break any invariant of the application. Its result is dropped on
+                // error and the block is applied again, which aborts if the state is really corrupted.
+                RuntimeError::UnexpectedIntegerOverflow(reason) if block_type.is_optimistic() => {
+                    Error::InvalidReceipt(format!("unexpected integer overflow: {reason}"))
+                }
+                RuntimeError::StorageError(StorageError::StorageInconsistentState(reason))
+                    if block_type.is_optimistic() =>
+                {
+                    Error::InvalidReceipt(format!("inconsistent state: {reason}"))
+                }
+                RuntimeError::ExecutionInvariantBroken(reason) if block_type.is_optimistic() => {
+                    Error::InvalidReceipt(format!("execution invariant broken: {reason}"))
+                }
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow(reason) => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
                 }
+                RuntimeError::ExecutionInvariantBroken(reason) => {
+                    panic!("RuntimeError::ExecutionInvariantBroken {reason}")
+                }
                 RuntimeError::StorageError(e) => Error::StorageError(e),
-                // TODO(#2152): process gracefully
-                RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
+                // Incoming receipts are not validated by the nodes that don't track the source
+                // shard, so a malicious chunk producer can get an invalid one here.
+                RuntimeError::ReceiptValidationError(e) => Error::InvalidReceipt(e.to_string()),
                 RuntimeError::ValidatorError(e) => e.into(),
             })?;
         let elapsed = instant.elapsed();

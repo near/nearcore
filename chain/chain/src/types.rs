@@ -361,6 +361,15 @@ pub enum BlockType {
     Optimistic,
 }
 
+impl BlockType {
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            BlockType::Normal => false,
+            BlockType::Optimistic => true,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,

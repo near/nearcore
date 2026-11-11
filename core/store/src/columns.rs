@@ -524,7 +524,8 @@ impl DBCol {
     /// Under the hood, we’re using custom merge operator (see
     /// [`crate::db::RocksDB::refcount_merge`]) to properly ‘join’ the
     /// refcounted cells.  This means that the 'value' for a given key must
-    /// never change.
+    /// never change.  The exception is `Receipts`, where the keys are chosen
+    /// by chunk producers and the first value is kept.
     ///
     /// Example:
     ///

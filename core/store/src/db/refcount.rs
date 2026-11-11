@@ -105,9 +105,10 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> [u8; 8] {
 /// - rc > 0 ⇒ value with encoded reference count.
 ///
 /// Assumes that all provided values with positive reference count have the same
-/// value so that the function is free to pick any of the values.  In build with
-/// debug assertions panics if this is not true.
+/// value so that the function is free to pick any of the values. In a build with
+/// debug assertions panics if this is not true, except for `DBCol::Receipts`.
 pub(crate) fn refcount_merge<'a>(
+    col: DBCol,
     existing: Option<&'a [u8]>,
     operands: impl IntoIterator<Item = &'a [u8]>,
 ) -> Vec<u8> {
@@ -115,7 +116,10 @@ pub(crate) fn refcount_merge<'a>(
     for (new_payload, delta) in operands.into_iter().map(decode_value_with_rc) {
         if payload.is_none() {
             payload = new_payload;
-        } else if new_payload.is_some() {
+        } else if new_payload.is_some() && col != DBCol::Receipts {
+            // Receipt ids are picked by the chunk producer that signs the chunk, so a forged
+            // receipt can collide with an honest one. Every other refcounted column derives
+            // its key from the value.
             debug_assert_eq!(payload, new_payload);
         }
         rc += delta;
@@ -146,11 +150,12 @@ impl RocksDB {
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
     pub(crate) fn refcount_merge(
+        col: DBCol,
         _new_key: &[u8],
         existing: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
-        Some(self::refcount_merge(existing, operands))
+        Some(self::refcount_merge(col, existing, operands))
     }
 
     /// Compaction filter for DBCol::State
@@ -242,12 +247,12 @@ mod test {
     fn refcount_merge() {
         fn test(want: &[u8], operands: &[&[u8]]) {
             let it = operands.into_iter().copied();
-            let got = super::refcount_merge(None, it);
+            let got = super::refcount_merge(DBCol::State, None, it);
             assert_eq!(want, got.as_slice());
 
             if !operands.is_empty() {
                 let it = operands[1..].into_iter().copied();
-                let got = super::refcount_merge(Some(operands[0]), it);
+                let got = super::refcount_merge(DBCol::State, Some(operands[0]), it);
                 assert_eq!(want, got.as_slice());
             }
         }
@@ -269,6 +274,25 @@ mod test {
         test(b"foo\x02\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0", b"foo\x01\0\0\0\0\0\0\0"]);
         test(b"foo\x01\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0"]);
         test(b"foo\x01\0\0\0\0\0\0\0", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_ONE]);
+    }
+
+    const FOO: &[u8] = b"foo\x01\0\0\0\0\0\0\0";
+    const BAR: &[u8] = b"bar\x01\0\0\0\0\0\0\0";
+
+    /// Receipt ids are chosen by chunk producers, so one id can have different values. The first
+    /// one is kept and the counts are summed.
+    #[test]
+    fn refcount_merge_differing_values_in_receipts() {
+        let want = b"foo\x02\0\0\0\0\0\0\0".as_slice();
+        assert_eq!(want, super::refcount_merge(DBCol::Receipts, Some(FOO), [BAR]).as_slice());
+        assert_eq!(want, super::refcount_merge(DBCol::Receipts, None, [FOO, BAR]).as_slice());
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "assertion `left == right` failed")]
+    fn refcount_merge_differing_values_in_other_columns() {
+        super::refcount_merge(DBCol::State, Some(FOO), [BAR]);
     }
 
     #[test]

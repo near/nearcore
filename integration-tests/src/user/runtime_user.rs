@@ -132,6 +132,9 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
+                    RuntimeError::ExecutionInvariantBroken(reason) => {
+                        panic!("ExecutionInvariantBroken error {reason}")
+                    }
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
                 })?;
             client.cumulative_subsidized = client
