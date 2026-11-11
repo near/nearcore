@@ -12,7 +12,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
-    Action, DeployContractAction, EccTransaction, SignedTransaction,
+    Action, DeployContractAction, ECC_METHOD_NAME, EccTransaction, SignedTransaction,
 };
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -91,6 +91,16 @@ fn create_tx_deploy_contract(
     SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash)
 }
 
+/// Deploys to test1 a contract that accepts every external call.
+fn create_tx_deploy_ecc_contract(block_hash: CryptoHash) -> SignedTransaction {
+    let code = near_test_contracts::wat_contract(&format!(
+        r#"(module (func (export "{ECC_METHOD_NAME}")))"#
+    ));
+    let action = Action::DeployContract(DeployContractAction { code });
+    let signer = InMemorySigner::test_signer(&test1());
+    SignedTransaction::from_actions(1, test1(), test1(), &signer, vec![action], block_hash)
+}
+
 fn create_tx_function_call(
     nonce: u64,
     signer: &Signer,
@@ -137,6 +147,13 @@ fn test_storage_after_commit_of_cold_update() {
                 env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
+            if ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+                let tx = create_tx_deploy_ecc_contract(last_hash);
+                assert_eq!(
+                    env.rpc_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
+            }
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
@@ -156,10 +173,10 @@ fn test_storage_after_commit_of_cold_update() {
                     ProcessTxResponse::ValidTx
                 );
             }
-            // An external call to the contract deployed at height 1. Its copy gets an outcome and
-            // a row in the external calls' column, whether the contract accepts it or not.
+            // An external call to the contract deployed on test1 at height 1. The producer packs
+            // only a call the contract accepts, and its copy gets a row in the external calls' column.
             if height >= 3 && ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-                let call = EccTransaction::new(test0(), height.to_le_bytes().to_vec());
+                let call = EccTransaction::new(test1(), height.to_le_bytes().to_vec());
                 assert_eq!(
                     env.rpc_handlers[0].process_tx(call, false, false),
                     ProcessTxResponse::ValidTx
