@@ -129,8 +129,9 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_chunk_producer_info_from_prev_block(chunk.prev_block(), chunk.shard_id())?
                     .take_account_id();
-                let chunk = store.chain_store().with_external_call_height_included(chunk)?;
-                Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
+                let height_included =
+                    store.chain_store().get_external_call_height_included(&chunk)?;
+                Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk, height_included)))
             }
             EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
                 let chunk_extra = store

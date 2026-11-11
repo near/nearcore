@@ -136,17 +136,21 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
-                let outcome = outcomes.remove(&transaction.id());
+                let outcome = transaction.id().and_then(|id| outcomes.remove(&id));
                 if outcome.is_none() {
                     tracing::error!(
                         target: INDEXER,
-                        tx_hash = %transaction.id(),
+                        tx_hash = ?transaction.id(),
                         shard_id = %header.shard_id,
                         block_hash = %block.header.hash,
                         "unexpected missing transaction outcome"
                     );
                 }
-                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
+                outcome.map(|outcome| {
+                    let transaction =
+                        transaction.into_transaction_view(outcome.execution_outcome.id);
+                    IndexerTransactionWithOutcome { outcome, transaction }
+                })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
         // All transaction outcomes have been removed.

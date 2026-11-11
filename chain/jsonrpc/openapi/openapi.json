@@ -4293,6 +4293,42 @@
         },
         "type": "object"
       },
+      "ChunkEccTransactionView": {
+        "description": "An external call as a chunk holds it. Its unique id is unknown in a chunk that no block on the\ncanonical chain includes.",
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "state_init": {
+            "default": null,
+            "description": "The universal account state init the call carries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "The unique id of this copy of the call, its outcome id. `None` when no block on the\ncanonical chain includes the chunk."
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload"
+        ],
+        "type": "object"
+      },
       "ChunkHash": {
         "$ref": "#/components/schemas/CryptoHash"
       },
@@ -4434,6 +4470,49 @@
           "signature"
         ],
         "type": "object"
+      },
+      "ChunkTransactionView": {
+        "description": "A transaction as a chunk holds it, written like a `TransactionEnvelopeView`.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "signed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChunkEccTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "external_call"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CloudArchivalWriterConfig": {
         "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
@@ -14461,7 +14540,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/TransactionEnvelopeView"
+              "$ref": "#/components/schemas/ChunkTransactionView"
             },
             "type": "array"
           }
