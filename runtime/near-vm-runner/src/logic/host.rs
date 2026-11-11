@@ -138,8 +138,12 @@ macro_rules! bls12381_impl {
         ) -> Result<u64> {
             ctx.result_state.gas_counter.pay_base($bls12381_base)?;
 
-            let elements_count = value_len / $ITEM_SIZE;
-            ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            // Before `FixRegisterInputCharging`, the element count came from `value_len`, which
+            // is `u64::MAX` for register input.
+            if !ctx.config.fix_register_input_charging {
+                let elements_count = value_len / $ITEM_SIZE;
+                ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            }
 
             let data = get_memory_or_register(
                 &mut ctx.result_state.gas_counter,
@@ -148,6 +152,10 @@ macro_rules! bls12381_impl {
                 value_ptr,
                 value_len,
             )?;
+            if ctx.config.fix_register_input_charging {
+                let elements_count = data.len() / $ITEM_SIZE;
+                ctx.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            }
             let version = if ctx.config.bls12381_not_in_group_fix {
                 crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
             } else {
@@ -1103,7 +1111,7 @@ pub fn alt_bn128_g1_multiexp(
 /// use more memory than the limit, the function returns `MemoryAccessViolation`.
 ///
 /// If point coordinates are not on curve, point is not in the subgroup,
-/// scalar is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
+/// a coordinate is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
 /// the function returns `AltBn128InvalidInput`.
 ///
 /// # Cost
@@ -1135,7 +1143,8 @@ pub fn alt_bn128_g1_sum(
 }
 
 /// Computes pairing check on alt_bn128 curve.
-/// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is Ate pairing
+/// \prod_i e(g_{1 i}, g_{2 i}) should be equal one, e(g1, g2) is Ate pairing.
+/// Returns 1 if it is and 0 otherwise.
 ///
 /// # Arguments
 ///
@@ -1154,7 +1163,7 @@ pub fn alt_bn128_g1_sum(
 /// If `value_len + value_ptr` points outside the memory or the registers
 /// use more memory than the limit the function returns `MemoryAccessViolation`.
 ///
-/// If point coordinates are not on curve, point is not in the subgroup, scalar
+/// If point coordinates are not on curve, point is not in the subgroup, a coordinate
 /// is not in the field or data are wrong serialized, for example,
 /// `value.len()%192!=0`, the function returns `AltBn128InvalidInput`.
 ///
@@ -1208,7 +1217,8 @@ the register_id identifier
 
 If one of the points not on the curve,
 the sign or points are incorrectly encoded then 1 will be returned
-and nothing will be written to the register.
+and nothing will be written to the register. Unless `bls12381_not_in_group_fix` is enabled,
+the points (0, 2) and (0, -2), which are on the curve but not in G1, also return 1.
 
 # Errors
 
@@ -1443,8 +1453,8 @@ bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
 );
 
 /// Computes pairing check on BLS12-381 curve.
-/// In other words, computes whether \sum_i e(g_{1 i}, g_{2 i})
-/// is equal to one (in additive notation), where e(g1, g2) is the pairing function
+/// In other words, computes whether \prod_i e(g_{1 i}, g_{2 i})
+/// is equal to one, where e(g1, g2) is the pairing function
 ///
 /// # Arguments
 ///
@@ -1520,7 +1530,7 @@ bls12381_impl!(
    [u8; 48] -- big-endian x: Fp. y determined by the formula y=+-sqrt(x^3 + 4)
 
    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
-   The third-highest bit represent the sign of y (0 for positive).
+   The third-highest bit represent the sign of y (0 for positive, as defined in NEP-488).
 
 # Output
 
@@ -1530,7 +1540,8 @@ the register_id identifier
 
 If one of the points not on the curve
 or points are incorrectly encoded then 1 will be returned
-and nothing will be written to the register.
+and nothing will be written to the register. Unless `bls12381_not_in_group_fix` is enabled,
+the points (0, 2) and (0, -2), which are on the curve but not in G1, also return 1.
 
 # Errors
 
@@ -1567,7 +1578,7 @@ bls12381_impl!(
    where c1 and c0 from Fp and encoded as big-endian [u8;48].
 
    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
-   The third-highest bit represent the sign of y (0 for positive).
+   The third-highest bit represent the sign of y (0 for positive, as defined in NEP-488).
 
 # Output
 
@@ -1896,7 +1907,8 @@ pub fn ripemd160(
     )
 }
 
-/// Recovers an ECDSA signer address and returns it into `register_id`.
+/// Recovers the ECDSA signer's public key and returns it into `register_id`
+/// as 64 bytes, `x || y`.
 ///
 /// Takes in an additional flag to check for malleability of the signature
 /// which is generally only ideal for transactions.
@@ -1912,6 +1924,8 @@ pub fn ripemd160(
 ///
 /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
 ///   memory than the limit, then returns `MemoryAccessViolation`.
+/// * If the signature is not 64 bytes, the hash is not 32 bytes, `v` is above 3 or
+///   `malleability_flag` is not 0 or 1, returns `ECRecoverError`.
 ///
 /// # Cost
 ///
@@ -2009,7 +2023,9 @@ pub fn ecrecover(
 
 /// Verify an ED25519 signature given a message and a public key.
 ///
-/// Returns a bool indicating success (1) or failure (0) as a `u64`.
+/// Returns a bool indicating success (1) or failure (0) as a `u64`. Small-order public keys are
+/// accepted. If the top 3 bits of the last signature byte are not zero, returns 0 without reading
+/// the message and public key.
 ///
 /// # Errors
 ///
@@ -2109,6 +2125,9 @@ pub fn ed25519_verify(
 /// appropriate protocol (for example SHA-256 for WebAuthn) before calling.
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// Only the first 32 bytes of a longer message are used, but every byte is charged.
+/// If `r` or `s` is out of range, returns 0 without reading the message and public key.
 ///
 /// A message shorter than 16 bytes always returns 0, pinned by
 /// `test_p256_verify_15_byte_message_rejects_signature_over_zero_padded_digest`;
@@ -4521,7 +4540,11 @@ pub fn promise_yield_resume(
         .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
-    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    // Before `FixRegisterInputCharging`, the byte count came from `payload_len`, which is
+    // `u64::MAX` for register input.
+    if !ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     let data_id = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -4537,6 +4560,9 @@ pub fn promise_yield_resume(
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
+    if ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     if payload_len > ctx.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,
@@ -4570,7 +4596,11 @@ pub fn promise_yield_resume_with_yield_id(
         .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
-    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    // Before `FixRegisterInputCharging`, the byte count came from `payload_len`, which is
+    // `u64::MAX` for register input.
+    if !ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     let yield_id = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -4586,6 +4616,9 @@ pub fn promise_yield_resume_with_yield_id(
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
+    if ctx.config.fix_register_input_charging {
+        ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    }
     if payload_len > ctx.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,

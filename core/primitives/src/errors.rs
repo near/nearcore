@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, NonceIndex, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, Compute, NonceIndex, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -71,6 +71,10 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// An external contract call was run on a trie that doesn't record the storage proof, so
+    /// what the call records can't be capped. A bug in the node: a chunk is always applied on a
+    /// trie that records, by its producer and by the validators that replay it.
+    ExternalCallWithoutRecorder,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -172,6 +176,12 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String) = 4,
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String) = 5,
+    /// A read would record more of the trie than the recording budget set on it allows.
+    /// See `TrieUpdate::with_recording_budget`.
+    RecordingBudgetExceeded {
+        /// The budget, in bytes of recorded storage proof.
+        limit: u64,
+    } = 6,
 }
 
 impl std::fmt::Display for StorageError {
@@ -201,6 +211,31 @@ impl std::error::Error for StorageError {}
 pub enum DepositCostFailureReason {
     NotEnoughBalance = 0,
     LackBalanceForState = 1,
+}
+
+/// A share of a chunk's limits that its external calls used up, with what the chunk's earlier
+/// external calls used and the share.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum ExternalCallChunkLimit {
+    /// The compute used by the chunk's earlier external calls reached their share of the chunk's
+    /// compute limit.
+    Compute { used: Compute, limit: Compute } = 0,
+    /// The storage proof recorded by the chunk's earlier external calls reached their share of
+    /// the chunk's storage proof limit.
+    StorageProof { used: u64, limit: u64 } = 1,
 }
 
 /// An error happened during TX execution
@@ -318,6 +353,13 @@ pub enum InvalidTxError {
     ContractNotFound {
         contract_id: AccountId,
     } = 21,
+    /// An external contract call didn't run because the chunk's external calls reached one of
+    /// their shares of the chunk's limits.
+    ExternalCallChunkShareReached {
+        /// The share that was reached: what the chunk's earlier external calls used, and the
+        /// share.
+        share: ExternalCallChunkLimit,
+    } = 22,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -1089,6 +1131,22 @@ impl Display for InvalidTxError {
             InvalidTxError::ContractNotFound { contract_id } => {
                 write!(f, "account {:?} does not hold a contract", contract_id)
             }
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::Compute { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk used {} of compute, reaching their share of {}",
+                Gas::from_gas(*used),
+                Gas::from_gas(*limit)
+            ),
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::StorageProof { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk recorded {} bytes of storage proof, reaching their \
+                 share of {} bytes",
+                used, limit
+            ),
         }
     }
 }

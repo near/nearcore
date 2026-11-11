@@ -39,6 +39,7 @@ Makes changes to `config.json` and send `SIGHUP` signal to the `neard` process.
 - `max_block_production_delay`: how long the node waits for block approvals before producing a block anyway.
 - `max_block_wait_delay`: how long the node waits before giving up on a height and skipping it.
 - `chunk_wait_mult`: multiplier on how long the node waits for all chunks to arrive before producing a block.
+- `ecc_time_share`: the share of `produce_chunk_add_transactions_time_limit` that external contract calls (ECCs) may take when a chunk is produced, as `[numerator, denominator]`. Zero keeps ECCs out of chunks.
 - `doomslug_step_period`: how often the doomslug timer fires.
 
 #### Changing other fields of `config.json`

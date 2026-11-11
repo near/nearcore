@@ -18,6 +18,10 @@ pub(crate) struct KeyEntry {
 struct AccountEntry {
     account: Account,
     keys: HashMap<PublicKey, KeyEntry>,
+    /// Whether a transaction signed by the account was packed, which is when apply has the account
+    /// loaded before it runs the chunk's ECCs. An account that was loaded to verify transactions
+    /// that were all rejected is not in the chunk, and apply reads it in the ECC's call.
+    packed: bool,
 }
 
 /// Ephemeral overlay for signer account and access key data during a single
@@ -64,6 +68,46 @@ impl SignerOverlay {
         self.entries.get(account_id)?.account.bootstrap_nonce()
     }
 
+    /// Returns the entry of the account, loading it from the trie on first access. `Ok(None)`
+    /// signals that the account does not exist.
+    fn account_entry_mut(
+        &mut self,
+        trie: &dyn TrieAccess,
+        account_id: &AccountId,
+    ) -> Result<Option<&mut AccountEntry>, StorageError> {
+        match self.entries.entry(account_id.clone()) {
+            Entry::Occupied(entry) => Ok(Some(entry.into_mut())),
+            Entry::Vacant(entry) => {
+                let Some(account) = get_account(trie, account_id)? else {
+                    return Ok(None);
+                };
+                Ok(Some(entry.insert(AccountEntry {
+                    account,
+                    keys: HashMap::new(),
+                    packed: false,
+                })))
+            }
+        }
+    }
+
+    /// Records that a transaction signed by the account was packed.
+    pub fn mark_packed(&mut self, account_id: &AccountId) {
+        let entry =
+            self.entries.get_mut(account_id).expect("a packed transaction loaded its signer");
+        entry.packed = true;
+    }
+
+    /// Returns the account if a transaction signed by it was packed, without loading it. It is the
+    /// account that those transactions paid from, so an ECC to a contract that signs transactions
+    /// has to see its balance after them. An account that is only loaded, as the transactions
+    /// signed by it were rejected, is not returned: apply does not have it loaded either.
+    pub fn packed_account_mut(&mut self, account_id: &AccountId) -> Option<&mut Account> {
+        self.entries
+            .get_mut(account_id)
+            .filter(|entry| entry.packed)
+            .map(|entry| &mut entry.account)
+    }
+
     /// Returns mutable references to the account and per-key state, loading
     /// from the trie on first access. `Ok(None)` signals that the requested
     /// account, access key, or gas-key nonce does not exist in state. Storage
@@ -76,18 +120,12 @@ impl SignerOverlay {
         nonce_index: Option<NonceIndex>,
     ) -> Result<Option<(&mut Account, &mut KeyEntry)>, StorageError> {
         // Ensure the account is loaded.
-        let entry = match self.entries.entry(account_id.clone()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let Some(account) = get_account(trie, account_id)? else {
-                    return Ok(None);
-                };
-                entry.insert(AccountEntry { account, keys: HashMap::new() })
-            }
+        let Some(entry) = self.account_entry_mut(trie, account_id)? else {
+            return Ok(None);
         };
 
         // Destructure to split the borrow between account and keys.
-        let AccountEntry { account, keys } = entry;
+        let AccountEntry { account, keys, .. } = entry;
 
         // Ensure the key entry is loaded.
         let key_entry = match keys.entry(public_key.clone()) {
@@ -176,6 +214,47 @@ mod tests {
         let mut overlay = SignerOverlay::new();
         let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0));
         assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn packed_account_is_shared_with_the_key_entries() {
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None).unwrap().unwrap();
+        overlay.mark_packed(&alice());
+
+        let account = overlay.packed_account_mut(&alice()).unwrap();
+        account.set_amount(Balance::from_yoctonear(7));
+
+        let (account, _) =
+            overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None).unwrap().unwrap();
+        assert_eq!(account.amount(), Balance::from_yoctonear(7));
+    }
+
+    #[test]
+    fn account_is_not_loaded_by_asking_for_it() {
+        let mut overlay = SignerOverlay::new();
+        assert!(overlay.packed_account_mut(&alice()).is_none());
+    }
+
+    /// An account that was loaded to verify a transaction is not packed until the transaction is:
+    /// apply has the accounts of the chunk's transactions loaded, and none of the rejected ones.
+    #[test]
+    fn loaded_account_is_not_packed_until_a_transaction_is() {
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+
+        overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None).unwrap().unwrap();
+        assert!(overlay.packed_account_mut(&alice()).is_none());
+
+        overlay.mark_packed(&alice());
+        assert!(overlay.packed_account_mut(&alice()).is_some());
     }
 
     #[test]

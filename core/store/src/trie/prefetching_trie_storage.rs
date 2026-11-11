@@ -1,6 +1,5 @@
 use super::AccessOptions;
 use crate::adapter::trie_store::TrieStoreAdapter;
-use crate::config::PrefetchConfig;
 use crate::sync_utils::Monitor;
 use crate::{StorageError, Trie, TrieCache, TrieConfig, TrieStorage, metrics};
 use crossbeam::select;
@@ -9,7 +8,7 @@ use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, ShardId, StateRoot};
+use near_primitives::types::{ShardId, StateRoot};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -79,12 +78,6 @@ pub struct PrefetchApi {
     shard_cache: TrieCache,
 
     pub enable_receipt_prefetching: bool,
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
-    pub sweat_prefetch_receivers: Vec<AccountId>,
-    /// List of allowed predecessor accounts for SWEAT prefetching.
-    pub sweat_prefetch_senders: Vec<AccountId>,
-    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
-    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
 
     pub shard_uid: ShardUId,
 }
@@ -394,20 +387,12 @@ impl PrefetchApi {
         trie_config: &TrieConfig,
     ) -> (Self, PrefetchingThreadsHandle) {
         let (work_queue_tx, work_queue_rx) = crossbeam::channel::bounded(MAX_QUEUED_WORK_ITEMS);
-        let sweat_prefetch_receivers = trie_config.sweat_prefetch_receivers.clone();
-        let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
         let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
-        let claim_sweat_prefetch_config = trie_config.claim_sweat_prefetch_config.clone();
-        let kaiching_prefetch_config = trie_config.kaiching_prefetch_config.clone();
         let this = Self {
             work_queue_tx,
             work_queue_rx,
             prefetching: PrefetchStagingArea::new(shard_uid.shard_id()),
             enable_receipt_prefetching,
-            sweat_prefetch_receivers,
-            sweat_prefetch_senders,
-            claim_sweat_prefetch_config,
-            kaiching_prefetch_config,
             shard_uid,
             store,
             shard_cache,

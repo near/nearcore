@@ -140,6 +140,9 @@ impl RuntimeUser {
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
+                    RuntimeError::ExternalCallWithoutRecorder => {
+                        panic!("external call run on a trie that doesn't record")
+                    }
                 })?;
             client.cumulative_subsidized = client
                 .cumulative_subsidized

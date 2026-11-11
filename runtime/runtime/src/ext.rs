@@ -1,5 +1,6 @@
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::receipt_manager::ReceiptManager;
+use bytesize::ByteSize;
 use near_primitives::account::Account;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::{CryptoHash, YieldId};
@@ -20,6 +21,7 @@ use near_store::{
     has_promise_yield_receipt, has_promise_yield_status, has_yield_id_mapping,
     set_promise_yield_status, set_yield_id_mapping,
 };
+use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
@@ -137,8 +139,17 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
+/// A read past the recording budget of an external call fails the call, like a read past the
+/// per-receipt storage proof limit. Any other storage error stops applying the chunk.
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
-    VMLogicError::from(ExternalError::StorageError(error))
+    match error {
+        StorageError::RecordingBudgetExceeded { limit } => {
+            VMLogicError::HostError(HostError::RecordedStorageExceeded {
+                limit: ByteSize::b(limit),
+            })
+        }
+        error => VMLogicError::from(ExternalError::StorageError(error)),
+    }
 }
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
@@ -255,6 +266,9 @@ impl<'a> External for RuntimeExt<'a> {
         self.trie_update.remove(storage_key);
         let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        // A removal grows the recorded storage proof without recording a node, so no read checks
+        // it against a recording budget.
+        self.trie_update.trie().check_recording_budget().map_err(wrap_storage_error)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",

@@ -1,3 +1,4 @@
+use crate::client_config::default_ecc_time_share;
 use crate::{ClientConfig, ReshardingConfig};
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -118,6 +119,10 @@ pub struct UpdatableClientConfig {
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// The share of the time limit for adding transactions to a chunk that ECCs may take. Zero
+    /// keeps ECCs out of chunks.
+    #[serde(default = "default_ecc_time_share")]
+    pub ecc_time_share: Rational32,
     /// Duration to check for producing / skipping block.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub block_production_tracking_delay: Duration,
@@ -145,6 +150,7 @@ impl From<&ClientConfig> for UpdatableClientConfig {
             produce_chunk_add_transactions_time_limit: config
                 .produce_chunk_add_transactions_time_limit
                 .get(),
+            ecc_time_share: config.ecc_time_share.get(),
             block_production_tracking_delay: config.block_production_tracking_delay.get(),
             min_block_production_delay: config.min_block_production_delay.get(),
             max_block_production_delay: config.max_block_production_delay.get(),

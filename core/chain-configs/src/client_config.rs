@@ -1,6 +1,8 @@
 //! Chain Client Configuration
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+#[cfg(feature = "schemars")]
+use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -613,6 +615,17 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::milliseconds(200))
 }
 
+/// The share of the time limit for adding transactions to a chunk that ECCs may take.
+pub fn default_ecc_time_share() -> Rational32 {
+    Rational32::new(1, 2)
+}
+
+/// The share of the size limit of the transaction pool that ECCs may fill. Kept in sync with
+/// `near_pool`'s `DEFAULT_ECC_SIZE_SHARE`.
+pub fn default_ecc_pool_size_share() -> Rational32 {
+    Rational32::new(1, 10)
+}
+
 /// Returns the default size of the OrphanStateWitnessPool, ie. the maximum number of
 /// state-witnesses that can be accommodated in OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_pool_size() -> usize {
@@ -846,6 +859,15 @@ pub struct ClientConfig {
     /// longer than the specified duration, which helps to produce the chunk quickly.
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
+    /// The share of `produce_chunk_add_transactions_time_limit` that ECCs may take when a chunk is
+    /// produced. Signed transactions go first, and ECCs get what they leave of the limit, but no
+    /// more than this share of it. If there is no time limit, the share is of the default one.
+    /// Zero keeps ECCs out of chunks.
+    pub ecc_time_share: MutableConfigValue<Rational32>,
+    /// The share of the size limit of the transaction pool that ECCs may fill. Zero keeps ECCs out
+    /// of the pool.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
+    pub ecc_pool_size_share: Rational32,
     /// Optional config for the Chunk Distribution Network feature.
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
     /// Nodes not participating will still function fine, but possibly with higher

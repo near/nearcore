@@ -2528,9 +2528,24 @@ impl Chain {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        // Core statements are validated before being used to compute newly certified execution
+        // results for the gas price and total supply checks below.
+        // TODO(spice): Consider enforcing this order in the type system.
         let newly_certified_block_execution_results = if ProtocolFeature::Spice
             .enabled(protocol_version)
         {
+            if !block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered non-spice block with spice feature enabled".to_string(),
+                ));
+            }
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
+            self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
+            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
+            self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
             Some(
                 self.spice_core_reader.get_newly_certified_block_execution_results_for_next_block(
                     &prev,
@@ -2538,6 +2553,11 @@ impl Chain {
                 )?,
             )
         } else {
+            if block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered spice block without spice feature enabled".to_string(),
+                ));
+            }
             None
         };
 
@@ -2605,27 +2625,6 @@ impl Chain {
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
-
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            if !block.is_spice_block() {
-                return Err(Error::Other(
-                    "encountered non-spice block with spice feature enabled".to_string(),
-                ));
-            }
-            validate_spice_chunk_execution_root(
-                block.header().chunk_execution_root(),
-                block.spice_core_statements(),
-            )?;
-            self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
-            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
-            self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
-        } else {
-            if block.is_spice_block() {
-                return Err(Error::Other(
-                    "encountered spice block without spice feature enabled".to_string(),
-                ));
-            }
-        }
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             block,
@@ -3824,9 +3823,22 @@ impl Chain {
             );
             return None;
         };
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(&epoch_id) else {
+            tracing::debug!(
+                target: "chain",
+                height = block.height,
+                shard_id = %shard_uid.shard_id(),
+                "no epoch info; skipping early transaction preparation"
+            );
+            return None;
+        };
         let next_chunk_prepare_context = PrepareTransactionsBlockContext {
             next_gas_price,
             height: block.height,
+            timestamp: block.block_timestamp,
+            // `block` is the parent of the next chunk's block, and it is in `epoch_id`.
+            epoch_id,
+            epoch_height: epoch_info.epoch_height(),
             next_epoch_id: epoch_id,
             congestion_info: block.congestion_info.clone(),
             // The next chunk of the shard has the gas limit of this one.

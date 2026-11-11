@@ -4918,6 +4918,135 @@
         "title": "ExtCostsConfigView",
         "type": "object"
       },
+      "ExternalCallChunkLimit": {
+        "description": "A share of a chunk's limits that its external calls used up, with what the chunk's earlier\nexternal calls used and the share.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The compute used by the chunk's earlier external calls reached their share of the chunk's\ncompute limit.",
+            "properties": {
+              "Compute": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Compute"
+            ],
+            "title": "Compute",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The storage proof recorded by the chunk's earlier external calls reached their share of\nthe chunk's storage proof limit.",
+            "properties": {
+              "StorageProof": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "StorageProof"
+            ],
+            "title": "StorageProof",
+            "type": "object"
+          }
+        ],
+        "title": "ExternalCallChunkLimit"
+      },
+      "ExternalCallsConfigView": {
+        "description": "Limits on external contract calls, per call and per chunk.",
+        "properties": {
+          "chunk_compute_share": {
+            "description": "The share of the chunk's compute limit that its external calls may use.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "chunk_storage_proof_share": {
+            "description": "The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may\nrecord.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "chunk_transactions_size_share": {
+            "description": "The share of `combined_transactions_size_limit` that a chunk's external calls may take.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "max_call_recorded_size": {
+            "description": "Max storage proof an external call's run may record, in bytes.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_call_size": {
+            "description": "Max size of an external contract call, in bytes.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_calls_per_chunk": {
+            "description": "Max number of external calls in a chunk.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_call_size",
+          "max_call_recorded_size",
+          "chunk_compute_share",
+          "chunk_storage_proof_share",
+          "chunk_transactions_size_share",
+          "max_calls_per_chunk"
+        ],
+        "title": "ExternalCallsConfigView",
+        "type": "object"
+      },
       "ExternalStorageLocation": {
         "description": "Supported external storage backends and their minimal config.",
         "oneOf": [
@@ -7203,6 +7332,33 @@
             ],
             "title": "ContractNotFound",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An external contract call didn't run because the chunk's external calls reached one of\ntheir shares of the chunk's limits.",
+            "properties": {
+              "ExternalCallChunkShareReached": {
+                "properties": {
+                  "share": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ExternalCallChunkLimit"
+                      }
+                    ],
+                    "description": "The share that was reached: what the chunk's earlier external calls used, and the\nshare."
+                  }
+                },
+                "required": [
+                  "share"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ExternalCallChunkShareReached"
+            ],
+            "title": "ExternalCallChunkShareReached",
+            "type": "object"
           }
         ],
         "title": "InvalidTxError"
@@ -8982,6 +9138,24 @@
               }
             ],
             "description": "Time between running doomslug timer."
+          },
+          "ecc_pool_size_share": {
+            "description": "The share of the size limit of the transaction pool that ECCs may fill. Zero keeps ECCs out\nof the pool.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "ecc_time_share": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "The share of `produce_chunk_add_transactions_time_limit` that ECCs may take when a chunk is\nproduced. Signed transactions go first, and ECCs get what they leave of the limit, but no\nmore than this share of it. If there is no time limit, the share is of the default one.\nZero keeps ECCs out of chunks."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -11420,6 +11594,31 @@
             ],
             "description": "The configuration for congestion control."
           },
+          "external_calls_config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExternalCallsConfigView"
+              }
+            ],
+            "default": {
+              "chunk_compute_share": [
+                0,
+                1
+              ],
+              "chunk_storage_proof_share": [
+                0,
+                1
+              ],
+              "chunk_transactions_size_share": [
+                0,
+                1
+              ],
+              "max_call_recorded_size": 0,
+              "max_call_size": 0,
+              "max_calls_per_chunk": 0
+            },
+            "description": "Limits on external contract calls, per call and per chunk."
+          },
           "min_gas_purchase_price": {
             "allOf": [
               {
@@ -12945,6 +13144,31 @@
               "MemTrieLoadingError"
             ],
             "title": "MemTrieLoadingError",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A read would record more of the trie than the recording budget set on it allows.\nSee `TrieUpdate::with_recording_budget`.",
+            "properties": {
+              "RecordingBudgetExceeded": {
+                "properties": {
+                  "limit": {
+                    "description": "The budget, in bytes of recorded storage proof.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RecordingBudgetExceeded"
+            ],
+            "title": "RecordingBudgetExceeded",
             "type": "object"
           }
         ],
