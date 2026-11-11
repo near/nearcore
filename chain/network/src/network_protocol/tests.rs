@@ -56,7 +56,195 @@ fn bad_account_data_size() {
         version: rng.r#gen(),
         timestamp: to_unix_nanos(clock.now_utc()),
     };
-    assert!(ad.sign(&signer.into()).is_err());
+    let signer = signer.into();
+    for encoding in ENCODINGS {
+        assert!(ad.clone().sign(&signer, encoding).is_err());
+    }
+}
+
+const ENCODINGS: [Encoding; 2] = [Encoding::Proto, Encoding::Borsh];
+
+/// Accepts structs signed in either encoding.
+const ACCEPT_BOTH: NetworkTransitionConfig = NetworkTransitionConfig::RELEASE_2_15;
+
+/// Makes an `OwnedAccount` of a new validator, signed using `encoding`.
+fn make_signed_owned_account(
+    rng: &mut crate::testonly::Rng,
+    clock: &time::Clock,
+    peer_id: PeerId,
+    encoding: Encoding,
+) -> SignedOwnedAccount {
+    let signer = data::make_validator_signer(rng);
+    OwnedAccount {
+        account_key: signer.public_key(),
+        peer_id,
+        timestamp: to_unix_nanos(clock.now_utc()),
+    }
+    .sign(&signer, encoding)
+}
+
+/// Messages with signed structs survive a round trip, whichever encoding was used to sign the
+/// structs. Borsh-signed structs are sent only in borsh-encoded messages.
+#[test]
+fn serialize_deserialize_signed_structs() {
+    let mut rng = make_rng(39521947542);
+    let mut clock = time::FakeClock::default();
+    let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    for signed_encoding in ENCODINGS {
+        let mut handshake = data::make_handshake(&mut rng, &chain);
+        let owned_account = make_signed_owned_account(
+            &mut rng,
+            &clock.clock(),
+            handshake.sender_peer_id.clone(),
+            signed_encoding,
+        );
+        assert_eq!(owned_account.encoding(), signed_encoding);
+        owned_account.verify(&ACCEPT_BOTH).unwrap();
+        handshake.owned_account = Some(owned_account);
+
+        let accounts_data = (0..4)
+            .map(|_| {
+                Arc::new(data::make_signed_account_data(&mut rng, &clock.clock(), signed_encoding))
+            })
+            .collect::<Vec<_>>();
+        for d in &accounts_data {
+            assert_eq!(d.encoding(), signed_encoding);
+            d.verify(&ACCEPT_BOTH).unwrap();
+        }
+
+        let msgs = [
+            PeerMessage::Tier1Handshake(handshake),
+            PeerMessage::SyncAccountsData(SyncAccountsData {
+                accounts_data,
+                incremental: true,
+                requesting_full_sync: true,
+            }),
+        ];
+        for encoding in ENCODINGS {
+            // Borsh-signed structs can't be expressed in protobuf messages, see
+            // `proto_omits_borsh_signed_account_data`.
+            if signed_encoding == Encoding::Borsh && encoding == Encoding::Proto {
+                continue;
+            }
+            for m in &msgs {
+                let (_, m2) = PeerMessage::deserialize_frames(&m.serialize_with_encoding(encoding))
+                    .with_context(|| {
+                        format!("{m}, encoding={encoding:?}, signed={signed_encoding:?}")
+                    })
+                    .unwrap();
+                assert_eq!(*m, m2);
+                // The signed structs are still valid after the round trip.
+                match m2 {
+                    PeerMessage::Tier1Handshake(h) => {
+                        h.owned_account.unwrap().verify(&ACCEPT_BOTH).unwrap()
+                    }
+                    PeerMessage::SyncAccountsData(msg) => {
+                        for d in msg.accounts_data {
+                            d.verify(&ACCEPT_BOTH).unwrap();
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+}
+
+/// AccountData signed over its borsh encoding can't be expressed in protobuf (and nodes which
+/// support only protobuf couldn't verify it anyway), so the protobuf encoding omits it.
+#[test]
+fn proto_omits_borsh_signed_account_data() {
+    let mut rng = make_rng(39521947542);
+    let clock = time::FakeClock::default();
+    let proto_signed =
+        Arc::new(data::make_signed_account_data(&mut rng, &clock.clock(), Encoding::Proto));
+    let borsh_signed =
+        Arc::new(data::make_signed_account_data(&mut rng, &clock.clock(), Encoding::Borsh));
+    let msg = PeerMessage::SyncAccountsData(SyncAccountsData {
+        accounts_data: vec![proto_signed.clone(), borsh_signed],
+        incremental: true,
+        requesting_full_sync: false,
+    });
+    let (_, got) =
+        PeerMessage::deserialize_frames(&msg.serialize_with_encoding(Encoding::Proto)).unwrap();
+    assert_eq!(
+        got,
+        PeerMessage::SyncAccountsData(SyncAccountsData {
+            accounts_data: vec![proto_signed],
+            incremental: true,
+            requesting_full_sync: false,
+        })
+    );
+}
+
+/// A protobuf-signed struct is sent together with the signed protobuf bytes, so verifying it
+/// checks that both match. A borsh-signed struct is verified against its borsh encoding,
+/// preceded by a signature differentiator.
+#[test]
+fn verify_signed_structs() {
+    let mut rng = make_rng(39521947542);
+    let clock = time::FakeClock::default();
+    for encoding in ENCODINGS {
+        let signed = data::make_signed_account_data(&mut rng, &clock.clock(), encoding);
+        signed.verify(&ACCEPT_BOTH).unwrap();
+        let got = SignedAccountData::try_from_slice(&borsh::to_vec(&signed).unwrap()).unwrap();
+        assert_eq!(got, signed);
+        got.verify(&ACCEPT_BOTH).unwrap();
+        // The signature covers the struct. In case of a protobuf signature, the signed bytes
+        // no longer match the changed struct.
+        let mut changed = signed.clone();
+        changed.account_data.version += 1;
+        assert!(changed.verify(&ACCEPT_BOTH).is_err(), "{encoding:?}");
+
+        let peer_id = data::make_peer_id(&mut rng);
+        let signed = make_signed_owned_account(&mut rng, &clock.clock(), peer_id, encoding);
+        signed.verify(&ACCEPT_BOTH).unwrap();
+        let got = SignedOwnedAccount::try_from_slice(&borsh::to_vec(&signed).unwrap()).unwrap();
+        assert_eq!(got, signed);
+        got.verify(&ACCEPT_BOTH).unwrap();
+        let mut changed = signed.clone();
+        changed.owned_account.timestamp += 1;
+        assert!(changed.verify(&ACCEPT_BOTH).is_err(), "{encoding:?}");
+    }
+
+    // A struct signed in an encoding which is not accepted is invalid.
+    let cases = [
+        (NetworkTransitionConfig::PROTOBUF_ONLY, true, false),
+        (NetworkTransitionConfig::RELEASE_2_15, true, true),
+        (NetworkTransitionConfig::RELEASE_2_16, true, true),
+        (NetworkTransitionConfig::RELEASE_2_17, false, true),
+    ];
+    for (transition, accepts_proto, accepts_borsh) in cases {
+        for (encoding, accepted) in
+            [(Encoding::Proto, accepts_proto), (Encoding::Borsh, accepts_borsh)]
+        {
+            let signed = data::make_signed_account_data(&mut rng, &clock.clock(), encoding);
+            assert_eq!(signed.verify(&transition).is_ok(), accepted, "{transition:?} {encoding:?}");
+            let peer_id = data::make_peer_id(&mut rng);
+            let signed = make_signed_owned_account(&mut rng, &clock.clock(), peer_id, encoding);
+            assert_eq!(signed.verify(&transition).is_ok(), accepted, "{transition:?} {encoding:?}");
+        }
+    }
+
+    // A signature can't be moved from one encoding to the other.
+    let signed = data::make_signed_account_data(&mut rng, &clock.clock(), Encoding::Proto);
+    let AccountKeySignature::Proto { signature, .. } = &signed.signature else { unreachable!() };
+    let mut moved = signed.clone();
+    moved.signature = AccountKeySignature::Borsh(signature.clone());
+    assert!(moved.verify(&ACCEPT_BOTH).is_err());
+
+    // The signature differentiator keeps a signature of the borsh encoding of the struct alone
+    // from being valid.
+    let signer = data::make_validator_signer(&mut rng);
+    let owned_account = OwnedAccount {
+        account_key: signer.public_key(),
+        peer_id: data::make_peer_id(&mut rng),
+        timestamp: to_unix_nanos(clock.now_utc()),
+    };
+    let signature = signer.sign_bytes(&borsh::to_vec(&owned_account).unwrap());
+    let signed =
+        SignedOwnedAccount { owned_account, signature: AccountKeySignature::Borsh(signature) };
+    assert!(signed.verify(&ACCEPT_BOTH).is_err());
 }
 
 #[test]
@@ -176,7 +364,13 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         }),
         PeerMessage::SyncAccountsData(SyncAccountsData {
             accounts_data: (0..4)
-                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
+                .map(|_| {
+                    Arc::new(data::make_signed_account_data(
+                        &mut rng,
+                        &clock.clock(),
+                        Encoding::Proto,
+                    ))
+                })
                 .collect(),
             incremental: true,
             requesting_full_sync: true,

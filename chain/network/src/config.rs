@@ -775,7 +775,7 @@ mod test {
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::{AccountData, VersionedAccountData, to_unix_nanos};
+    use crate::network_protocol::{AccountData, Encoding, VersionedAccountData, to_unix_nanos};
     use crate::rate_limits::messages_limits::{
         RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
     };
@@ -959,8 +959,11 @@ mod test {
             version: 0,
             timestamp: to_unix_nanos(clock.now_utc()),
         };
-        let sad = ad.sign(&signer.into()).unwrap();
-        assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+        let signer = signer.into();
+        for encoding in [Encoding::Proto, Encoding::Borsh] {
+            let sad = ad.clone().sign(&signer, encoding).unwrap();
+            assert!(sad.signed_len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::config::SocketOptions;
+use crate::config::{ConnectionEncoding, SignedStructFormat, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Disconnect, Encoding, PeerMessage};
 use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
@@ -419,7 +419,7 @@ async fn owned_account_mismatch_with_encoding(encoding: Encoding) {
                     peer_id: data::make_peer_id(rng),
                     timestamp: to_unix_nanos(clock.now_utc()),
                 }
-                .sign(&signer),
+                .sign(&signer, Encoding::Proto),
             ),
         }))
         .await;
@@ -433,6 +433,91 @@ async fn owned_account_mismatch_with_encoding(encoding: Encoding) {
         })
         .await;
     assert_eq!(ClosingReason::OwnedAccountMismatch, reason);
+}
+
+/// A handshake with an `OwnedAccount` signed in an encoding which the node doesn't accept closes
+/// the connection.
+#[tokio::test]
+async fn owned_account_signed_encoding() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    for signed_struct_format in [
+        SignedStructFormat::ProtobufOnly,
+        SignedStructFormat::AcceptBorsh,
+        SignedStructFormat::SendBorsh,
+        SignedStructFormat::BorshOnly,
+    ] {
+        let mut pm_cfg = chain.make_config(rng);
+        // A node which signs with borsh has to use borsh-only connections.
+        pm_cfg.transition.connection_encoding = ConnectionEncoding::BorshOnly;
+        pm_cfg.transition.signed_struct_format = signed_struct_format;
+        let pm = peer_manager::testonly::start(
+            clock.clock(),
+            near_store::db::TestDB::new(),
+            pm_cfg,
+            chain.clone(),
+        )
+        .await;
+
+        for signed_encoding in [Encoding::Proto, Encoding::Borsh] {
+            let stream =
+                tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+                    .await
+                    .unwrap();
+            let stream_id = stream.id();
+            let port = stream.local_addr.port();
+            let mut events = pm.events.from_now();
+            // A borsh-signed OwnedAccount can be sent only in a borsh-encoded handshake.
+            let mut stream = Stream::new_with_encoding(stream, Encoding::Borsh);
+            let cfg = chain.make_config(rng);
+            let signer = cfg.validator.signer.get().unwrap();
+            stream
+                .write_single_encoding(&PeerMessage::Tier2Handshake(Handshake {
+                    protocol_version: PROTOCOL_VERSION,
+                    oldest_supported_version: PROTOCOL_VERSION,
+                    sender_peer_id: cfg.node_id(),
+                    target_peer_id: pm.cfg.node_id(),
+                    sender_listen_port: Some(port),
+                    sender_chain_info: chain.get_peer_chain_info(),
+                    partial_edge_info: PartialEdgeInfo::new(
+                        &cfg.node_id(),
+                        &pm.cfg.node_id(),
+                        Edge::create_fresh_nonce(&clock.clock()),
+                        &cfg.node_key,
+                    ),
+                    owned_account: Some(
+                        OwnedAccount {
+                            account_key: signer.public_key(),
+                            peer_id: cfg.node_id(),
+                            timestamp: to_unix_nanos(clock.now_utc()),
+                        }
+                        .sign(&signer, signed_encoding),
+                    ),
+                }))
+                .await;
+            let closing_reason = events
+                .recv_until(|ev| match ev {
+                    Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
+                        Some(Some(ev.reason))
+                    }
+                    Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(None),
+                    _ => None,
+                })
+                .await;
+            let want = match (signed_struct_format, signed_encoding) {
+                (SignedStructFormat::ProtobufOnly, Encoding::Borsh)
+                | (SignedStructFormat::BorshOnly, Encoding::Proto) => {
+                    Some(ClosingReason::OwnedAccountDisallowedEncoding)
+                }
+                _ => None,
+            };
+            assert_eq!(want, closing_reason, "{signed_struct_format:?} {signed_encoding:?}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -545,7 +630,7 @@ async fn invalid_edge_with_encoding(encoding: Encoding) {
                         peer_id: cfg.node_id(),
                         timestamp: to_unix_nanos(clock.now_utc()),
                     }
-                    .sign(&signer),
+                    .sign(&signer, Encoding::Proto),
                 ),
             };
             let handshake = match tier {
@@ -606,7 +691,7 @@ async fn invalid_edge_with_encoding(encoding: Encoding) {
                     peer_id: cfg.node_id(),
                     timestamp: to_unix_nanos(clock.now_utc()),
                 }
-                .sign(&signer),
+                .sign(&signer, Encoding::Proto),
             ),
         };
         stream.write(&PeerMessage::Tier3Handshake(handshake)).await;

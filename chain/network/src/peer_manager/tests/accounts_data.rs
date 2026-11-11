@@ -1,4 +1,5 @@
 use crate::concurrency::rate;
+use crate::config::NetworkTransitionConfig;
 use crate::network_protocol::SyncAccountsData;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager;
@@ -152,6 +153,50 @@ async fn gradual_epoch_change() {
         }
         for pm in &mut pms {
             tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait for data to arrive");
+            pm.wait_for_accounts_data(&want).await;
+        }
+    }
+}
+
+/// Nodes of adjacent releases of the protobuf to borsh transition exchange AccountData: every
+/// node signs its data in the encoding of its release, and its neighbors accept and relay it.
+#[tokio::test]
+async fn signed_struct_format_transition() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let p = NetworkTransitionConfig::PROTOBUF_ONLY;
+    let v15 = NetworkTransitionConfig::RELEASE_2_15;
+    let v16 = NetworkTransitionConfig::RELEASE_2_16;
+    let v17 = NetworkTransitionConfig::RELEASE_2_17;
+    for transitions in [[p, v15, p], [v15, v16, v15], [v16, v15, v16], [v16, v17, v16]] {
+        tracing::info!(target:"test", ?transitions, "releases");
+        let mut pms = vec![];
+        for transition in transitions {
+            let mut cfg = chain.make_config(rng);
+            cfg.transition = transition;
+            pms.push(start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await);
+        }
+
+        // 0 <-> 1 <-> 2
+        let pm1 = pms[1].peer_info();
+        let pm2 = pms[2].peer_info();
+        pms[0].connect_to(&pm1, tcp::Tier::T2).await;
+        pms[1].connect_to(&pm2, tcp::Tier::T2).await;
+
+        let chain_info =
+            testonly::make_chain_info(&chain, &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>());
+        let mut want = HashSet::new();
+        for pm in &pms {
+            pm.set_chain_info(chain_info.clone()).await;
+            let data = pm.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+            assert_eq!(data.encoding(), pm.cfg.transition.signing_encoding());
+            want.insert(data);
+        }
+        for pm in &pms {
             pm.wait_for_accounts_data(&want).await;
         }
     }
