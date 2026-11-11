@@ -5181,7 +5181,7 @@
             "type": "string"
           },
           "state_init": {
-            "description": "The universal account state init the call carries.",
+            "description": "The universal account state init this copy of the call carries.",
             "nullable": true,
             "type": "string"
           },
@@ -10030,6 +10030,27 @@
             },
             "required": [
               "ExternalCallChunkShareReached"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An external contract call didn't run because the chunk ran an earlier call to the same\ncontract.",
+            "properties": {
+              "ContractCalledTwice": {
+                "properties": {
+                  "contract_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ContractCalledTwice"
             ],
             "type": "object"
           }
