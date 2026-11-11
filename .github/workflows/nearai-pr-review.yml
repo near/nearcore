@@ -1,4 +1,4 @@
-# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat
+# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isprintable
 name: NEAR AI PR Review
 
 # Reviews PRs with DeepSeek served by NEAR AI, using the OpenCode agent
@@ -319,6 +319,7 @@ jobs:
           # limit. Exit code 3 means there is no finished review.
           result=0
           python3 - "$RUNNER_TEMP/events.jsonl" "$RUNNER_TEMP/review.md" <<'EOF' || result=$?
+          import html
           import json
           import re
           import sys
@@ -375,18 +376,36 @@ jobs:
 
           # GitHub turns @name into a mention, and #123, GH-123 or an issue URL
           # into a cross-reference on that issue, also when written with HTML
-          # entities. Telling code from prose the way GitHub does is error-prone,
-          # so a zero-width space breaks all of them everywhere, code included.
-          # Readers see the same text.
+          # entities or backslash escapes. Telling code from prose the way GitHub
+          # does is error-prone, so a zero-width space breaks all of them
+          # everywhere, code included. Readers see the same text.
           zero_width = chr(0x200B)
-          text = re.sub(r"&#0*64;|&#[xX]0*40;|&commat;", "@", text)
-          text = re.sub(r"&#0*35;|&#[xX]0*23;|&num;", "#", text)
-          text = text.replace("&#", "&" + zero_width + "#")
+          # Entities are decoded first, so the checks below see what GitHub
+          # shows. <, > and & stay encoded, so no HTML appears. Decoding repeats,
+          # because "&&#35;x40;" decodes to another entity.
+          entity = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
+
+
+          def decode(match):
+              char = html.unescape(match.group(0))
+              if char == match.group(0) or not char.isprintable() or any(c in "<>&" for c in char):
+                  return match.group(0)
+              return char
+
+
+          for _ in range(10):
+              decoded = entity.sub(decode, text)
+              if decoded == text:
+                  break
+              text = decoded
+          else:
+              # Deeper nesting: break every entity that still decodes.
+              text = entity.sub(lambda m: m.group(0) if decode(m) == m.group(0) else "&" + zero_width + m.group(0)[1:], text)
           text = re.sub(r"@(?=[A-Za-z0-9])", "@" + zero_width, text)
           text = re.sub(r"#(?=[0-9])", "#" + zero_width, text)
-          text = re.sub(r"\b(GH)-(?=[0-9])", r"\1-" + zero_width, text, flags=re.IGNORECASE)
-          text = re.sub(r"github(?=\\?\.com/[^/\s]+/[^/\s]+/(?:issues|pull|discussions)/[0-9])", "github" + zero_width, text,
-                        flags=re.IGNORECASE)
+          text = re.sub(r"\b(GH\\?)-(?=[0-9])", r"\1-" + zero_width, text, flags=re.IGNORECASE)
+          text = re.sub(r"github(?=\\?\.com\\?/[^/\s\\]+\\?/[^/\s\\]+\\?/(?:issues|pull|discussions)\\?/[0-9])",
+                        "github" + zero_width, text, flags=re.IGNORECASE)
 
           # GitHub rejects comments longer than 65536 characters. A code block left
           # open by the cut is closed, so the note does not render as code.
