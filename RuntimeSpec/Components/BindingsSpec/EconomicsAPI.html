@@ -158,8 +158,9 @@ the contract execution starts;</li>
 and <code>attached_deposit</code> is refunded back to <code>refund_to_account_id</code>, which is <code>predecessor_account_id</code> unless the
 predecessor set another account.</p>
 <p>An external call (see <a href="ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
-the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
+the call uses from its own balance. It pays for the gas it burns at the gas price of the block, and for the gas
+attached to function calls and the execution fees of actions and receipts at the price its receipts carry, the
+larger of the gas price and <code>min_gas_purchase_price</code>. The gas is limited by fixed limits, not by the balance: the
 gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
 <code>max_total_prepaid_gas</code>. The contract is charged after the call, and the call is rejected if the balance can't pay.</p>
 <p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call

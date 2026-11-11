@@ -152,7 +152,7 @@ a <code>storage_remove</code> that crosses it. The call is then rejected, and no
 <a href="../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>).</p>
 <p>Removals are costly in an external call. Each <code>storage_remove</code> counts toward the limit with a fixed estimate of 2000
 bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
-reads count as well. Larger cleanups belong in the receipts the call creates, once external calls can create them.</p>
+reads count as well. Larger cleanups belong in the receipts the call creates.</p>
 <hr />
 <h4 id="storage_write"><a class="header" href="#storage_write">storage_write</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]

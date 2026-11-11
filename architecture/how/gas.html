@@ -314,10 +314,12 @@ work done before the contract has decided to accept the call.</li>
 <li>The gas burnt plus the gas attached to outgoing promises can be at most
 <code>max_total_prepaid_gas</code>.</li>
 </ul>
-<p>The contract pays for all the gas the call uses from its balance, at the gas
-price of the block, the price signed transactions in the chunk pay: the gas it
-burns, the gas attached to function calls, and the execution fees of all
-actions and receipts. As in other calls, the VM only counts the gas against
+<p>The contract pays for all the gas the call uses from its balance. The gas it
+burns costs the gas price of the block, the price signed transactions in the
+chunk pay. The gas attached to function calls and the execution fees of all
+actions and receipts cost the price a signed transaction buys that gas at, the
+block's gas price or <code>min_gas_purchase_price</code> if that is higher, which the
+receipts carry. As in other calls, the VM only counts the gas against
 the fixed limits above; the runtime charges the contract after the call, and
 rejects the call if the balance can't pay. A rejected call pays nothing, so
 the VM doesn't need to stop a call as soon as the balance runs out: the call
@@ -347,8 +349,8 @@ external calls reached one of their shares, described below. A rejected call
 burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
 so it doesn't add to the chunk's gas used or move the next gas price, which
 everyone else pays. An honest chunk producer runs each call before including it
-and leaves out the ones that would be rejected. An accepted call's fees and gas
-are burnt, and count toward the chunk's gas like any other.</p>
+and leaves out the ones that would be rejected. An accepted call's fees and the
+gas it burns count toward the chunk's gas like any other.</p>
 <p>Since a rejected call costs nobody anything, further limits bound the work
 validators do on external calls, per call and per chunk. Besides
 <code>max_gas_burnt_external</code>, a call is limited in:</p>
@@ -367,7 +369,7 @@ only, not to reading the contract's account before it.</p>
 proof limit uses too, even for a key that isn't there. So removals are costly
 in an external call: it can remove no more than ten keys, and fewer, as the
 trie nodes it reads count as well. Larger cleanups belong in the receipts the
-call creates, once external calls can create them.</p>
+call creates.</p>
 </li>
 </ul>
 <p>All the external calls of a chunk together get a share of the chunk's limits:</p>
@@ -436,8 +438,14 @@ no call goes into that chunk and the calls stay in the pool. The trie has no
 memtrie, so its reads come from the store and are slower. Signed transactions
 still read what the parent wrote from the pending changes, which records
 nothing.</p>
-<p>For now, a call that creates a promise or resumes a yielded one is rejected:
-external calls can't create receipts yet. This will be resolved in future work on this feature.</p>
+<p>An accepted call's promises become receipts, as a function call's do. Every
+receipt in the chain they start has the contract as its signer and names the
+external call as what authorized it, so gas refunds go to the contract's
+balance and <code>signer_account_pk</code> fails. Only the fees and the gas the call burnt
+count as burnt; the gas attached to the receipts travels with them. A call that
+creates a yielded promise is rejected, since the yield's id would differ
+between the chunk producer's run and apply; a call that resumes a yield is
+accepted.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the

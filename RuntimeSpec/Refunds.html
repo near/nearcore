@@ -180,6 +180,8 @@ newly generated receipts, e.g. from cross-contract calls in function calls actio
 <li><code>signer_id</code> is the actual <code>signer_id</code> from the receipt that generates this refund.</li>
 <li><code>signer_public_key</code> is the <code>signer_public_key</code> from the receipt that generates this refund.</li>
 </ul>
+<p>A gas refund in a chain that an external call started is an <code>ActionReceiptV3</code> whose <code>authorization_context</code> is <code>ExternalContractCall</code>.
+It has no <code>signer_public_key</code>, so it credits the account balance and no access key or gas key.</p>
 <h2 id="access-key-allowance-refunds"><a class="header" href="#access-key-allowance-refunds">Access Key Allowance refunds</a></h2>
 <p>When an account used a restricted access key with <code>FunctionCallPermission</code>, it may have had a limited allowance.
 The allowance was charged for the full amount of receipt fees including full prepaid gas.

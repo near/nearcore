@@ -3595,9 +3595,9 @@ other important information like storage usage.</p>
 or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.
 An external call runs the contract method with the reserved name <code>__nightly_external_call</code> (the name will change
 when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
-action to it fails with <code>ReservedMethodName</code>. For now, an external call that creates a promise or resumes a
-yielded one is rejected. This limitation will be lifted in future work on this feature. An external call's
-storage reads are limited too (see <a href="RuntimeSpec/Components/BindingsSpec/TrieAPI.html">Trie API</a>).</p>
+action to it fails with <code>ReservedMethodName</code>. An external call that creates a yielded promise is rejected, since
+the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
+limited too (see <a href="RuntimeSpec/Components/BindingsSpec/TrieAPI.html">Trie API</a>).</p>
 <p>A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
 doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
 the call sees the height, the timestamp and the epoch of the parent block, both when the producer runs it and when
@@ -3652,7 +3652,7 @@ For a receipt created from a delegate action, this is the relayer's key.</p>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>;</li>
-<li>If called in an external call panics with <code>ProhibitedInExternalCall</code>.</li>
+<li>If called in an external call, or in a receipt that call led to, panics with <code>ProhibitedInExternalCall</code>.</li>
 </ul>
 <hr />
 <h4 id="predecessor_account_id"><a class="header" href="#predecessor_account_id">predecessor_account_id</a></h4>
@@ -3764,8 +3764,9 @@ the contract execution starts;</li>
 and <code>attached_deposit</code> is refunded back to <code>refund_to_account_id</code>, which is <code>predecessor_account_id</code> unless the
 predecessor set another account.</p>
 <p>An external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>) has no prepaid gas. Instead, the contract pays for all the gas
-the call uses from its own balance, at the gas price of the block: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The gas is limited by fixed limits, not by the balance: the
+the call uses from its own balance. It pays for the gas it burns at the gas price of the block, and for the gas
+attached to function calls and the execution fees of actions and receipts at the price its receipts carry, the
+larger of the gas price and <code>min_gas_purchase_price</code>. The gas is limited by fixed limits, not by the balance: the
 gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt plus the gas attached to promises is limited by
 <code>max_total_prepaid_gas</code>. The contract is charged after the call, and the call is rejected if the balance can't pay.</p>
 <p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call
@@ -4397,7 +4398,7 @@ a <code>storage_remove</code> that crosses it. The call is then rejected, and no
 <a href="RuntimeSpec/Components/BindingsSpec/../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>).</p>
 <p>Removals are costly in an external call. Each <code>storage_remove</code> counts toward the limit with a fixed estimate of 2000
 bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
-reads count as well. Larger cleanups belong in the receipts the call creates, once external calls can create them.</p>
+reads count as well. Larger cleanups belong in the receipts the call creates.</p>
 <hr />
 <h4 id="storage_write"><a class="header" href="#storage_write">storage_write</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -5547,6 +5548,8 @@ In case of a gas or deposit refund, the account ID is <code>system</code>.</p>
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -5554,7 +5557,10 @@ In case of a gas or deposit refund, the account ID is <code>system</code>.</p>
 <code>PromiseYield</code>, <code>PromiseResume</code> and <code>GlobalContractDistribution</code> are the receipts described above.
 <code>ActionV2</code> and <code>PromiseYieldV2</code> carry an <code>ActionReceiptV2</code>, which has the fields of <code>ActionReceipt</code> plus <code>refund_to</code>.
 If <code>refund_to</code> is set, deposit refunds for the receipt go to that account instead of <code>predecessor_id</code>.
-Action receipts that contracts create use these V2 kinds.</p>
+Action receipts that contracts create in a chain a signed transaction started use these V2 kinds.
+<code>ActionV3</code> and <code>PromiseYieldV3</code> carry an <code>ActionReceiptV3</code>, which has the fields of <code>ActionReceiptV2</code> with <code>authorization_context</code> in place of <code>signer_public_key</code>.
+<code>authorization_context</code> is <code>AccessKey(PublicKey)</code> or <code>ExternalContractCall</code>, and the action receipts and gas refunds in a chain an external call started use these V3 kinds with <code>ExternalContractCall</code>.
+A deposit refund comes from <code>system</code> in every chain, as an <code>Action</code> receipt.</p>
 <h2 id="actionreceipt"><a class="header" href="#actionreceipt">ActionReceipt</a></h2>
 <p><code>ActionReceipt</code> represents a request to apply actions on the <code>receiver_id</code> side. It could be derived as a result of a <code>Transaction</code> execution or another <code>ActionReceipt</code> processing. <code>ActionReceipt</code> consists the following fields:</p>
 <h4 id="signer_id"><a class="header" href="#signer_id">signer_id</a></h4>
@@ -5805,6 +5811,8 @@ newly generated receipts, e.g. from cross-contract calls in function calls actio
 <li><code>signer_id</code> is the actual <code>signer_id</code> from the receipt that generates this refund.</li>
 <li><code>signer_public_key</code> is the <code>signer_public_key</code> from the receipt that generates this refund.</li>
 </ul>
+<p>A gas refund in a chain that an external call started is an <code>ActionReceiptV3</code> whose <code>authorization_context</code> is <code>ExternalContractCall</code>.
+It has no <code>signer_public_key</code>, so it credits the account balance and no access key or gas key.</p>
 <h2 id="access-key-allowance-refunds"><a class="header" href="#access-key-allowance-refunds">Access Key Allowance refunds</a></h2>
 <p>When an account used a restricted access key with <code>FunctionCallPermission</code>, it may have had a limited allowance.
 The allowance was charged for the full amount of receipt fees including full prepaid gas.
@@ -8779,10 +8787,12 @@ work done before the contract has decided to accept the call.</li>
 <li>The gas burnt plus the gas attached to outgoing promises can be at most
 <code>max_total_prepaid_gas</code>.</li>
 </ul>
-<p>The contract pays for all the gas the call uses from its balance, at the gas
-price of the block, the price signed transactions in the chunk pay: the gas it
-burns, the gas attached to function calls, and the execution fees of all
-actions and receipts. As in other calls, the VM only counts the gas against
+<p>The contract pays for all the gas the call uses from its balance. The gas it
+burns costs the gas price of the block, the price signed transactions in the
+chunk pay. The gas attached to function calls and the execution fees of all
+actions and receipts cost the price a signed transaction buys that gas at, the
+block's gas price or <code>min_gas_purchase_price</code> if that is higher, which the
+receipts carry. As in other calls, the VM only counts the gas against
 the fixed limits above; the runtime charges the contract after the call, and
 rejects the call if the balance can't pay. A rejected call pays nothing, so
 the VM doesn't need to stop a call as soon as the balance runs out: the call
@@ -8812,8 +8822,8 @@ external calls reached one of their shares, described below. A rejected call
 burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
 so it doesn't add to the chunk's gas used or move the next gas price, which
 everyone else pays. An honest chunk producer runs each call before including it
-and leaves out the ones that would be rejected. An accepted call's fees and gas
-are burnt, and count toward the chunk's gas like any other.</p>
+and leaves out the ones that would be rejected. An accepted call's fees and the
+gas it burns count toward the chunk's gas like any other.</p>
 <p>Since a rejected call costs nobody anything, further limits bound the work
 validators do on external calls, per call and per chunk. Besides
 <code>max_gas_burnt_external</code>, a call is limited in:</p>
@@ -8832,7 +8842,7 @@ only, not to reading the contract's account before it.</p>
 proof limit uses too, even for a key that isn't there. So removals are costly
 in an external call: it can remove no more than ten keys, and fewer, as the
 trie nodes it reads count as well. Larger cleanups belong in the receipts the
-call creates, once external calls can create them.</p>
+call creates.</p>
 </li>
 </ul>
 <p>All the external calls of a chunk together get a share of the chunk's limits:</p>
@@ -8901,8 +8911,14 @@ no call goes into that chunk and the calls stay in the pool. The trie has no
 memtrie, so its reads come from the store and are slower. Signed transactions
 still read what the parent wrote from the pending changes, which records
 nothing.</p>
-<p>For now, a call that creates a promise or resumes a yielded one is rejected:
-external calls can't create receipts yet. This will be resolved in future work on this feature.</p>
+<p>An accepted call's promises become receipts, as a function call's do. Every
+receipt in the chain they start has the contract as its signer and names the
+external call as what authorized it, so gas refunds go to the contract's
+balance and <code>signer_account_pk</code> fails. Only the fees and the gas the call burnt
+count as burnt; the gas attached to the receipts travels with them. A call that
+creates a yielded promise is rejected, since the yield's id would differ
+between the chunk producer's run and apply; a call that resumes a yield is
+accepted.</p>
 <h3 id="contract-reward"><a class="header" href="#contract-reward">Contract Reward</a></h3>
 <p>A rather unique property of Near Protocol is that a part of the gas fee goes to
 the contract owner. This &quot;smart contract gets paid&quot; model is pretty much the
