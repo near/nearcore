@@ -334,6 +334,10 @@ jobs:
               if not marker:
                   return fence, False
               if fence is None:
+                  # A backtick fence cannot have a backtick after it, so ```a``` is code
+                  # inside a line, not a fence.
+                  if marker.group(1)[0] == "`" and "`" in line[marker.end():]:
+                      return fence, False
                   return marker.group(1), True
               if (marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence)
                       and not line[marker.end():].strip()):
@@ -436,7 +440,7 @@ jobs:
           fi
           # Nothing is posted yet, so the note cannot repeat a review.
           if [ "$result" != 0 ]; then
-            note "could not complete"
+            note "could not complete (the post script exited with code $result)"
             exit 1
           fi
           if grep -qF -- "$NEARAI_API_KEY" "$RUNNER_TEMP/review.md"; then
