@@ -6584,7 +6584,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`method_name` is not allowed in external contract calls",
+            "description": "`method_name` is not allowed in external contract calls, or in the receipts they lead to",
             "properties": {
               "ProhibitedInExternalCall": {
                 "properties": {

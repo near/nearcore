@@ -12,9 +12,9 @@ Some of the functions below behave differently depending on how the contract exe
   or a balance. External calls are part of the `ExternalContractCalls` protocol feature, which is not yet stable.
   An external call runs the contract method with the reserved name `__nightly_external_call` (the name will change
   when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
-  action to it fails with `ReservedMethodName`. For now, an external call that creates a promise or resumes a
-  yielded one is rejected. This limitation will be lifted in future work on this feature. An external call's
-  storage reads are limited too (see [Trie API](TrieAPI.md)).
+  action to it fails with `ReservedMethodName`. An external call that creates a yielded promise is rejected, since
+  the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
+  limited too (see [Trie API](TrieAPI.md)).
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
   doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
@@ -74,7 +74,7 @@ For a receipt created from a delegate action, this is the relayer's key.
 
 - If the registers exceed the memory limit panics with `MemoryAccessViolation`;
 - If called in a view function panics with `ProhibitedInView`;
-- If called in an external call panics with `ProhibitedInExternalCall`.
+- If called in an external call, or in a receipt that call led to, panics with `ProhibitedInExternalCall`.
 
 ---
 

@@ -609,7 +609,7 @@ pub enum VersionedActionReceipt<'a> {
 }
 
 impl VersionedActionReceipt<'_> {
-    /// A signer of the original transaction
+    /// A signer of the original transaction, or the contract that accepted an external call
     pub fn signer_id(&self) -> &AccountId {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_id,
@@ -657,7 +657,7 @@ impl VersionedActionReceipt<'_> {
         }
     }
 
-    /// A gas_price which has been used to buy gas in the original transaction
+    /// A gas_price which has been used to buy gas in the original transaction or external call
     pub fn gas_price(&self) -> Balance {
         match self {
             VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,

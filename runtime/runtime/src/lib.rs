@@ -1474,7 +1474,7 @@ impl Runtime {
         if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
-            let refund = match &*action_receipt.authorization_context() {
+            let refund = match action_receipt.authorization_context().as_ref() {
                 AuthorizationContext::AccessKey(signer_public_key) => Receipt::new_gas_refund(
                     &action_receipt.signer_id(),
                     gas_balance_refund,

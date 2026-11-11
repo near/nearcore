@@ -2583,7 +2583,7 @@ impl TryFrom<ReceiptView> for Receipt {
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
                     // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there we always create ActionReceiptV2.
+                    // created by the runtime - there a signed chain always creates ActionReceiptV2.
                     // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
                     // through views, and a V3 receipt authorized by an access key, which the
                     // runtime does not build, becomes V1 or V2. This will be fixed with #14709.

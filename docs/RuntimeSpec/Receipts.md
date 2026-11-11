@@ -71,6 +71,8 @@ pub enum ReceiptEnum {
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
 }
 ```
 
@@ -78,7 +80,9 @@ An [ActionReceipt](#actionreceipt) is a request to apply [Actions](Actions.md), 
 `PromiseYield`, `PromiseResume` and `GlobalContractDistribution` are the receipts described above.
 `ActionV2` and `PromiseYieldV2` carry an `ActionReceiptV2`, which has the fields of `ActionReceipt` plus `refund_to`.
 If `refund_to` is set, deposit refunds for the receipt go to that account instead of `predecessor_id`.
-Action receipts that contracts create use these V2 kinds.
+Action receipts that contracts create in a chain a signed transaction started use these V2 kinds.
+`ActionV3` and `PromiseYieldV3` carry an `ActionReceiptV3`, which has the fields of `ActionReceiptV2` with `authorization_context` in place of `signer_public_key`.
+`authorization_context` is `AccessKey(PublicKey)` or `ExternalContractCall`, and every receipt in a chain an external call started uses these V3 kinds with `ExternalContractCall`.
 
 ## ActionReceipt
 

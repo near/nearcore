@@ -70,7 +70,7 @@ pub(crate) fn new_receipts(
                 );
             }
 
-            let new_receipt = match &*signer.authorization_context {
+            let new_receipt = match signer.authorization_context.as_ref() {
                 AuthorizationContext::AccessKey(signer_public_key) => {
                     let new_action_receipt = ActionReceiptV2 {
                         signer_id: signer.signer_id.clone(),
@@ -108,8 +108,8 @@ pub(crate) fn new_receipts(
             Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: receipt.receiver_id,
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
+                // The caller sets the actual receipt ID: apply_action_receipt in its
+                // "Generating receipt IDs" section, or set_ecc_receipt_ids for an external call
                 receipt_id: CryptoHash::default(),
                 receipt: new_receipt,
             })
@@ -123,8 +123,8 @@ pub(crate) fn new_receipts(
         Receipt::V0(ReceiptV0 {
             predecessor_id: account_id.clone(),
             receiver_id: account_id.clone(),
-            // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-            // "Generating receipt IDs" section
+            // The caller sets the actual receipt ID: apply_action_receipt in its
+            // "Generating receipt IDs" section, or set_ecc_receipt_ids for an external call
             receipt_id: CryptoHash::default(),
             receipt: if receipt.is_promise_resume {
                 ReceiptEnum::PromiseResume(new_data_receipt)
@@ -484,8 +484,8 @@ pub(crate) fn execute_function_call(
             outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
         }
         // An external call has no prepaid gas to distribute: promises get
-        // exactly the gas they were created with, which the contract has
-        // already paid for. Gas weights have no effect.
+        // exactly the gas they were created with, which the contract pays for
+        // after the run. Gas weights have no effect.
         ExecutionMode::External { .. } => {}
         // View calls cannot create promises.
         ExecutionMode::View(_) => {}
