@@ -7911,18 +7911,20 @@ processing, because blocks are not full and block production has its own delays,
 so catchup can finish within an epoch.</p>
 <p>In other words, there are three modes for applying chunks and two code paths,
 either through the normal <code>process_block</code> (blue) or through <code>catchup_blocks</code>
-(orange). When <code>process_block</code>, either that the shard states for the next epoch
-are ready, corresponding to <code>IsCaughtUp</code> and all shards the node is tracking in
-this, or will be tracking in the next, epoch will be applied, or when the
-states are not ready, corresponding to <code>NotCaughtUp</code>, then only the shards for
-this epoch will be applied. When <code>catchup_blocks</code>, shards for the next epoch
-will be applied.</p>
+(orange). The catch-up shards are the ones the node will track in the next
+epoch but tracks in neither this epoch nor the one before, so their state comes
+from state sync. When <code>process_block</code>, either the state of the catch-up shards
+is ready, corresponding to <code>IncludeCatchupShards</code>, and all shards the node is
+tracking in this, or will be tracking in the next, epoch will be applied, or it
+is not ready, corresponding to <code>ExcludeCatchupShards</code>, and all of them but the
+catch-up shards will be applied. When <code>catchup_blocks</code>, only the catch-up
+shards will be applied, corresponding to <code>OnlyCatchupShards</code>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
+    IncludeCatchupShards,
+    ExcludeCatchupShards,
+    OnlyCatchupShards,
 }
 <span class="boring">}
 </span></code></pre></pre>
