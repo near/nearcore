@@ -3071,16 +3071,13 @@ impl ApplyState {
     }
 }
 
-/// Finds the transactions that apply skips, with no outcome: the repeats of an earlier one, which
-/// would commit a second outcome under its id. A signed transaction's id is its hash, and an ECC's
-/// comes from its hash without the state init, so a copy of a call that differs only in carrying
-/// the state init is a repeat too.
+/// Finds the repeats of an earlier transaction in the chunk, which apply skips with no outcome: a
+/// repeat would commit a second outcome under the same id. A repeated ECC makes the chunk invalid.
 fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     txs.iter()
         .map(|tx| {
-            let hash = *tx.id_hash();
-            let repeated = !seen_tx_hashes.insert(hash);
+            let repeated = !seen_tx_hashes.insert(*tx.hash());
             if repeated {
                 tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
             }

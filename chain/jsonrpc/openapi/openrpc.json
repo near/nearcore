@@ -7397,28 +7397,6 @@
             ],
             "title": "ExternalCallChunkShareReached",
             "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "description": "An external contract call didn't run because the chunk ran an earlier call to the same\ncontract.",
-            "properties": {
-              "ContractCalledTwice": {
-                "properties": {
-                  "contract_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  }
-                },
-                "required": [
-                  "contract_id"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "ContractCalledTwice"
-            ],
-            "title": "ContractCalledTwice",
-            "type": "object"
           }
         ],
         "title": "InvalidTxError"

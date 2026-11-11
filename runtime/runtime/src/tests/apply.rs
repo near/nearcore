@@ -1118,36 +1118,6 @@ fn apply_refused_ecc(
     RefusedEcc { error, compute_usage: outcome.outcome.compute_usage.unwrap() }
 }
 
-/// A second, different call to a contract the chunk already called gets a failed outcome and
-/// counts no compute, while the first runs.
-#[test]
-fn test_second_ecc_to_one_contract_refused() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
-    let second = EccTransaction::new(bob_account(), vec![2]);
-
-    let (_, apply_result) = apply_envelopes_and_commit(
-        &runtime,
-        &tries,
-        root,
-        &apply_state,
-        vec![ecc_to_bob().into(), second.clone().into()],
-        &epoch_info_provider,
-    );
-
-    let [first_outcome, second_outcome] = apply_result.outcomes.as_slice() else {
-        panic!("expected two outcomes, got {:?}", apply_result.outcomes);
-    };
-    assert_matches!(first_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
-    let error = InvalidTxError::ContractCalledTwice { contract_id: bob_account() };
-    assert_eq!(second_outcome.outcome.status, ExecutionStatus::Failure(error.into()));
-    assert_eq!(second_outcome.id, create_ecc_outcome_id(second.hash(), apply_state.block_height));
-    assert_eq!(second_outcome.outcome.compute_usage, Some(0));
-}
-
 /// Applies an ECC to a funded contract that accepts it, and returns the charge and bob's storage
 /// usage after the call. The run is deterministic, so this is what the same call costs on
 /// another setup with the same contract.
@@ -11124,35 +11094,6 @@ mod ecc_state_init {
             .unwrap();
         let action_cost = safe_gas_to_balance(apply_state.gas_price, action_fee.gas).unwrap();
         assert_eq!(install_cost, tokens_burnt[1].checked_add(action_cost).unwrap());
-    }
-
-    /// Two copies of one call in a chunk, the first with the state init and the second without,
-    /// share a unique id: the first runs, and the second is skipped with no outcome.
-    #[test]
-    fn test_ecc_copies_with_and_without_state_init_in_one_chunk() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-        let code = code(true);
-        let init = state_init(Some(&code));
-        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
-            setup(&code, &init);
-        let with_init = EccTransaction::new_with_state_init(account_id, vec![], Some(init));
-        let without_init = with_init.without_state_init();
-
-        let (_, result) = apply_envelopes_and_commit(
-            &runtime,
-            &tries,
-            root,
-            &apply_state,
-            vec![with_init.into(), without_init.clone().into()],
-            &epoch_info_provider,
-        );
-
-        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
-        let unique_id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
-        assert_eq!(outcome.id, unique_id);
-        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
     }
 
     /// The producer's dry run of a call with a state init ends as apply does, the install accepted,
