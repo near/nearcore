@@ -552,6 +552,11 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidTransactionRoot => Error::InvalidTxRoot,
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
+            BlockValidityError::InvalidChunkHeight { height_created, block_height } => {
+                Error::InvalidChunk(format!(
+                    "chunk height_created {height_created} is above block height {block_height}"
+                ))
+            }
         }
     }
 }

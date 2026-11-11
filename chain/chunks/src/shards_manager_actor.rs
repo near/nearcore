@@ -702,11 +702,16 @@ impl ShardsManagerActor {
         // Check if we are the *next* chunk producer (height_created + 1), since
         // that's who forwarded parts are sent to. This is a speculative lookup
         // (no block hash for the next height), so use height-based computation.
+        let next_height = height_created.checked_add(1).ok_or_else(|| {
+            EpochError::ChunkProducerSelectionError(format!(
+                "next chunk height overflows, height_created {height_created}"
+            ))
+        })?;
         let next_chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
-                height_created: height_created + 1,
+                height_created: next_height,
                 shard_id,
             })?
             .take_account_id();
@@ -2190,9 +2195,11 @@ impl ShardsManagerActor {
         let shard_id = chunk_header.shard_id();
         let mut accounts_forwarded_to = HashSet::new();
         accounts_forwarded_to.insert(me.clone());
+        let next_chunk_height =
+            current_chunk_height.checked_add(1).ok_or(Error::InvalidChunkHeader)?;
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info_anchored(anchor, epoch_id, current_chunk_height + 1, shard_id)?
+            .get_chunk_producer_info_anchored(anchor, epoch_id, next_chunk_height, shard_id)?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();
@@ -3687,6 +3694,16 @@ mod test {
             result,
             Ok(false),
             "should return false when `me` isn't the next chunk producer"
+        );
+
+        assert_matches!(
+            shards_manager.should_wait_for_chunk_forwarding(
+                &ancestor_hash,
+                BlockHeight::MAX,
+                fixture.mock_chunk_header.shard_id(),
+                Some(&chunk_only_producer),
+            ),
+            Err(EpochError::ChunkProducerSelectionError(_))
         );
 
         // Symmetric positive case: when `me` IS the next chunk producer, returns Ok(true).
