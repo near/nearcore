@@ -3882,9 +3882,10 @@ impl Chain {
         };
 
         // Transactions included in the current chunk, they aren't removed from the pool yet and
-        // should be skipped when preparing the next chunk.
+        // should be skipped when preparing the next chunk. An external call is skipped by its hash
+        // without the state init, so a copy with the init and one without are the same call.
         let tx_hashes: HashSet<CryptoHash> =
-            chunk_transactions.iter().map(|tx| tx.get_hash()).collect();
+            chunk_transactions.iter().map(|tx| *tx.id_hash()).collect();
 
         let sender = sender.clone();
         let prev_block_header: BlockHeader = prev_block.header().clone();

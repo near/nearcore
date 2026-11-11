@@ -2330,7 +2330,7 @@ fn take_ecc_from_group(
             visit.limited_by = Some(PrepareTransactionsLimit::Time);
             break;
         }
-        if skip_tx_hashes.contains(&ecc.get_hash()) {
+        if skip_tx_hashes.contains(ecc.hash_without_state_init()) {
             visit.skipped.extend(group.next());
             continue;
         }

@@ -168,7 +168,7 @@ pub fn process_external_call<'a>(
     ecc: &'a EccTransaction,
     validation_error: Option<InvalidTxError>,
 ) -> Result<ProcessedExternalCall, RuntimeError> {
-    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    let outcome_id = create_ecc_outcome_id(ecc.hash_without_state_init(), apply_state.block_height);
     let refuse = |error: TxExecutionError, compute: Compute| ProcessedExternalCall {
         outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
         accepted: false,

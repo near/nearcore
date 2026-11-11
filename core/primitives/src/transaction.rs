@@ -8,7 +8,7 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use crate::universal_state_init::UniversalStateInit;
+use crate::universal_state_init::{RawStateInit, UniversalStateInit};
 use crate::utils::derive_universal_account_id;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -574,13 +574,32 @@ pub struct EccTransaction {
     /// also the receiver.
     contract_id: AccountId,
     payload: Vec<u8>,
+    /// A universal account's state init, installed before the run on an uninitialized account.
+    state_init: Option<RawStateInit>,
     hash: CryptoHash,
+    hash_without_state_init: CryptoHash,
     size: u64,
 }
 
 impl EccTransaction {
     pub fn new(contract_id: AccountId, payload: Vec<u8>) -> Self {
-        let mut tx = Self { contract_id, payload, hash: CryptoHash::default(), size: 0 };
+        Self::new_with_state_init(contract_id, payload, None)
+    }
+
+    /// A call that carries `state_init`, if any.
+    pub fn new_with_state_init(
+        contract_id: AccountId,
+        payload: Vec<u8>,
+        state_init: Option<RawStateInit>,
+    ) -> Self {
+        let mut tx = Self {
+            contract_id,
+            payload,
+            state_init,
+            hash: CryptoHash::default(),
+            hash_without_state_init: CryptoHash::default(),
+            size: 0,
+        };
         tx.init();
         tx
     }
@@ -589,6 +608,15 @@ impl EccTransaction {
         let bytes = borsh::to_vec(self).expect("failed to serialize an ECC transaction");
         self.hash = hash(&bytes);
         self.size = bytes.len() as u64;
+        self.hash_without_state_init = match self.state_init {
+            None => self.hash,
+            Some(_) => self.without_state_init().hash,
+        };
+    }
+
+    /// The same call with no state init.
+    pub fn without_state_init(&self) -> Self {
+        Self::new(self.contract_id.clone(), self.payload.clone())
     }
 
     pub fn contract_id(&self) -> &AccountId {
@@ -599,8 +627,12 @@ impl EccTransaction {
         &self.payload
     }
 
-    pub fn into_parts(self) -> (AccountId, Vec<u8>) {
-        (self.contract_id, self.payload)
+    pub fn state_init(&self) -> Option<&RawStateInit> {
+        self.state_init.as_ref()
+    }
+
+    pub fn into_parts(self) -> (AccountId, Vec<u8>, Option<RawStateInit>) {
+        (self.contract_id, self.payload, self.state_init)
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -609,6 +641,12 @@ impl EccTransaction {
 
     pub fn hash(&self) -> &CryptoHash {
         &self.hash
+    }
+
+    /// The hash each copy's unique id comes from, so a copy that carries the state init and one
+    /// that does not get the same id at the same height.
+    pub fn hash_without_state_init(&self) -> &CryptoHash {
+        &self.hash_without_state_init
     }
 
     /// Full borsh-serialized size. There is no signature, so this is also the wire size.
@@ -771,6 +809,7 @@ impl fmt::Debug for EccTransaction {
         f.debug_struct("EccTransaction")
             .field("contract_id", &self.contract_id)
             .field("payload", &format_args!("{}", AbbrBytes(&self.payload)))
+            .field("state_init", &AbbrBytes(self.state_init.as_ref().map(|init| init.0.as_slice())))
             .field("hash", &self.hash)
             .finish()
     }
@@ -787,7 +826,8 @@ impl BorshSerialize for EccTransaction {
         BorshSerialize::serialize(&ECC_ESCAPE_BYTE, writer)?;
         BorshSerialize::serialize(&ECC_VERSION, writer)?;
         self.contract_id.serialize(writer)?;
-        self.payload.serialize(writer)
+        self.payload.serialize(writer)?;
+        self.state_init.serialize(writer)
     }
 }
 
@@ -809,7 +849,8 @@ impl BorshDeserialize for EccTransaction {
         }
         let contract_id = AccountId::deserialize_reader(reader)?;
         let payload = Vec::<u8>::deserialize_reader(reader)?;
-        Ok(Self::new(contract_id, payload))
+        let state_init = Option::<RawStateInit>::deserialize_reader(reader)?;
+        Ok(Self::new_with_state_init(contract_id, payload, state_init))
     }
 }
 
@@ -880,6 +921,15 @@ impl TransactionEnvelope {
         match self {
             Self::Signed(tx) => tx.hash(),
             Self::Unsigned(tx) => tx.hash(),
+        }
+    }
+
+    /// The hash a transaction's id comes from: a signed transaction's hash, or an external call's
+    /// hash without its state init, which every copy of the call shares.
+    pub fn id_hash(&self) -> &CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash(),
+            Self::Unsigned(call) => call.hash_without_state_init(),
         }
     }
 
@@ -1054,6 +1104,15 @@ impl ValidatedEcc {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
+    }
+
+    pub fn hash_without_state_init(&self) -> &CryptoHash {
+        self.0.hash_without_state_init()
+    }
+
+    /// The same call with no state init, which passes the same checks.
+    pub fn without_state_init(&self) -> Self {
+        Self(self.0.without_state_init())
     }
 
     pub fn get_size(&self) -> u64 {

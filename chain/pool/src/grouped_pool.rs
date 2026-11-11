@@ -146,7 +146,24 @@ impl<T: PoolItem> GroupedPool<T> {
         for (key, items) in fronts {
             let group = self.groups.entry(key).or_default();
             if let Some(hashes) = moved.get(&key) {
-                group.retain(|pooled| !hashes.contains(&pooled.hash()));
+                // The pooled copy and the one put back can differ in size, as copies of an
+                // external call with and without a state init do. The pool counts the one it keeps.
+                let mut removed_size = 0;
+                group.retain(|pooled| {
+                    let keep = !hashes.contains(&pooled.hash());
+                    if !keep {
+                        removed_size += pooled.size();
+                    }
+                    keep
+                });
+                let added_size: u64 = items
+                    .iter()
+                    .filter(|item| hashes.contains(&item.hash()))
+                    .map(|item| item.size())
+                    .sum();
+                self.total_size = (self.total_size + added_size)
+                    .checked_sub(removed_size)
+                    .expect("Total transaction size dropped below zero");
             }
             items.into_iter().rev().for_each(|item| group.push_front(item));
         }

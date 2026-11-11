@@ -206,7 +206,7 @@ impl TransactionPool {
         self.eccs.remove_items(
             txs.iter()
                 .filter_map(|tx| tx.as_unsigned())
-                .map(|tx| (tx.get_hash(), ecc::group_id(tx))),
+                .map(|tx| (*tx.hash_without_state_init(), ecc::group_id(tx))),
         );
     }
 

@@ -1793,8 +1793,7 @@ pub struct EccTransactionView {
     pub payload: Vec<u8>,
     /// The unique id of this copy of the call, its outcome id.
     pub transaction_id: CryptoHash,
-    /// The universal account state init the call carries.
-    // TODO(ecc): fill from the call once external calls carry a state init.
+    /// The universal account state init this copy of the call carries.
     #[serde_as(as = "Option<Base64>")]
     #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub state_init: Option<Vec<u8>>,
@@ -1803,8 +1802,9 @@ pub struct EccTransactionView {
 impl EccTransactionView {
     /// The view of the copy of `tx` whose unique id is `transaction_id`.
     pub fn new(tx: EccTransaction, transaction_id: CryptoHash) -> Self {
-        let (contract_id, payload) = tx.into_parts();
-        Self { contract_id, payload, transaction_id, state_init: None }
+        let (contract_id, payload, state_init) = tx.into_parts();
+        let state_init = state_init.map(|state_init| state_init.0);
+        Self { contract_id, payload, transaction_id, state_init }
     }
 }
 
@@ -1863,7 +1863,8 @@ impl TransactionEnvelopeView {
         match tx {
             TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
             TransactionEnvelope::Unsigned(tx) => {
-                let transaction_id = create_ecc_outcome_id(tx.hash(), block_height);
+                let transaction_id =
+                    create_ecc_outcome_id(tx.hash_without_state_init(), block_height);
                 Self::Unsigned(EccTransactionView::new(tx, transaction_id))
             }
         }
