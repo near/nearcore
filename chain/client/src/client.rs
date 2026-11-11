@@ -2618,6 +2618,8 @@ impl Client {
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+
+                        self.catchup_state_syncs.remove(&sync_hash);
                     }
                 }
             }

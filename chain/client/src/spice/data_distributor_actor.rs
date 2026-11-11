@@ -1691,9 +1691,6 @@ impl SpiceDataDistributorActor {
         request: SpiceContractCodeRequest,
     ) -> Result<(), Error> {
         let chunk_id = request.chunk_id().clone();
-        let _timer = PROCESS_CONTRACT_CODE_REQUEST_TIME
-            .with_label_values(&[&chunk_id.shard_id.to_string()])
-            .start_timer();
         let requester = request.requester().clone();
 
         if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
@@ -1710,6 +1707,14 @@ impl SpiceDataDistributorActor {
         // Fetch block header early — needed for both validation and storage lookup below.
         let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = block_header.epoch_id();
+
+        let _timer = PROCESS_CONTRACT_CODE_REQUEST_TIME
+            .with_label_values(&[&metrics::shard_id_metric_label(
+                self.epoch_manager.as_ref(),
+                epoch_id,
+                chunk_id.shard_id,
+            )])
+            .start_timer();
 
         // Verify request signature before any other checks to prevent cache pollution.
         let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
