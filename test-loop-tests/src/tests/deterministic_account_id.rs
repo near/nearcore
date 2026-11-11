@@ -905,7 +905,7 @@ fn test_sharded_contract_spread_funded() {
     env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
 }
 
-/// A `0s` state init applies while the account has no contract.
+/// A `0s` state init must derive to the account, and applies while it has no contract.
 #[test]
 fn test_view_call_with_deterministic_state_init() {
     let mut env = TestEnv::setup(Balance::from_near(100));
@@ -919,6 +919,14 @@ fn test_view_call_with_deterministic_state_init() {
         code: state_init.code().clone().into(),
         data: state_init.data().clone(),
     });
+
+    // Derives to another account.
+    let other = env.user_account();
+    assert_matches!(
+        env.view_call(&other, "read_value", &key, with_init.clone()),
+        Err(QueryError::InvalidStateInit { error, .. })
+            if matches!(*error, ActionsValidationError::InvalidDeterministicStateInitReceiver { .. })
+    );
 
     // Missing, then funded without a contract.
     assert_eq!(env.view_call(&account, "read_value", &key, with_init.clone()).unwrap(), value);
