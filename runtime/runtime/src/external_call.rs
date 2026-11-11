@@ -23,8 +23,8 @@ use crate::function_call::{
 };
 use crate::receipt_manager::ReceiptManager;
 use crate::verifier::{
-    StorageStakingError, ValidateReceiptMode, check_storage_stake, validate_receipt,
-    verify_ecc_ephemeral,
+    StorageStakingError, ValidateReceiptMode, check_storage_stake, validate_external_call,
+    validate_receipt, verify_ecc_ephemeral,
 };
 use crate::{ApplyState, PrevBlockContext};
 use ahash::RandomState as AHashRandomState;
@@ -269,6 +269,11 @@ pub fn dry_run_external_call(
     if let Some(account) = loaded_account {
         accounts.insert(contract_id, Ok(Some(account)));
     }
+    // A call can reach the pool without its validity checked, such as one put back after a
+    // reorg. Apply checks it, so the dry run does too.
+    let validation_error =
+        validate_external_call(&apply_state.config, ecc, apply_state.current_protocol_version)
+            .err();
     let ProcessedExternalCall { outcome, accepted, receipts: _ } = process_external_call(
         state_update,
         &apply_state,
@@ -276,7 +281,7 @@ pub fn dry_run_external_call(
         external_calls,
         &accounts,
         ecc,
-        None,
+        validation_error,
     )?;
     let outcome = outcome.outcome;
     if !accepted {

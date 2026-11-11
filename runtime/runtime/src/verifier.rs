@@ -1,4 +1,6 @@
-use crate::action_validation::{validate_actions, validate_actions_with_mode};
+use crate::action_validation::{
+    validate_actions, validate_actions_with_mode, validate_universal_state_init,
+};
 use crate::config::{EccCost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
@@ -135,9 +137,14 @@ pub fn validate_envelope(
                 .map_err(|(err, signed_tx)| (err, signed_tx.into()))
         }
         TransactionEnvelope::Unsigned(ecc) => {
-            ValidatedEcc::new(config, ecc, current_protocol_version)
-                .map(ValidatedTransactionEnvelope::Unsigned)
-                .map_err(|(err, ecc)| (err, ecc.into()))
+            let ecc = ValidatedEcc::new(config, ecc, current_protocol_version)
+                .map_err(|(err, ecc)| (err, ecc.into()))?;
+            if let Err(err) =
+                validate_ecc_state_init(config, ecc.to_ecc(), current_protocol_version)
+            {
+                return Err((err, ecc.into_ecc().into()));
+            }
+            Ok(ValidatedTransactionEnvelope::Unsigned(ecc))
         }
     }
 }
@@ -155,9 +162,39 @@ pub fn validate_transaction_envelope(
                 .map_err(|(err, _)| err)
         }
         TransactionEnvelope::Unsigned(ecc) => {
-            ecc.check_valid_for_config(config, current_protocol_version)
+            validate_external_call(config, ecc, current_protocol_version)
         }
     }
+}
+
+/// The validity checks of an external call that apply runs, its state init's included.
+pub(crate) fn validate_external_call(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    ecc.check_valid_for_config(config, current_protocol_version)?;
+    validate_ecc_state_init(config, ecc, current_protocol_version)
+}
+
+/// Validates the state init an external call carries, if any, with the checks a
+/// `UniversalStateInit` action to the contract gets.
+fn validate_ecc_state_init(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    let Some(state_init) = ecc.state_init() else {
+        return Ok(());
+    };
+    validate_universal_state_init(
+        &config.wasm_config.limit_config,
+        state_init,
+        ecc.contract_id(),
+        current_protocol_version,
+        ValidateReceiptMode::NewReceipt,
+    )
+    .map_err(InvalidTxError::ActionsValidation)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
