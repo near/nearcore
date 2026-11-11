@@ -786,6 +786,12 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = block.header().epoch_id();
+        let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        if ProtocolFeature::RejectBlockChallenges.enabled(protocol_version)
+            && block.challenges_present()
+        {
+            return Err(Error::InvalidChallenge);
+        }
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {

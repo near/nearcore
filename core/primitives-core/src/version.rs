@@ -108,6 +108,8 @@ pub enum ProtocolFeature {
     /// its own key can then not run again with the same hash. See `initial_nonce_value` in
     /// `near-runtime`.
     RaiseInitialAccessKeyNonce,
+    /// Reject blocks whose body carries a non-empty deprecated `challenges` field.
+    RejectBlockChallenges,
     /// Track protocol-level contract warmness and cold compilation bytes,
     /// limiting how many cold contract bytes can be compiled per chunk.
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
@@ -157,6 +159,7 @@ impl ProtocolFeature {
             ProtocolFeature::SkipForeignShardTransactions => 89,
 
             // Nightly features:
+            ProtocolFeature::RejectBlockChallenges => 90,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
