@@ -1,13 +1,14 @@
 //! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
 //! are the first to be certified under spice.
 
+use crate::spice::core::new_uncertified_chunk_info;
 use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{ShardId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -62,19 +63,19 @@ pub fn shards_applied_itself(
 
 // A last pre-spice block was applied pre-spice, where a shard the node only tracks
 // next epoch is applied with the block only once caught up. Whether it was is not
-// known here, so this answers with the lower bound, `NotCaughtUp`: a caught-up node
-// then fetches what it actually holds, a wasted fetch, rather than waiting on
-// artifacts it may never have produced. Every other block is answered with
-// `IsCaughtUp`. The two differ only for a node that starts tracking a shard in the
-// first spice epoch.
+// known here, so this answers with the lower bound, `ExcludeCatchupShards`: a
+// caught-up node then fetches what it actually holds, a wasted fetch, rather than
+// waiting on artifacts it may never have produced. Every other block is answered
+// with `IncludeCatchupShards`. The two differ only for a node that starts tracking a
+// shard in the first spice epoch.
 fn own_apply_mode(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &BlockHeader,
 ) -> Result<ApplyChunksMode, Error> {
     Ok(if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        ApplyChunksMode::NotCaughtUp
+        ApplyChunksMode::ExcludeCatchupShards
     } else {
-        ApplyChunksMode::IsCaughtUp
+        ApplyChunksMode::IncludeCatchupShards
     })
 }
 
@@ -114,38 +115,22 @@ pub fn seed_execution_heads_at_activation(
 
 /// The uncertified-chunks row for the last pre-spice block `header`, one entry per
 /// shard of its layout, with every designated endorsement missing.
-fn boundary_uncertified_chunks(
+pub(crate) fn boundary_uncertified_chunks(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-    let epoch_id = header.epoch_id();
-    let height = header.height();
-    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-    let mut uncertified_chunks = Vec::with_capacity(shard_layout.num_shards() as usize);
-    for shard_id in shard_layout.shard_ids() {
-        let chunk_validator_assignments =
-            epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)?;
-        let missing_endorsements = chunk_validator_assignments
-            .assignments()
-            .iter()
-            .map(|(account_id, _)| account_id)
-            .cloned()
-            .collect();
-        uncertified_chunks.push(SpiceUncertifiedChunkInfo {
-            chunk_id: SpiceChunkId { block_hash: *header.hash(), shard_id },
-            missing_endorsements,
-            present_endorsements: Vec::new(),
-            present_fallback_endorsements: Vec::new(),
-            // The block before the last pre-spice block is pre-spice, certified by
-            // definition, so the designated validators can act right away.
-            certifiable_since_height: Some(height),
-        });
-    }
-    Ok(uncertified_chunks)
+    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
+
+    shard_layout
+        .shard_ids()
+        .map(|shard_id| {
+            new_uncertified_chunk_info(epoch_manager, header, shard_id, Some(header.height()))
+        })
+        .collect()
 }
 
 /// Writes the `DBCol::uncertified_chunks` row of the last pre-spice block `header`.
-fn write_boundary_uncertified_chunks(
+pub(crate) fn write_boundary_uncertified_chunks(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,

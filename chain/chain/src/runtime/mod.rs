@@ -51,7 +51,7 @@ use near_primitives::version::{
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
-    QueryResponse, QueryResponseKind, ViewStateResult,
+    QueryResponse, QueryResponseKind, StateInitView, ViewStateResult,
 };
 use near_runtime::adapter::ViewRuntimeAdapter;
 use near_runtime::cache_warming::cache_keys_differ;
@@ -1685,7 +1685,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::CallFunction { account_id, method_name, args } => {
+            QueryRequest::CallFunction { account_id, method_name, args, state_init } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) =
                     self.query_epoch_info(epoch_id, block_height, *block_hash)?;
@@ -1702,6 +1702,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         account_id,
                         method_name,
                         args.as_ref(),
+                        state_init.as_ref(),
                         &mut logs,
                         self.epoch_manager.as_ref(),
                         current_protocol_version,
@@ -2476,6 +2477,7 @@ impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
+        state_init: Option<&StateInitView>,
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -2497,6 +2499,7 @@ impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             contract_id,
             method_name,
             args,
+            state_init,
             logs,
             epoch_info_provider,
         )

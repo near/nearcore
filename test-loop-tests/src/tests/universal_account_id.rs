@@ -45,7 +45,7 @@ use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
-    QueryRequest, QueryResponseKind,
+    QueryRequest, QueryResponseKind, StateInitView,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::str;
@@ -287,6 +287,43 @@ impl Env {
         self.env.rpc_runner().execute_tx(tx, Duration::seconds(5))
     }
 
+    /// `read_value` of `key` on `account`, run on top of `state_init` if given.
+    fn view_read_value(
+        &mut self,
+        account: &AccountId,
+        key: &[u8],
+        state_init: Option<StateInitView>,
+    ) -> Result<Vec<u8>, QueryError> {
+        self.env.test_loop.run_for(Duration::seconds(2));
+        let response = self.env.rpc_node().runtime_query(QueryRequest::CallFunction {
+            account_id: account.clone(),
+            method_name: "read_value".to_owned(),
+            args: key.to_vec().into(),
+            state_init,
+        })?;
+        let QueryResponseKind::CallResult(call) = response.kind else {
+            panic!("unexpected query response type: {:?}", response.kind);
+        };
+        Ok(call.result)
+    }
+
+    /// Stores `value` under `key` in `account`, via the test contract.
+    fn write_key_value(&mut self, account: &AccountId, key: &[u8], value: &[u8]) {
+        let caller = self.user_account.clone();
+        let tx = SignedTransaction::call(
+            self.next_nonce(),
+            caller.clone(),
+            account.clone(),
+            &create_user_test_signer(&caller),
+            Balance::ZERO,
+            "write_key_value".to_owned(),
+            [key, value].concat(),
+            Gas::from_teragas(300),
+            self.block_hash(),
+        );
+        self.run_tx(tx);
+    }
+
     fn transfer(&mut self, receiver: &AccountId, amount: Balance) {
         let signer = create_user_test_signer(&self.user_account);
         let tx = SignedTransaction::send_money(
@@ -344,6 +381,7 @@ fn test_universal_state_init_key_only() {
             account_id: account.clone(),
             method_name: "main".to_owned(),
             args: vec![].into(),
+            state_init: None,
         }),
         Err(QueryError::ContractExecutionError {
             error: FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { .. }),
@@ -959,6 +997,7 @@ fn test_uninitialized_account_views() {
             account_id: account.clone(),
             method_name: "read_value".to_owned(),
             args: key.clone().into(),
+            state_init: None,
         },
         QueryRequest::ViewCode { account_id: account.clone() },
         QueryRequest::ViewState {
@@ -1022,6 +1061,154 @@ fn test_uninitialized_account_views() {
             other => panic!("unexpected response to {query:?}: {other:?}"),
         }
     }
+}
+
+/// The validation error of a view that failed with `InvalidStateInit`.
+fn invalid_state_init(result: Result<Vec<u8>, QueryError>) -> ActionsValidationError {
+    match result {
+        Err(QueryError::InvalidStateInit { error, .. }) => *error,
+        other => panic!("expected InvalidStateInit, got {other:?}"),
+    }
+}
+
+/// A `0u` state init applies until the account is initialized, then is only validated.
+#[test]
+fn test_view_call_with_universal_state_init() {
+    init_test_logger();
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    let key = 7u64.to_le_bytes().to_vec();
+    let value = 42u64.to_le_bytes().to_vec();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-view").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::from([(key.clone(), value.clone())]),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
+    });
+    let account = state_init.derive_account_id();
+    let with_init = Some(StateInitView::Universal(state_init.to_raw()));
+
+    // Missing.
+    assert_matches!(
+        env.view_read_value(&account, &key, None),
+        Err(QueryError::UnknownAccount { .. })
+    );
+    assert_eq!(env.view_read_value(&account, &key, with_init.clone()).unwrap(), value);
+    assert_matches!(env.try_view_account(&account), Err(QueryError::UnknownAccount { .. }));
+
+    // Funded but uninitialized.
+    env.transfer(&account, Balance::from_near(3));
+    assert_matches!(
+        env.view_read_value(&account, &key, None),
+        Err(QueryError::UninitializedAccount { .. })
+    );
+    assert_eq!(env.view_read_value(&account, &key, with_init.clone()).unwrap(), value);
+
+    // Initialized, with storage changed since.
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
+    let new_value = 43u64.to_le_bytes().to_vec();
+    env.write_key_value(&account, &key, &new_value);
+    assert_eq!(env.view_read_value(&account, &key, with_init).unwrap(), new_value);
+    let other = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    assert_matches!(
+        invalid_state_init(env.view_read_value(
+            &account,
+            &key,
+            Some(StateInitView::Universal(other.to_raw()))
+        )),
+        ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+    );
+}
+
+/// An invalid state init fails the view, and so does one whose code is missing.
+#[test]
+fn test_view_call_with_invalid_state_init() {
+    init_test_logger();
+    let mut env = Env::setup();
+    let key = 7u64.to_le_bytes().to_vec();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-view-invalid").public_key();
+
+    // Derives to another account.
+    let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let other = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    assert_matches!(
+        invalid_state_init(env.view_read_value(
+            &key_only.derive_account_id(),
+            &key,
+            Some(StateInitView::Universal(other.to_raw()))
+        )),
+        ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+    );
+
+    // Not canonical.
+    let raw = non_canonical_state_init(&public_key);
+    assert_matches!(
+        invalid_state_init(env.view_read_value(
+            &derive_universal_account_id(&raw),
+            &key,
+            Some(StateInitView::Universal(raw))
+        )),
+        ActionsValidationError::MalformedUniversalStateInit
+    );
+
+    // Code never deployed.
+    let missing_code = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(b"missing"))),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    assert_matches!(
+        env.view_read_value(
+            &missing_code.derive_account_id(),
+            &key,
+            Some(StateInitView::Universal(missing_code.to_raw()))
+        ),
+        Err(QueryError::NoGlobalContractCode { .. })
+    );
+}
+
+/// A view at genesis height 0 still installs the state.
+#[test]
+fn test_view_call_with_state_init_at_genesis() {
+    init_test_logger();
+    let env = TestLoopBuilder::new().genesis_height(0).enable_rpc().build();
+    let genesis_hash = *env.rpc_node().client().chain.genesis().hash();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-view-genesis").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
+    });
+    let result = env.rpc_node().runtime_query_at(
+        genesis_hash,
+        QueryRequest::CallFunction {
+            account_id: state_init.derive_account_id(),
+            method_name: "main".to_owned(),
+            args: vec![].into(),
+            state_init: Some(StateInitView::Universal(state_init.to_raw())),
+        },
+    );
+    // Key-only, so the call finds no code.
+    assert_matches!(
+        result,
+        Err(QueryError::ContractExecutionError {
+            error: FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { .. }),
+            ..
+        })
+    );
 }
 
 /// The whole relayerless flow end to end: fund a `0u` id, read back the two
