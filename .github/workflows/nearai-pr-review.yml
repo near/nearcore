@@ -26,8 +26,9 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'))
 
     runs-on: ubuntu-latest
-    # The wait step, setup, the review run and posting fit in about 60 minutes.
-    timeout-minutes: 75
+    # The wait step (up to 15 minutes), setup, the review run (up to 56
+    # minutes) and posting fit in about 75 minutes.
+    timeout-minutes: 90
     permissions:
       checks: read
       contents: read
@@ -44,7 +45,7 @@ jobs:
       MODEL_ID: deepseek-ai/DeepSeek-V4.1-Flash-1017
       # NEAR AI accepts low, high, xhigh and max for this model.
       REASONING_EFFORT: xhigh
-      REVIEW_TIMEOUT_MINUTES: 40
+      REVIEW_TIMEOUT_MINUTES: 55
       # @opencode/cli is published with npm provenance from anomalyco/opencode's
       # release workflow, which `npm audit signatures` verifies below.
       OPENCODE_VERSION: 2.2.5
