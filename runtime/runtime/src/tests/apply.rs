@@ -1513,10 +1513,20 @@ fn test_apply_ecc_promise_signer_key_fails_and_refunds_contract() {
         }))
     );
 
+    // The gas refund stays in the chain: V3, with the contract as signer and no key.
     let refund = receipt_to_bob(&apply_result).clone();
-    let ReceiptEnum::Action(ActionReceipt { actions, .. }) = refund.receipt() else {
-        panic!("expected a refund, got {refund:?}");
+    assert!(refund.predecessor_id().is_system());
+    let ReceiptEnum::ActionV3(ActionReceiptV3 {
+        signer_id,
+        refund_to: None,
+        authorization_context: AuthorizationContext::ExternalContractCall,
+        actions,
+        ..
+    }) = refund.receipt()
+    else {
+        panic!("expected a gas refund of the external call's chain, got {refund:?}");
     };
+    assert_eq!(signer_id, &bob_account());
     let [Action::Transfer(TransferAction { deposit })] = actions.as_slice() else {
         panic!("expected a refund transfer, got {refund:?}");
     };
@@ -7931,8 +7941,11 @@ fn test_gas_refund_to_gas_key() {
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund =
-        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::AccessKey(gas_key_signer.public_key()),
+    );
 
     // Apply the refund receipt
     let apply_result = runtime
@@ -7977,7 +7990,11 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund = Receipt::new_gas_refund(&alice_account(), refund_amount, unknown_key);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::AccessKey(unknown_key),
+    );
 
     let shard_uid = ShardUId::single_shard();
     let apply_result = runtime
@@ -7996,6 +8013,58 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     let state = tries.new_trie_update(shard_uid, root);
 
     // Account balance should increase as fallback
+    let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
+}
+
+/// A gas refund of an external call's chain has no key, so it credits the contract's balance and
+/// leaves the contract's gas key alone.
+#[test]
+fn test_ecc_gas_refund_credits_balance_not_gas_key() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_key_balance = Balance::from_millinear(10);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        initial_balance,
+        1,
+        gas_key_balance,
+    );
+    let refund_amount = Balance::from_millinear(1);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::ExternalContractCall,
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[gas_refund],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
     let alice = get_account(&state, &alice_account()).unwrap().unwrap();
     assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
 }

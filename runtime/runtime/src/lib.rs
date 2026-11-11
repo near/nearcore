@@ -52,10 +52,10 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    AuthorizationContext, DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction,
-    ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0, ReceivedData, StateStoredReceipt,
-    VersionedActionReceipt, VersionedReceiptEnum,
+    DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptSource, ReceiptToTxInfo,
+    ReceiptToTxInfoV1, ReceiptV0, ReceivedData, StateStoredReceipt, VersionedActionReceipt,
+    VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -1474,19 +1474,11 @@ impl Runtime {
         if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
-            let refund = match action_receipt.authorization_context().as_ref() {
-                AuthorizationContext::AccessKey(signer_public_key) => Receipt::new_gas_refund(
-                    &action_receipt.signer_id(),
-                    gas_balance_refund,
-                    signer_public_key.clone(),
-                ),
-                // A chain an external call started has no access key or gas key to credit, so the
-                // refund is a plain transfer to its signer, the contract.
-                AuthorizationContext::ExternalContractCall => {
-                    Receipt::new_balance_refund(&action_receipt.signer_id(), gas_balance_refund)
-                }
-            };
-            result.new_receipts.push(refund);
+            result.new_receipts.push(Receipt::new_gas_refund(
+                &action_receipt.signer_id(),
+                gas_balance_refund,
+                action_receipt.authorization_context().into_owned(),
+            ));
         }
 
         Ok(gas_refund_result)

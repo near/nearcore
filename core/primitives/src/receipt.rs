@@ -413,28 +413,43 @@ impl Receipt {
     }
 
     /// Generates a receipt with a transfer action from system for a given balance without a
-    /// receipt_id. It contains `signer_id` and `signer_public_key` to indicate this is a gas
-    /// refund. The execution of this receipt will try to refund the allowance of the
-    /// access key with the given public key.
+    /// receipt_id. Its `signer_id` is the receiver, which marks it as a gas refund, and it
+    /// carries `authorization_context`, the context of the chain that bought the gas. The
+    /// execution of this receipt will try to refund the allowance of the access key, if any.
     /// NOTE: The access key may be replaced by the owner, so the execution can't rely that the
     /// access key is the same and it should use best effort for the refund.
     pub fn new_gas_refund(
         receiver_id: &AccountId,
         refund: Balance,
-        signer_public_key: PublicKey,
+        authorization_context: AuthorizationContext,
     ) -> Self {
+        let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let receipt = match authorization_context {
+            AuthorizationContext::AccessKey(signer_public_key) => {
+                ReceiptEnum::Action(ActionReceipt {
+                    signer_id: receiver_id.clone(),
+                    signer_public_key,
+                    gas_price: Balance::ZERO,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions,
+                })
+            }
+            AuthorizationContext::ExternalContractCall => ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: receiver_id.clone(),
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        };
         Receipt::V0(ReceiptV0 {
             predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: receiver_id.clone(),
-                signer_public_key,
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-            }),
+            receipt,
         })
     }
 
@@ -1165,6 +1180,59 @@ mod tests {
             }),
         });
         receipt_v0
+    }
+
+    /// A gas refund of a chain an access key authorized keeps its V1 shape, with the key.
+    #[test]
+    fn test_gas_refund_with_access_key_is_v1() {
+        let receiver_id: AccountId = "alice.near".parse().unwrap();
+        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, "alice");
+        let refund = Balance::from_yoctonear(7);
+        let authorization_context = AuthorizationContext::AccessKey(signer_public_key.clone());
+        let expected = Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: receiver_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: receiver_id.clone(),
+                signer_public_key,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        });
+        let gas_refund = Receipt::new_gas_refund(&receiver_id, refund, authorization_context);
+        assert_eq!(borsh::to_vec(&gas_refund).unwrap(), borsh::to_vec(&expected).unwrap());
+    }
+
+    /// A gas refund of a chain an external call started is V3, with the contract as signer and
+    /// no key.
+    #[test]
+    fn test_gas_refund_of_external_call_is_v3() {
+        let contract_id: AccountId = "contract.near".parse().unwrap();
+        let refund = Balance::from_yoctonear(7);
+        let authorization_context = AuthorizationContext::ExternalContractCall;
+        let gas_refund = Receipt::new_gas_refund(&contract_id, refund, authorization_context);
+        let expected = Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: contract_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: contract_id,
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        });
+        assert_eq!(gas_refund, expected);
+        let VersionedReceiptEnum::Action(action_receipt) = gas_refund.versioned_receipt() else {
+            panic!("expected an action receipt, got {gas_refund:?}");
+        };
+        assert_eq!(action_receipt.signer_public_key(), None);
     }
 
     #[test]
