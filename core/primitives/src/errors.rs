@@ -360,6 +360,11 @@ pub enum InvalidTxError {
         /// share.
         share: ExternalCallChunkLimit,
     } = 22,
+    /// An external contract call didn't run because the chunk ran an earlier call to the same
+    /// contract.
+    ContractCalledTwice {
+        contract_id: AccountId,
+    } = 23,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -1130,6 +1135,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::ContractNotFound { contract_id } => {
                 write!(f, "account {:?} does not hold a contract", contract_id)
+            }
+            InvalidTxError::ContractCalledTwice { contract_id } => {
+                write!(f, "the chunk ran an earlier external call to {:?}", contract_id)
             }
             InvalidTxError::ExternalCallChunkShareReached {
                 share: ExternalCallChunkLimit::Compute { used, limit },

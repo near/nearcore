@@ -1086,11 +1086,14 @@ mod tests {
         assert_pre_validation_rejects(eccs.collect());
     }
 
+    /// Two calls to one contract keep the chunk valid: apply refuses the second with an outcome.
     #[test]
-    fn test_pre_validation_rejects_two_eccs_to_one_contract() {
+    fn test_pre_validation_accepts_two_eccs_to_one_contract() {
         if !eccs_enabled() {
             return;
         }
-        assert_pre_validation_rejects(vec![ecc_to("contract.near", 1), ecc_to("contract.near", 2)]);
+        let new_transactions = vec![ecc_to("contract.near", 1), ecc_to("contract.near", 2)];
+        let result = pre_validate_witness(PROTOCOL_VERSION, new_transactions);
+        assert!(result.is_ok(), "unexpected result: {:?}", result.err());
     }
 }

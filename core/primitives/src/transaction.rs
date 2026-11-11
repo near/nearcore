@@ -679,17 +679,16 @@ impl EccTransaction {
 /// Why the external calls of a chunk, taken together, make the chunk invalid.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidExternalCalls {
-    #[error("the chunk has more than one external call to {contract_id}")]
-    ContractCalledTwice { contract_id: AccountId },
     #[error("external calls take {size} bytes, past their share of {limit} bytes")]
     SizeShareExceeded { size: u64, limit: u64 },
     #[error("the chunk has {count} external calls, more than the limit of {limit}")]
     TooManyCalls { count: u64, limit: u64 },
 }
 
-/// The external calls of a chunk so far, against the rules on them taken together: at most one
-/// call per contract, no more than `max_calls_per_chunk` calls, and no more than their share of
-/// the chunk's transaction bytes. A chunk whose calls break a rule is invalid.
+/// The external calls of a chunk so far, against the rules on them taken together: no more than
+/// `max_calls_per_chunk` calls, and no more than their share of the chunk's transaction bytes. A
+/// chunk whose calls break a rule is invalid. It also tracks the contracts called, which the
+/// producer uses to pack at most one call per contract.
 ///
 /// Validation checks a chunk with it (`check_external_calls_in_chunk`), and the chunk producer
 /// packs calls with it, so that both keep to the same rules.
@@ -727,10 +726,6 @@ impl ExternalCallsValidity {
         ecc: &EccTransaction,
     ) -> Result<ExternalCallReservation<'_>, InvalidExternalCalls> {
         let contract_id = ecc.contract_id();
-        if self.contracts.contains(contract_id) {
-            let contract_id = contract_id.clone();
-            return Err(InvalidExternalCalls::ContractCalledTwice { contract_id });
-        }
         let count = self.count.saturating_add(1);
         if count > self.max_count {
             return Err(InvalidExternalCalls::TooManyCalls { count, limit: self.max_count });
@@ -1841,24 +1836,32 @@ mod tests {
         );
     }
 
+    /// Calls to one contract keep a chunk valid: apply refuses a second call, and skips a repeat.
     #[test]
-    fn test_check_external_calls_in_chunk_one_call_per_contract() {
+    fn test_check_external_calls_in_chunk_calls_to_one_contract() {
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
         let config = RuntimeConfig::test_protocol_version(feature_version);
         let contract_id: AccountId = "wallet.near".parse().unwrap();
         let first = EccTransaction::new(contract_id.clone(), vec![1]);
         let other = EccTransaction::new("other.near".parse().unwrap(), vec![1]);
-        let called_twice =
-            Err(InvalidExternalCalls::ContractCalledTwice { contract_id: contract_id.clone() });
 
         // Different payloads.
         let second = EccTransaction::new(contract_id.clone(), vec![2]);
         let txs = [&first, &other, &second].map(|ecc| TransactionEnvelope::from(ecc.clone()));
-        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
 
         // The same call twice.
         let txs = [&first, &first].map(|ecc| TransactionEnvelope::from(ecc.clone()));
-        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
+
+        // The same call with its state init and without.
+        let with_state_init = EccTransaction::new_with_state_init(
+            contract_id.clone(),
+            first.payload().to_vec(),
+            Some(RawStateInit(vec![1])),
+        );
+        let txs = [&with_state_init, &first].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
 
         // A signed transaction from the contract's account isn't an external call to it.
         let signer = InMemorySigner::test_signer(&contract_id);
@@ -1917,13 +1920,6 @@ mod tests {
         assert!(!calls.has_call_to(call(1).contract_id()));
         let size = calls.size();
         assert_eq!(size, first.get_size());
-        let twice = EccTransaction::new(first.contract_id().clone(), vec![2]);
-        let called_twice = Err(InvalidExternalCalls::ContractCalledTwice {
-            contract_id: first.contract_id().clone(),
-        });
-        assert_eq!(calls.reserve(&twice).map(drop), called_twice);
-        assert_eq!(calls.add(&twice), called_twice);
-        assert_eq!(calls.size(), size);
 
         // A dropped reservation adds nothing; a committed one adds the call.
         let reserved = call(1);

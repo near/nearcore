@@ -58,6 +58,7 @@ use near_vm_runner::logic::errors::FunctionCallError;
 use near_vm_runner::logic::{ExecutionMode, HostError, ReturnData, VMContext, VMOutcome};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache};
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -65,9 +66,9 @@ use std::sync::Arc;
 /// and storage proof, which `process_external_call` checks before each call and adds to after
 /// it. Only that function checks and adds, so apply and the chunk producer admit the same calls.
 ///
-/// The other rules on a chunk's external calls, one call per contract, a limit on their number
-/// and a share of the chunk's transaction bytes, make a chunk invalid, and are checked before
-/// apply.
+/// It also holds the contracts the chunk's calls went to, so that a second call to one of them
+/// gets a failed outcome. The other rules on a chunk's external calls, a limit on their number and
+/// a share of the chunk's transaction bytes, make a chunk invalid, and are checked before apply.
 #[derive(Debug, Clone)]
 pub struct ExternalCallsInChunk {
     compute: Compute,
@@ -77,6 +78,7 @@ pub struct ExternalCallsInChunk {
     compute_share: Compute,
     /// The share of `main_storage_proof_size_soft_limit`.
     recorded_size_share: u64,
+    called_contracts: HashSet<AccountId>,
 }
 
 impl ExternalCallsInChunk {
@@ -90,6 +92,7 @@ impl ExternalCallsInChunk {
             recorded_size: 0,
             compute_share,
             recorded_size_share: calls_config.storage_proof_share(&config.witness_config),
+            called_contracts: HashSet::new(),
         }
     }
 
@@ -149,7 +152,8 @@ pub struct ProcessedExternalCall {
 /// counts it toward the chunk's gas, compute and burnt tokens.
 ///
 /// A call that failed validation (`validation_error`) is refused without anything read for it,
-/// and so is a call that finds the chunk's ECCs past one of their shares (`external_calls`).
+/// and so is a call that finds the chunk's ECCs past one of their shares (`external_calls`), or a
+/// second call to a contract the chunk called already.
 /// Otherwise the contract account is read into `accounts`, the chunk's working copy of accounts,
 /// unless it is there already. A call whose contract can't pay its fees, or whose account has no
 /// contract, is refused without running. Otherwise the contract's reserved method runs. If the
@@ -159,8 +163,8 @@ pub struct ProcessedExternalCall {
 ///
 /// If the call is refused, before or after the run, nobody pays. The validators' work on it
 /// still counts toward the chunk's compute, so it stays bounded, but not toward the chunk's gas:
-/// since nobody pays for it, it shouldn't move the next gas price. The exception is a call
-/// refused past a share, which counts no compute: see below. Every call that passes the check of
+/// since nobody pays for it, it shouldn't move the next gas price. The exceptions are a second
+/// call to a contract and a call refused past a share, which count no compute: see below. Every call that passes the check of
 /// the shares counts toward them, whatever comes of it.
 ///
 /// A `RuntimeError`, such as a storage error, stops applying the chunk.
@@ -201,6 +205,12 @@ pub fn process_external_call<'a>(
     // with the chunk still produced. `max_external_calls_per_chunk` bounds the work they take.
     if let Err(err) = external_calls.fits() {
         return Ok(refuse(err.into(), 0));
+    }
+    // A second call to a contract is refused, before anything is read for it and with no
+    // compute, as a call past a share is.
+    if !external_calls.called_contracts.insert(ecc.contract_id().clone()) {
+        let contract_id = ecc.contract_id().clone();
+        return Ok(refuse(InvalidTxError::ContractCalledTwice { contract_id }.into(), 0));
     }
     // Everything recorded from here on, the read of the contract account included, counts toward
     // the share of the chunk's storage proof.
