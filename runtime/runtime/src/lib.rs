@@ -3123,6 +3123,26 @@ fn send_transaction_receipt(
     tx_hash: CryptoHash,
     sender_id: &AccountId,
 ) -> Result<(), RuntimeError> {
+    record_transaction_receipt(processing_state, &receipt, tx_hash, sender_id);
+    if receipt.receiver_id() == sender_id {
+        processing_state.local_receipts.push_back(receipt);
+    } else {
+        receipt_sink.forward_or_buffer_receipt(
+            receipt,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
+        )?;
+    }
+    Ok(())
+}
+
+/// Records that `receipt` comes from the transaction `tx_hash` of `sender_id`.
+fn record_transaction_receipt(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt: &Receipt,
+    tx_hash: CryptoHash,
+    sender_id: &AccountId,
+) {
     if processing_state.apply_state.save_receipt_to_tx {
         processing_state.receipt_to_tx.push((
             *receipt.receipt_id(),
@@ -3136,20 +3156,10 @@ fn send_transaction_receipt(
             }),
         ));
     }
-    if receipt.receiver_id() == sender_id {
-        processing_state.local_receipts.push_back(receipt);
-    } else {
-        receipt_sink.forward_or_buffer_receipt(
-            receipt,
-            &processing_state.apply_state,
-            &mut processing_state.state_update,
-        )?;
-    }
-    Ok(())
 }
 
-/// Sends out the receipts of an accepted external call, which carry their ids already, the way a
-/// signed transaction sends its receipt, and commits what sending them wrote.
+/// Sends out the receipts of an accepted external call, which carry their ids already, through
+/// `receipt_sink`, as a receipt's run does, none local, and commits what sending them wrote.
 fn send_ecc_receipts(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt_sink: &mut ReceiptSink,
@@ -3163,12 +3173,11 @@ fn send_ecc_receipts(
     for receipt in receipts {
         // TODO(ecc): map the call's unique id to the call, so `EXPERIMENTAL_receipt_to_tx` can
         // resolve the `tx_hash` this records.
-        send_transaction_receipt(
-            processing_state,
-            receipt_sink,
+        record_transaction_receipt(processing_state, &receipt, *outcome_id, contract_id);
+        receipt_sink.forward_or_buffer_receipt(
             receipt,
-            *outcome_id,
-            contract_id,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
         )?;
     }
     let cause = StateChangeCause::TransactionProcessing { tx_hash: *outcome_id };
