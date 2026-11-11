@@ -11,13 +11,13 @@ use crate::logic::{
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
-    imports, prepare,
+    EXPORT_PREFIX, NoContractRuntimeCache, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
+use load::loaded_module_weight;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
@@ -28,11 +28,13 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Inlining, Instance, InstanceAllocationStrategy,
-    InstancePre, Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig,
-    RegallocAlgorithm, ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder, Strategy, Val,
-    WasmBacktraceDetails,
+    InstancePre, Memory, ModuleExport, OptLevel, PoolingAllocationConfig, RegallocAlgorithm, Store,
+    StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
+mod load;
+#[cfg(test)]
+mod test_loaded_module_weight;
 #[cfg(test)]
 pub(crate) mod test_logic;
 mod trap_classification;
@@ -690,72 +692,19 @@ impl WasmtimeVM {
                             Ok(module) => (wasm_bytes, module),
                         }
                     };
-                // (UN-)SAFETY: the `module` must have been produced by
-                // a prior call to `serialize`.
-                //
-                // In practice this is not necessarily true. One could have
-                // forgotten to change the cache key when upgrading the version of
-                // the near_vm library or the database could have had its data
-                // corrupted while at rest.
-                //
-                // There should definitely be some validation in near_vm to ensure
-                // we load what we think we load.
-                let compiled_size = module.len();
-                let module = match unsafe { Module::deserialize(&self.engine, &module) } {
-                    Ok(module) => module,
-                    Err(err) => {
-                        // Propagate failed contract loading as a cached `FunctionCallError`, mirroring
-                        // the memory-export check below, so it flows through the fee-charge points
-                        // and finalizes as a gas-bearing abort.
-                        if self.config.fix_contract_loading_error {
-                            let err = FunctionCallError::LoadingError { msg: err.to_string() };
-                            return Ok((
-                                err.size_bytes_approximate() as u64,
-                                to_any((wasm_bytes, Ok(Err(err)))),
-                            ));
-                        }
-                        return Err(VMRunnerError::LoadingError(err.to_string()));
+                let prepared = match self.load_module(&module)? {
+                    Err(FunctionCallError::LoadingError { msg })
+                        if !self.config.fix_contract_loading_error =>
+                    {
+                        return Err(VMRunnerError::LoadingError(msg));
                     }
+                    prepared => prepared,
                 };
-                let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
-                    let err = FunctionCallError::LinkError { msg: "memory export missing".into() };
-                    return Ok((
-                        err.size_bytes_approximate() as u64,
-                        to_any((wasm_bytes, Ok(Err(err)))),
-                    ));
+                let weight = match &prepared {
+                    Ok(_) => loaded_module_weight(&module),
+                    Err(err) => err.size_bytes_approximate() as u64,
                 };
-                let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
-                let start = module.get_export_index(START_EXPORT);
-                let mut linker = Linker::new(&self.engine);
-                link(&mut linker, &self.config);
-                match linker.instantiate_pre(&module) {
-                    Err(err) => {
-                        let err = err.into_vm_error()?;
-                        Ok((
-                            err.size_bytes_approximate() as u64,
-                            to_any((wasm_bytes, Ok(Err(err)))),
-                        ))
-                    }
-                    Ok(pre) => {
-                        let ResourcesRequired { num_tables, .. } = module.resources_required();
-                        // The module `weight` is estimated as its serialized size. This is a
-                        // rough approximation as the runtime metadata size is not included.
-                        // Should be sufficient for our purposes.
-                        Ok((
-                            compiled_size as u64,
-                            to_any((
-                                wasm_bytes,
-                                Ok(Ok(PreparedModule {
-                                    pre,
-                                    memory,
-                                    remaining_gas,
-                                    start,
-                                    num_tables,
-                                })),
-                            )),
-                        ))
-                    }
-                }
+                Ok((weight, to_any((wasm_bytes, Ok(prepared)))))
             },
             move |value| {
                 let &(wasm_bytes, ref downcast) = value
@@ -1130,6 +1079,7 @@ mod tests {
     use super::*;
     use core::array;
     use std::thread::{scope, spawn, yield_now};
+    use wasmtime::Module;
 
     #[test]
     fn test_semaphore() {

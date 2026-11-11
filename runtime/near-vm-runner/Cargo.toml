@@ -23,6 +23,7 @@ enum-map.workspace = true
 finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 num-rational.workspace = true
+object = { workspace = true, features = ["elf", "read_core", "unaligned"], optional = true }
 p256.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
@@ -76,7 +77,7 @@ wat.workspace = true
 
 [features]
 default = ["wasmtime_vm"]
-wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
+wasmtime_vm = ["wasmtime", "anyhow", "object", "prepare"]
 prepare = [
     "finite-wasm-6",
     "wasm-encoder",
