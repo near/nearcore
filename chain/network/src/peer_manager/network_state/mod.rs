@@ -1487,8 +1487,10 @@ impl NetworkState {
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
+            let load_validators =
+                || this.accounts_data.load().data.values().map(|d| d.peer_id.clone()).collect();
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
+            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts, load_validators).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if new_data.is_empty() {

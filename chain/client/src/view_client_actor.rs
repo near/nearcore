@@ -37,8 +37,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight,
-    TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse,
 };
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
@@ -55,8 +54,8 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
-    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -2119,15 +2118,6 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
-    }
-}
-
-impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
-    fn handle(&mut self, _: GetCurrentEpochHeight) -> Option<EpochHeight> {
-        let Ok(tip) = self.chain.head() else {
-            return None;
-        };
-        self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
     }
 }
 

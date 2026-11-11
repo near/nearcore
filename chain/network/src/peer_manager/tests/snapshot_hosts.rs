@@ -527,3 +527,70 @@ async fn no_shards_not_broadcast() {
     // Wait until peer2 receives info2. No other messages should be broadcast.
     wait_for_host_info(&mut peer2, &info2, &[]).await;
 }
+
+/// Test that PeerManager forwards only the hosts it stored, and that hosts which got no slot
+/// in its cache are neither admitted nor forwarded when they arrive again.
+#[tokio::test]
+async fn full_cache_forwards_only_stored_hosts() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    let mut pm_config = chain.make_config(rng);
+    pm_config.snapshot_hosts.snapshot_hosts_cache_size = 2;
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        pm_config,
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "connect peers, expect initial sync to be empty");
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let make_info = |key: &SecretKey, epoch_height: EpochHeight| {
+        Arc::new(SnapshotHostInfo::new(
+            PeerId::new(key.public_key()),
+            CryptoHash::hash_borsh(epoch_height),
+            epoch_height,
+            vec![ShardId::new(0)],
+            key,
+        ))
+    };
+    let keys = (0..5).map(|_| data::make_secret_key(rng)).collect_vec();
+    let hosts = keys.iter().map(|key| make_info(key, 1)).collect_vec();
+    let msg = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: hosts.clone() });
+    let mut pm_events = pm.events.from_now();
+
+    tracing::info!(target:"test", "send more hosts than the cache has slots for, only the stored ones are forwarded");
+    peer1.send(msg.clone()).await;
+    let got = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    let want = vec![hosts[0].clone(), hosts[1].clone()];
+    assert_eq!(got.hosts.as_set(), want.as_set());
+    pm_events.recv_until(|ev| take_sync_snapshot_msg(ev).filter(|m| m.hosts == hosts)).await;
+
+    tracing::info!(target:"test", "send the same hosts again, then renew a stored host");
+    peer1.send(msg).await;
+    pm_events.recv_until(|ev| take_sync_snapshot_msg(ev).filter(|m| m.hosts == hosts)).await;
+    let renewed = make_info(&keys[0], 2);
+    peer1
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![renewed.clone()] }))
+        .await;
+
+    // The renewal is the next host peer2 hears about, so nothing from the repeated message
+    // was forwarded.
+    wait_for_host_info(&mut peer2, &renewed, &[]).await;
+}

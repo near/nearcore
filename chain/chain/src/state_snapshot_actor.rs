@@ -122,12 +122,6 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
-        let chain_progressed_msg =
-            SnapshotHostEvent::ChainProgressed { epoch_height: msg.epoch_height };
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SnapshotHostEvent(chain_progressed_msg),
-        ));
-
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
             tracing::info!(target: "state_snapshot", ?msg, "snapshots are disabled");
             return;

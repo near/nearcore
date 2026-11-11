@@ -226,7 +226,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 pub enum SnapshotHostEvent {
-    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    /// Epoch of the latest block header, sent once header sync has caught up with the network
+    /// and again whenever it changes. Bounds the epochs of the snapshot infos the network keeps.
     ChainProgressed { epoch_height: EpochHeight },
     /// Triggers the network to broadcast the snapshot host info to all peers.
     SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
