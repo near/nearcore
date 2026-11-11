@@ -186,10 +186,10 @@ pub struct Config {
     /// all received responses provide the same IP), the IP (together with the port deduced from
     /// the addr field in this config) will be signed and broadcasted.
     ///
-    /// Discouraged setup (might be removed in the future)
-    /// If the list is empty and STUN servers' response is ambiguous, the peers which connect to
-    /// this validator node will naturally observe the address of the validator and broadcast it.
-    /// This setup is not reliable in presence of byzantine peers.
+    /// Discouraged setup:
+    /// If the list is empty and STUN servers' response is ambiguous, the validator advertises no
+    /// address. It connects to the validators that advertise one, and exchanges messages with the
+    /// other validators through a third validator.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
     /// For local tests only (localnet). Allows specifying IPs from private range
@@ -236,10 +236,6 @@ fn default_tier1_enable_inbound() -> bool {
     true
 }
 
-fn default_tier1_enable_outbound() -> bool {
-    true
-}
-
 fn default_tier1_connect_interval() -> Duration {
     Duration::seconds(60)
 }
@@ -254,17 +250,13 @@ fn default_tier1_advertise_proxies_interval() -> time::Duration {
 
 /// Configuration for Tier1 network
 ///
-/// Tier1 network is a special network between validator nodes that provides faster
-/// consensus-related message delivery.
+/// Tier1 network is the network of direct connections between validator nodes, which
+/// carries the consensus-related messages.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Tier1Config {
     /// Makes your node accept inbound Tier1 connections from other validator nodes.
     #[serde(default = "default_tier1_enable_inbound")]
     pub enable_inbound: bool,
-
-    /// Makes your node actively try to establish outbound Tier1 connections (recommended)
-    #[serde(default = "default_tier1_enable_outbound")]
-    pub enable_outbound: bool,
 
     /// Interval between attempts to connect to proxies of other Tier1 nodes
     #[serde(default = "default_tier1_connect_interval")]
@@ -287,7 +279,6 @@ impl Default for Tier1Config {
     fn default() -> Self {
         Tier1Config {
             enable_inbound: default_tier1_enable_inbound(),
-            enable_outbound: default_tier1_enable_outbound(),
             connect_interval: default_tier1_connect_interval(),
             new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
             advertise_proxies_interval: default_tier1_advertise_proxies_interval(),

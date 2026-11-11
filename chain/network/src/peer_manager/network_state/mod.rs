@@ -769,11 +769,16 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return transport.send_message(
+                let body_variant = msg.body_variant();
+                let sent = transport.send_message(
                     tcp::Tier::T1,
                     peer_id,
                     Arc::new(PeerMessage::Routed(msg)),
                 );
+                if !sent {
+                    metrics::MessageDropped::NoRouteFound.inc_msg_type(body_variant);
+                }
+                return sent;
             }
             tcp::Tier::T2 => match self.tier2_find_route(&clock, msg.target()) {
                 Ok(peer_id) => {
@@ -862,6 +867,24 @@ impl NetworkState {
         }
 
         let accounts_data = self.accounts_data.load();
+        let Some(target) = accounts_data
+            .keys_by_id
+            .get(account_id)
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .find_map(|key| accounts_data.data.get(key))
+            .map(|data| data.peer_id.clone())
+        else {
+            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+            metrics::MessageDropped::UnknownAccount.inc(&msg);
+            tracing::debug!(target: "network",
+                   account_id = ?self.config.validator.account_id(),
+                   to = ?account_id,
+                   ?msg,
+                   err = "unknown account",
+            );
+            return false;
+        };
         if tcp::Tier::T1.is_allowed_send_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
@@ -884,37 +907,26 @@ impl NetworkState {
                 transport.send_message(tcp::Tier::T1, peer_id, peer_msg);
                 return true;
             }
+            // Neither the target nor its proxies are connected to this node over TIER1.
+            let Some(relay) = self.pick_tier1_relay() else {
+                metrics::MessageDropped::NoRouteFound.inc(&msg);
+                tracing::debug!(
+                    target: "network",
+                    to = ?account_id,
+                    body = msg.variant(),
+                    "dropping tier1 message, no tier1 connections",
+                );
+                return false;
+            };
+            let raw = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
+            let peer_msg = Arc::new(PeerMessage::Routed(self.sign_message(clock, raw)));
+            transport.send_message(tcp::Tier::T1, relay, peer_msg);
+            return true;
         }
 
-        let peer_id_from_account_data = accounts_data
-            .keys_by_id
-            .get(account_id)
-            .iter()
-            .flat_map(|keys| keys.iter())
-            .find_map(|key| accounts_data.data.get(key))
-            .map(|data| data.peer_id.clone());
-        let target = if let Some(peer_id) = peer_id_from_account_data {
-            metrics::ACCOUNT_TO_PEER_LOOKUPS.inc();
-            peer_id
-        } else {
-            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-            metrics::MessageDropped::UnknownAccount.inc(&msg);
-            tracing::debug!(target: "network",
-                   account_id = ?self.config.validator.account_id(),
-                   to = ?account_id,
-                   ?msg,
-                   err = "unknown account",
-            );
-            return false;
-        };
-
-        let mut success = false;
-        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
-        let msg = self.sign_message(clock, msg);
-        for _ in 0..msg.body().message_resend_count() {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone(), transport);
-        }
-        success
+        metrics::ACCOUNT_TO_PEER_LOOKUPS.inc();
+        let raw = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
+        self.send_message_to_peer(clock, tcp::Tier::T2, self.sign_message(clock, raw), transport)
     }
 
     pub async fn receive_routed_message(

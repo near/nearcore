@@ -1,6 +1,8 @@
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, T1MessageBody, TieredMessageBody};
+use crate::network_protocol::{
+    PeerAddr, PeerMessage, RoutedMessage, T1MessageBody, T2MessageBody, TieredMessageBody,
+};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
@@ -46,41 +48,33 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
     }
 }
 
-// Sends a routed TIER1 message from `from` to `to`.
-// Returns the message body that was sent, or None if the routing information was missing.
-async fn send_tier1_message(
-    rng: &mut Rng,
+// Sends a routed message from `from` to the account of `to`.
+// Returns false if the routing information was missing.
+async fn send_message(
     clock: &time::Clock,
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
-) -> Option<TieredMessageBody> {
-    let from_signer = from.cfg.validator.signer.get().unwrap();
-    let to_signer = to.cfg.validator.signer.get().unwrap();
-    let target = to_signer.validator_id().clone();
-    let want: TieredMessageBody =
-        T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref())).into();
+    body: TieredMessageBody,
+) -> bool {
+    let target = to.cfg.validator.signer.get().unwrap().validator_id().clone();
     let clock = clock.clone();
     from.with_state_and_transport(move |s, transport| async move {
-        if s.send_message_to_account(&clock, &target, want.clone(), &*transport) {
-            Some(want)
-        } else {
-            None
-        }
+        s.send_message_to_account(&clock, &target, body, &*transport)
     })
     .await
 }
 
-// Sends a routed TIER1 message from `from` to `to`, then waits until `to` receives it.
-// `recv_tier` specifies over which network the message is expected to be actually delivered.
-async fn send_and_recv_tier1_message(
-    rng: &mut Rng,
+// Sends a routed message from `from` to `to`, then waits until `to` receives it over `recv_tier`
+// and returns the received message.
+async fn send_and_recv_message(
     clock: &time::Clock,
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
+    body: TieredMessageBody,
     recv_tier: tcp::Tier,
-) {
+) -> Box<RoutedMessage> {
     let mut events = to.events.from_now();
-    let want = send_tier1_message(rng, clock, from, to).await.expect("routing info not available");
+    assert!(send_message(clock, from, to, body.clone()).await, "routing info not available");
     let got = events
         .recv_until(|ev| match ev {
             Event::MessageProcessed(tier, PeerMessage::Routed(got)) if tier == recv_tier => {
@@ -90,7 +84,21 @@ async fn send_and_recv_tier1_message(
         })
         .await;
     assert_eq!(from.cfg.node_id(), got.author().clone());
-    assert_eq!(want, got.body_owned());
+    assert_eq!(&body, got.body());
+    got
+}
+
+// Sends a routed TIER1 message from `from` to `to`, then waits until `to` receives it and returns
+// the received message.
+async fn send_and_recv_tier1_message(
+    rng: &mut Rng,
+    clock: &time::Clock,
+    from: &peer_manager::testonly::ActorHandler,
+    to: &peer_manager::testonly::ActorHandler,
+) -> Box<RoutedMessage> {
+    let signer = from.cfg.validator.signer.get().unwrap();
+    let body = T1MessageBody::BlockApproval(make_block_approval(rng, signer.as_ref())).into();
+    send_and_recv_message(clock, from, to, body, tcp::Tier::T1).await
 }
 
 /// Send a message over each connection.
@@ -104,7 +112,7 @@ async fn test_clique(
             if from.cfg.node_id() == to.cfg.node_id() {
                 continue;
             }
-            send_and_recv_tier1_message(rng, clock, from, to, tcp::Tier::T1).await;
+            send_and_recv_tier1_message(rng, clock, from, to).await;
         }
     }
 }
@@ -333,7 +341,7 @@ async fn proxy_change() {
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
     tracing::info!(target:"test", "send message v1 -> v0 over tier1");
-    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
+    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0).await;
 
     // Advance time, so that the new AccountsData has newer timestamp.
     clock.advance(time::Duration::hours(1));
@@ -347,7 +355,7 @@ async fn proxy_change() {
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
     tracing::info!(target:"test", "send message v1 -> v0 over tier1");
-    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
+    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0).await;
 
     drop(hub);
     drop(v0);
@@ -367,13 +375,13 @@ async fn tier2_routing_using_accounts_data() {
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    let tx: TieredMessageBody =
+        T2MessageBody::ForwardTx(data::make_signed_transaction(rng).into()).into();
 
-    tracing::info!(target:"test", "try to send a routed message pm0 -> pm1 over tier2");
+    tracing::info!(target:"test", "try to send a transaction pm0 -> pm1");
     // It should fail due to missing routing information: AccountData is not broadcasted by
     // default in tests.
-    // TODO(gprusak): send_tier1_message sends an Approval message, which is not a valid message to
-    // be sent from a non-TIER1 node. Make it more realistic by sending a Transaction message.
-    assert!(send_tier1_message(rng, &clock.clock(), &pm0, &pm1).await.is_none());
+    assert!(!send_message(&clock.clock(), &pm0, &pm1, tx.clone()).await);
 
     tracing::info!(target:"test", "propagate accounts data");
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1.cfg]);
@@ -383,8 +391,39 @@ async fn tier2_routing_using_accounts_data() {
     let data: HashSet<_> = pm1.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
     pm0.wait_for_accounts_data(&data).await;
 
-    tracing::info!(target:"test", "send a routed message pm0 -> pm1 over tier2");
-    send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
+    tracing::info!(target:"test", "send a transaction pm0 -> pm1 over tier2");
+    send_and_recv_message(&clock.clock(), &pm0, &pm1, tx, tcp::Tier::T2).await;
+}
+
+#[tokio::test]
+async fn relay_through_validator() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start 3 validators, only v1 advertises an address");
+    let mut v0cfg = chain.make_config(rng);
+    v0cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
+    let mut v2cfg = chain.make_config(rng);
+    v2cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
+    let v0 = start_pm(clock.clock(), TestDB::new(), v0cfg, chain.clone()).await;
+    let v1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v2 = start_pm(clock.clock(), TestDB::new(), v2cfg, chain.clone()).await;
+    v0.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+    v1.connect_to(&v2.peer_info(), tcp::Tier::T2).await;
+
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg, &v2.cfg]);
+    for pm in [&v0, &v1, &v2] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    tracing::info!(target:"test", "tier1 connections get established: v0 -> v1 <- v2");
+    establish_connections(&clock.clock(), &[&v0, &v1, &v2]).await;
+
+    tracing::info!(target:"test", "send message v0 -> v2, relayed by v1");
+    let got = send_and_recv_tier1_message(rng, &clock.clock(), &v0, &v2).await;
+    assert_eq!(got.num_hops(), 1);
 }
 
 #[tokio::test]

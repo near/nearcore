@@ -8,17 +8,22 @@ by modifying the "network" section of your "config.json" file:
     // ...
     "public_addrs": [],
     "allow_private_ip_in_public_addrs": false,
-    "experimental": {
-      "inbound_disabled": false,
-      "connect_only_to_boot_nodes": false,
-      "skip_sending_tombstones_seconds": 0,
-      "tier1_enable_inbound": true,
-      "tier1_enable_outbound": false,
-      "tier1_connect_interval": {
+    "tier1": {
+      "enable_inbound": true,
+      "connect_interval": {
         "secs": 60,
         "nanos": 0
       },
-      "tier1_new_connections_per_attempt": 50
+      "new_connections_per_attempt": 50,
+      "advertise_proxies_interval": {
+        "secs": 900,
+        "nanos": 0
+      }
+    },
+    "experimental": {
+      "inbound_disabled": false,
+      "connect_only_to_boot_nodes": false,
+      "skip_sending_tombstones_seconds": 0
     }
   },
   // ...
@@ -27,10 +32,21 @@ by modifying the "network" section of your "config.json" file:
 
 ### TIER1 network
 
-Participants of the BFT consensus (block & chunk producers) now can establish
-direct (aka TIER1) connections between each other, which will optimize the
-communication latency and minimize the number of dropped chunks. If you are a
-validator, you can enable TIER1 connections by setting the following fields in the config:
+Validators (block producers, chunk producers and chunk validators) exchange consensus
+messages, such as block approvals, chunk parts, state witnesses and chunk endorsements,
+over direct connections between each other. These connections form the TIER1 network.
+Consensus messages travel only over TIER1, so TIER1 connectivity is required to operate
+a validator. A validator node:
+
+* should be reachable at a public address, which it advertises so that the other
+  validators connect to it.
+* connects to the addresses that the other validators advertise, so it has to be allowed
+  to open outbound TCP connections to them.
+
+Two validators that both lack such an address exchange messages through a third
+validator, which is slower and less reliable than a direct connection.
+
+TIER1 is configured by the following fields:
 
 * [public_addrs](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154)
   * this is a list of the public addresses (in the format `"<node public key>@<IP>:<port>"`)
@@ -43,17 +59,13 @@ validator, you can enable TIER1 connections by setting the following fields in t
   * if your node doesn't have a public IP (for example, it is hidden behind a NAT), set
     `public_addrs` to a list (<=10 entries) of proxy nodes that you trust (arbitrary nodes
     with static public IPs).
-  * support for nodes with dynamic public IPs is not implemented yet.
-* [experimental.tier1_enable_outbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L213)
-  * makes your node actively try to establish outbound TIER1 connections (recommended)
-    once it learns about the public addresses of other validator nodes. If disabled, your
-    node won't try to establish outbound TIER1 connections, but it still may accept
-    incoming TIER1 connections from other nodes.
-  * currently `false` by default, but will be changed to `true` by default in the future
-* [experimental.tier1_enable_inbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L209)
+  * if `public_addrs` is empty, your node discovers its public IP through the STUN servers
+    listed in `trusted_stun_servers`, and advertises it with the port of `addr`.
+  * your node advertises its own address once it has connected to that address itself,
+    so the address has to accept TCP connections from your node as well as from the
+    other validators.
+* `tier1.enable_inbound`
   * makes your node accept inbound TIER1 connections from other validator nodes.
-  * disable both `tier1_enable_inbound` and `tier1_enable_outbound` if you want to opt-out
-    from the TIER1 communication entirely
-  * disable `tier1_enable_inbound` if you are not a validator AND you don't want your
-    node to act as a proxy for validators.
+  * disable it only if your node is not a validator AND you don't want it to act as a
+    proxy for validators.
   * `true` by default

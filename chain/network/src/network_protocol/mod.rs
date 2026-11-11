@@ -73,10 +73,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::Span;
 
-/// Send important messages three times.
-/// We send these messages multiple times to reduce the chance that they are lost
-const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
-
 // Per-message-type limits on the size of an incoming message
 const MAX_SMALL_MESSAGE_SIZE: usize = (512 * KIB) as usize;
 const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
@@ -658,13 +654,6 @@ impl TieredMessageBody {
         }
     }
 
-    pub fn message_resend_count(&self) -> usize {
-        match self {
-            TieredMessageBody::T1(body) => body.message_resend_count(),
-            TieredMessageBody::T2(body) => body.message_resend_count(),
-        }
-    }
-
     // Return true if we allow the message sent to our own account_id to be redirected back to us.
     // The default behavior is to drop all messages sent to our own account_id.
     // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
@@ -835,15 +824,6 @@ pub enum T1MessageBody {
 }
 
 impl T1MessageBody {
-    pub fn message_resend_count(&self) -> usize {
-        match self {
-            T1MessageBody::BlockApproval(_) | T1MessageBody::VersionedPartialEncodedChunk(_) => {
-                IMPORTANT_MESSAGE_RESENT_COUNT
-            }
-            _ => 1,
-        }
-    }
-
     pub fn allow_sending_to_self(&self) -> bool {
         match self {
             T1MessageBody::PartialEncodedStateWitness(_)
@@ -897,10 +877,6 @@ pub enum RoutedResponseKind {
 }
 
 impl T2MessageBody {
-    pub fn message_resend_count(&self) -> usize {
-        1
-    }
-
     pub fn allow_sending_to_self(&self) -> bool {
         false
     }
@@ -986,19 +962,6 @@ pub enum RoutedMessageBody {
 }
 
 impl RoutedMessageBody {
-    // Return the number of times this message should be sent.
-    // In routing logics, we send important messages multiple times to minimize the risk that they are lost
-    pub fn message_resend_count(&self) -> usize {
-        match self {
-            // These messages are important because they are critical for block and chunk production,
-            // and lost messages cannot be requested again.
-            RoutedMessageBody::BlockApproval(_)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => IMPORTANT_MESSAGE_RESENT_COUNT,
-            // Default value is sending just once.
-            _ => 1,
-        }
-    }
-
     // Return true if we allow the message sent to our own account_id to be redirected back to us.
     // The default behavior is to drop all messages sent to our own account_id.
     // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where

@@ -109,9 +109,7 @@ pub struct Tier1 {
     ///   discovery mechanism). Note that unless the proxy has enable_inbound set, establishing
     ///   those connections will fail anyway.
     /// - a node will start accepting TIER1 inbound connections iff `enable_inbound` is true.
-    /// - a node will try to start outbound TIER1 connections iff `enable_outbound` is true.
     pub enable_inbound: bool,
-    pub enable_outbound: bool,
 }
 
 impl From<Tier1Config> for Tier1 {
@@ -121,7 +119,6 @@ impl From<Tier1Config> for Tier1 {
             new_connections_per_attempt: cfg.new_connections_per_attempt,
             advertise_proxies_interval: cfg.advertise_proxies_interval,
             enable_inbound: cfg.enable_inbound,
-            enable_outbound: cfg.enable_outbound,
         }
     }
 }
@@ -610,7 +607,6 @@ impl NetworkConfig {
                 new_connections_per_attempt: 10000,
                 advertise_proxies_interval: time::Duration::hours(1000),
                 enable_inbound: true,
-                enable_outbound: true,
             },
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),

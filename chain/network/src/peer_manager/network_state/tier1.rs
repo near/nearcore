@@ -205,9 +205,6 @@ impl super::NetworkState {
         clock: &time::Clock,
         transport: &dyn NetworkTransport,
     ) {
-        if !self.config.tier1.enable_outbound {
-            return;
-        }
         let accounts_data = self.accounts_data.load();
         let validator_cfg = self.tier1_validator_config(&accounts_data);
 
@@ -376,5 +373,16 @@ impl super::NetworkState {
             return Some(peer_id);
         }
         None
+    }
+
+    /// Picks a random TIER1 peer other than this node.
+    pub(super) fn pick_tier1_relay(&self) -> Option<PeerId> {
+        // A node that is its own proxy keeps a TIER1 loop connection to itself.
+        let my_peer_id = self.config.node_id();
+        self.peers
+            .tier1()
+            .into_keys()
+            .filter(|peer_id| peer_id != &my_peer_id)
+            .choose(&mut rand::thread_rng())
     }
 }
