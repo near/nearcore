@@ -387,6 +387,21 @@ pub enum QueryResponseKind {
     GasKeyNonces(GasKeyNoncesView),
 }
 
+/// The initial state of a `0s` or `0u` account, as its state-init action carries it.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StateInitView {
+    Deterministic {
+        code: GlobalContractIdentifierView,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+    },
+    Universal(RawStateInit),
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "request_type", rename_all = "snake_case")]
@@ -428,6 +443,9 @@ pub enum QueryRequest {
         method_name: String,
         #[serde(rename = "args_base64")]
         args: FunctionArgs,
+        /// Runs the call as if this were installed, unless the account already has its state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state_init: Option<StateInitView>,
     },
     ViewGlobalContractCode {
         code_hash: CryptoHash,
@@ -3174,8 +3192,8 @@ impl CongestionInfoView {
 #[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{
-        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum,
-        TransactionEnvelopeView,
+        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum, QueryRequest,
+        StateInitView, TransactionEnvelopeView,
     };
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
@@ -3184,6 +3202,7 @@ mod tests {
         EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
+    use crate::universal_state_init::RawStateInit;
     use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
@@ -3191,6 +3210,40 @@ mod tests {
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::Balance;
     use serde_json::json;
+    use std::collections::BTreeMap;
+
+    /// Each `state_init` form's JSON round-trips, and an unset one is left out.
+    #[test]
+    fn test_call_function_state_init_json() {
+        let call = |state_init| QueryRequest::CallFunction {
+            account_id: "alice.near".parse().unwrap(),
+            method_name: "get".to_owned(),
+            args: vec![].into(),
+            state_init,
+        };
+        // cspell:ignore AQID
+        let cases = [
+            (call(None), None),
+            (
+                call(Some(StateInitView::Universal(RawStateInit(vec![1, 2, 3])))),
+                Some(json!({"universal": "AQID"})),
+            ),
+            (
+                call(Some(StateInitView::Deterministic {
+                    code: GlobalContractIdentifierView::AccountId("code.near".parse().unwrap()),
+                    data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+                })),
+                Some(
+                    json!({"deterministic": {"code": {"account_id": "code.near"}, "data": {"aw==": "dg=="}}}),
+                ),
+            ),
+        ];
+        for (request, state_init) in cases {
+            let value = serde_json::to_value(&request).unwrap();
+            assert_eq!(value.get("state_init"), state_init.as_ref());
+            assert_eq!(serde_json::from_value::<QueryRequest>(value).unwrap(), request);
+        }
+    }
 
     /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
     /// the JSON shape it always had.

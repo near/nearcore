@@ -7,7 +7,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, Nonce,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::ViewStateResult;
+use near_primitives::views::{StateInitView, ViewStateResult};
 use near_vm_runner::ContractCode;
 use std::num::NonZeroU32;
 
@@ -40,6 +40,7 @@ pub trait ViewRuntimeAdapter {
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
+        state_init: Option<&StateInitView>,
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
