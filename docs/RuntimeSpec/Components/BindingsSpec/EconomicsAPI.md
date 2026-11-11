@@ -27,7 +27,7 @@ While the call runs, `account_balance` returns the real balance of the contract,
 will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
 and its gas, or it is rejected.
 
-The call also pays fees for its input before the method runs (see
+The call also pays fees for its input, and for installing its state init if it carries one, before the method runs (see
 [Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)). They are charged
 with the gas after the call. `used_gas` does not include them, and the fees lower the `max_gas_burnt_external` limit
 on the gas burnt.
