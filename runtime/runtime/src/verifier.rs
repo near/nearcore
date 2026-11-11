@@ -1,14 +1,15 @@
 use crate::action_validation::{
     validate_actions, validate_actions_with_mode, validate_universal_state_init,
 };
-use crate::config::{EccCost, TransactionCost};
+use crate::config::{EccCost, TransactionCost, ecc_cost, ecc_cost_with_state_init};
 use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::errors::{
-    DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+    DepositCostFailureReason, IntegerOverflowError, InvalidAccessKeyError, InvalidTxError,
+    ReceiptValidationError,
 };
 use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
@@ -18,6 +19,7 @@ use near_primitives::transaction::{
     ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use near_primitives::universal_state_init::RawStateInit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
@@ -404,6 +406,33 @@ pub fn account_holds_contract(
     account_id: &AccountId,
 ) -> Result<bool, StorageError> {
     Ok(get_account(state_update, account_id)?.is_some_and(|account| account.contract().is_some()))
+}
+
+/// The fees `ecc` pays before its run when `account` is its contract's account, the install of its
+/// state init included.
+pub fn ecc_cost_for_account(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    account: Option<&Account>,
+    gas_price: Balance,
+) -> Result<EccCost, IntegerOverflowError> {
+    let cost = ecc_cost(config, ecc, gas_price)?;
+    match account.and_then(|account| state_init_to_install(account, ecc)) {
+        None => Ok(cost),
+        Some(state_init) => ecc_cost_with_state_init(config, &cost, state_init, gas_price),
+    }
+}
+
+/// The state init `ecc` installs on `account`: the call's own, on an uninitialized account. An
+/// initialized account ignores it for free, as it does a repeated `UniversalStateInit` action.
+pub(crate) fn state_init_to_install<'a>(
+    account: &Account,
+    ecc: &'a EccTransaction,
+) -> Option<&'a RawStateInit> {
+    if account.is_initialized() {
+        return None;
+    }
+    ecc.state_init()
 }
 
 /// Whether this transaction is a self-signed state init that may proceed without
