@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::setup::setup_mock;
+use crate::env::setup::{setup_mock, setup_no_network};
 use crate::env::test_env::TestEnv;
 use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
@@ -14,12 +14,13 @@ use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
+use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
+use near_network::client::{BlockApproval, BlockHeadersResponse, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
@@ -33,6 +34,7 @@ use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::block::Approval;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{CryptoHash, hash};
@@ -493,6 +495,54 @@ async fn client_sync_headers() {
         _ = done.cancelled() => {},
         _ = timeout => panic!("Timeout exceeded while waiting for client sync headers."),
     }
+}
+
+/// A header response may carry at most MAX_BLOCK_HEADERS headers. A peer that sends more is
+/// rejected as abusive instead of having its headers processed.
+#[tokio::test]
+async fn client_rejects_oversized_block_headers_response() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "other".parse().unwrap(),
+        true,
+        false,
+    );
+
+    // The limit is checked on the length alone, so any header works here. Genesis is already
+    // known, which makes a response at the limit a no-op for the chain.
+    let (genesis_block, _) = actor_handles
+        .view_client_actor
+        .send_async(GetBlockWithMerkleTree::latest())
+        .await
+        .unwrap()
+        .unwrap();
+    let header: Arc<BlockHeader> = Arc::new(genesis_block.header.into());
+    let peer_id = PeerInfo::random().id;
+
+    let res = actor_handles
+        .client_actor
+        .send_async(
+            BlockHeadersResponse(vec![header.clone(); MAX_BLOCK_HEADERS as usize], peer_id.clone())
+                .span_wrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res, Ok(()));
+
+    let res = actor_handles
+        .client_actor
+        .send_async(
+            BlockHeadersResponse(vec![header; MAX_BLOCK_HEADERS as usize + 1], peer_id).span_wrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res, Err(ReasonForBan::Abusive));
+
+    actor_system.stop();
 }
 
 #[test]

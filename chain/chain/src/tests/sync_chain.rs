@@ -1,20 +1,26 @@
 use crate::test_utils::setup;
+use crate::{Block, BlockHeader, Chain, Error};
 use assert_matches::assert_matches;
 use near_async::time::Clock;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::TestBlockBuilder;
+use near_primitives::validator_signer::ValidatorSigner;
+use std::sync::Arc;
 
-#[test]
-fn chain_sync_headers() {
-    init_test_logger();
-    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
-    assert_eq!(chain.header_head().unwrap().height, 0);
+fn build_blocks(
+    chain: &Chain,
+    epoch_manager: &dyn EpochManagerAdapter,
+    signer: Arc<ValidatorSigner>,
+    num_blocks: u64,
+) -> Vec<Arc<Block>> {
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     let mut block_merkle_tree = PartialMerkleTree::default();
-    for i in 0..4 {
+    for i in 0..num_blocks as usize {
         // Only the first block after genesis is epoch-start; later prev blocks are
         // not yet in the epoch manager, so compute the hash only where it applies.
         let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
@@ -23,12 +29,21 @@ fn chain_sync_headers() {
             None
         };
         blocks.push(
-            TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], bls_signer.clone())
+            TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], signer.clone())
                 .block_merkle_tree(&mut block_merkle_tree)
                 .epoch_sync_data_hash(epoch_sync_data_hash)
                 .build(),
-        )
+        );
     }
+    blocks
+}
+
+#[test]
+fn chain_sync_headers() {
+    init_test_logger();
+    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
+    assert_eq!(chain.header_head().unwrap().height, 0);
+    let mut blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, 4);
 
     chain
         .sync_block_headers(blocks.drain(1..).map(|block| block.header().clone().into()).collect())
@@ -37,25 +52,97 @@ fn chain_sync_headers() {
 }
 
 #[test]
+fn chain_sync_headers_keeps_head_consistent_on_bad_header() {
+    init_test_logger();
+    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
+    let blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, 5);
+
+    let mut headers: Vec<Arc<BlockHeader>> =
+        blocks[1..=4].iter().map(|block| block.header().clone().into()).collect();
+    // The last header is unknown but invalid, so the batch fails after the
+    // valid prefix has already been committed.
+    let mut bad_header = blocks[5].header().clone();
+    bad_header.set_prev_hash(CryptoHash::default());
+    bad_header.init();
+    headers.push(bad_header.into());
+
+    let err = chain.sync_block_headers(headers).unwrap_err();
+    assert_matches!(err, Error::InvalidSignature);
+    assert_eq!(chain.header_head().unwrap().height, 4);
+
+    // The valid successor is accepted on the next batch instead of being
+    // stranded behind a header head that never advanced.
+    chain.sync_block_headers(vec![blocks[5].header().clone().into()]).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 5);
+}
+
+// Reproduces a bug where a header sync response with MAX_HEADERS headers and one extra header could
+// stall header sync.
+#[test]
+fn chain_sync_headers_does_not_stall_on_fully_known_response() {
+    init_test_logger();
+    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
+    // Matches near_client::sync::header::MAX_BLOCK_HEADERS.
+    const MAX_HEADERS: u64 = 512;
+    let blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, MAX_HEADERS + 1);
+
+    let mut headers: Vec<Arc<BlockHeader>> = blocks[1..=MAX_HEADERS as usize]
+        .iter()
+        .map(|block| block.header().clone().into())
+        .collect();
+    let mut bad_header = blocks[MAX_HEADERS as usize + 1].header().clone();
+    bad_header.set_prev_hash(CryptoHash::default());
+    bad_header.init();
+    headers.push(bad_header.into());
+
+    let err = chain.sync_block_headers(headers).unwrap_err();
+    assert_matches!(err, Error::InvalidSignature);
+
+    // An honest peer answers with exactly the range that is already stored, so
+    // the all_known shortcut skips it.
+    chain
+        .sync_block_headers(
+            blocks[1..=MAX_HEADERS as usize]
+                .iter()
+                .map(|block| block.header().clone().into())
+                .collect(),
+        )
+        .unwrap();
+
+    // Head should advance despite the previous invalid data
+    assert_eq!(chain.header_head().unwrap().height, MAX_HEADERS);
+}
+
+#[test]
+fn chain_sync_headers_recovers_header_head_stranded_behind_stored_headers() {
+    init_test_logger();
+    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
+    let blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, 4);
+    let headers: Vec<Arc<BlockHeader>> =
+        blocks[1..].iter().map(|block| block.header().clone().into()).collect();
+    chain.sync_block_headers(headers.clone()).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 4);
+
+    // Reproduce the state left by a partial batch from before header heads were saved
+    // together with the headers: all headers are stored, but the header head stayed
+    // at genesis.
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_header_head(&Tip::from_header(blocks[0].header())).unwrap();
+    store_update.commit().unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 0);
+
+    // The response is fully known, so the headers are not processed again, but the
+    // header head still has to catch up to the headers already in the store.
+    chain.sync_block_headers(headers).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 4);
+}
+
+#[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn chain_sync_headers_records_spice_block_info() {
     init_test_logger();
     let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
-    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
-    let mut block_merkle_tree = PartialMerkleTree::default();
-    for i in 0..3 {
-        let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
-            epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
-        } else {
-            None
-        };
-        blocks.push(
-            TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], bls_signer.clone())
-                .block_merkle_tree(&mut block_merkle_tree)
-                .epoch_sync_data_hash(epoch_sync_data_hash)
-                .build(),
-        )
-    }
+    let blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, 3);
 
     chain
         .sync_block_headers(blocks[1..].iter().map(|block| block.header().clone().into()).collect())
