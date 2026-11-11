@@ -683,6 +683,7 @@ impl TrieViewer {
         let mut account = match state_init {
             StateInitView::Deterministic { code, data } => {
                 // Old blocks have no entry cap; check the newest one before cloning.
+                // TODO: remove once `MIN_SUPPORTED_PROTOCOL_VERSION >= 87`.
                 let limit = self
                     .runtime_config_store
                     .get_config(PROTOCOL_VERSION)
