@@ -6643,7 +6643,7 @@
           },
           "local_receipts": {
             "default": [],
-            "description": "Receipts generated in this chunk from transactions with `signer_id`\nequal to `receiver_id`, and from external calls to their own contract.",
+            "description": "Receipts generated in this chunk from transactions with `signer_id`\nequal to `receiver_id`.",
             "items": {
               "$ref": "#/components/schemas/ReceiptView"
             },

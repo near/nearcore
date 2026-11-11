@@ -229,7 +229,7 @@ pub async fn build_streamer_message(
     Ok(StreamerMessage { block, shards: indexer_shards })
 }
 
-/// The receipts the chunk's transactions send to their own sender, which run in the same chunk.
+/// The receipts the chunk's signed transactions send to their own signer, which run in the same chunk.
 fn chunk_local_receipts(
     transactions: &[IndexerTransactionWithOutcome],
     runtime_config: &RuntimeConfig,
