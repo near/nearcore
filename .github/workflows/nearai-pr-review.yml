@@ -82,7 +82,9 @@ jobs:
       # Copilot only posts a review, so it counts as running while it is a
       # requested reviewer. This is best effort: a reviewer that does not
       # appear within the grace period is skipped, for example after it is
-      # removed. Runs started by a comment do not wait.
+      # removed. The 15-minute cap is shared by all three, and a Copilot request
+      # that never gets a review waits for the whole cap. Runs started by a
+      # comment do not wait.
       - name: Wait for other AI reviewers
         if: ${{ steps.key-check.outputs.present == 'true' && github.event_name == 'pull_request' }}
         env:
@@ -94,12 +96,17 @@ jobs:
           reviewer_state() {
             local out
             if [ "$1" = Copilot ]; then
+              # A pending request comes first: Copilot may be requested again
+              # after an earlier review, and GitHub drops the request once
+              # Copilot posts. The timeline names the requested bot "Copilot";
+              # the review author name is accepted too.
+              out=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
+                --jq '[.users[] | select(.login | ascii_downcase | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"))]
+                  | length') || return 1
+              if [ "$out" != 0 ]; then echo running; return; fi
               out=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
                 --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]") | .id') || return 1
-              if [ -n "$out" ]; then echo done; return; fi
-              out=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
-                --jq '[.users[] | select(.login | ascii_downcase == "copilot")] | length') || return 1
-              if [ "$out" != 0 ]; then echo running; else echo absent; fi
+              if [ -n "$out" ]; then echo done; else echo absent; fi
             else
               gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
                 -f check_name="$1" --jq 'if (.check_runs | length) == 0 then "absent"
