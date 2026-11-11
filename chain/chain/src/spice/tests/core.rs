@@ -20,7 +20,6 @@ use near_async::messaging::{Handler as _, IntoSender as _, noop};
 use near_async::time::Clock;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_primitives::Error;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_o11y::testonly::init_test_logger;
