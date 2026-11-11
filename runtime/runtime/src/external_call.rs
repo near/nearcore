@@ -531,7 +531,8 @@ fn prepare_account_for_call(
         if let Err(error) = result.result {
             return Ok(Err(error.into()));
         }
-        let recorded = state_update.trie.recorded_storage_size_upper_bound() - recorded_before;
+        let recorded =
+            state_update.trie.recorded_storage_size_upper_bound().saturating_sub(recorded_before);
         read_budget = max_recorded_size.saturating_sub(recorded);
     }
     // The contract is both the sender and the receiver of the call, so an account with no

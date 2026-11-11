@@ -148,20 +148,22 @@ impl<T: PoolItem> GroupedPool<T> {
             if let Some(hashes) = moved.get(&key) {
                 // The pooled copy and the one put back can differ in size, as copies of an
                 // external call with and without a state init do. The pool counts the one it keeps.
-                let mut removed_size = 0;
+                let mut removed_size: u64 = 0;
                 group.retain(|pooled| {
                     let keep = !hashes.contains(&pooled.hash());
                     if !keep {
-                        removed_size += pooled.size();
+                        removed_size = removed_size.saturating_add(pooled.size());
                     }
                     keep
                 });
-                let added_size: u64 = items
+                let added_size = items
                     .iter()
                     .filter(|item| hashes.contains(&item.hash()))
-                    .map(|item| item.size())
-                    .sum();
-                self.total_size = (self.total_size + added_size)
+                    .fold(0u64, |size, item| size.saturating_add(item.size()));
+                self.total_size = self
+                    .total_size
+                    .checked_add(added_size)
+                    .expect("Total transaction size is too large")
                     .checked_sub(removed_size)
                     .expect("Total transaction size dropped below zero");
             }
