@@ -1,6 +1,6 @@
 name: Sign published neard release binaries
 
-# cspell:ignore cosign sigstore
+# cspell:ignore cosign sigstore tolower
 
 # Backfill for releases published before neard_release.yml started signing:
 # downloads the Linux binaries of an existing release from S3, signs them with
