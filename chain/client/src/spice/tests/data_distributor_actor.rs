@@ -854,8 +854,7 @@ fn drain_outgoing_delivered_receipts(
     delivered
 }
 
-/// Flattens each request into its `(data_id, requester)` pairs, since requests the actor
-/// sends carry a single id.
+/// Flattens each request into its `(data_id, requester)` pairs.
 fn drain_outgoing_data_requests(
     outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
 ) -> Vec<(SpiceDataIdentifier, AccountId)> {
@@ -868,9 +867,9 @@ fn drain_outgoing_data_requests(
             continue;
         };
         let (wants, requester) = request.into_parts();
-        assert_eq!(wants.len(), 1);
-        let (data_id, _ordinals) = wants.into_iter().next().unwrap();
-        requests.push((data_id, requester));
+        for (data_id, _ordinals) in wants {
+            requests.push((data_id, requester.clone()));
+        }
     }
     requests
 }
@@ -2031,12 +2030,12 @@ fn test_waiting_on_receipts_from_forks_on_start() {
 
     let id_at =
         |block_hash: CryptoHash| DataId::receipt_proof(block_hash, from_shard_id, to_shard_id);
-    for block_hash in [*next_block.hash(), *next_next_block.hash(), *fork_block.hash()] {
+    // The head's own block is waited on too: the block applying its proofs is above the head.
+    for block_hash in
+        [*block.hash(), *next_block.hash(), *next_next_block.hash(), *fork_block.hash()]
+    {
         assert!(actor.is_tracking(&id_at(block_hash)));
     }
-    // The walk starts after the final execution head, so the head block itself is not
-    // waited on.
-    assert!(!actor.is_tracking(&id_at(*block.hash())));
     // No block certifies a proof's source chunk, so the processed head pulls none of them.
     actor.handle(ProcessedBlock { block_hash: *next_next_block.hash() });
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
@@ -2147,6 +2146,68 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
             "{producer} was not asked for the proof: {requested:?}"
         );
     }
+}
+
+/// After a restart, a node catching up a shard it applies from next epoch tracks again the proofs
+/// into that shard below the final execution head, which does not wait on the shard: startup hands
+/// the data manager the blocks of the head's epoch again, not only the ones after the head.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_restart_tracks_again_the_proofs_into_a_catching_up_shard_below_the_final_execution_head()
+{
+    init_test_logger();
+    let genesis = TestGenesisBuilder::new()
+        .shard_layout(ShardLayout::multi_shard(2, 0))
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &[],
+        ))
+        .build();
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+    let (from_shard_id, to_shard_id) =
+        genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
+    let me = AccountId::from_str("not-validator").unwrap();
+    // Tracked one epoch in three, so some epoch tracks it next but neither now nor before.
+    let tracked_shards_config =
+        TrackedShardsConfig::Schedule(vec![vec![], vec![], vec![to_shard_id]]);
+    let shard_tracker = ShardTracker::new(
+        tracked_shards_config.clone(),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+    let is_catching_up = |block: &Block| {
+        shard_tracker.should_apply_chunk(
+            ApplyChunksMode::OnlyCatchupShards,
+            block.hash(),
+            to_shard_id,
+        )
+    };
+    let genesis_block = chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
+    while !is_catching_up(&block) {
+        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+    }
+    // The catch-up epoch's first block, the source of the proof, and the block applying it.
+    let first = produce_spice_block_certifying_parent(&mut chain, &block);
+    let source = produce_spice_block_certifying_parent(&mut chain, &first);
+    let head = produce_spice_block_certifying_parent(&mut chain, &source);
+    assert_eq!(head.header().epoch_id(), first.header().epoch_id());
+    save_final_execution_head(&chain, &head);
+
+    let (outgoing_sc, _outgoing_rc) = unbounded_channel();
+    let mut actor = ActorBuilder::new(Some(me))
+        .tracked_shards_config(tracked_shards_config)
+        .build(outgoing_sc, &chain);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+
+    assert!(actor.is_tracking(&DataId::receipt_proof(*source.hash(), from_shard_id, to_shard_id)));
 }
 
 #[test]
@@ -3462,8 +3523,8 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(witness_blocks.contains(next_block.hash()));
     assert!(!proof_blocks.contains(fork_block.hash()));
 
-    // The canonical block's proof expires once the final execution head passes its height.
-    save_final_execution_head(&chain, &next_block);
+    // The canonical block's proof expires once the final execution head passes it.
+    save_final_execution_head(&chain, &head);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
