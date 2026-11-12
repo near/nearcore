@@ -2,18 +2,16 @@
 //! are the first to be certified under spice.
 
 use crate::spice::core::new_uncertified_chunk_info;
-use near_chain_primitives::{ApplyChunksMode, Error};
+use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ShardId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::SpiceUncertifiedChunkInfo;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
-use std::collections::HashSet;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
@@ -32,45 +30,6 @@ pub fn is_last_pre_spice_block(
     }
     let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
-}
-
-/// Whether this node can count on its own apply for `shard_id`'s chunk of `block`, holding the
-/// chunk's execution result and outgoing receipts without fetching anything.
-///
-/// `block` is a spice or last pre-spice block.
-///
-/// A catch-up shard never counts. Under spice the node gets its state at the epoch's first block
-/// from state sync and applies the later blocks only once the catchup is finished and its chunk
-/// executor has caught up, which can lag behind the head. So for the whole epoch it fetches what
-/// the shard produces and validates its witnesses like a node that does not track it, and takes
-/// what its executor produces as well as a repeat. A last pre-spice block applied the shard only
-/// if the node was caught up, which is not known here: a caught-up node then makes a wasted fetch
-/// rather than waiting on artifacts it may never have produced.
-pub fn applies_chunk_itself(
-    shard_tracker: &ShardTracker,
-    block: &BlockHeader,
-    shard_id: ShardId,
-) -> bool {
-    shard_tracker.should_apply_chunk(
-        ApplyChunksMode::ExcludeCatchupShards,
-        block.prev_hash(),
-        shard_id,
-    )
-}
-
-/// The shards of `block`'s layout for which [`applies_chunk_itself`] holds.
-///
-/// `block` is a spice or last pre-spice block.
-pub fn shards_applied_itself(
-    shard_tracker: &ShardTracker,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &BlockHeader,
-) -> Result<HashSet<ShardId>, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
-    Ok(shard_layout
-        .shard_ids()
-        .filter(|shard_id| applies_chunk_itself(shard_tracker, block, *shard_id))
-        .collect())
 }
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block
