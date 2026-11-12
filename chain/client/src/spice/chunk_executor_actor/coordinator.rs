@@ -13,6 +13,7 @@ use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::IntoSender as _;
 use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::{
     apply_block_postprocessing, apply_shard_postprocessing,
@@ -108,6 +109,17 @@ impl FailedToApplyChunkError {
     pub(crate) fn new(shard_id: ShardId, err: Error) -> Self {
         Self { shard_id, err }
     }
+}
+
+/// The client finished catching up shards for the next epoch.
+#[derive(Debug)]
+pub struct CatchupFinished;
+
+/// The messages the client sends the chunk executor.
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct ChunkExecutorSenderForClient {
+    pub processed_block: Sender<ProcessedBlock>,
+    pub catchup_finished: Sender<CatchupFinished>,
 }
 
 impl ChunkExecutorActor {
@@ -296,9 +308,9 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Route a processed block: reconcile the tracked-shard set, hand the block to
+    /// Route a processed block: reconcile the tracked-shard set and hand the block to
     /// every tracked shard's executor (each drains its own receipt buffer for the
-    /// parent block), and park again the blocks of a shard caught up since.
+    /// parent block).
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         // A block from a pre-spice epoch was already executed synchronously as part
@@ -313,12 +325,6 @@ impl ChunkExecutorActor {
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
-        // TODO(spice): replay once when `run_catchup` finishes a catchup, and once at startup,
-        // instead of on every processed block: only a shard that lost its parked blocks, to a
-        // restart or an executor eviction, needs it.
-        if let Err(err) = self.replay_caught_up_shards(block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
-        }
         if let Err(err) = self.report_stopped_shards(&block) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to report the shards this node stopped applying");
         }
@@ -331,7 +337,9 @@ impl ChunkExecutorActor {
     }
 
     /// Parks again the canonical blocks after the sync block, up to the final execution head, in
-    /// the executor of each shard this node has caught up for the next epoch.
+    /// the executor of each shard this node has caught up for the next epoch. Only a shard that
+    /// lost its parked blocks, to a restart, needs it, so it runs at startup and when a catchup
+    /// finishes; the caller retries the parked blocks.
     fn replay_caught_up_shards(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let sync_hash = *self.epoch_manager.get_block_info(block_hash)?.epoch_first_block();
         if sync_hash == CryptoHash::default() {
@@ -367,10 +375,13 @@ impl ChunkExecutorActor {
 
         let chunk_store = self.chain_store.chunk_store();
         for (shard_uid, executor) in &mut self.per_shard_executors {
-            // Skip a shard already replayed for this sync block, one tracked in the sync block's
-            // epoch, which is applied block by block, and one that has applied the final
-            // execution head already.
+            // Skip a shard already replayed for this sync block, one not caught up there, for the
+            // epoch after the sync block's, one tracked in the sync block's epoch, which is
+            // applied block by block, and one that has applied the final execution head already.
             if executor.replayed_after_sync_block == Some(sync_hash)
+                || !self
+                    .shard_tracker
+                    .will_care_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
                 || self
                     .shard_tracker
                     .cares_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
@@ -419,10 +430,29 @@ impl ChunkExecutorActor {
             }
 
             executor.replayed_after_sync_block = Some(sync_hash);
-            executor.try_apply_pending();
         }
 
         Ok(())
+    }
+
+    /// Parks again the blocks of the shards caught up for the next epoch, which a restart loses,
+    /// and retries every parked block, which no event about a parent does once a catchup finishes.
+    /// Runs at startup and when a catchup finishes.
+    pub(crate) fn retry_caught_up_shards(&mut self) {
+        let result = self
+            .chain_store
+            .head()
+            .and_then(|head| self.replay_caught_up_shards(&head.last_block_hash));
+        if let Err(err) = result {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to park again the blocks of caught-up shards",
+            );
+        }
+        for executor in self.per_shard_executors.values_mut() {
+            executor.try_apply_all_parked();
+        }
     }
 
     /// Route an apply-done callback to its source shard and return the outgoing
@@ -751,6 +781,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
                 "failed when trying to process all ready blocks on startup",
             );
         }
+        self.retry_caught_up_shards();
     }
 }
 
@@ -803,6 +834,12 @@ impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
                 tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling execution result endorsed");
             }
         }
+    }
+}
+
+impl Handler<CatchupFinished> for ChunkExecutorActor {
+    fn handle(&mut self, CatchupFinished: CatchupFinished) {
+        self.retry_caught_up_shards();
     }
 }
 

@@ -297,9 +297,9 @@ pub fn setup_client(
         client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
-        chunk_executor_adapter.as_sender()
+        chunk_executor_adapter.as_multi_sender()
     } else {
-        noop().into_sender()
+        noop().into_multi_sender()
     };
     let spice_chunk_validator_sender = if cfg!(feature = "protocol_feature_spice") {
         spice_chunk_validator_adapter.as_sender()

@@ -241,14 +241,14 @@ fn new_spice_client_config(
 ) -> SpiceClientConfig {
     let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
         SpiceClientConfig {
-            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            chunk_executor_sender: chunk_executor_adapter.as_multi_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
         }
     } else {
         SpiceClientConfig {
-            chunk_executor_sender: noop().into_sender(),
+            chunk_executor_sender: noop().into_multi_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),

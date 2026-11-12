@@ -1,5 +1,5 @@
 use crate::spice::chunk_executor_actor::{
-    ChunkExecutorActor, is_descendant_of_final_execution_head,
+    CatchupFinished, ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::chunk_executor_actor::{
@@ -2453,8 +2453,8 @@ impl CatchUpTest {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
-    // The shard's catchup finished.
+fn test_parking_again_the_blocks_of_a_caught_up_shard_on_startup() {
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
 
@@ -2526,13 +2526,9 @@ fn test_not_parking_again_the_blocks_of_a_shard_still_being_caught_up() {
     // The shard's catchup is still running.
     let mut catch_up = CatchUpTest::setup();
 
-    // Restarted before the catchup finishes, the node processes the blocks after the final
-    // execution head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The blocks up to the final execution head are not parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
@@ -2553,11 +2549,9 @@ fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
             .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     }
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The blocks up to the final execution head are parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
@@ -2593,6 +2587,24 @@ fn test_executing_a_shard_once_its_catchup_finishes() {
 
     // The node processes the block after the sync block.
     catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The shard is applied at the block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_block_parked_during_the_catchup_once_it_finishes() {
+    // The node processed the block after the sync block while the shard's catchup was running, and
+    // has what the block needs to apply the shard.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The catchup finishes.
+    catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The shard is applied at the block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
@@ -2643,11 +2655,9 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
         .test_actor
         .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The shard is applied at the block after the sync block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
