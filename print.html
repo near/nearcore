@@ -10766,12 +10766,24 @@ happens asynchronously.</p>
 <p>Actor messages can be found by looking for structs used with the async messaging helpers (for
 example types that appear in <code>Handler&lt;...&gt;</code> implementations or multi-sender definitions).</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
-<p>Nodes exchange messages as protobuf <code>PeerMessage</code> messages, defined in
-<code>chain/network/src/network_protocol/network.proto</code>. Some fields of these
-messages hold <code>borsh</code>-encoded bytes (see <a href="https://borsh.io/">borsh.io</a>), for
-example signatures, edges, blocks, transactions and routed messages. We should
-be careful when making changes to them. We have to maintain backward
-compatibility. We also use <code>borsh</code> for database storage.</p>
+<p>Messages between nodes use <code>borsh</code> serialization (see
+<a href="https://borsh.io/">borsh.io</a>), but older releases use <code>protobuf</code>. We have to
+maintain backward compatibility while the network transitions from protobuf to
+borsh; see <code>NetworkTransitionConfig</code> for the encodings accepted and sent by a
+release.</p>
+<p>Every frame is a length (<code>u32</code>, little endian) followed by that many bytes. A
+protobuf-encoded message is a single frame. A borsh-encoded message is sent as
+two frames: the <code>PeerMessageHeader</code> followed by the <code>PeerMessage</code> itself.</p>
+<p>A node which supports both encodings sends its first handshake in both: first in
+borsh, then in protobuf. A node which supports only protobuf ignores the borsh
+frames and responds in protobuf. A node which supports borsh responds in borsh
+and ignores the protobuf copy of the handshake. Both sides use the encoding of
+the handshake for the rest of the connection. The first frame of a connection
+is treated as borsh if it parses as a borsh header, and as a protobuf message
+otherwise; a node which accepts only borsh closes the connection in the latter
+case. We should be careful when making changes to messages. Only messages
+implementing <code>BorshSerialize</code>, <code>BorshDeserialize</code> can be sent. We also use
+<code>borsh</code> for database storage.</p>
 <h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
 <p>Near runs a <code>json REST server</code> using the axum framework. All messages sent
 and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
