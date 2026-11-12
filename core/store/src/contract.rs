@@ -178,9 +178,8 @@ impl ContractStorage {
             let guard = self.tracker.lock();
             // The tracker may be finalized before the receipt preparation pipeline calls this function.
             // In this case we should skip checking the tracker and directly read from the storage.
-            // Note that this does not cause any correctness issue, because the pipeline stops processing when
-            // it hits a new deployment, so the contract requested by the pipeline will not be in the committed or
-            // uncommitted deployment list.
+            // This does not affect correctness: the tracker is finalized when the chunk apply is
+            // done, and the result of a pipeline task that is still running then is never used.
             if let Some(tracker) = guard.as_ref()
                 && let Some(contract) = tracker.get(code_hash.into())
             {
