@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::BlockId;
-use near_primitives::utils::get_block_shard_id;
+use near_primitives::utils::{chunk_transaction_outcome_ids, get_block_shard_id};
 use near_primitives::version::ProtocolFeature;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -114,16 +114,6 @@ fn validate_message(
         let chunk = shard.chunk.as_ref().ok_or_else(|| incomplete("missing tracked new chunk"))?;
         let stored_chunk =
             store.chunk_store().get_chunk(&header.chunk_hash.into()).map_err(unavailable)?;
-        let tx_ids =
-            stored_chunk.to_transactions().iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
-        if chunk.transactions.iter().map(|tx| tx.transaction.hash).collect::<Vec<_>>() != tx_ids
-            || chunk
-                .transactions
-                .iter()
-                .any(|tx| tx.outcome.execution_outcome.id != tx.transaction.hash)
-        {
-            return Err(incomplete("missing or reordered transaction outcomes"));
-        }
         // Genesis was never executed and has no execution/processed indexes.
         let outcome_ids = if genesis {
             vec![]
@@ -135,6 +125,22 @@ fn validate_message(
                 )
                 .ok_or_else(|| unavailable("outcome index is unavailable"))?
         };
+        let tx_ids: Vec<CryptoHash> = chunk_transaction_outcome_ids(
+            stored_chunk.to_transactions(),
+            message.block.header.height,
+            outcome_ids.iter().copied(),
+        )
+        .into_iter()
+        .flatten()
+        .collect();
+        if chunk.transactions.iter().map(|tx| tx.transaction.id()).collect::<Vec<_>>() != tx_ids
+            || chunk
+                .transactions
+                .iter()
+                .any(|tx| tx.outcome.execution_outcome.id != tx.transaction.id())
+        {
+            return Err(incomplete("missing or reordered transaction outcomes"));
+        }
         let transactions = tx_ids.into_iter().collect::<HashSet<_>>();
         let mut receipt_ids = Vec::new();
         for id in outcome_ids {

@@ -799,7 +799,7 @@ fn test_apply_ecc_missing_contract() {
     }
     let contract_id: AccountId = "missing.near".parse().unwrap();
     let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
-    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+    assert_eq!(err, InvalidTxError::ContractNotFound { contract_id });
 }
 
 /// An ECC to a contract that can't pay for its fees is rejected.
@@ -833,11 +833,8 @@ fn test_apply_ecc_no_contract() {
     let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
     assert_eq!(
         refused.error,
-        TxExecutionError::ActionError(ActionError {
-            index: Some(0),
-            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { account_id: bob_account() }
-            )),
+        TxExecutionError::InvalidTxError(InvalidTxError::ContractNotFound {
+            contract_id: bob_account()
         })
     );
     let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
@@ -1166,6 +1163,19 @@ fn test_apply_ecc_accepted() {
     };
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome.id, outcome_id);
+    // The call's writes and its charge are recorded under the call's own cause.
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: outcome_id };
+    for trie_key in [
+        TrieKey::Account { account_id: bob_account() },
+        TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() },
+    ] {
+        let changes = apply_result
+            .state_changes
+            .iter()
+            .find(|changes| changes.trie_key == trie_key)
+            .expect("the call changes the contract's account and data");
+        assert!(changes.changes.iter().all(|change| change.cause == cause), "{changes:?}");
+    }
     let outcome = &outcome.outcome;
     let parent = &apply_state.prev_block;
     assert!(parent.height + 1 < apply_state.block_height);
@@ -1344,11 +1354,15 @@ fn setup_ecc_chain(
 
 /// The receipt an accepted ECC to bob sent to carol, after applying the chunk with the call.
 fn ecc_receipt_to_carol(apply_result: &ApplyResult) -> Receipt {
-    let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+    let to_carol: Vec<_> = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.receiver_id() == &carol_account())
+        .collect();
+    let [receipt] = to_carol.as_slice() else {
         panic!("expected one receipt to carol, got {:?}", apply_result.outgoing_receipts);
     };
-    assert_eq!(receipt.receiver_id(), &carol_account());
-    receipt.clone()
+    Receipt::clone(receipt)
 }
 
 /// An accepted ECC's promise becomes a receipt the external call authorized, and the contract pays
@@ -1812,7 +1826,7 @@ fn test_apply_ecc_refused_promise_yield_create() {
 }
 
 /// An ECC whose run resumes a yielded promise is accepted, and the resume reaches the promise in
-/// the same chunk.
+/// the next chunk, as it does from a receipt's run.
 #[test]
 fn test_apply_ecc_yield_resume() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1860,8 +1874,20 @@ fn test_apply_ecc_yield_resume() {
     );
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome_status(&apply_result, &outcome_id), ExecutionStatus::SuccessValue(vec![]));
-    // The yielded promise runs in the same chunk, so the chunk has its outcome too.
-    assert_eq!(apply_result.outcomes.len(), 2);
+    assert_eq!(apply_result.outcomes.len(), 1);
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    assert!(has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
+
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &apply_result.outgoing_receipts,
+        vec![],
+        &epoch_info_provider,
+    );
+    assert!(!apply_result.outcomes.is_empty());
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
     assert!(!has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
 }
@@ -2467,7 +2493,7 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     assert_matches!(
         &outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_eq!(outcome.gas_burnt, Gas::ZERO);
@@ -2588,7 +2614,7 @@ fn test_apply_eccs_from_storage_proof() {
     assert_matches!(
         statuses[4],
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_matches!(statuses[5], ExecutionStatus::SuccessReceiptId(_));
@@ -3173,7 +3199,7 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
     assert_matches!(
         first.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     let ExternalCallChunkLimit::StorageProof { used, limit } =

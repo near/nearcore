@@ -33,7 +33,7 @@ pub struct IndexerChunkView {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 pub struct IndexerTransactionWithOutcome {
-    pub transaction: views::SignedTransactionView,
+    pub transaction: views::TransactionEnvelopeView,
     pub outcome: IndexerExecutionOutcomeWithOptionalReceipt,
 }
 

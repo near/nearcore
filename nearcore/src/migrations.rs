@@ -79,6 +79,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             49 => Ok(()), // DBCol::ChunkProducers column added, no need to perform a migration
             50 => migrate_50_to_51(hot_store),
             51 => migrate_51_to_52(hot_store),
+            52 => Ok(()), // DBCol::ExternalCallTransactions column added, no need to perform a migration
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -1071,7 +1072,7 @@ mod tests {
         let migrated_store = migrated_storage.get_hot_store();
         assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
         // The checkpoint really was at 49, and every arm from there ran in order.
-        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51]);
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51, 52]);
         // The column family now exists and is readable. It is empty until EarlyKickout
         // activates.
         assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);

@@ -623,7 +623,7 @@
     },
     "/broadcast_tx_async": {
       "post": {
-        "description": "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead.",
+        "description": "[Deprecated] Sends a transaction and immediately returns transaction hash, or null for an external call, whose id depends on the block that includes it. Consider using send_tx instead.",
         "operationId": "broadcast_tx_async",
         "requestBody": {
           "content": {
@@ -641,7 +641,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_CryptoHash_and_RpcTransactionError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Nullable_CryptoHash_and_RpcTransactionError"
                 }
               }
             }
@@ -4293,6 +4293,42 @@
         },
         "type": "object"
       },
+      "ChunkEccTransactionView": {
+        "description": "An external call as a chunk holds it. Its unique id is unknown in a chunk that no block on the\ncanonical chain includes.",
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "state_init": {
+            "default": null,
+            "description": "The universal account state init the call carries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "The unique id of this copy of the call, its outcome id. `None` when no block on the\ncanonical chain includes the chunk."
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload"
+        ],
+        "type": "object"
+      },
       "ChunkHash": {
         "$ref": "#/components/schemas/CryptoHash"
       },
@@ -4434,6 +4470,49 @@
           "signature"
         ],
         "type": "object"
+      },
+      "ChunkTransactionView": {
+        "description": "A transaction as a chunk holds it, written like a `TransactionEnvelopeView`.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "signed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChunkEccTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "external_call"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CloudArchivalWriterConfig": {
         "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
@@ -5177,17 +5256,27 @@
           "contract_id": {
             "$ref": "#/components/schemas/AccountId"
           },
-          "hash": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
           "payload": {
             "type": "string"
+          },
+          "state_init": {
+            "description": "The universal account state init the call carries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transaction_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The unique id of this copy of the call, its outcome id."
           }
         },
         "required": [
           "contract_id",
           "payload",
-          "hash"
+          "transaction_id"
         ],
         "type": "object"
       },
@@ -7807,10 +7896,10 @@
           "transaction": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/SignedTransactionView"
+                "$ref": "#/components/schemas/TransactionEnvelopeView"
               }
             ],
-            "description": "Signed Transaction"
+            "description": "The transaction, signed or an external call."
           },
           "transaction_outcome": {
             "allOf": [
@@ -7818,7 +7907,7 @@
                 "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
               }
             ],
-            "description": "The execution outcome of the signed transaction."
+            "description": "The execution outcome of the transaction."
           }
         },
         "required": [
@@ -7857,10 +7946,10 @@
           "transaction": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/SignedTransactionView"
+                "$ref": "#/components/schemas/TransactionEnvelopeView"
               }
             ],
-            "description": "Signed Transaction"
+            "description": "The transaction, signed or an external call."
           },
           "transaction_outcome": {
             "allOf": [
@@ -7868,7 +7957,7 @@
                 "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
               }
             ],
-            "description": "The execution outcome of the signed transaction."
+            "description": "The execution outcome of the transaction."
           }
         },
         "required": [
@@ -9355,7 +9444,7 @@
             "$ref": "#/components/schemas/IndexerExecutionOutcomeWithOptionalReceipt"
           },
           "transaction": {
-            "$ref": "#/components/schemas/SignedTransactionView"
+            "$ref": "#/components/schemas/TransactionEnvelopeView"
           }
         },
         "required": [
@@ -11191,46 +11280,6 @@
         "title": "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcValidatorError",
         "type": "object"
       },
-      "JsonRpcResponse_for_CryptoHash_and_RpcTransactionError": {
-        "oneOf": [
-          {
-            "properties": {
-              "result": {
-                "$ref": "#/components/schemas/CryptoHash"
-              }
-            },
-            "required": [
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "error": {
-                "$ref": "#/components/schemas/ErrorWrapper_for_RpcTransactionError"
-              }
-            },
-            "required": [
-              "error"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id"
-        ],
-        "title": "JsonRpcResponse_for_CryptoHash_and_RpcTransactionError",
-        "type": "object"
-      },
       "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError": {
         "oneOf": [
           {
@@ -11269,6 +11318,56 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_Nullable_CryptoHash_and_RpcTransactionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true
+                  }
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcTransactionError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_Nullable_CryptoHash_and_RpcTransactionError",
         "type": "object"
       },
       "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcStatusError": {
@@ -14441,7 +14540,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/TransactionEnvelopeView"
+              "$ref": "#/components/schemas/ChunkTransactionView"
             },
             "type": "array"
           }
@@ -18534,9 +18633,9 @@
         ]
       },
       "RpcSendTransactionRequest": {
-        "description": "On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in `ecc_base64`, so\nrequests with a signed transaction look as they did before ECCs.",
+        "description": "On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in\n`external_call_base64`, so requests with a signed transaction look as they did before ECCs.",
         "properties": {
-          "ecc_base64": {
+          "external_call_base64": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/EccTransaction"
@@ -18562,7 +18661,7 @@
                 "nullable": true
               }
             ],
-            "description": "A signed transaction. Exactly one of this and `ecc_base64` is expected."
+            "description": "A signed transaction. Exactly one of this and `external_call_base64` is expected."
           },
           "wait_until": {
             "allOf": [
@@ -22261,6 +22360,24 @@
               "type"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "transaction_id": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "type": {
+                "enum": [
+                  "external_call_processing"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "transaction_id"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -23231,15 +23348,47 @@
         ]
       },
       "TransactionEnvelopeView": {
-        "anyOf": [
+        "description": "A transaction of either kind, in a chunk, a tx status result or an indexer message.",
+        "oneOf": [
           {
-            "$ref": "#/components/schemas/SignedTransactionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "signed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           },
           {
-            "$ref": "#/components/schemas/EccTransactionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EccTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "external_call"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           }
-        ],
-        "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had."
+        ]
       },
       "TransactionNonce": {
         "oneOf": [

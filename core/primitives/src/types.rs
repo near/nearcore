@@ -224,6 +224,8 @@ pub enum StateChangeCause {
     BandwidthSchedulerStateUpdate = 11,
     /// Persist compilation attempts independently of receipt success or cache eviction.
     ContractCompilationStatusUpdate = 12,
+    /// Processing of an external contract call, by the unique id of its copy.
+    ExternalCallProcessing { transaction_id: CryptoHash } = 13,
 }
 
 /// This represents the committed changes in the Trie with a change cause.

@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::StatePartId;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-use near_primitives::utils::index_to_bytes;
+use near_primitives::utils::{chunk_transaction_outcome_ids, index_to_bytes};
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{
@@ -198,7 +198,7 @@ pub(crate) async fn pull_shard_batch(
     let mut update = store.store_update();
     for height in start_height..=shard_batch.end_height() {
         if let Some(shard_data) = shard_batch.get_data_at_height(height) {
-            save_shard_data(&mut update, shard_uid, shard_data);
+            save_shard_data(&mut update, shard_uid, height, shard_data);
         }
     }
     update.commit();
@@ -310,6 +310,8 @@ pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) 
 pub(crate) fn save_shard_data(
     update: &mut StoreUpdate,
     shard_uid: ShardUId,
+    // The height of the block `shard_data` belongs to, which includes its new chunk.
+    height: BlockHeight,
     shard_data: &ShardData,
 ) {
     let block_hash = shard_data.block_hash();
@@ -326,7 +328,7 @@ pub(crate) fn save_shard_data(
         update.trie_store_update().set_state_changes(row_key, changes);
     }
     if let Some(new_chunk) = shard_data.new_chunk() {
-        save_new_chunk_data(update, block_hash, shard_id, new_chunk);
+        save_new_chunk_data(update, block_hash, height, shard_id, new_chunk);
     }
 }
 
@@ -334,6 +336,8 @@ pub(crate) fn save_shard_data(
 fn save_new_chunk_data(
     update: &mut StoreUpdate,
     block_hash: &CryptoHash,
+    // The height of block `block_hash`.
+    height: BlockHeight,
     shard_id: ShardId,
     new_chunk: &NewChunkData,
 ) {
@@ -353,6 +357,8 @@ fn save_new_chunk_data(
         shard_id,
         new_chunk.transaction_result_for_block(),
     );
+    let external_calls = external_calls_with_outcome(new_chunk, height);
+    chain_store_update.set_external_call_hashes(block_hash, &external_calls);
     // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
     // need gc at the reader.
     for transaction in chunk.to_transactions() {
@@ -363,6 +369,25 @@ fn save_new_chunk_data(
         let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
     }
+}
+
+/// The unique id and the transaction hash of each external call in `new_chunk` that has an
+/// outcome, for the chunk included in the block at `height`.
+fn external_calls_with_outcome(
+    new_chunk: &NewChunkData,
+    height: BlockHeight,
+) -> Vec<(CryptoHash, CryptoHash)> {
+    let transactions = new_chunk.chunk().to_transactions();
+    let outcome_ids = new_chunk.transaction_result_for_block().iter().map(|(id, _)| *id);
+    let mut external_calls = Vec::new();
+    for (tx, id) in
+        transactions.iter().zip(chunk_transaction_outcome_ids(transactions, height, outcome_ids))
+    {
+        if let (Some(call), Some(id)) = (tx.as_unsigned(), id) {
+            external_calls.push((id, *call.hash()));
+        }
+    }
+    external_calls
 }
 
 /// First present block below `height`. Errors if no such block exists in cloud

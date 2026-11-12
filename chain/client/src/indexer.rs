@@ -25,11 +25,10 @@ use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
-use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
-    ReceiptView, StateChangesView, TransactionEnvelopeView,
+    ReceiptView, SignedTransactionView, StateChangesView, TransactionEnvelopeView,
 };
 use near_runtime::config::calculate_tx_cost;
 use std::collections::HashMap;
@@ -137,42 +136,29 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
-                let transaction = match transaction {
-                    TransactionEnvelopeView::Signed(transaction) => transaction,
-                    TransactionEnvelopeView::Unsigned(ecc) => {
-                        // TODO(ecc): index ECCs. The indexer has no view of an external call:
-                        // `IndexerTransactionWithOutcome` holds a `SignedTransactionView`. Until
-                        // then `EXPERIMENTAL_indexer_block` rejects blocks with an ECC, because it
-                        // validates that the message has all the transactions of the chunk.
-                        // Drop the outcome too, so it is not mistaken for a receipt outcome.
-                        outcomes.remove(&create_ecc_outcome_id(&ecc.hash, block.header.height));
-                        return None;
-                    }
-                };
-                let outcome = outcomes.remove(&transaction.hash);
+                let outcome = transaction.id().and_then(|id| outcomes.remove(&id));
                 if outcome.is_none() {
                     tracing::error!(
                         target: INDEXER,
-                        tx_hash = %transaction.hash,
+                        tx_hash = ?transaction.id(),
                         shard_id = %header.shard_id,
                         block_hash = %block.header.hash,
                         "unexpected missing transaction outcome"
                     );
                 }
-                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
+                outcome.map(|outcome| {
+                    let transaction =
+                        transaction.into_transaction_view(outcome.execution_outcome.id);
+                    IndexerTransactionWithOutcome { outcome, transaction }
+                })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
         // All transaction outcomes have been removed.
         let mut receipt_outcomes = outcomes;
 
         // Local receipts recovered from shard-outcomes would miss the delayed ones.
-        let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            indexer_transactions
-                .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
-            &runtime_config,
-            gas_price,
-        )?;
+        let chunk_local_receipts =
+            chunk_local_receipts(&indexer_transactions, &runtime_config, gas_price)?;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome_id in outcome_order {
@@ -245,6 +231,30 @@ pub async fn build_streamer_message(
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
+}
+
+/// The receipts the chunk's signed transactions send to their own signer, which run in the same chunk.
+fn chunk_local_receipts(
+    transactions: &[IndexerTransactionWithOutcome],
+    runtime_config: &RuntimeConfig,
+    gas_price: Balance,
+) -> Result<Vec<ReceiptView>, FailedToFetchData> {
+    let mut local_receipts = Vec::new();
+    for indexer_tx in transactions {
+        match &indexer_tx.transaction {
+            TransactionEnvelopeView::Signed(tx) => {
+                local_receipts.extend(convert_signed_transaction_sir_into_local_receipt(
+                    indexer_tx,
+                    tx,
+                    runtime_config,
+                    gas_price,
+                )?)
+            }
+            // An external call sends its receipts out like a receipt's run, none local.
+            TransactionEnvelopeView::Unsigned(_) => {}
+        }
+    }
+    Ok(local_receipts)
 }
 
 /// Fetches instant receipts for a given block and shard.
@@ -356,7 +366,7 @@ impl IndexerViewClientFetcher {
             if !cares_about_shard {
                 continue;
             }
-            futures.push(self.fetch_single_chunk(chunk.chunk_hash));
+            futures.push(self.fetch_single_chunk(block.header.hash, chunk.shard_id));
         }
         let mut chunks = Vec::<ChunkView>::with_capacity(futures.len());
         while let Some(chunk) = futures.next().await {
@@ -441,11 +451,12 @@ impl IndexerViewClientFetcher {
 
     async fn fetch_single_chunk(
         &self,
-        chunk_hash: CryptoHash,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
     ) -> Result<ChunkView, FailedToFetchData> {
-        tracing::debug!(target: INDEXER, ?chunk_hash, "fetch chunk by hash");
+        tracing::debug!(target: INDEXER, ?block_hash, %shard_id, "fetch chunk by block hash");
         self.sender
-            .send_async(GetChunk::ChunkHash(chunk_hash.into()))
+            .send_async(GetChunk::BlockHash(block_hash, shard_id))
             .await?
             .map_err(|err| FailedToFetchData::String(err.to_string()))
     }
@@ -480,59 +491,61 @@ impl<T: IntoMultiSender<IndexerViewClientSender>> From<T> for IndexerViewClientF
     }
 }
 
-fn convert_transactions_sir_into_local_receipts<'a>(
-    tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
+/// The receipt the signed transaction `tx` converts into, if it sends it to its own signer.
+fn convert_signed_transaction_sir_into_local_receipt(
+    indexer_tx: &IndexerTransactionWithOutcome,
+    tx: &SignedTransactionView,
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
-) -> Result<Vec<ReceiptView>, FailedToFetchData> {
-    let mut local_receipts = Vec::new();
-    for indexer_tx in tx_iter {
-        let tx = &indexer_tx.transaction;
-        assert_eq!(tx.signer_id, tx.receiver_id);
-        let outcome = &indexer_tx.outcome.execution_outcome.outcome;
-        let ExecutionStatusView::SuccessReceiptId(receipt_id) = outcome.status else {
-            tracing::debug!(
-                target: INDEXER,
-                block_hash = %indexer_tx.outcome.execution_outcome.block_hash,
-                tx_hash = %tx.hash,
-                status = ?outcome.status,
-                "skip failed local tx",
-            );
-            continue;
-        };
-        let actions: Vec<_> =
-            tx.actions.iter().cloned().map(Action::try_from).collect::<Result<_, _>>().map_err(
-                |error| FailedToFetchData::String(format!("invalid local action: {error}")),
-            )?;
-        let cost = calculate_tx_cost(
-            &tx.receiver_id,
-            &tx.signer_id,
-            &tx.public_key,
-            &actions,
-            runtime_config,
-            gas_price,
-        )
-        .map_err(|error| {
-            FailedToFetchData::String(format!("invalid local transaction cost: {error}"))
-        })?;
-        // Use empty actions here and clone actions from transactions later.
-        // Note that we cannot just pass `actions` here since conversion
-        // ActionView -> Action -> ActionView does not always preserve the
-        // content of the action.
-        let receipt = Receipt::from_tx(
-            receipt_id,
-            tx.signer_id.clone(),
-            tx.receiver_id.clone(),
-            tx.public_key.clone(),
-            cost.receipt_gas_price,
-            vec![],
-        );
-        let mut receipt_view: ReceiptView = receipt.into();
-        let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {
-            unreachable!("transaction is expected to be converted to an action receipt");
-        };
-        actions.clone_from(&indexer_tx.transaction.actions);
-        local_receipts.push(receipt_view);
+) -> Result<Option<ReceiptView>, FailedToFetchData> {
+    if tx.signer_id != tx.receiver_id {
+        return Ok(None);
     }
-    Ok(local_receipts)
+    let outcome = &indexer_tx.outcome.execution_outcome.outcome;
+    let ExecutionStatusView::SuccessReceiptId(receipt_id) = outcome.status else {
+        tracing::debug!(
+            target: INDEXER,
+            block_hash = %indexer_tx.outcome.execution_outcome.block_hash,
+            tx_hash = %tx.hash,
+            status = ?outcome.status,
+            "skip failed local tx",
+        );
+        return Ok(None);
+    };
+    let actions: Vec<_> = tx
+        .actions
+        .iter()
+        .cloned()
+        .map(Action::try_from)
+        .collect::<Result<_, _>>()
+        .map_err(|error| FailedToFetchData::String(format!("invalid local action: {error}")))?;
+    let cost = calculate_tx_cost(
+        &tx.receiver_id,
+        &tx.signer_id,
+        &tx.public_key,
+        &actions,
+        runtime_config,
+        gas_price,
+    )
+    .map_err(|error| {
+        FailedToFetchData::String(format!("invalid local transaction cost: {error}"))
+    })?;
+    // Use empty actions here and clone actions from transactions later.
+    // Note that we cannot just pass `actions` here since conversion
+    // ActionView -> Action -> ActionView does not always preserve the
+    // content of the action.
+    let receipt = Receipt::from_tx(
+        receipt_id,
+        tx.signer_id.clone(),
+        tx.receiver_id.clone(),
+        tx.public_key.clone(),
+        cost.receipt_gas_price,
+        vec![],
+    );
+    let mut receipt_view: ReceiptView = receipt.into();
+    let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {
+        unreachable!("transaction is expected to be converted to an action receipt");
+    };
+    actions.clone_from(&tx.actions);
+    Ok(Some(receipt_view))
 }
