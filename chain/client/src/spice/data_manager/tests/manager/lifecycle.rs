@@ -537,26 +537,10 @@ fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
     let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
     let mut blocks = vec![chain.genesis_block()];
     for height in 1..=(3 * chain.epoch_length - 1) {
-        let block = record_block_at(&mut chain, blocks.last().unwrap(), height);
+        let block = build_block_at(&chain, blocks.last().unwrap(), height);
+        save_and_record_block(&mut chain, &block);
         blocks.push(block);
     }
-    let epoch_starts: Vec<&Arc<Block>> = blocks
-        .iter()
-        .filter(|block| {
-            block.header().height() > 1
-                && chain
-                    .epoch_manager
-                    .is_next_block_epoch_start(block.header().prev_hash())
-                    .unwrap()
-        })
-        .collect();
-    let get_child = |parent: &Arc<Block>| {
-        blocks
-            .iter()
-            .find(|block| block.header().prev_hash() == parent.hash())
-            .expect("the chain extends past every epoch start")
-            .clone()
-    };
 
     let schedule = vec![
         vec![ShardId::new(SHARD_0)],
@@ -569,58 +553,41 @@ fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         MutableConfigValue::new(None, "validator_signer"),
     );
 
-    let sync_block = epoch_starts[0];
-    assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &sync_block),
-        HashSet::from_iter([
-            receipt_id(&sync_block, SHARD_1, SHARD_0),
-            receipt_id(&sync_block, SHARD_1, SHARD_1),
-            receipt_id(&sync_block, SHARD_2, SHARD_0),
-            receipt_id(&sync_block, SHARD_2, SHARD_1),
-        ]),
-    );
-    let after_sync = get_child(sync_block);
-    assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &after_sync),
-        HashSet::from_iter([
-            receipt_id(&after_sync, SHARD_1, SHARD_0),
-            receipt_id(&after_sync, SHARD_1, SHARD_1),
-            receipt_id(&after_sync, SHARD_2, SHARD_0),
-            receipt_id(&after_sync, SHARD_2, SHARD_1),
-        ]),
-    );
+    // Shard 1 is tracked only in epoch height 2, so the epoch before it catches it up.
+    let epoch_height =
+        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
 
-    let next_epoch_start = epoch_starts[1];
-    assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &next_epoch_start),
-        HashSet::from_iter([
-            receipt_id(&next_epoch_start, SHARD_2, SHARD_0),
-            receipt_id(&next_epoch_start, SHARD_2, SHARD_1)
-        ]),
-    );
-    let in_next_epoch = get_child(next_epoch_start);
-    assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &in_next_epoch),
-        HashSet::from_iter([
-            receipt_id(&in_next_epoch, SHARD_2, SHARD_0),
-            receipt_id(&in_next_epoch, SHARD_2, SHARD_1)
-        ]),
-    );
-}
+    let catch_up_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(catch_up_blocks.len(), 2);
+    for block in catch_up_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_1, SHARD_0),
+                receipt_id(&block, SHARD_1, SHARD_1),
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
 
-/// Saves and records a block at `height` on `prev` with the epoch ids the epoch manager expects,
-/// without processing it, so that the chain can cross an epoch boundary.
-fn record_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
-    let epoch_manager = chain.epoch_manager.clone();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev.hash()).unwrap();
-    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev.hash()).unwrap();
-    let producer = epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
-    let signer = Arc::new(create_test_signer(producer.account_id().as_str()));
-    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev, signer)
-        .height(height)
-        .epoch_id(epoch_id)
-        .next_epoch_id(next_epoch_id)
-        .build();
-    save_and_record_block(chain, &block);
-    block
+    let tracked_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(tracked_blocks.len(), 2);
+    for block in tracked_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
 }
