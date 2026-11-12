@@ -1,6 +1,7 @@
 use super::StateSyncDownloadSource;
 use super::task_tracker::TaskHandle;
 use crate::metrics;
+use crate::metrics::UNKNOWN_SHARD_LABEL;
 use crate::sync::state::util::increment_download_count;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -71,12 +72,19 @@ impl StateSyncDownloadSourcePeerSharedState {
     ) -> Result<(), near_chain::Error> {
         let shard_id = msg.shard_id();
         let part_or_header = msg.part_or_header();
+        let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_or_header };
+
+        let expected = self.pending_requests.get(&key).is_some_and(|request| {
+            request.peer_id.as_ref().is_none_or(|expected_peer_id| *expected_peer_id == peer_id)
+        });
+        let shard_label =
+            if expected { shard_id.to_string() } else { UNKNOWN_SHARD_LABEL.to_owned() };
 
         match msg {
             StateRequestUpdate::Ack(ref ack) => {
                 metrics::STATE_SYNC_PEER_MSGS
                     .with_label_values::<&str>(&[
-                        shard_id.to_string().as_str(),
+                        shard_label.as_str(),
                         part_or_header.into(),
                         ack.body.into(),
                     ])
@@ -85,7 +93,7 @@ impl StateSyncDownloadSourcePeerSharedState {
             StateRequestUpdate::State(_) => {
                 metrics::STATE_SYNC_PEER_MSGS
                     .with_label_values::<&str>(&[
-                        shard_id.to_string().as_str(),
+                        shard_label.as_str(),
                         part_or_header.into(),
                         "state",
                     ])
@@ -94,7 +102,7 @@ impl StateSyncDownloadSourcePeerSharedState {
             StateRequestUpdate::NotSent { .. } => {
                 metrics::STATE_SYNC_PEER_MSGS
                     .with_label_values::<&str>(&[
-                        shard_id.to_string().as_str(),
+                        shard_label.as_str(),
                         part_or_header.into(),
                         "not_sent",
                     ])
@@ -102,7 +110,6 @@ impl StateSyncDownloadSourcePeerSharedState {
             }
         };
 
-        let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_or_header };
         self.handle_peer_message(&key, peer_id, msg)
     }
 

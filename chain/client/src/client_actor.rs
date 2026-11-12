@@ -726,7 +726,7 @@ impl Handler<SpanWrapped<StateRequestUpdateMessage>> for ClientActor {
             return;
         }
 
-        tracing::error!(target: "sync", ?hash, "state sync received hash that we're not expecting, potential malicious peer or a very delayed response");
+        tracing::debug!(target: "sync", ?hash, %peer_id, "state sync received hash that we're not expecting, potential malicious peer or a very delayed response");
     }
 }
 
