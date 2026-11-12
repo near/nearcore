@@ -157,9 +157,9 @@ impl ProtocolFeature {
             ProtocolFeature::PinReceiptFees => 89,
             ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
             ProtocolFeature::SkipForeignShardTransactions => 89,
+            ProtocolFeature::RejectBlockChallenges => 89,
 
             // Nightly features:
-            ProtocolFeature::RejectBlockChallenges => 90,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
