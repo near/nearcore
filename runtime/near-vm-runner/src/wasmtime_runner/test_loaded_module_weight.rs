@@ -3,7 +3,7 @@
 //! from the artifact's metadata, so each module here maximizes one kind of metadata.
 
 use super::WasmtimeVM;
-use super::load::loaded_module_weight;
+use super::load::{SectionLens, loaded_module_weight};
 use crate::prepare::prepare_contract;
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
@@ -257,4 +257,16 @@ fn loaded_module_weight_covers_the_retained_heap() {
             "{name}: retains {retained} heap bytes, its weight covers {heap_weight}",
         );
     }
+}
+
+#[test]
+fn section_lens_finds_the_sections_wasmtime_writes() {
+    let config = Arc::clone(&RuntimeConfigStore::new().get_config(PROTOCOL_VERSION).wasm_config);
+    let vm = WasmtimeVM::new(Arc::clone(&config));
+    let prepared =
+        prepare_contract(near_test_contracts::rs_contract(), &config, VMKind::Wasmtime).unwrap();
+    let serialized = vm.engine.precompile_module(&prepared).unwrap();
+    let section_lens = SectionLens::parse(&serialized).unwrap();
+    assert!(section_lens.info > 0, "the artifact has no `.wasmtime.info` section");
+    assert!(section_lens.data > 0, "the artifact has no `.rodata.wasm` section");
 }

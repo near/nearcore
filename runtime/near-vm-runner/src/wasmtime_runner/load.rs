@@ -39,14 +39,14 @@ pub(super) fn loaded_module_weight(serialized: &[u8]) -> u64 {
 }
 
 /// Lengths of the artifact sections a loaded module's memory grows with.
-struct SectionLens {
-    info: u64,
-    data: u64,
+pub(super) struct SectionLens {
+    pub(super) info: u64,
+    pub(super) data: u64,
 }
 
 impl SectionLens {
     /// Parses no more of the artifact than Wasmtime does when it loads the module.
-    fn parse(serialized: &[u8]) -> object::read::Result<Self> {
+    pub(super) fn parse(serialized: &[u8]) -> object::read::Result<Self> {
         let header = FileHeader64::<Endianness>::parse(serialized)?;
         let endian = header.endian()?;
         let sections = header.sections(endian, serialized)?;
