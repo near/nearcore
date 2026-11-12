@@ -2,8 +2,9 @@ use crate::Block;
 use crate::spice::core::get_execution_result_from_store;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter};
 use crate::update_shard::NewChunkResult;
-use near_chain_primitives::Error;
+use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::BlockHeader;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
@@ -19,7 +20,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{StoreUpdate, WrappedTrieChanges};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// Column-gating flags read by `apply_chunk_postprocessing`. Lives in the
 /// chain crate so both the spice executor and the chain-side apply path
@@ -353,4 +354,43 @@ fn build_block_congestion_info(
         result.insert(shard_id, ExtendedCongestionInfo::new(congestion_info, missed_chunks_count));
     }
     Ok(BlockCongestionInfo::new(result))
+}
+
+/// Whether this node can count on its own apply for `shard_id`'s chunk of `block`, holding the
+/// chunk's execution result and outgoing receipts without fetching anything.
+///
+/// `block` is a spice or last pre-spice block.
+///
+/// A catch-up shard never counts. Under spice the node gets its state at the epoch's first block
+/// from state sync and applies the later blocks only once the catchup is finished and its chunk
+/// executor has caught up, which can lag behind the head. So for the whole epoch it fetches what
+/// the shard produces and validates its witnesses like a node that does not track it, and takes
+/// what its executor produces as well as a repeat. A last pre-spice block applied the shard only
+/// if the node was caught up, which is not known here: a caught-up node then makes a wasted fetch
+/// rather than waiting on artifacts it may never have produced.
+pub fn applies_chunk_itself(
+    shard_tracker: &ShardTracker,
+    block: &BlockHeader,
+    shard_id: ShardId,
+) -> bool {
+    shard_tracker.should_apply_chunk(
+        ApplyChunksMode::ExcludeCatchupShards,
+        block.prev_hash(),
+        shard_id,
+    )
+}
+
+/// The shards of `block`'s layout for which [`applies_chunk_itself`] holds.
+///
+/// `block` is a spice or last pre-spice block.
+pub fn shards_applied_itself(
+    shard_tracker: &ShardTracker,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &BlockHeader,
+) -> Result<HashSet<ShardId>, Error> {
+    let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
+    Ok(shard_layout
+        .shard_ids()
+        .filter(|shard_id| applies_chunk_itself(shard_tracker, block, *shard_id))
+        .collect())
 }

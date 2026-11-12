@@ -2,7 +2,7 @@
 //! the chunks at the spice activation boundary.
 
 use crate::Chain;
-use crate::spice::boundary::applies_chunk_itself;
+use crate::spice::chunk_application::applies_chunk_itself;
 use crate::stateless_validation::chunk_validation::{
     validate_receipt_proof, validate_source_receipt_proofs,
 };
@@ -553,7 +553,7 @@ pub fn check_pre_spice_execution_result(
     if header.is_spice() {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
-    if !applies_chunk_itself(shard_tracker, epoch_manager, &header, chunk_id.shard_id)? {
+    if !applies_chunk_itself(shard_tracker, &header, chunk_id.shard_id) {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
     // A block this node never processed, e.g. one in the gap state sync leaves, can be

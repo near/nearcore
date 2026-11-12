@@ -31,7 +31,7 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
-use near_chain::spice::boundary::{applies_chunk_itself, shards_applied_itself};
+use near_chain::spice::chunk_application::{applies_chunk_itself, shards_applied_itself};
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -960,12 +960,7 @@ impl SpiceDataDistributorActor {
             }
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
             // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
-            if !applies_chunk_itself(
-                &self.shard_tracker,
-                self.epoch_manager.as_ref(),
-                chunk_block.header(),
-                chunk_id.shard_id,
-            )? {
+            if !applies_chunk_itself(&self.shard_tracker, chunk_block.header(), chunk_id.shard_id) {
                 self.start_waiting_on_fallback_witness(
                     chunk_id,
                     &chunk_block,
@@ -1171,12 +1166,7 @@ impl SpiceDataDistributorActor {
         if assignments.contains(me) {
             return Ok(());
         }
-        if applies_chunk_itself(
-            &self.shard_tracker,
-            self.epoch_manager.as_ref(),
-            chunk_block.header(),
-            *shard_id,
-        )? {
+        if applies_chunk_itself(&self.shard_tracker, chunk_block.header(), *shard_id) {
             return Ok(());
         }
         let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
