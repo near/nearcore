@@ -3,7 +3,7 @@ use crate::logic::errors::{FunctionCallError, VMRunnerError};
 use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use object::Endianness;
 use object::elf::FileHeader64;
-use object::read::elf::{FileHeader, SectionHeader};
+use object::read::elf::{FileHeader, SectionHeader, SectionTable};
 use wasmtime::{Linker, Module, ResourcesRequired};
 
 /// The artifact section holding the module metadata that Wasmtime decodes onto the heap
@@ -50,14 +50,24 @@ impl SectionLens {
         let header = FileHeader64::<Endianness>::parse(serialized)?;
         let endian = header.endian()?;
         let sections = header.sections(endian, serialized)?;
-        let len = |name: &str| -> object::read::Result<u64> {
-            let Some((_, section)) = sections.section_by_name(endian, name.as_bytes()) else {
-                return Ok(0);
-            };
-            Ok(section.data(endian, serialized)?.len() as u64)
-        };
-        Ok(Self { info: len(WASMTIME_INFO_SECTION)?, data: len(WASM_DATA_SECTION)? })
+        Ok(Self {
+            info: section_len(&sections, endian, serialized, WASMTIME_INFO_SECTION)?,
+            data: section_len(&sections, endian, serialized, WASM_DATA_SECTION)?,
+        })
     }
+}
+
+/// Length of the section called `name`, or 0 if the artifact has no such section.
+fn section_len(
+    sections: &SectionTable<'_, FileHeader64<Endianness>>,
+    endian: Endianness,
+    serialized: &[u8],
+    name: &str,
+) -> object::read::Result<u64> {
+    let Some((_, section)) = sections.section_by_name(endian, name.as_bytes()) else {
+        return Ok(0);
+    };
+    Ok(section.data(endian, serialized)?.len() as u64)
 }
 
 impl WasmtimeVM {
