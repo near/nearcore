@@ -2536,12 +2536,14 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
+    /// Walks through all the ongoing state syncs for future epochs and processes them. Returns
+    /// whether a catchup finished.
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        let mut finished = false;
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
@@ -2609,12 +2611,13 @@ impl Client {
                         self.process_block_processing_artifact(block_processing_artifacts);
 
                         self.catchup_state_syncs.remove(&sync_hash);
+                        finished = true;
                     }
                 }
             }
         }
 
-        Ok(())
+        Ok(finished)
     }
 }
 

@@ -11,7 +11,8 @@ mod storage;
 pub mod testonly;
 
 pub use coordinator::{
-    ChunkExecutorActor, ExecutorApplyChunksDone, ExecutorIncomingUnverifiedReceipts,
+    CatchupFinished, ChunkExecutorActor, ChunkExecutorSenderForClient, ExecutorApplyChunksDone,
+    ExecutorIncomingUnverifiedReceipts,
 };
 pub(crate) use storage::get_contract_accesses;
 pub use storage::{get_receipt_proof, get_witness, receipt_proof_exists};
