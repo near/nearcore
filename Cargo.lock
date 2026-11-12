@@ -5257,6 +5257,7 @@ dependencies = [
  "near-stdx",
  "near-test-contracts",
  "num-rational 0.3.2",
+ "object 0.39.1",
  "p256",
  "parking_lot 0.12.1",
  "prefix-sum-vec",
