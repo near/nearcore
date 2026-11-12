@@ -338,6 +338,7 @@
         "posvyatokum",
         "PQDSA",
         "Precompilaton",
+        "preemptible",
         "Prefetcher",
         "prefetchers",
         "prefunded",
@@ -349,6 +350,7 @@
         "profraw",
         "profraws",
         "prost",
+        "proxify",
         "pubkeys",
         "pugachag",
         "pullable",
@@ -595,7 +597,9 @@
         "nanosleep",
         "tmpfs",
         "nixpkgs",
-        "prebuilds"
+        "prebuilds",
+        "nretry",
+        "uefi"
     ],
     "import": []
 }

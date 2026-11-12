@@ -1,6 +1,7 @@
 use crate::blacklist;
 use crate::concurrency::rate;
 use crate::config_json::Tier1Config;
+use crate::network_protocol::Encoding;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
@@ -201,6 +202,17 @@ impl NetworkTransitionConfig {
     };
     /// Preset used by the current release.
     pub const CURRENT: Self = Self::RELEASE_2_15;
+
+    /// Encodings which this node accepts on a connection, in the order of preference.
+    /// The initiating handshake is sent in all of them, and the connection uses the encoding of the
+    /// first message received from the peer.
+    pub(crate) fn connection_encodings(&self) -> &'static [Encoding] {
+        match self.connection_encoding {
+            ConnectionEncoding::ProtobufOnly => &[Encoding::Proto],
+            ConnectionEncoding::PreferBorsh => &[Encoding::Borsh, Encoding::Proto],
+            ConnectionEncoding::BorshOnly => &[Encoding::Borsh],
+        }
+    }
 }
 
 impl Default for NetworkTransitionConfig {
