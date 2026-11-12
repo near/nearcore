@@ -579,6 +579,47 @@ impl Action {
             | Action::WithdrawFromGasKey(_) => StateInitCounts::ZERO,
         }
     }
+
+    /// The gas key nonces this action adds, which the receipt it belongs to pays
+    /// execution fees for.
+    ///
+    /// Exhaustive by design, like [`Action::state_init_counts`]. Do not collapse
+    /// the arms into a wildcard.
+    pub fn num_gas_key_nonces_added(&self) -> u64 {
+        match self {
+            Action::AddKey(add_key) => {
+                add_key.access_key.gas_key_info().map_or(0, |info| info.num_nonces as u64)
+            }
+            // Recursive for the same reason as `state_init_counts`: the outer
+            // receipt prepays the inner actions' fees.
+            Action::Delegate(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_gas_key_nonces_added)
+                .fold(0, u64::saturating_add),
+            Action::DelegateV2(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_gas_key_nonces_added)
+                .fold(0, u64::saturating_add),
+            // `UniversalStateInit` commits full-access keys only.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_)
+            | Action::UniversalStateInit(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => 0,
+        }
+    }
 }
 
 /// What the state-init actions of one receipt commit to, summed.

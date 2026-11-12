@@ -560,6 +560,12 @@ pub enum ActionsValidationError {
     TransferToUniversalAccountNotAllowed {
         account_id: AccountId,
     } = 30,
+    /// The `AddKey` actions in one receipt add more gas key nonces in total than
+    /// allowed.
+    TotalNumberOfGasKeyNoncesAddedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 31,
 }
 
 /// Describes the error for validating a receipt.
@@ -824,6 +830,15 @@ impl Display for ActionsValidationError {
             ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
                 write!(f, "transfers to the universal account {account_id} are not allowed yet")
             }
+            ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded {
+                number_of_nonces,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the actions in this receipt add {number_of_nonces} gas key nonces in total but at most {limit} is allowed",
+                )
+            }
         }
     }
 }
@@ -1023,6 +1038,12 @@ pub enum ActionErrorKind {
     ReservedMethodName {
         method_name: String,
     } = 31,
+    /// The actions in the receipt removed more gas key nonces than
+    /// `max_gas_key_nonces_removed_per_receipt` allows.
+    TotalNumberOfGasKeyNoncesRemovedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 32,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1406,6 +1427,14 @@ impl Display for ActionErrorKind {
                 f,
                 "Method {:?} is reserved for external contract calls and can't be called by a FunctionCall action",
                 method_name
+            ),
+            ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces,
+                limit,
+            } => write!(
+                f,
+                "Receipt removed {} gas key nonces but at most {} is allowed",
+                number_of_nonces, limit
             ),
         }
     }

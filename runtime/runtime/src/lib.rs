@@ -518,6 +518,7 @@ pub struct ActionResult {
     pub current_contract: AccountContract,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl Default for ActionResult {
@@ -535,6 +536,7 @@ impl Default for ActionResult {
             current_contract: AccountContract::None,
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 }
@@ -555,6 +557,7 @@ pub struct ActionReceiptResult {
     pub current_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl ActionReceiptResult {
@@ -572,6 +575,7 @@ impl ActionReceiptResult {
             current_contracts: vec![],
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 
@@ -590,6 +594,8 @@ impl ActionReceiptResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
+        self.gas_key_nonces_removed =
+            self.gas_key_nonces_removed.saturating_add(next_result.gas_key_nonces_removed);
         // Profile aggregates by summing; each per-action `ActionResult`
         // contributes exactly one entry to the receipt-level contract list.
         self.profile.merge(&next_result.profile);
@@ -1054,6 +1060,8 @@ impl Runtime {
                             .limit_config
                             .per_receipt_storage_proof_size_limit
                     });
+            let max_gas_key_nonces_removed_per_receipt =
+                apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
 
             // Executing actions one by one
             for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -1110,6 +1118,17 @@ impl Runtime {
                             .into(),
                         );
                     }
+                }
+                if result.result.is_ok()
+                    && result.gas_key_nonces_removed > max_gas_key_nonces_removed_per_receipt
+                {
+                    result.set_error(
+                        ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                            number_of_nonces: result.gas_key_nonces_removed,
+                            limit: max_gas_key_nonces_removed_per_receipt,
+                        }
+                        .into(),
+                    );
                 }
                 // TODO storage error
                 if let Err(ref mut res) = result.result {
